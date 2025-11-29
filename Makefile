@@ -1,2 +1,3 @@
 make_vhdl:
-	./sv2ghdl -verbose -find \*.v
+	./sv2ghdl.pl -verbose -find
+

@@ -15,21 +15,28 @@ our $VERSION = "0.1.0";
 
 # Translation mode
 my %MODES = (
-    'standard'           => { lib => 'ieee',  temporal => 0, accel => 0 },
-    'enhanced'           => { lib => 'ceda',  temporal => 0, accel => 0 },
+    'standard'           => { lib => 'ieee',        temporal => 0, accel => 0 },
+    'enhanced'           => { lib => 'cameron_eda', temporal => 0, accel => 0 },
 );
 
 # Command-line options
 my $mode = 'standard';
 my $output_file;
+my $output_dir;
 my $emit_line_directives = 1;
 my $verbose = 0;
 my $help = 0;
 my $version = 0;
+my $find_files = 0;
+my $find_path = '.';
+my $find_name = '*.v';
 
 GetOptions(
     'mode=s'              => \$mode,
     'output|o=s'          => \$output_file,
+    'outdir|d=s'          => \$output_dir,
+    'find:s'              => \$find_files,  # Optional value (path)
+    'name=s'              => \$find_name,    # Pattern for -find
     'no-line-directives'  => sub { $emit_line_directives = 0 },
     'verbose|v'           => \$verbose,
     'help|h'              => \$help,
@@ -49,22 +56,72 @@ if ($help) {
 # Check mode is valid
 die "Unknown mode: $mode\n" unless exists $MODES{$mode};
 
-# Get input file
-my $input_file = shift @ARGV or die "No input file specified\n";
-die "Input file not found: $input_file\n" unless -f $input_file;
+# Handle -find option
+my @input_files;
 
-# Set output file if not specified
-unless ($output_file) {
-    my $basename = basename($input_file, '.v', '.sv');
-    $output_file = "$basename.vhd";
+if (defined $find_files) {
+    # -find was specified (with or without a path)
+    $find_path = $find_files if $find_files ne '';
+    
+    print STDERR "Searching for $find_name files in $find_path\n" if $verbose;
+    
+    # Find all matching files
+    @input_files = find_verilog_files($find_path, $find_name);
+    
+    if (@input_files == 0) {
+        die "No files matching '$find_name' found in $find_path\n";
+    }
+    
+    print STDERR "Found " . scalar(@input_files) . " files\n" if $verbose;
+    
+    # Set output directory if not specified
+    $output_dir = "vhdl_output" unless $output_dir || $output_file;
+    
+} else {
+    # Get input file(s) from command line
+    @input_files = @ARGV;
+    die "No input file specified (use -find to search, or provide file name)\n" unless @input_files;
+}
+
+# Check all input files exist (unless using -find)
+unless (defined $find_files) {
+    foreach my $file (@input_files) {
+        die "Input file not found: $file\n" unless -f $file;
+    }
 }
 
 # Main translation
-print STDERR "Translating $input_file -> $output_file (mode: $mode)\n" if $verbose;
-
-translate_file($input_file, $output_file, $mode);
-
-print STDERR "✓ Translation complete\n" if $verbose;
+if (@input_files == 1 && $output_file) {
+    # Single file with explicit output
+    print STDERR "Translating $input_files[0] -> $output_file (mode: $mode)\n" if $verbose;
+    translate_file($input_files[0], $output_file, $mode);
+    print STDERR "✓ Translation complete\n" if $verbose;
+    
+} elsif ($output_dir) {
+    # Multiple files to output directory
+    mkdir $output_dir unless -d $output_dir;
+    print STDERR "Translating " . scalar(@input_files) . " files to $output_dir/ (mode: $mode)\n" if $verbose;
+    
+    foreach my $input_file (@input_files) {
+        my $basename = basename($input_file, '.v', '.sv');
+        my $output = "$output_dir/$basename.vhd";
+        
+        print STDERR "  $input_file -> $output\n" if $verbose;
+        translate_file($input_file, $output, $mode);
+    }
+    
+    print STDERR "✓ Translated " . scalar(@input_files) . " files\n" if $verbose;
+    
+} else {
+    # Single file, default output name
+    my $input_file = $input_files[0];
+    my $basename = basename($input_file, '.v', '.sv');
+    $output_file = "$basename.vhd";
+    
+    print STDERR "Translating $input_file -> $output_file (mode: $mode)\n" if $verbose;
+    translate_file($input_file, $output_file, $mode);
+    print STDERR "✓ Translation complete\n" if $verbose;
+}
 
 exit 0;
 
@@ -83,32 +140,45 @@ sub translate_file {
     # Open output
     open my $out_fh, '>', $output or die "Can't create $output: $!\n";
     
-    # Generate VHDL
+    # Extract module info
     my $module_name = extract_module_name(\@lines);
+    my @ports = extract_ports(\@lines);
+    my @signals = extract_signals(\@lines);
+    my @instantiations = extract_instantiations(\@lines);
     
     print $out_fh generate_header($mode, $input, $module_name);
     
-    # Translate line by line
+    # Translate line by line with state tracking
     my $line_num = 0;
     my $in_entity = 0;
     my $in_architecture = 0;
+    my $port_section_done = 0;
     
     foreach my $line (@lines) {
         $line_num++;
         
-        # State machine for entity/architecture
+        # State machine for entity/architecture boundary
         if ($line =~ /^\s*module\s+\w+/) {
             $in_entity = 1;
         }
-        if ($line =~ /^\s*endmodule/) {
-            if ($in_entity && !$in_architecture) {
-                print $out_fh "end entity;\n\n";
-                print $out_fh generate_architecture_header($module_name, $mode);
-                $in_architecture = 1;
-            }
+        
+        # End of ports section (first non-port declaration)
+        if ($in_entity && !$port_section_done && 
+            ($line =~ /^\s*(?:wire|reg|always|assign)/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
+            # Close entity, start architecture
+            print $out_fh "  );\n";
+            print $out_fh "end entity;\n\n";
+            print $out_fh generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
+            $in_architecture = 1;
+            $port_section_done = 1;
         }
         
-        my $vhdl = translate_line($line, $line_num, $input, $mode);
+        if ($line =~ /^\s*endmodule/) {
+            # Just close architecture
+            next;  # Footer will be added after loop
+        }
+        
+        my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
         print $out_fh $vhdl if $vhdl;
     }
     
@@ -240,6 +310,23 @@ sub translate_line {
         return "  );\n";
     }
     
+    # Module instantiation
+    if ($line =~ /^\s*(\w+)\s+(\w+)\s*\(/ &&
+        $1 ne 'module' && $1 ne 'if' && $1 ne 'case') {
+        my $module_type = $1;
+        my $inst_name = $2;
+        return line_directive($line_num, $source_file) .
+               "  $inst_name: entity work.$module_type port map (\n";
+    }
+    
+    # Port mapping: .port(signal)
+    if ($line =~ /^\s*\.(\w+)\s*\(\s*(\w+)\s*\)([,)])/) {
+        my ($port, $signal, $term) = ($1, $2, $3);
+        my $separator = ($term eq ',') ? ',' : '';
+        return line_directive($line_num, $source_file) .
+               "    $port => $signal$separator\n";
+    }
+    
     # Default: return as comment (needs manual translation)
     return "-- FIXME: " . $line;
 }
@@ -256,6 +343,111 @@ sub extract_module_name {
         }
     }
     return "unknown";
+}
+
+sub extract_ports {
+    my ($lines) = @_;
+    my @ports;
+    foreach my $line (@$lines) {
+        if ($line =~ /^\s*(?:input|output|inout)\s+/) {
+            push @ports, $line;
+        }
+    }
+    return @ports;
+}
+
+sub extract_signals {
+    my ($lines) = @_;
+    my @signals;
+    foreach my $line (@$lines) {
+        if ($line =~ /^\s*(?:wire|reg)\s+/) {
+            push @signals, $line;
+        }
+    }
+    return @signals;
+}
+
+sub extract_instantiations {
+    my ($lines) = @_;
+    my @insts;
+    
+    # Look for module instantiations: module_name inst_name (...)
+    for (my $i = 0; $i < @$lines; $i++) {
+        if ($lines->[$i] =~ /^\s*(\w+)\s+(\w+)\s*\(/ &&
+            $1 ne 'module' && $1 ne 'if' && $1 ne 'case') {
+            # This is likely a module instantiation
+            my $module_type = $1;
+            my $inst_name = $2;
+            push @insts, { type => $module_type, name => $inst_name };
+        }
+    }
+    return @insts;
+}
+
+sub find_verilog_files {
+    my ($path, $pattern) = @_;
+    
+    my @files;
+    
+    # Convert glob pattern to regex
+    my $regex = glob_to_regex($pattern);
+    
+    # Use File::Find if available, otherwise manual recursion
+    eval {
+        require File::Find;
+        no warnings 'once';
+        File::Find::find(
+            sub {
+                return unless -f $_;
+                my $file = $File::Find::name;
+                if (basename($file) =~ /$regex/) {
+                    push @files, $file;
+                }
+            },
+            $path
+        );
+    };
+    
+    if ($@) {
+        # File::Find not available, do manual search
+        @files = manual_find($path, $regex);
+    }
+    
+    return sort @files;
+}
+
+sub manual_find {
+    my ($dir, $regex) = @_;
+    my @found;
+    
+    opendir(my $dh, $dir) or return @found;
+    my @entries = readdir($dh);
+    closedir($dh);
+    
+    foreach my $entry (@entries) {
+        next if $entry eq '.' || $entry eq '..';
+        my $path = "$dir/$entry";
+        
+        if (-d $path) {
+            # Recurse into subdirectory
+            push @found, manual_find($path, $regex);
+        } elsif (-f $path && basename($path) =~ /$regex/) {
+            push @found, $path;
+        }
+    }
+    
+    return @found;
+}
+
+sub glob_to_regex {
+    my ($glob) = @_;
+    
+    # Convert shell glob to regex
+    $glob = quotemeta($glob);
+    $glob =~ s/\\\*/.*/g;   # * -> .*
+    $glob =~ s/\\\?/./g;    # ? -> .
+    
+    return qr/^$glob$/;
 }
 
 sub port_type {
@@ -318,10 +510,34 @@ sub generate_header {
 }
 
 sub generate_architecture_header {
-    my ($module_name, $mode) = @_;
+    my ($module_name, $mode, $signals_ref, $insts_ref) = @_;
+    
+    my @signals = @{$signals_ref || []};
+    my @insts = @{$insts_ref || []};
     
     my $arch = "architecture rtl of $module_name is\n";
-    $arch .= "  -- Internal signals\n";
+    
+    # Component declarations for instantiated modules
+    if (@insts) {
+        $arch .= "  -- Component declarations\n";
+        my %seen_components;
+        foreach my $inst (@insts) {
+            my $comp_type = $inst->{type};
+            next if $seen_components{$comp_type};
+            $seen_components{$comp_type} = 1;
+            
+            # GHDL will auto-bind by name, so we can use simple declaration
+            # or rely on direct entity instantiation (VHDL-93+)
+            $arch .= "  -- Component $comp_type (auto-bound by GHDL)\n";
+        }
+        $arch .= "\n";
+    }
+    
+    # Internal signals
+    if (@signals) {
+        $arch .= "  -- Internal signals\n";
+    }
+    
     return $arch;
 }
 
@@ -335,10 +551,14 @@ sub print_help {
 sv2ghdl - SystemVerilog to VHDL Translator
 
 Usage: sv2ghdl [options] input.v
+       sv2ghdl [options] -find [path]
 
 Options:
   --mode=MODE           Translation mode (default: standard)
-  -o, --output=FILE     Output file (default: input.vhd)
+  -o, --output=FILE     Output file (for single file translation)
+  -d, --outdir=DIR      Output directory (for multiple files)
+  -find[=PATH]          Find and translate all Verilog files (default: .)
+  --name=PATTERN        File pattern for -find (default: *.v)
   --no-line-directives  Disable #line directives
   -v, --verbose         Verbose output
   -h, --help            Show this help
@@ -353,9 +573,27 @@ Modes:
   temporal_accel_enh    Full optimization (requires modified GHDL)
 
 Examples:
+  # Translate single file
   sv2ghdl design.v
-  sv2ghdl --mode=enhanced design.v -o design_enh.vhd
-  sv2ghdl --mode=temporal_accel_enh picorv32.v
+  sv2ghdl design.v -o output.vhd
+  
+  # Translate with mode
+  sv2ghdl --mode=enhanced design.v
+  
+  # Find and translate all .v files in current directory
+  sv2ghdl -find -d vhdl_output
+  
+  # Find all .v files starting from rtl/ directory
+  sv2ghdl -find=rtl -d translated
+  
+  # Find .sv files instead of .v
+  sv2ghdl -find --name='*.sv' -d output
+  
+  # Find and translate with enhanced mode
+  sv2ghdl -find --mode=enhanced -d vhdl_output
+  
+  # Verbose find
+  sv2ghdl -find -v -d output
 
 See README.md for more information.
 HELP
