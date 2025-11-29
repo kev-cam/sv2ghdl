@@ -15,15 +15,8 @@ our $VERSION = "0.1.0";
 
 # Translation mode
 my %MODES = (
-    'standard'           => { lib => 'ieee',        temporal => 0, accel => 0 },
-    'enhanced'           => { lib => 'cameron_eda', temporal => 0, accel => 0 },
-    'mixed'              => { lib => 'mixed',       temporal => 0, accel => 0 },
-    'temporal_standard'  => { lib => 'ieee',        temporal => 1, accel => 0 },
-    'temporal_enhanced'  => { lib => 'cameron_eda', temporal => 1, accel => 0 },
-    'temporal_mixed'     => { lib => 'mixed',       temporal => 1, accel => 0 },
-    'temporal_accel_std' => { lib => 'ieee',        temporal => 1, accel => 1 },
-    'temporal_accel_enh' => { lib => 'cameron_eda', temporal => 1, accel => 1 },
-    'temporal_accel_mix' => { lib => 'mixed',       temporal => 1, accel => 1 },
+    'standard'           => { lib => 'ieee',  temporal => 0, accel => 0 },
+    'enhanced'           => { lib => 'ceda',  temporal => 0, accel => 0 },
 );
 
 # Command-line options
