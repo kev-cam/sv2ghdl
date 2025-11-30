@@ -131,54 +131,59 @@ exit 0;
 
 sub translate_file {
     my ($input, $output, $mode) = @_;
-    
+
     # Read input
     open my $in_fh, '<', $input or die "Can't open $input: $!\n";
     my @lines = <$in_fh>;
     close $in_fh;
-    
-    # Open output
-    open my $out_fh, '>', $output or die "Can't create $output: $!\n";
-    
+
     # Extract module info
     my $module_name = extract_module_name(\@lines);
     my @ports = extract_ports(\@lines);
     my @signals = extract_signals(\@lines);
     my @instantiations = extract_instantiations(\@lines);
-    
-    print $out_fh generate_header($mode, $input, $module_name);
-    
+
+    # Build output array instead of printing directly
+    my @output;
+
+    # Track intermediate signals needed
+    our %intermediates = ();  # signal_name => type_declaration
+
+    push @output, generate_header($mode, $input, $module_name);
+
     # Translate line by line with state tracking
     my $line_num = 0;
     my $in_entity = 0;
     my $in_architecture = 0;
     my $port_section_done = 0;
-    
+    my $arch_header_idx = -1;  # Index where architecture header ends
+
     foreach my $line (@lines) {
         $line_num++;
-        
+
         # State machine for entity/architecture boundary
         if ($line =~ /^\s*module\s+\w+/) {
             $in_entity = 1;
         }
-        
+
         # End of ports section (first non-port declaration)
         # Skip module, input, output, inout, parameter lines
         if ($in_entity && !$port_section_done &&
             $line !~ /^\s*(?:module|input|output|inout|parameter)\b/ &&
             ($line =~ /^\s*(?:wire|reg|always|assign)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
-            # Close entity, start architecture (don't print ); here, translate_line handles it)
-            print $out_fh "end entity;\n\n";
-            print $out_fh generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
+            # Close entity, start architecture
+            push @output, "end entity;\n\n";
+            push @output, generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
+            $arch_header_idx = $#output;  # Remember where architecture header ends
             $in_architecture = 1;
             $port_section_done = 1;
         }
-        
+
         if ($line =~ /^\s*endmodule/) {
             # Just close architecture
             next;  # Footer will be added after loop
         }
-        
+
         my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
 	if (1 == $in_architecture && ($vhdl =~ /process/)) {
 	    print $out_fh "begin\n";
@@ -186,9 +191,30 @@ sub translate_file {
 	}
         print $out_fh $vhdl if $vhdl;
     }
-    
-    print $out_fh generate_footer($mode);
-    
+
+    # Insert intermediate signal declarations before architecture begin
+    if ($arch_header_idx >= 0 && %intermediates) {
+        my @intermediate_decls;
+        push @intermediate_decls, "  -- Intermediate signals\n";
+        foreach my $sig_name (sort keys %intermediates) {
+            push @intermediate_decls, "  signal $sig_name : $intermediates{$sig_name};\n";
+        }
+        push @intermediate_decls, "begin\n";
+
+        # Insert after architecture header
+        splice @output, $arch_header_idx + 1, 0, @intermediate_decls;
+    } else {
+        # No intermediates, just add begin
+        if ($arch_header_idx >= 0) {
+            splice @output, $arch_header_idx + 1, 0, "begin\n";
+        }
+    }
+
+    push @output, generate_footer($mode);
+
+    # Write output array to file
+    open my $out_fh, '>', $output or die "Can't create $output: $!\n";
+    print $out_fh join('', @output);
     close $out_fh;
 }
 
@@ -238,6 +264,12 @@ sub translate_line {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
         my $separator = ($term eq ',') ? ';' : '';
+
+        # Create unsigned intermediate for vector outputs with reg (implies arithmetic)
+        if (defined($msb) && defined($lsb) && $line =~ /\breg\b/) {
+            add_intermediate("${name}_next", "unsigned($msb downto $lsb)");
+        }
+
         return line_directive($line_num, $source_file) .
                "    $name : out $vhdl_type$separator\n";
     }
@@ -246,6 +278,12 @@ sub translate_line {
     if ($line =~ /^\s*(?:wire|reg)\s+(?:\[(\d+):(\d+)\]\s+)?(\w+);/) {
         my ($msb, $lsb, $name) = ($1, $2, $3);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
+
+        # Also create unsigned intermediate for vector signals (for arithmetic)
+        if (defined($msb) && defined($lsb)) {
+            add_intermediate("${name}_u", "unsigned($msb downto $lsb)");
+        }
+
         return line_directive($line_num, $source_file) .
                "  signal $name : $vhdl_type;\n";
     }
@@ -274,8 +312,25 @@ sub translate_line {
     
     # Non-blocking assignment (already uses <=)
     if ($line =~ /^\s*(\w+)\s*<=\s*(.+);/) {
+        my ($lhs, $rhs) = ($1, $2);
+        my $intermediate = "${lhs}_next";
+
+        # Check if we have an intermediate for this signal and it's arithmetic
+        our %intermediates;
+        if (exists $intermediates{$intermediate} && $rhs =~ /[\+\-\*\/]/) {
+            # Use intermediate for cleaner code
+            my $expr = $rhs;
+            # Convert to use intermediate
+            if ($expr =~ /(\w+)\s*([\+\-\*\/])\s*(.+)/) {
+                my ($left, $op, $right) = ($1, $2, $3);
+                return line_directive($line_num, $source_file) .
+                       "        $intermediate <= unsigned($left) $op $right;\n" .
+                       "        $lhs <= std_logic_vector($intermediate);\n";
+            }
+        }
+
         return line_directive($line_num, $source_file) .
-               "        $1 <= " . translate_expression($2) . ";\n";
+               "        $lhs <= " . translate_expression($rhs) . ";\n";
     }
 
     # Blocking assignment (= -> :=)
@@ -286,8 +341,9 @@ sub translate_line {
 
     # If statements
     if ($line =~ /^\s*if\s*\((.+)\)\s*$/) {
+        my $condition = translate_condition($1);
         return line_directive($line_num, $source_file) .
-               "      if $1 then\n";
+               "      if $condition then\n";
     }
 
     # Else statements
@@ -481,13 +537,49 @@ sub translate_expression {
         return "$2 when $1 else $3";
     }
 
+    # Arithmetic operations on vectors: wrap with unsigned conversion
+    # Handle: signal + literal, signal - literal, signal + signal, etc.
+    if ($expr =~ /(\w+)\s*([\+\-\*\/])\s*(.+)/) {
+        my ($left, $op, $right) = ($1, $2, $3);
+        # Check if this looks like vector arithmetic (not bit operations)
+        if ($op =~ /[\+\-\*\/]/) {
+            return "std_logic_vector(unsigned($left) $op $right)";
+        }
+    }
+
     return $expr;
+}
+
+sub translate_condition {
+    my ($cond) = @_;
+
+    # Remove whitespace
+    $cond =~ s/^\s+|\s+$//g;
+
+    # If it's just a bare identifier (no operators), add = '1'
+    if ($cond =~ /^(\w+)$/) {
+        return "$1 = '1'";
+    }
+
+    # If it has negation: !signal -> signal = '0'
+    if ($cond =~ /^!(\w+)$/) {
+        return "$1 = '0'";
+    }
+
+    # Otherwise return as-is (already has comparison operators)
+    return $cond;
 }
 
 sub concat {
     my ($items) = @_;
     my @parts = split /\s*,\s*/, $items;
     return join(' & ', @parts);
+}
+
+sub add_intermediate {
+    my ($name, $vhdl_type) = @_;
+    our %intermediates;
+    $intermediates{$name} = $vhdl_type unless exists $intermediates{$name};
 }
 
 sub line_directive {
