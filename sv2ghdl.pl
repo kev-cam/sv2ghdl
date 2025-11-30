@@ -282,8 +282,9 @@ sub translate_line {
 
     # If statements
     if ($line =~ /^\s*if\s*\((.+)\)\s*$/) {
+        my $condition = translate_condition($1);
         return line_directive($line_num, $source_file) .
-               "      if $1 then\n";
+               "      if $condition then\n";
     }
 
     # Else statements
@@ -477,7 +478,37 @@ sub translate_expression {
         return "$2 when $1 else $3";
     }
 
+    # Arithmetic operations on vectors: wrap with unsigned conversion
+    # Handle: signal + literal, signal - literal, signal + signal, etc.
+    if ($expr =~ /(\w+)\s*([\+\-\*\/])\s*(.+)/) {
+        my ($left, $op, $right) = ($1, $2, $3);
+        # Check if this looks like vector arithmetic (not bit operations)
+        if ($op =~ /[\+\-\*\/]/) {
+            return "std_logic_vector(unsigned($left) $op $right)";
+        }
+    }
+
     return $expr;
+}
+
+sub translate_condition {
+    my ($cond) = @_;
+
+    # Remove whitespace
+    $cond =~ s/^\s+|\s+$//g;
+
+    # If it's just a bare identifier (no operators), add = '1'
+    if ($cond =~ /^(\w+)$/) {
+        return "$1 = '1'";
+    }
+
+    # If it has negation: !signal -> signal = '0'
+    if ($cond =~ /^!(\w+)$/) {
+        return "$1 = '0'";
+    }
+
+    # Otherwise return as-is (already has comparison operators)
+    return $cond;
 }
 
 sub concat {
