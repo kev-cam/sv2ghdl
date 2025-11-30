@@ -180,6 +180,10 @@ sub translate_file {
         }
         
         my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
+	if (1 == $in_architecture && ($vhdl =~ /process/)) {
+	    print $out_fh "begin\n";
+	    $in_architecture = 2;
+	}
         print $out_fh $vhdl if $vhdl;
     }
     
