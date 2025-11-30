@@ -4,6 +4,6 @@ module not_gate (
     output y
 );
 
-assign y = ~a;
+not not1 (y, a);
 
 endmodule

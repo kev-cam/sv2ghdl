@@ -5,6 +5,6 @@ module xor_gate (
     output y
 );
 
-assign y = a ^ b;
+xor xor1 (y, a, b);
 
 endmodule

@@ -5,6 +5,6 @@ module or_gate (
     output y
 );
 
-assign y = a | b;
+or or1 (y, a, b);
 
 endmodule

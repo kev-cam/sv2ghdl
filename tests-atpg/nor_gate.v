@@ -5,6 +5,6 @@ module nor_gate (
     output y
 );
 
-assign y = ~(a | b);
+nor nor1 (y, a, b);
 
 endmodule

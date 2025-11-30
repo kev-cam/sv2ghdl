@@ -5,6 +5,6 @@ module and_gate (
     output y
 );
 
-assign y = a & b;
+and and1 (y, a, b);
 
 endmodule
