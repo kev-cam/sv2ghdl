@@ -270,7 +270,7 @@ sub translate_line {
         }
 
         return line_directive($line_num, $source_file) .
-               "    $name : out $vhdl_type$separator\n";
+               "    $name : inout $vhdl_type$separator\n";
     }
     
     # Wire/reg declarations (internal signals)
