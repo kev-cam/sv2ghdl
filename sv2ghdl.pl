@@ -185,11 +185,10 @@ sub translate_file {
         }
 
         my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
-	if (1 == $in_architecture && ($vhdl =~ /process/)) {
-	    print $out_fh "begin\n";
-	    $in_architecture = 2;
+
+	if ($vhdl) {
+	    push @output,$vhdl;
 	}
-        print $out_fh $vhdl if $vhdl;
     }
 
     # Insert intermediate signal declarations before architecture begin
