@@ -1,0 +1,24 @@
+# Yosys synthesis script template
+# Usage: yosys -s synth.ys -p "set input_file <file.v>; set output_file <file_syn.v>"
+
+# Read input RTL
+read_verilog ${input_file}
+
+# Set top module (auto-detect)
+hierarchy -auto-top
+
+# High-level synthesis
+proc        # Process RTL constructs
+opt         # Optimize
+fsm         # Extract FSMs
+opt         # Optimize again
+memory      # Extract memories
+opt         # Optimize again
+
+# Technology mapping
+techmap     # Map to basic gates
+opt         # Final optimization
+clean       # Remove unused signals
+
+# Write gate-level netlist
+write_verilog -noattr ${output_file}
