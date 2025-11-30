@@ -373,6 +373,13 @@ sub translate_line {
                "      if $condition then\n";
     }
 
+    # Else if statements
+    if ($line =~ /^\s*else\s+if\s*\((.+)\)\s*$/) {
+        my $condition = translate_condition($1);
+        return line_directive($line_num, $source_file) .
+               "      elsif $condition then\n";
+    }
+
     # Else statements
     if ($line =~ /^\s*else\s*$/) {
         our $async_reset_clk;
@@ -493,7 +500,7 @@ sub extract_instantiations {
     # Exclude gate primitives
     for (my $i = 0; $i < @$lines; $i++) {
         if ($lines->[$i] =~ /^\s*(\w+)\s+(\w+)\s*\(/ &&
-            $1 ne 'module' && $1 ne 'if' && $1 ne 'case' &&
+            $1 ne 'module' && $1 ne 'if' && $1 ne 'else' && $1 ne 'elsif' && $1 ne 'case' &&
             $1 !~ /^(and|or|nand|nor|xor|xnor|not|buf)$/) {
             # This is likely a module instantiation
             my $module_type = $1;
@@ -589,6 +596,9 @@ sub translate_expression {
     # Single bit: 1'b0 -> '0', multi-bit: 4'b0101 -> "0101"
     $expr =~ s/1'b([01])/'$1'/g;
     $expr =~ s/(\d+)'b([01]+)/"$2"/g;
+
+    # Bit slicing: signal[msb:lsb] -> signal(msb downto lsb)
+    $expr =~ s/(\w+)\[(\d+):(\d+)\]/$1($2 downto $3)/g;
 
     # Bit concatenation: {a, b, c} -> a & b & c
     $expr =~ s/\{([^}]+)\}/concat($1)/ge;
