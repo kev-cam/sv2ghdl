@@ -27,7 +27,7 @@ my $emit_line_directives = 0;
 my $verbose = 0;
 my $help = 0;
 my $version = 0;
-my $find_files = 0;
+my $find_files;  # undef by default
 my $find_path = '.';
 my $find_name = '*.v';
 
@@ -152,32 +152,33 @@ sub translate_file {
     my $line_num = 0;
     my $in_entity = 0;
     my $in_architecture = 0;
-    my $port_section_done = 0;
-    
+    my $port_list_closed = 0;
+
     foreach my $line (@lines) {
         $line_num++;
-        
+
         # State machine for entity/architecture boundary
         if ($line =~ /^\s*module\s+\w+/) {
             $in_entity = 1;
         }
-        
-        # End of ports section (first non-port declaration)
-        if ($in_entity && !$port_section_done && 
-            ($line =~ /^\s*(?:wire|reg|always|assign)/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
-            # Close entity, start architecture
+
+        # Detect end of port list by closing parenthesis
+        if ($in_entity && !$port_list_closed && $line =~ /^\s*\)\s*;?\s*$/) {
+            $port_list_closed = 1;
             print $out_fh "  );\n";
             print $out_fh "end entity;\n\n";
             print $out_fh generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
+            print $out_fh "begin\n";
             $in_architecture = 1;
-            $port_section_done = 1;
+            $in_entity = 0;
+            next;  # Skip the closing paren line
         }
-        
+
         if ($line =~ /^\s*endmodule/) {
-            # Just close architecture
-            next;  # Footer will be added after loop
+            # Just close architecture - footer will be added after loop
+            next;
         }
-        
+
         my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
         print $out_fh $vhdl if $vhdl;
     }
@@ -192,8 +193,8 @@ sub translate_file {
 #-----------------------------------------------------------------------------
 
 sub translate_line {
-    my ($line, $line_num, $source_file, $mode) = @_;
-    
+    my ($line, $line_num, $source_file, $mode, $in_entity, $in_architecture) = @_;
+
     my $config = $MODES{$mode};
     
     # Preserve blank lines
@@ -206,10 +207,12 @@ sub translate_line {
     
     # Module declaration
     if ($line =~ /^\s*module\s+(\w+)\s*\(/) {
+        # Entity header handled by state machine in translate_file
         return line_directive($line_num, $source_file) .
                "entity $1 is\n  port (\n";
     }
     if ($line =~ /^\s*module\s+(\w+)\s*;/) {
+        # Module with no ports
         return line_directive($line_num, $source_file) .
                "entity $1 is\n";
     }
@@ -221,15 +224,17 @@ sub translate_line {
     }
     
     # Ports
-    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)([,;])/) {
+    # Input ports: input [wire] [WIDTH] name [,;]
+    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
         my $separator = ($term eq ',') ? ';' : '';
         return line_directive($line_num, $source_file) .
                "    $name : in $vhdl_type$separator\n";
     }
-    
-    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)([,;])/) {
+
+    # Output ports: output [reg] [WIDTH] name [,;]
+    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
         my $separator = ($term eq ',') ? ';' : '';
@@ -281,8 +286,13 @@ sub translate_line {
     
     # If statements
     if ($line =~ /^\s*if\s*\((.+)\)\s*$/) {
+        my $condition = $1;
+        # Simple signal name conditions need = '1'
+        if ($condition =~ /^\s*(\w+)\s*$/) {
+            $condition = "$1 = '1'";
+        }
         return line_directive($line_num, $source_file) .
-               "    if $1 then\n";
+               "    if $condition then\n";
     }
     
     # Else statements
@@ -462,15 +472,24 @@ sub port_type {
 
 sub translate_expression {
     my ($expr) = @_;
-    
+
+    # Hex literals: 8'h00 -> x"00", 16'hABCD -> x"ABCD"
+    $expr =~ s/(\d+)'h([0-9a-fA-F]+)/x"$2"/g;
+
+    # Binary literals: 4'b1010 -> "1010"
+    $expr =~ s/(\d+)'b([01]+)/"$2"/g;
+
     # Bit concatenation: {a, b, c} -> a & b & c
     $expr =~ s/\{([^}]+)\}/concat($1)/ge;
-    
-    # Ternary: a ? b : c -> b when a else c
+
+    # Ternary: a ? b : c -> b when a='1' else c
     if ($expr =~ /(.+?)\s*\?\s*(.+?)\s*:\s*(.+)/) {
-        return "$2 when $1 else $3";
+        my ($cond, $true_val, $false_val) = ($1, $2, $3);
+        $true_val = translate_expression($true_val);
+        $false_val = translate_expression($false_val);
+        return "$true_val when $cond='1' else $false_val";
     }
-    
+
     return $expr;
 }
 
