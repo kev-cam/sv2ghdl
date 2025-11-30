@@ -148,6 +148,7 @@ sub translate_file {
 
     # Track intermediate signals needed
     our %intermediates = ();  # signal_name => type_declaration
+    our @signal_decls = ();    # Array of signal declaration lines
 
     push @output, generate_header($mode, $input, $module_name);
 
@@ -191,22 +192,29 @@ sub translate_file {
 	}
     }
 
-    # Insert intermediate signal declarations before architecture begin
-    if ($arch_header_idx >= 0 && %intermediates) {
-        my @intermediate_decls;
-        push @intermediate_decls, "  -- Intermediate signals\n";
-        foreach my $sig_name (sort keys %intermediates) {
-            push @intermediate_decls, "  signal $sig_name : $intermediates{$sig_name};\n";
+    # Insert signal declarations and begin before architecture body
+    if ($arch_header_idx >= 0) {
+        my @decls;
+
+        # Insert signal declarations from wire/reg statements
+        if (@signal_decls) {
+            push @decls, "  -- Internal signals\n";
+            push @decls, @signal_decls;
         }
-        push @intermediate_decls, "begin\n";
+
+        # Insert intermediate signal declarations
+        if (%intermediates) {
+            push @decls, "  -- Intermediate signals\n" unless @signal_decls;
+            foreach my $sig_name (sort keys %intermediates) {
+                push @decls, "  signal $sig_name : $intermediates{$sig_name};\n";
+            }
+        }
+
+        # Always add begin
+        push @decls, "begin\n";
 
         # Insert after architecture header
-        splice @output, $arch_header_idx + 1, 0, @intermediate_decls;
-    } else {
-        # No intermediates, just add begin
-        if ($arch_header_idx >= 0) {
-            splice @output, $arch_header_idx + 1, 0, "begin\n";
-        }
+        splice @output, $arch_header_idx + 1, 0, @decls;
     }
 
     push @output, generate_footer($mode);
@@ -273,21 +281,41 @@ sub translate_line {
                "    $name : inout $vhdl_type$separator\n";
     }
     
-    # Wire/reg declarations (internal signals)
-    if ($line =~ /^\s*(?:wire|reg)\s+(?:\[(\d+):(\d+)\]\s+)?(\w+);/) {
-        my ($msb, $lsb, $name) = ($1, $2, $3);
+    # Wire/reg declarations (internal signals) - multiple signals on one line
+    if ($line =~ /^\s*(?:wire|reg)\s+(?:\[(\d+):(\d+)\]\s+)?([\w\s,]+);/) {
+        my ($msb, $lsb, $names) = ($1, $2, $3);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
 
-        # Also create unsigned intermediate for vector signals (for arithmetic)
-        if (defined($msb) && defined($lsb)) {
-            add_intermediate("${name}_u", "unsigned($msb downto $lsb)");
+        # Split multiple signal names
+        my @signal_names = split /\s*,\s*/, $names;
+
+        foreach my $name (@signal_names) {
+            $name =~ s/^\s+|\s+$//g;  # Trim whitespace
+            next if $name eq '';
+
+            # Also create unsigned intermediate for vector signals (for arithmetic)
+            if (defined($msb) && defined($lsb)) {
+                add_intermediate("${name}_u", "unsigned($msb downto $lsb)");
+            }
+
+            # Store signal declaration for later insertion
+            our @signal_decls;
+            push @signal_decls, "  signal $name : $vhdl_type;\n";
         }
 
-        return line_directive($line_num, $source_file) .
-               "  signal $name : $vhdl_type;\n";
+        return "";  # Don't output immediately, will be inserted before begin
     }
     
-    # Always blocks
+    # Always blocks with asynchronous reset
+    if ($line =~ /^\s*always\s+@\(posedge\s+(\w+)\s+or\s+posedge\s+(\w+)\)/) {
+        my ($clk, $rst) = ($1, $2);
+        # Store clock name for elsif handling
+        our $async_reset_clk = $clk;
+        return line_directive($line_num, $source_file) .
+               "  process($clk, $rst)\n  begin\n";
+    }
+
+    # Always blocks with synchronous logic only
     if ($line =~ /^\s*always\s+@\(posedge\s+(\w+)\)/) {
         if ($config->{temporal}) {
             return line_directive($line_num, $source_file) .
@@ -347,8 +375,17 @@ sub translate_line {
 
     # Else statements
     if ($line =~ /^\s*else\s*$/) {
-        return line_directive($line_num, $source_file) .
-               "      else\n";
+        our $async_reset_clk;
+        if (defined($async_reset_clk)) {
+            # In async reset process, else becomes elsif rising_edge
+            my $result = line_directive($line_num, $source_file) .
+                         "    elsif rising_edge($async_reset_clk) then\n";
+            $async_reset_clk = undef;  # Clear for next process
+            return $result;
+        } else {
+            return line_directive($line_num, $source_file) .
+                   "      else\n";
+        }
     }
 
     # Begin/end blocks
@@ -357,7 +394,8 @@ sub translate_line {
     }
 
     if ($line =~ /^\s*end\s*$/) {
-        return "      end if;\n    end if;\n  end process;\n";
+        # Just close the outer if and the process
+        return "    end if;\n  end process;\n";
     }
     
     # Endmodule
@@ -548,6 +586,8 @@ sub translate_expression {
     # Numeric literals: 8'h00 -> x"00", 8'd10 -> std_logic_vector(to_unsigned(10, 8))
     $expr =~ s/(\d+)'h([0-9a-fA-F]+)/x"$2"/g;
     $expr =~ s/(\d+)'d(\d+)/std_logic_vector(to_unsigned($2, $1))/g;
+    # Single bit: 1'b0 -> '0', multi-bit: 4'b0101 -> "0101"
+    $expr =~ s/1'b([01])/'$1'/g;
     $expr =~ s/(\d+)'b([01]+)/"$2"/g;
 
     # Bit concatenation: {a, b, c} -> a & b & c
@@ -634,12 +674,12 @@ sub generate_header {
 
 sub generate_architecture_header {
     my ($module_name, $mode, $signals_ref, $insts_ref) = @_;
-    
+
     my @signals = @{$signals_ref || []};
     my @insts = @{$insts_ref || []};
-    
+
     my $arch = "architecture rtl of $module_name is\n";
-    
+
     # Component declarations for instantiated modules
     if (@insts) {
         $arch .= "  -- Component declarations\n";
@@ -648,19 +688,16 @@ sub generate_architecture_header {
             my $comp_type = $inst->{type};
             next if $seen_components{$comp_type};
             $seen_components{$comp_type} = 1;
-            
+
             # GHDL will auto-bind by name, so we can use simple declaration
             # or rely on direct entity instantiation (VHDL-93+)
             $arch .= "  -- Component $comp_type (auto-bound by GHDL)\n";
         }
         $arch .= "\n";
     }
-    
-    # Internal signals
-    if (@signals) {
-        $arch .= "  -- Internal signals\n";
-    }
-    
+
+    # Signal declarations will be inserted later
+
     return $arch;
 }
 
