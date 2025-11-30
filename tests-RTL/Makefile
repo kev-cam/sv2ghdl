@@ -6,6 +6,12 @@ WORK_DIR = work
 
 # Synthesized gate-level netlists
 GATE_NETLISTS = $(patsubst %.v,work/%_syn.v,$(VERILOG_FILES))
+BENCH_FILES = $(patsubst %.v,work/%_syn.bench,$(VERILOG_FILES))
+TEST_FILES = $(patsubst %.v,work/%_syn.test,$(VERILOG_FILES))
+
+# Tool paths
+V2B = verilog2bench.pl
+ATALANTA = atalanta
 
 # Default target
 all: $(WORK_DIR) $(GATE_NETLISTS)
@@ -24,6 +30,28 @@ $(WORK_DIR)/%_syn.v: %.v | $(WORK_DIR)
 	              clean; \
 	              write_verilog -noattr -noexpr $@-tmp"
 	./yo-fix.pl < $@-tmp >$@
+
+# Convert gate-level netlist to BENCH format
+$(WORK_DIR)/%_syn.bench: $(WORK_DIR)/%_syn.v
+	@echo "Converting $< -> $@"
+	@$(V2B) $< $@
+
+# Run Atalanta ATPG on BENCH file
+.PRECIOUS: $(WORK_DIR)/%_syn.bench
+$(WORK_DIR)/%_syn.test: $(WORK_DIR)/%_syn.bench
+	@echo "Running Atalanta on $<"
+	@cd $(WORK_DIR) && $(ATALANTA) $(notdir $(basename $<))
+	@if [ -f $(WORK_DIR)/$(notdir $(basename $<)).test ]; then \
+		mv $(WORK_DIR)/$(notdir $(basename $<)).test $@; \
+	else \
+		echo "Error: Atalanta did not generate test file"; \
+		exit 1; \
+	fi
+
+# Targets for different stages
+bench: $(BENCH_FILES)
+
+atpg: $(TEST_FILES)
 
 # Show what will be built
 show:
