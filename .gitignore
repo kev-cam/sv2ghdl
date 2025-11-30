@@ -1,0 +1,6 @@
+# Generated VHDL output files
+*.vhd
+vhdl_output/
+
+# Test outputs
+test_output.*
