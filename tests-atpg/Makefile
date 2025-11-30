@@ -35,10 +35,12 @@ $(WORK_DIR):
 $(WORK_DIR)/%.bench: %.v | $(WORK_DIR)
 	$(V2B) $< $@
 
-%.test : %.bench 
+.PRECIOUS: $(WORK_DIR)/%.bench
+%.tst : %.bench 
 	cd $$(dirname $@) ; $(ATALANTA) $$(basename $<)
+	TEST=$(patsubst %.tst,%.test,$@) ; if [ -s '$$TEST' ] ; then mv $$TEST $@ ; else exit 1 ; fi
 
-%_tb.vhd: %.test
+%_tb.vhd: %.tst
 	cd $$(dirname $@) ; ../test2vhdl.pl $$(basename $<)
 
 %.run: %_tb.vhd
