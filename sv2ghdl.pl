@@ -369,10 +369,30 @@ sub translate_line {
     if ($line =~ /^\s*\);/) {
         return "  );\n";
     }
-    
+
+    # Verilog gate primitives (2-input gates)
+    if ($line =~ /^\s*(and|or|nand|nor|xor|xnor)\s+\w+\s*\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\)\s*;/) {
+        my ($gate, $output, $in1, $in2) = ($1, $2, $3, $4);
+        return line_directive($line_num, $source_file) .
+               "  $output <= $in1 $gate $in2;\n";
+    }
+
+    # Verilog gate primitives (1-input gates: not, buf)
+    if ($line =~ /^\s*(not|buf)\s+\w+\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*;/) {
+        my ($gate, $output, $input) = ($1, $2, $3);
+        if ($gate eq 'not') {
+            return line_directive($line_num, $source_file) .
+                   "  $output <= not $input;\n";
+        } elsif ($gate eq 'buf') {
+            return line_directive($line_num, $source_file) .
+                   "  $output <= $input;\n";
+        }
+    }
+
     # Module instantiation
     if ($line =~ /^\s*(\w+)\s+(\w+)\s*\(/ &&
-        $1 ne 'module' && $1 ne 'if' && $1 ne 'case') {
+        $1 ne 'module' && $1 ne 'if' && $1 ne 'case' &&
+        $1 !~ /^(and|or|nand|nor|xor|xnor|not|buf)$/) {
         my $module_type = $1;
         my $inst_name = $2;
         return line_directive($line_num, $source_file) .
@@ -430,11 +450,13 @@ sub extract_signals {
 sub extract_instantiations {
     my ($lines) = @_;
     my @insts;
-    
+
     # Look for module instantiations: module_name inst_name (...)
+    # Exclude gate primitives
     for (my $i = 0; $i < @$lines; $i++) {
         if ($lines->[$i] =~ /^\s*(\w+)\s+(\w+)\s*\(/ &&
-            $1 ne 'module' && $1 ne 'if' && $1 ne 'case') {
+            $1 ne 'module' && $1 ne 'if' && $1 ne 'case' &&
+            $1 !~ /^(and|or|nand|nor|xor|xnor|not|buf)$/) {
             # This is likely a module instantiation
             my $module_type = $1;
             my $inst_name = $2;
