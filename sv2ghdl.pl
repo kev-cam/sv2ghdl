@@ -35,7 +35,7 @@ GetOptions(
     'mode=s'              => \$mode,
     'output|o=s'          => \$output_file,
     'outdir|d=s'          => \$output_dir,
-    'find:s'              => \$find_files,  # Optional value (path)
+    'find:s'              => sub { $find_files = $_[1] // '.' },  # Optional value (path)
     'name=s'              => \$find_name,    # Pattern for -find
     'no-line-directives'  => sub { $emit_line_directives = 0 },
     'verbose|v'           => \$verbose,
@@ -59,24 +59,24 @@ die "Unknown mode: $mode\n" unless exists $MODES{$mode};
 # Handle -find option
 my @input_files;
 
-if (defined $find_files) {
+if ($find_files) {
     # -find was specified (with or without a path)
-    $find_path = $find_files if $find_files ne '';
-    
+    $find_path = $find_files;
+
     print STDERR "Searching for $find_name files in $find_path\n" if $verbose;
-    
+
     # Find all matching files
     @input_files = find_verilog_files($find_path, $find_name);
-    
+
     if (@input_files == 0) {
         die "No files matching '$find_name' found in $find_path\n";
     }
-    
+
     print STDERR "Found " . scalar(@input_files) . " files\n" if $verbose;
-    
+
     # Set output directory if not specified
     $output_dir = "vhdl_output" unless $output_dir || $output_file;
-    
+
 } else {
     # Get input file(s) from command line
     @input_files = @ARGV;
@@ -84,7 +84,7 @@ if (defined $find_files) {
 }
 
 # Check all input files exist (unless using -find)
-unless (defined $find_files) {
+unless ($find_files) {
     foreach my $file (@input_files) {
         die "Input file not found: $file\n" unless -f $file;
     }
@@ -163,10 +163,11 @@ sub translate_file {
         }
         
         # End of ports section (first non-port declaration)
-        if ($in_entity && !$port_section_done && 
-            ($line =~ /^\s*(?:wire|reg|always|assign)/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
-            # Close entity, start architecture
-            print $out_fh "  );\n";
+        # Skip module, input, output, inout, parameter lines
+        if ($in_entity && !$port_section_done &&
+            $line !~ /^\s*(?:module|input|output|inout|parameter)\b/ &&
+            ($line =~ /^\s*(?:wire|reg|always|assign)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
+            # Close entity, start architecture (don't print ); here, translate_line handles it)
             print $out_fh "end entity;\n\n";
             print $out_fh generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
             $in_architecture = 1;
@@ -221,15 +222,15 @@ sub translate_line {
     }
     
     # Ports
-    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)([,;])/) {
+    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
         my $separator = ($term eq ',') ? ';' : '';
         return line_directive($line_num, $source_file) .
                "    $name : in $vhdl_type$separator\n";
     }
-    
-    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)([,;])/) {
+
+    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
         my $separator = ($term eq ',') ? ';' : '';
@@ -249,16 +250,16 @@ sub translate_line {
     if ($line =~ /^\s*always\s+@\(posedge\s+(\w+)\)/) {
         if ($config->{temporal}) {
             return line_directive($line_num, $source_file) .
-                   "process\nbegin\n  wait until $1'event;\n  wait until rising_edge($1);\n";
+                   "  process\n  begin\n    wait until $1'event;\n    wait until rising_edge($1);\n";
         } else {
             return line_directive($line_num, $source_file) .
-                   "process($1)\nbegin\n  if rising_edge($1) then\n";
+                   "  process($1)\n  begin\n    if rising_edge($1) then\n";
         }
     }
-    
+
     if ($line =~ /^\s*always\s+@\(\*\)/) {
         return line_directive($line_num, $source_file) .
-               "process(all)\nbegin\n";  # VHDL-2008 process(all)
+               "  process(all)\n  begin\n";  # VHDL-2008 process(all)
     }
     
     # Assignments
@@ -270,34 +271,34 @@ sub translate_line {
     # Non-blocking assignment (already uses <=)
     if ($line =~ /^\s*(\w+)\s*<=\s*(.+);/) {
         return line_directive($line_num, $source_file) .
-               "    $1 <= " . translate_expression($2) . ";\n";
+               "        $1 <= " . translate_expression($2) . ";\n";
     }
-    
+
     # Blocking assignment (= -> :=)
     if ($line =~ /^\s*(\w+)\s*=\s*(.+);/) {
         return line_directive($line_num, $source_file) .
-               "    $1 := " . translate_expression($2) . ";\n";
+               "        $1 := " . translate_expression($2) . ";\n";
     }
-    
+
     # If statements
     if ($line =~ /^\s*if\s*\((.+)\)\s*$/) {
         return line_directive($line_num, $source_file) .
-               "    if $1 then\n";
+               "      if $1 then\n";
     }
-    
+
     # Else statements
     if ($line =~ /^\s*else\s*$/) {
         return line_directive($line_num, $source_file) .
-               "    else\n";
+               "      else\n";
     }
-    
+
     # Begin/end blocks
     if ($line =~ /^\s*begin\s*$/) {
         return "";  # VHDL doesn't need begin after if/process
     }
-    
+
     if ($line =~ /^\s*end\s*$/) {
-        return "  end if;\nend process;\n";
+        return "      end if;\n    end if;\n  end process;\n";
     }
     
     # Endmodule
@@ -462,15 +463,20 @@ sub port_type {
 
 sub translate_expression {
     my ($expr) = @_;
-    
+
+    # Numeric literals: 8'h00 -> x"00", 8'd10 -> std_logic_vector(to_unsigned(10, 8))
+    $expr =~ s/(\d+)'h([0-9a-fA-F]+)/x"$2"/g;
+    $expr =~ s/(\d+)'d(\d+)/std_logic_vector(to_unsigned($2, $1))/g;
+    $expr =~ s/(\d+)'b([01]+)/"$2"/g;
+
     # Bit concatenation: {a, b, c} -> a & b & c
     $expr =~ s/\{([^}]+)\}/concat($1)/ge;
-    
+
     # Ternary: a ? b : c -> b when a else c
     if ($expr =~ /(.+?)\s*\?\s*(.+?)\s*:\s*(.+)/) {
         return "$2 when $1 else $3";
     }
-    
+
     return $expr;
 }
 
