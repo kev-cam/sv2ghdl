@@ -1,0 +1,14 @@
+# Generated VHDL files
+*.vhd
+vhdl_output/
+
+# Perl temporary files
+*.swp
+*.swo
+*~
+.*.swp
+
+# Test outputs
+*.o
+*.cf
+work/
