@@ -6,13 +6,17 @@ WORK_DIR = work
 
 # Atalanta output files in work directory
 FAULT_VEC = $(patsubst %.v,work/%.test,$(VERILOG_FILES))
+VHDL_CASE = $(patsubst %.v,work/%.vhd,$(VERILOG_FILES))
 VHD_TESTS = $(patsubst %.v,work/%_tb.vhd,$(VERILOG_FILES))
 TEST_LOGS = $(patsubst %.v,work/%.run,$(VERILOG_FILES))
 
 fault_tests: $(FAULT_VEC)
 
 # Default target
-all: $(WORK_DIR) fault_tests $(VHD_TESTS) $(TEST_LOGS)
+all: $(WORK_DIR) vhdl fault_tests $(VHD_TESTS) $(TEST_LOGS)
+
+vhdl:
+	../sv2ghdl.pl -verbose -find . -d work
 
 show:
 	@echo Verilog = $(VERILOG_FILES)
