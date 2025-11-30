@@ -13,10 +13,13 @@ TEST_LOGS = $(patsubst %.v,work/%.run,$(VERILOG_FILES))
 fault_tests: $(FAULT_VEC)
 
 # Default target
-all: $(WORK_DIR) vhdl fault_tests $(VHD_TESTS) $(TEST_LOGS)
+all: $(WORK_DIR) vhdl fault_tests $(VHD_TESTS) $(TEST_LOGS) summary
 
 vhdl:
 	../sv2ghdl.pl -verbose -find . -d work
+
+summary:
+	./compare_results.pl
 
 show:
 	@echo Verilog = $(VERILOG_FILES)
