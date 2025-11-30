@@ -5,6 +5,6 @@ module nand_gate (
     output y
 );
 
-nand u1 (y,a,b);
+nand nand1 (y, a, b);
 
 endmodule
