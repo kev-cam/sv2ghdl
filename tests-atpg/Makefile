@@ -1,31 +1,33 @@
 # Makefile for running Atalanta ATPG on logic gates
 # Output goes to work/ subdirectory
 
-GATES = and_gate or_gate nand_gate nor_gate xor_gate not_gate
-VERILOG_FILES = $(addsuffix .v, $(GATES))
+VERILOG_FILES = $(wildcard *.v)
 WORK_DIR = work
 
 # Atalanta output files in work directory
-ATPG_RESULTS = $(addprefix $(WORK_DIR)/, $(addsuffix .patterns, $(GATES)))
-FAULT_LISTS = $(addprefix $(WORK_DIR)/, $(addsuffix .faults, $(GATES)))
+FAULT_VEC = $(patsubst %.v,work/%.test,$(VERILOG_FILES))
+
+fault_tests: $(FAULT_VEC)
 
 # Default target
-all: $(WORK_DIR) $(ATPG_RESULTS)
+all: $(WORK_DIR) fault_tests
+
+show:
+	@echo Verilog = $(VERILOG_FILES)
+	@echo Fault tests = $(FAULT_VEC)
+
+V2B=verilog2bench.pl
+ATALANTA=atalanta
 
 # Create work directory
 $(WORK_DIR):
 	@mkdir -p $(WORK_DIR)
 
-# Pattern rule for running Atalanta on each gate
-# Atalanta typical usage: atalanta [options] <input.v>
-# Common options:
-#   -t : Generate test patterns
-#   -f : Generate fault list
-#   -D : Diagnostic mode
-$(WORK_DIR)/%.patterns: %.v | $(WORK_DIR)
-	@echo "Running Atalanta ATPG on $<..."
-	@atalanta -t $(WORK_DIR)/$*.patterns -f $(WORK_DIR)/$*.faults $< 2>&1 | tee $(WORK_DIR)/$*.log || \
-		echo "Note: Atalanta may not be installed. Skipping $<"
+$(WORK_DIR)/%.bench: %.v | $(WORK_DIR)
+	$(V2B) $< $@
+
+%.test : %.bench 
+	cd $$(dirname $@) ; $(ATALANTA) $$(basename $<)
 
 # Clean work directory
 clean:
