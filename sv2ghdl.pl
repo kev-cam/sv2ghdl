@@ -146,6 +146,9 @@ sub translate_file {
     # Build output array instead of printing directly
     my @output;
 
+    # Track intermediate signals needed
+    our %intermediates = ();  # signal_name => type_declaration
+
     push @output, generate_header($mode, $input, $module_name);
 
     # Translate line by line with state tracking
@@ -153,6 +156,7 @@ sub translate_file {
     my $in_entity = 0;
     my $in_architecture = 0;
     my $port_section_done = 0;
+    my $arch_header_idx = -1;  # Index where architecture header ends
 
     foreach my $line (@lines) {
         $line_num++;
@@ -170,6 +174,7 @@ sub translate_file {
             # Close entity, start architecture
             push @output, "end entity;\n\n";
             push @output, generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
+            $arch_header_idx = $#output;  # Remember where architecture header ends
             $in_architecture = 1;
             $port_section_done = 1;
         }
@@ -181,6 +186,24 @@ sub translate_file {
 
         my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
         push @output, $vhdl if $vhdl;
+    }
+
+    # Insert intermediate signal declarations before architecture begin
+    if ($arch_header_idx >= 0 && %intermediates) {
+        my @intermediate_decls;
+        push @intermediate_decls, "  -- Intermediate signals\n";
+        foreach my $sig_name (sort keys %intermediates) {
+            push @intermediate_decls, "  signal $sig_name : $intermediates{$sig_name};\n";
+        }
+        push @intermediate_decls, "begin\n";
+
+        # Insert after architecture header
+        splice @output, $arch_header_idx + 1, 0, @intermediate_decls;
+    } else {
+        # No intermediates, just add begin
+        if ($arch_header_idx >= 0) {
+            splice @output, $arch_header_idx + 1, 0, "begin\n";
+        }
     }
 
     push @output, generate_footer($mode);
@@ -237,6 +260,12 @@ sub translate_line {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
         my $separator = ($term eq ',') ? ';' : '';
+
+        # Create unsigned intermediate for vector outputs with reg (implies arithmetic)
+        if (defined($msb) && defined($lsb) && $line =~ /\breg\b/) {
+            add_intermediate("${name}_next", "unsigned($msb downto $lsb)");
+        }
+
         return line_directive($line_num, $source_file) .
                "    $name : out $vhdl_type$separator\n";
     }
@@ -245,6 +274,12 @@ sub translate_line {
     if ($line =~ /^\s*(?:wire|reg)\s+(?:\[(\d+):(\d+)\]\s+)?(\w+);/) {
         my ($msb, $lsb, $name) = ($1, $2, $3);
         my $vhdl_type = port_type($msb, $lsb, $config->{lib});
+
+        # Also create unsigned intermediate for vector signals (for arithmetic)
+        if (defined($msb) && defined($lsb)) {
+            add_intermediate("${name}_u", "unsigned($msb downto $lsb)");
+        }
+
         return line_directive($line_num, $source_file) .
                "  signal $name : $vhdl_type;\n";
     }
@@ -273,8 +308,25 @@ sub translate_line {
     
     # Non-blocking assignment (already uses <=)
     if ($line =~ /^\s*(\w+)\s*<=\s*(.+);/) {
+        my ($lhs, $rhs) = ($1, $2);
+        my $intermediate = "${lhs}_next";
+
+        # Check if we have an intermediate for this signal and it's arithmetic
+        our %intermediates;
+        if (exists $intermediates{$intermediate} && $rhs =~ /[\+\-\*\/]/) {
+            # Use intermediate for cleaner code
+            my $expr = $rhs;
+            # Convert to use intermediate
+            if ($expr =~ /(\w+)\s*([\+\-\*\/])\s*(.+)/) {
+                my ($left, $op, $right) = ($1, $2, $3);
+                return line_directive($line_num, $source_file) .
+                       "        $intermediate <= unsigned($left) $op $right;\n" .
+                       "        $lhs <= std_logic_vector($intermediate);\n";
+            }
+        }
+
         return line_directive($line_num, $source_file) .
-               "        $1 <= " . translate_expression($2) . ";\n";
+               "        $lhs <= " . translate_expression($rhs) . ";\n";
     }
 
     # Blocking assignment (= -> :=)
@@ -518,6 +570,12 @@ sub concat {
     my ($items) = @_;
     my @parts = split /\s*,\s*/, $items;
     return join(' & ', @parts);
+}
+
+sub add_intermediate {
+    my ($name, $vhdl_type) = @_;
+    our %intermediates;
+    $intermediates{$name} = $vhdl_type unless exists $intermediates{$name};
 }
 
 sub line_directive {
