@@ -131,60 +131,63 @@ exit 0;
 
 sub translate_file {
     my ($input, $output, $mode) = @_;
-    
+
     # Read input
     open my $in_fh, '<', $input or die "Can't open $input: $!\n";
     my @lines = <$in_fh>;
     close $in_fh;
-    
-    # Open output
-    open my $out_fh, '>', $output or die "Can't create $output: $!\n";
-    
+
     # Extract module info
     my $module_name = extract_module_name(\@lines);
     my @ports = extract_ports(\@lines);
     my @signals = extract_signals(\@lines);
     my @instantiations = extract_instantiations(\@lines);
-    
-    print $out_fh generate_header($mode, $input, $module_name);
-    
+
+    # Build output array instead of printing directly
+    my @output;
+
+    push @output, generate_header($mode, $input, $module_name);
+
     # Translate line by line with state tracking
     my $line_num = 0;
     my $in_entity = 0;
     my $in_architecture = 0;
     my $port_section_done = 0;
-    
+
     foreach my $line (@lines) {
         $line_num++;
-        
+
         # State machine for entity/architecture boundary
         if ($line =~ /^\s*module\s+\w+/) {
             $in_entity = 1;
         }
-        
+
         # End of ports section (first non-port declaration)
         # Skip module, input, output, inout, parameter lines
         if ($in_entity && !$port_section_done &&
             $line !~ /^\s*(?:module|input|output|inout|parameter)\b/ &&
             ($line =~ /^\s*(?:wire|reg|always|assign)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
-            # Close entity, start architecture (don't print ); here, translate_line handles it)
-            print $out_fh "end entity;\n\n";
-            print $out_fh generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
+            # Close entity, start architecture
+            push @output, "end entity;\n\n";
+            push @output, generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
             $in_architecture = 1;
             $port_section_done = 1;
         }
-        
+
         if ($line =~ /^\s*endmodule/) {
             # Just close architecture
             next;  # Footer will be added after loop
         }
-        
+
         my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
-        print $out_fh $vhdl if $vhdl;
+        push @output, $vhdl if $vhdl;
     }
-    
-    print $out_fh generate_footer($mode);
-    
+
+    push @output, generate_footer($mode);
+
+    # Write output array to file
+    open my $out_fh, '>', $output or die "Can't create $output: $!\n";
+    print $out_fh join('', @output);
     close $out_fh;
 }
 
