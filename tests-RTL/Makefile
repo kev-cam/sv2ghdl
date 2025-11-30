@@ -16,13 +16,14 @@ $(WORK_DIR):
 
 # Synthesis rule: RTL -> gate-level netlist
 $(WORK_DIR)/%_syn.v: %.v | $(WORK_DIR)
-	@echo "Synthesizing $< -> $@"
+	@echo "Synthesizing $< -> $@-tmp"
 	@yosys -q -p "read_verilog $<; \
 	              hierarchy -auto-top; \
-	              proc; opt; fsm; opt; memory; opt; \
-	              techmap; opt; \
+	              synth -flatten; \
+	              abc -g AND,OR,NAND,NOR; \
 	              clean; \
-	              write_verilog -noattr $@"
+	              write_verilog -noattr -noexpr $@-tmp"
+	./yo-fix.pl < $@-tmp >$@
 
 # Show what will be built
 show:
