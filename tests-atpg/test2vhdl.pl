@@ -184,7 +184,9 @@ sub generate_vhdl_testbench {
     $tb .= "  -- Test process\n";
     $tb .= "  test_proc: process\n";
     $tb .= "  begin\n";
-    $tb .= "    report \"Starting testbench for $entity_name\";\n\n";
+    $tb .= "    report \"Starting testbench for $entity_name\";\n";
+    $tb .= "    report \"Test patterns and observed responses:\";\n";
+    $tb .= "    report \"\";\n\n";
 
     # Generate test patterns
     my $pattern_num = 1;
@@ -201,6 +203,18 @@ sub generate_vhdl_testbench {
 
         $tb .= "    wait for 10 ns;\n";
 
+        # Report observed waveform in .test file format
+        $tb .= "    report \"   $pattern_num: " . $pat->{input} . " \" & ";
+        my @output_conversions;
+        foreach my $i (0 .. $#outputs) {
+            if ($i == 0) {
+                push @output_conversions, "std_logic'image($outputs[$i])(2)";
+            } else {
+                push @output_conversions, "\" \" & std_logic'image($outputs[$i])(2)";
+            }
+        }
+        $tb .= join(' & ', @output_conversions) . ";\n";
+
         # Check outputs
         foreach my $i (0 .. $#outputs) {
             $tb .= "    assert $outputs[$i] = '$output_bits[$i]' report \"Pattern $pattern_num failed: $outputs[$i] expected '$output_bits[$i]'\" severity error;\n";
@@ -210,6 +224,7 @@ sub generate_vhdl_testbench {
         $pattern_num++;
     }
 
+    $tb .= "    report \"\";\n";
     $tb .= "    report \"Testbench completed\";\n";
     $tb .= "    wait;\n";
     $tb .= "  end process;\n\n";
