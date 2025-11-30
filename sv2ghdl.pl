@@ -23,7 +23,7 @@ my %MODES = (
 my $mode = 'standard';
 my $output_file;
 my $output_dir;
-my $emit_line_directives = 1;
+my $emit_line_directives = 0;
 my $verbose = 0;
 my $help = 0;
 my $version = 0;
