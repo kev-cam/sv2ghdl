@@ -5,7 +5,7 @@ VERILOG_FILES = $(wildcard *.v)
 WORK_DIR = work
 
 # Atalanta output files in work directory
-FAULT_VEC = $(patsubst %.v,work/%.test,$(VERILOG_FILES))
+FAULT_VEC = $(patsubst %.v,work/%.tst,$(VERILOG_FILES))
 VHDL_CASE = $(patsubst %.v,work/%.vhd,$(VERILOG_FILES))
 VHD_TESTS = $(patsubst %.v,work/%_tb.vhd,$(VERILOG_FILES))
 TEST_LOGS = $(patsubst %.v,work/%.run,$(VERILOG_FILES))
@@ -38,7 +38,7 @@ $(WORK_DIR)/%.bench: %.v | $(WORK_DIR)
 .PRECIOUS: $(WORK_DIR)/%.bench
 %.tst : %.bench 
 	cd $$(dirname $@) ; $(ATALANTA) $$(basename $<)
-	TEST=$(patsubst %.tst,%.test,$@) ; if [ -s '$$TEST' ] ; then mv $$TEST $@ ; else exit 1 ; fi
+	TEST=$(patsubst %.tst,%.test,$@) ; if [ -s $$TEST ] ; then mv $$TEST $@ ; else exit 1 ; fi
 
 %_tb.vhd: %.tst
 	cd $$(dirname $@) ; ../test2vhdl.pl $$(basename $<)
