@@ -1,29 +1,21 @@
-// JK flip-flop using gate primitives
+// JK flip-flop combinational logic using gate primitives
+// Next state: (j AND ~q) OR (~k AND q)
 module jkff (
-    input clk,
-    input rst,
     input j,
     input k,
-    output reg q
+    input q_in,
+    output y
 );
 
-wire q_next;
-wire set_term, reset_term, hold_term;
-
-// JK logic: q_next = (j AND ~q) OR (~k AND q)
+wire set_term, hold_term;
 wire not_q, not_k;
-not not1 (not_q, q);
+
+// JK logic: y = (j AND ~q_in) OR (~k AND q_in)
+not not1 (not_q, q_in);
 not not2 (not_k, k);
 
 and and1 (set_term, j, not_q);
-and and2 (hold_term, not_k, q);
-or  or1  (q_next, set_term, hold_term);
-
-always @(posedge clk or posedge rst) begin
-    if (rst)
-        q <= 1'b0;
-    else
-        q <= q_next;
-end
+and and2 (hold_term, not_k, q_in);
+or  or1  (y, set_term, hold_term);
 
 endmodule
