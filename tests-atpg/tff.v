@@ -1,21 +1,12 @@
-// T flip-flop (toggle flip-flop) using DFF and XOR gate
+// T flip-flop combinational logic
+// Output is XOR of inputs t and q_in
 module tff (
-    input clk,
-    input rst,
     input t,
-    output reg q
+    input q_in,
+    output y
 );
 
-wire q_next;
-
-// T flip-flop: q_next = t XOR q
-xor xor1 (q_next, t, q);
-
-always @(posedge clk or posedge rst) begin
-    if (rst)
-        q <= 1'b0;
-    else
-        q <= q_next;
-end
+// T flip-flop next state logic: y = t XOR q_in
+xor xor1 (y, t, q_in);
 
 endmodule

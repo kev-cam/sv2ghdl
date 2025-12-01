@@ -1,16 +1,15 @@
-// D flip-flop with asynchronous reset
+// D flip-flop combinational logic (mux controlled by rst)
+// When rst=1, output is 0; otherwise output follows d
 module dff (
-    input clk,
     input rst,
     input d,
-    output reg q
+    output y
 );
 
-always @(posedge clk or posedge rst) begin
-    if (rst)
-        q <= 1'b0;
-    else
-        q <= d;
-end
+wire not_rst, d_gated;
+
+not not1 (not_rst, rst);
+and and1 (d_gated, d, not_rst);
+buf buf1 (y, d_gated);
 
 endmodule
