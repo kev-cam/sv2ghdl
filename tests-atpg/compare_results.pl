@@ -8,15 +8,17 @@ use strict;
 use warnings;
 use File::Basename;
 
+my $suffix = "tst";
+
 my $work_dir = $ARGV[0] || 'work';
 
 # Find all .test files in work directory
 opendir(my $dh, $work_dir) or die "Can't open directory $work_dir: $!\n";
-my @test_files = grep { /\.test$/ && -f "$work_dir/$_" } readdir($dh);
+my @test_files = grep { /\.${suffix}$/ && -f "$work_dir/$_" } readdir($dh);
 closedir($dh);
 
 if (@test_files == 0) {
-    die "No .test files found in $work_dir/\n";
+    die "No .$suffix files found in $work_dir/\n";
 }
 
 print "Comparing test results in $work_dir/\n";
@@ -30,7 +32,7 @@ my @failed_tests;
 
 foreach my $test_file (sort @test_files) {
     my $test_path = "$work_dir/$test_file";
-    my $basename = basename($test_file, '.test');
+    my $basename = basename($test_file, ".$suffix");
     my $run_file = "$work_dir/$basename.run";
 
     $total_tests++;

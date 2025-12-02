@@ -18,6 +18,9 @@ all: $(WORK_DIR) vhdl fault_tests $(VHD_TESTS) $(TEST_LOGS) summary
 vhdl:
 	../sv2ghdl.pl -verbose -find . -d work
 
+simulate: $(TEST_LOGS)
+	$(MAKE) summary
+
 summary:
 	./compare_results.pl
 
@@ -45,7 +48,8 @@ $(WORK_DIR)/%.bench: %.v | $(WORK_DIR)
 
 %.run: %_tb.vhd
 	ghdl -a $< $(subst _tb,,$<)
-	ghdl -r  $(patsubst $(WORK_DIR)/%.vhd,%,$<) > $@
+	ghdl -r  $(patsubst $(WORK_DIR)/%.vhd,%,$<) > $@-tmp
+	mv $@-tmp $@
 
 # Clean work directory
 clean:
