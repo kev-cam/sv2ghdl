@@ -50,6 +50,47 @@ Rather than attempting to translate the full horror of SystemVerilog (classes, c
 
 This lets existing SV testbenches drive the translated VHDL design-under-test (DUT), gaining VHDL's simulation advantages without reimplementing SV's verification features. The full complexity of SV verification constructs doesn't need to be addressed - possibly ever.
 
+### Discipline and Nature Model for Wires
+
+VHDL lacks a true "wire" concept. Its `signal` is a value-over-time abstraction with resolution bolted onto the type system. Verilog has `wire` but SystemVerilog confuses it as a type rather than connectivity. VHDL-AMS's `terminal` doesn't quite fit either.
+
+We adopt **Verilog-AMS's discipline/nature terminology** for GHDL/NVC extensions:
+
+```
+           discipline electrical
+wire: ─────────┬──────────────────
+               │
+    ┌──────────┴──────────┐
+    │   driver            │
+    │   internal: logic   │  ← type (0,1,X,Z representation)
+    │   kind: potential   │  ← drives voltage ('1'→Vdd, '0'→Gnd)
+    └─────────────────────┘
+```
+
+**Key distinctions:**
+
+| Concept | What it is | Examples |
+|---------|-----------|----------|
+| **Discipline** | Physical nature of a wire | `electrical`, `thermal`, `mechanical` |
+| **Nature** | Quantities in a discipline | voltage/current, temperature/heat flow |
+| **Driver kind** | Potential (across) or flow (through) | voltage source vs current source |
+| **Internal type** | Model's representation | `logic`, `real`, `std_logic` |
+
+Digital logic drivers are **potential drivers** on an **electrical discipline**. They present voltage to the wire; current is consequential. The internal `logic` type (0,1,X,Z) maps to voltage levels. This is true even for "digital" simulation - the wire is always physical.
+
+**Two-phase elaboration:**
+
+1. **Connectivity phase** - Ports connect if disciplines match. Build the wire graph. Internal types, driver kinds don't matter yet.
+
+2. **Resolution analysis** - After connectivity is complete, examine each wire:
+   - Gather all connected drivers/receivers
+   - Determine resolution strategy based on participants:
+     - All potential drivers → voltage arbitration (std_logic-like)
+     - All flow drivers → current summation (KCL)
+     - Mixed → full electrical solve or defined priority
+
+This separates the **connectivity problem** (discipline matching) from the **resolution problem** (worked out post-elaboration based on actual participants). PWL (piecewise-linear) signals are discrete representations - just `(time, value)` pairs - that can be native VHDL types. The continuous DAE relationships live inside component models, not in interconnect semantics.
+
 ### ATPG-Driven Test Generation
 
 The project leverages **Automatic Test Pattern Generation (ATPG)** to create testbenches for translated logic:
@@ -251,6 +292,13 @@ make tests_atpg
 - [ ] cameron_eda library completion
 - [ ] Multi-UDN wire types
 - [ ] Improved X-propagation models
+
+### Phase 5: Discipline/Nature Wire Model
+- [ ] GHDL/NVC extensions for discipline declarations
+- [ ] Electrical discipline with potential/flow drivers
+- [ ] Two-phase elaboration: connectivity then resolution analysis
+- [ ] PWL signal types for discrete analog representation
+- [ ] Mixed potential/flow driver resolution
 
 ## Related Projects
 
