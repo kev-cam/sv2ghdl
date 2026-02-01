@@ -28,7 +28,7 @@ show:
 	@echo Verilog = $(VERILOG_FILES)
 	@echo Fault tests = $(FAULT_VEC)
 
-V2B=verilog2bench.pl
+V2B=./verilog2bench.pl
 ATALANTA=atalanta
 
 # Create work directory

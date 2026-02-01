@@ -54,20 +54,20 @@ for (my $i = 0; $i < @lines; $i++) {
         next;
     }
 
-    # Extract inputs
+    # Extract inputs (accumulate across multiple lines)
     if ($in_inputs && $line =~ /^\s+([\w\s]+)$/) {
         my $ports = $1;
-        @inputs = split /\s+/, $ports;
-        @inputs = grep { $_ ne '' } @inputs;
-        $in_inputs = 0;
+        my @port_list = split /\s+/, $ports;
+        @port_list = grep { $_ ne '' } @port_list;
+        push @inputs, @port_list;
     }
 
-    # Extract outputs
+    # Extract outputs (accumulate across multiple lines)
     if ($in_outputs && $line =~ /^\s+([\w\s]+)$/) {
         my $ports = $1;
-        @outputs = split /\s+/, $ports;
-        @outputs = grep { $_ ne '' } @outputs;
-        $in_outputs = 0;
+        my @port_list = split /\s+/, $ports;
+        @port_list = grep { $_ ne '' } @port_list;
+        push @outputs, @port_list;
     }
 
     # Extract test patterns (format: "  N: inputs outputs")
