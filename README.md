@@ -4,6 +4,19 @@
 
 sv2ghdl translates SystemVerilog RTL into VHDL for use with GHDL and NVC simulators. The generated VHDL leverages simulator extensions that go beyond what SystemVerilog offers, including multi-UDN wires, bidirectional components, and improved unknown-state handling.
 
+## Vision: HDLs for the AI Era
+
+IEEE standards are a **portable floor, not a ceiling**. They ensure baseline code works everywhere, but there's no reason you can't build on top. Commercial tools have always added proprietary extensions; open-source tools like GHDL and NVC can do the same - transparently.
+
+We aim to provide HDL capabilities suited to modern design challenges:
+
+- **Dynamically reconfigurable** - runtime adaptation, not just static netlists
+- **Parallel processing** - native support for massively parallel architectures
+- **Mixed-abstraction** - RTL, behavioral, analog, and system-level in one simulation
+- **Proper C++ interaction** - OO interfaces in VHDL/SV that map directly to C++ classes
+
+The translated VHDL core remains portable (standard IEEE), while extensions enable capabilities the standards committees couldn't agree on or didn't anticipate.
+
 ## Why Translate SV to VHDL?
 
 SystemVerilog is widely used for RTL design, but its simulation semantics have limitations:
@@ -90,6 +103,56 @@ Digital logic drivers are **potential drivers** on an **electrical discipline**.
      - Mixed → full electrical solve or defined priority
 
 This separates the **connectivity problem** (discipline matching) from the **resolution problem** (worked out post-elaboration based on actual participants). PWL (piecewise-linear) signals are discrete representations - just `(time, value)` pairs - that can be native VHDL types. The continuous DAE relationships live inside component models, not in interconnect semantics.
+
+### PWL Signals and the Federation Library
+
+PWL (piecewise-linear) waveforms are fundamental to analog/mixed-signal simulation. Unlike VHDL-AMS which lacks clean PWL syntax, we define PWL tables as native HDL data:
+
+**VHDL:**
+```vhdl
+type pwl_point is record
+  t : real;
+  v : real;
+end record;
+type pwl_table is array (natural range <>) of pwl_point;
+
+constant vdd_ramp : pwl_table := (
+  (0.0,    0.0),
+  (1.0e-9, 3.3),
+  (5.0e-6, 3.3),
+  (5.1e-6, 0.0)
+);
+```
+
+**SystemVerilog (testbench side):**
+```systemverilog
+real vdd_ramp[][] = '{
+  '{0.0,    0.0},
+  '{1.0e-9, 3.3},
+  '{5.0e-6, 3.3},
+  '{5.1e-6, 0.0}
+};
+```
+
+The **C++ federation library** provides runtime support via VHPI:
+
+```vhdl
+-- Foreign function declaration
+function pwl_value(source_id : integer) return real;
+attribute foreign of pwl_value : function is "VHPI libfederation.so pwl_value";
+```
+
+The library handles:
+- **Interpolation** - compute value at current time
+- **Breakpoint scheduling** - notify simulator of next transition
+- **SPICE-like sources** - PWL, SIN, PULSE, EXP, etc.
+- **Solver integration** - interface with Xyce or other analog engines
+
+This gives clean separation:
+- **Data in HDL** - portable, readable, version-controlled with the design
+- **Runtime in C++** - interpolation, scheduling, solver interface
+
+VHDL has limited OO support (protected types provide encapsulation but no inheritance), so complex runtime behavior belongs in the federation library rather than fighting VHDL's limitations.
 
 ### ATPG-Driven Test Generation
 
@@ -299,6 +362,13 @@ make tests_atpg
 - [ ] Two-phase elaboration: connectivity then resolution analysis
 - [ ] PWL signal types for discrete analog representation
 - [ ] Mixed potential/flow driver resolution
+
+### Phase 6: Federation Library (C++)
+- [ ] VHPI interface for GHDL/NVC
+- [ ] PWL source implementation with breakpoint scheduling
+- [ ] SPICE-like sources (SIN, PULSE, EXP)
+- [ ] Xyce integration for analog solving
+- [ ] SV testbench bridge
 
 ## Related Projects
 
