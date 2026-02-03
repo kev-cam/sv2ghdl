@@ -376,6 +376,15 @@ make tests_atpg
 - [NVC](https://github.com/nickg/nvc) - VHDL compiler and simulator
 - [Verilator](https://github.com/verilator/verilator) - Verilog/SV simulator (for comparison)
 
+## References
+
+- **P1800 Proposals for Mixed-UDN Support** (Kevin Cameron) - IEEE P1800 SystemVerilog proposal for mixed user-defined net types, defining the driver/receiver model, nature/discipline semantics, connect-modules, and resolution strategies that inform this project's architecture. Key concepts:
+  - Drivers and receivers as first-class constructs with `.driver[i].value`, `.waveform`, `.mine`, `.find()`
+  - Nature-labeled UDN structs (`potential Voltage:`, `flow Current:`)
+  - Resolvers as simulation artifacts in "resolver space"
+  - No-MAR (per-receiver) resolution for performance
+  - Arena resolution for RF/free-space modeling
+
 ## License
 
 GPL v2+
