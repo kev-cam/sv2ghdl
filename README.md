@@ -378,7 +378,7 @@ make tests_atpg
 
 ## References
 
-- **P1800 Proposals for Mixed-UDN Support** (Kevin Cameron) - IEEE P1800 SystemVerilog proposal for mixed user-defined net types, defining the driver/receiver model, nature/discipline semantics, connect-modules, and resolution strategies that inform this project's architecture. Key concepts:
+- **[P1800 Proposals for Mixed-UDN Support](docs/P1800%20Proposals%20for%20Mixed-UDN%20support.pdf)** (Kevin Cameron) - IEEE P1800 SystemVerilog proposal for mixed user-defined net types, defining the driver/receiver model, nature/discipline semantics, connect-modules, and resolution strategies that inform this project's architecture. Key concepts:
   - Drivers and receivers as first-class constructs with `.driver[i].value`, `.waveform`, `.mine`, `.find()`
   - Nature-labeled UDN structs (`potential Voltage:`, `flow Current:`)
   - Resolvers as simulation artifacts in "resolver space"
