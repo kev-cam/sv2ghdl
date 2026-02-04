@@ -330,6 +330,73 @@ make test_misc
 make tests_atpg
 ```
 
+## Proposed VHDL Extensions (GHDL/NVC)
+
+The sv_primitives library requires VHDL extensions for proper bidirectional switch modeling. These are proposed for implementation in GHDL and NVC.
+
+### Signal Attributes for Bidirectional Modeling
+
+**`'driver`** - Access to the local driver of a resolved signal
+
+Standard VHDL provides no way to write to a signal's driver separately from reading its resolved value. For bidirectional switches, we need to drive one side based on the *other* drivers on the opposite side, without creating a combinational loop.
+
+```vhdl
+-- Extension: 'driver as assignment target
+a'driver <= b_ext;  -- Drive a's local driver with value from b
+```
+
+**`'others`** - Resolved value excluding local driver(s)
+
+Returns the resolution of all drivers on a signal *except* the current process's driver. Essential for modeling pass transistors that observe external drivers and conditionally pass through.
+
+```vhdl
+-- Extension: 'others in sensitivity list and expressions
+process (a'others, b'others)
+begin
+    a'driver <= b'others;  -- Pass external b to a
+    b'driver <= a'others;  -- Pass external a to b
+end process;
+```
+
+### Blocking Assignment to Drivers
+
+For switch-level modeling, `'driver` assignments can use blocking (`:=`) semantics:
+
+```vhdl
+a'driver := b_ext;  -- Blocking: immediate, no delta cycle
+a'driver <= b_ext;  -- Non-blocking: scheduled (existing)
+```
+
+**Rationale:**
+- **Performance** - Bidirectional switches (`tran`, `rtran`) have no propagation delay per IEEE 1800. Scheduling through the event queue adds overhead with no semantic benefit.
+- **Semantics** - Direct driver manipulation is inherently immediate; the driver value *is* set, not scheduled to be set.
+- **Precedent** - Mirrors SystemVerilog's `=` (blocking) vs `<=` (non-blocking) distinction, which exists for exactly this performance/semantics tradeoff.
+
+For switch networks with many cascaded `tran` gates, avoiding delta cycles on every pass-through could yield significant simulation speedup.
+
+### Usage in sv_primitives
+
+The bidirectional switch primitives use these extensions:
+
+```vhdl
+-- sv_tran: always-on bidirectional switch
+entity sv_tran is
+    port (
+        a : inout logic_3d_r;
+        b : inout logic_3d_r
+    );
+end entity;
+
+architecture behavioral of sv_tran is
+begin
+    process (a'others, b'others)
+    begin
+        a'driver := b'others;  -- Blocking for performance
+        b'driver := a'others;
+    end process;
+end architecture;
+```
+
 ## Roadmap
 
 ### Phase 1: RTL Translation (current)
@@ -356,7 +423,14 @@ make tests_atpg
 - [ ] Multi-UDN wire types
 - [ ] Improved X-propagation models
 
-### Phase 5: Discipline/Nature Wire Model
+### Phase 5: VHDL Simulator Extensions
+- [ ] `'driver` attribute for direct driver access
+- [ ] `'others` attribute for external driver resolution
+- [ ] Blocking assignment (`:=`) to `'driver` for switch modeling
+- [ ] Prototype implementation in NVC
+- [ ] sv_primitives library validation with extended NVC
+
+### Phase 6: Discipline/Nature Wire Model
 - [ ] GHDL/NVC extensions for discipline declarations
 - [ ] Electrical discipline with potential/flow drivers
 - [ ] Two-phase elaboration: connectivity then resolution analysis
