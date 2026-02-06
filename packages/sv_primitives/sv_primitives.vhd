@@ -698,9 +698,35 @@ entity sv_nmos is
     );
 end entity sv_nmos;
 
-architecture stub of sv_nmos is
+architecture behavioral of sv_nmos is
 begin
-end architecture stub;
+    -- NMOS conducts when gate=1, passes data through
+    process (data, gate)
+    begin
+        if not gate.uncertain and gate.value then
+            -- gate = 1: conducting, pass data
+            if data.uncertain then
+                y <= L3D_X;
+            elsif data.value then
+                y <= L3D_1;
+            else
+                y <= L3D_0;
+            end if;
+        elsif not gate.uncertain and not gate.value then
+            -- gate = 0: not conducting
+            y <= L3D_Z;
+        else
+            -- gate = X/Z: weak pass-through
+            if data.uncertain then
+                y <= L3D_X;
+            elsif data.value then
+                y <= L3D_H;
+            else
+                y <= L3D_L;
+            end if;
+        end if;
+    end process;
+end architecture behavioral;
 
 ---------------------------------------------------------------------------
 library ieee;
@@ -717,9 +743,35 @@ entity sv_pmos is
     );
 end entity sv_pmos;
 
-architecture stub of sv_pmos is
+architecture behavioral of sv_pmos is
 begin
-end architecture stub;
+    -- PMOS conducts when gate=0, passes data through
+    process (data, gate)
+    begin
+        if not gate.uncertain and not gate.value then
+            -- gate = 0: conducting, pass data
+            if data.uncertain then
+                y <= L3D_X;
+            elsif data.value then
+                y <= L3D_1;
+            else
+                y <= L3D_0;
+            end if;
+        elsif not gate.uncertain and gate.value then
+            -- gate = 1: not conducting
+            y <= L3D_Z;
+        else
+            -- gate = X/Z: weak pass-through
+            if data.uncertain then
+                y <= L3D_X;
+            elsif data.value then
+                y <= L3D_H;
+            else
+                y <= L3D_L;
+            end if;
+        end if;
+    end process;
+end architecture behavioral;
 
 ---------------------------------------------------------------------------
 library ieee;
@@ -736,9 +788,35 @@ entity sv_rnmos is
     );
 end entity sv_rnmos;
 
-architecture stub of sv_rnmos is
+architecture behavioral of sv_rnmos is
 begin
-end architecture stub;
+    -- Resistive NMOS: conducts when gate=1, reduces strength
+    process (data, gate)
+    begin
+        if not gate.uncertain and gate.value then
+            -- gate = 1: conducting with reduced strength
+            if data.uncertain then
+                y <= L3D_W;  -- weak unknown
+            elsif data.value then
+                y <= L3D_H;  -- weak 1
+            else
+                y <= L3D_L;  -- weak 0
+            end if;
+        elsif not gate.uncertain and not gate.value then
+            -- gate = 0: not conducting
+            y <= L3D_Z;
+        else
+            -- gate = X/Z: weak pass-through (already weak)
+            if data.uncertain then
+                y <= L3D_W;
+            elsif data.value then
+                y <= L3D_H;
+            else
+                y <= L3D_L;
+            end if;
+        end if;
+    end process;
+end architecture behavioral;
 
 ---------------------------------------------------------------------------
 library ieee;
@@ -755,9 +833,35 @@ entity sv_rpmos is
     );
 end entity sv_rpmos;
 
-architecture stub of sv_rpmos is
+architecture behavioral of sv_rpmos is
 begin
-end architecture stub;
+    -- Resistive PMOS: conducts when gate=0, reduces strength
+    process (data, gate)
+    begin
+        if not gate.uncertain and not gate.value then
+            -- gate = 0: conducting with reduced strength
+            if data.uncertain then
+                y <= L3D_W;
+            elsif data.value then
+                y <= L3D_H;
+            else
+                y <= L3D_L;
+            end if;
+        elsif not gate.uncertain and gate.value then
+            -- gate = 1: not conducting
+            y <= L3D_Z;
+        else
+            -- gate = X/Z: weak pass-through
+            if data.uncertain then
+                y <= L3D_W;
+            elsif data.value then
+                y <= L3D_H;
+            else
+                y <= L3D_L;
+            end if;
+        end if;
+    end process;
+end architecture behavioral;
 
 ---------------------------------------------------------------------------
 -- 28.9 CMOS SWITCHES
@@ -779,9 +883,46 @@ entity sv_cmos is
     );
 end entity sv_cmos;
 
-architecture stub of sv_cmos is
+architecture behavioral of sv_cmos is
+    -- CMOS = NMOS + PMOS in parallel
+    -- nmos conducts when ngate=1, pmos conducts when pgate=0
+    -- Typical usage: ngate and pgate are complementary (ngate = NOT pgate)
 begin
-end architecture stub;
+    process (data, ngate, pgate)
+        variable nmos_on : boolean;
+        variable pmos_on : boolean;
+        variable nmos_uncertain : boolean;
+        variable pmos_uncertain : boolean;
+    begin
+        nmos_on := not ngate.uncertain and ngate.value;           -- ngate = 1
+        pmos_on := not pgate.uncertain and not pgate.value;       -- pgate = 0
+        nmos_uncertain := ngate.uncertain;
+        pmos_uncertain := pgate.uncertain;
+
+        if nmos_on or pmos_on then
+            -- At least one device conducting: pass data through
+            if data.uncertain then
+                y <= L3D_X;
+            elsif data.value then
+                y <= L3D_1;
+            else
+                y <= L3D_0;
+            end if;
+        elsif nmos_uncertain or pmos_uncertain then
+            -- Uncertain control: weak pass-through
+            if data.uncertain then
+                y <= L3D_X;
+            elsif data.value then
+                y <= L3D_H;
+            else
+                y <= L3D_L;
+            end if;
+        else
+            -- Both devices off: high-Z
+            y <= L3D_Z;
+        end if;
+    end process;
+end architecture behavioral;
 
 ---------------------------------------------------------------------------
 library ieee;
@@ -799,9 +940,35 @@ entity sv_rcmos is
     );
 end entity sv_rcmos;
 
-architecture stub of sv_rcmos is
+architecture behavioral of sv_rcmos is
+    -- Resistive CMOS: same as CMOS but reduces strength
 begin
-end architecture stub;
+    process (data, ngate, pgate)
+        variable nmos_on : boolean;
+        variable pmos_on : boolean;
+        variable nmos_uncertain : boolean;
+        variable pmos_uncertain : boolean;
+    begin
+        nmos_on := not ngate.uncertain and ngate.value;
+        pmos_on := not pgate.uncertain and not pgate.value;
+        nmos_uncertain := ngate.uncertain;
+        pmos_uncertain := pgate.uncertain;
+
+        if nmos_on or pmos_on or nmos_uncertain or pmos_uncertain then
+            -- Conducting (or uncertain): pass data with reduced strength
+            if data.uncertain then
+                y <= L3D_W;
+            elsif data.value then
+                y <= L3D_H;
+            else
+                y <= L3D_L;
+            end if;
+        else
+            -- Both devices off: high-Z
+            y <= L3D_Z;
+        end if;
+    end process;
+end architecture behavioral;
 
 ---------------------------------------------------------------------------
 -- 28.8 BIDIRECTIONAL PASS SWITCHES
@@ -822,7 +989,16 @@ entity sv_tran is
 end entity sv_tran;
 
 architecture stub of sv_tran is
+    -- TRAN: Always-on bidirectional switch
+    -- STUB: Requires 'others and 'driver NVC extensions for proper implementation
+    -- Intended implementation:
+    --   process (a'others, b'others)
+    --   begin
+    --       a'driver := b'others;
+    --       b'driver := a'others;
+    --   end process;
 begin
+    -- Cannot implement without 'others/'driver extensions
 end architecture stub;
 
 ---------------------------------------------------------------------------
@@ -841,6 +1017,8 @@ entity sv_tranif0 is
 end entity sv_tranif0;
 
 architecture stub of sv_tranif0 is
+    -- TRANIF0: Bidirectional switch, conducts when ctrl=0
+    -- STUB: Requires 'others and 'driver NVC extensions
 begin
 end architecture stub;
 
@@ -860,6 +1038,8 @@ entity sv_tranif1 is
 end entity sv_tranif1;
 
 architecture stub of sv_tranif1 is
+    -- TRANIF1: Bidirectional switch, conducts when ctrl=1
+    -- STUB: Requires 'others and 'driver NVC extensions
 begin
 end architecture stub;
 
@@ -878,6 +1058,8 @@ entity sv_rtran is
 end entity sv_rtran;
 
 architecture stub of sv_rtran is
+    -- RTRAN: Resistive always-on bidirectional switch (reduces strength)
+    -- STUB: Requires 'others and 'driver NVC extensions
 begin
 end architecture stub;
 
@@ -897,6 +1079,8 @@ entity sv_rtranif0 is
 end entity sv_rtranif0;
 
 architecture stub of sv_rtranif0 is
+    -- RTRANIF0: Resistive bidirectional switch, conducts when ctrl=0
+    -- STUB: Requires 'others and 'driver NVC extensions
 begin
 end architecture stub;
 
@@ -916,6 +1100,8 @@ entity sv_rtranif1 is
 end entity sv_rtranif1;
 
 architecture stub of sv_rtranif1 is
+    -- RTRANIF1: Resistive bidirectional switch, conducts when ctrl=1
+    -- STUB: Requires 'others and 'driver NVC extensions
 begin
 end architecture stub;
 
@@ -936,9 +1122,11 @@ entity sv_pullup is
     );
 end entity sv_pullup;
 
-architecture stub of sv_pullup is
+architecture behavioral of sv_pullup is
+    -- PULLUP: Constant weak 1 (H) driver
 begin
-end architecture stub;
+    y <= L3D_H;
+end architecture behavioral;
 
 ---------------------------------------------------------------------------
 library ieee;
@@ -953,6 +1141,8 @@ entity sv_pulldown is
     );
 end entity sv_pulldown;
 
-architecture stub of sv_pulldown is
+architecture behavioral of sv_pulldown is
+    -- PULLDOWN: Constant weak 0 (L) driver
 begin
-end architecture stub;
+    y <= L3D_L;
+end architecture behavioral;
