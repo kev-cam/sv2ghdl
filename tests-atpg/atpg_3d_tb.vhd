@@ -2,7 +2,7 @@
 -- Tests gates with Atalanta-generated patterns plus X propagation
 
 library work;
-use work.logic3d_pkg.all;
+use work.logic3d_types_pkg.all;
 
 entity atpg_3d_tb is
 end entity;

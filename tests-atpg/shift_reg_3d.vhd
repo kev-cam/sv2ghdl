@@ -2,7 +2,7 @@
 -- 4-bit shift register combinational logic
 
 library work;
-use work.logic3d_pkg.all;
+use work.logic3d_types_pkg.all;
 
 entity shift_reg_3d is
     port (

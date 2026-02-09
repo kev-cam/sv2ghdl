@@ -2,7 +2,7 @@
 -- D flip-flop combinational logic (mux controlled by rst)
 
 library work;
-use work.logic3d_pkg.all;
+use work.logic3d_types_pkg.all;
 
 entity dff_3d is
     port (

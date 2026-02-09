@@ -2,7 +2,7 @@
 -- Tests (a AND b) OR (c AND d) with X propagation/masking
 
 library work;
-use work.logic3d_pkg.all;
+use work.logic3d_types_pkg.all;
 
 entity and_or_3d_tb is
 end entity;

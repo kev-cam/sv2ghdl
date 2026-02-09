@@ -2,7 +2,7 @@
 -- Converted from Verilog gate-level netlist
 
 library work;
-use work.logic3d_pkg.all;
+use work.logic3d_types_pkg.all;
 
 entity and_gate_3d is
     port (

@@ -3,7 +3,7 @@
 -- Single expression - no intermediate signals, no delta cycles
 
 library work;
-use work.logic3d_pkg.all;
+use work.logic3d_types_pkg.all;
 
 entity and_or_reg_3d is
     port (
