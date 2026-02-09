@@ -1,6 +1,10 @@
-# Generated VHDL files
-*.vhd
+# Generated VHDL files (in work/ and vhdl_output/)
 vhdl_output/
+
+# But keep 3D logic source files
+!tests-atpg/logic3d*.vhd
+!tests-atpg/*_3d.vhd
+!tests-atpg/*_3d_tb.vhd
 
 # Perl temporary files
 *.swp

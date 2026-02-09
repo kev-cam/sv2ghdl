@@ -15,8 +15,9 @@ our $VERSION = "0.1.0";
 
 # Translation mode
 my %MODES = (
-    'standard'           => { lib => 'ieee',        temporal => 0, accel => 0 },
-    'enhanced'           => { lib => 'cameron_eda', temporal => 0, accel => 0 },
+    'standard'           => { lib => 'ieee',        temporal => 0, accel => 0, logic3d => 0 },
+    'enhanced'           => { lib => 'cameron_eda', temporal => 0, accel => 0, logic3d => 0 },
+    'logic3d'            => { lib => 'work',        temporal => 0, accel => 0, logic3d => 1 },
 );
 
 # Command-line options
@@ -261,7 +262,7 @@ sub translate_line {
     # Ports
     if ($line =~ /^\s*input\s+(?:wire\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
-        my $vhdl_type = port_type($msb, $lsb, $config->{lib});
+        my $vhdl_type = port_type($msb, $lsb, $config);
         my $separator = ($term eq ',') ? ';' : '';
         return line_directive($line_num, $source_file) .
                "    $name : in $vhdl_type$separator\n";
@@ -269,7 +270,7 @@ sub translate_line {
 
     if ($line =~ /^\s*output\s+(?:reg\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
-        my $vhdl_type = port_type($msb, $lsb, $config->{lib});
+        my $vhdl_type = port_type($msb, $lsb, $config);
         my $separator = ($term eq ',') ? ';' : '';
 
         # Create unsigned intermediate for vector outputs with reg (implies arithmetic)
@@ -284,7 +285,7 @@ sub translate_line {
     # Wire/reg declarations (internal signals) - multiple signals on one line
     if ($line =~ /^\s*(?:wire|reg)\s+(?:\[(\d+):(\d+)\]\s+)?([\w\s,]+);/) {
         my ($msb, $lsb, $names) = ($1, $2, $3);
-        my $vhdl_type = port_type($msb, $lsb, $config->{lib});
+        my $vhdl_type = port_type($msb, $lsb, $config);
 
         # Split multiple signal names
         my @signal_names = split /\s*,\s*/, $names;
@@ -418,14 +419,22 @@ sub translate_line {
     # Verilog gate primitives (2-input gates)
     if ($line =~ /^\s*(and|or|nand|nor|xor|xnor)\s+\w+\s*\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\)\s*;/) {
         my ($gate, $output, $in1, $in2) = ($1, $2, $3, $4);
-        return line_directive($line_num, $source_file) .
-               "  $output <= $in1 $gate $in2;\n";
+        if ($config->{logic3d}) {
+            return line_directive($line_num, $source_file) .
+                   "  $output <= l3d_$gate($in1, $in2);\n";
+        } else {
+            return line_directive($line_num, $source_file) .
+                   "  $output <= $in1 $gate $in2;\n";
+        }
     }
 
     # Verilog gate primitives (1-input gates: not, buf)
     if ($line =~ /^\s*(not|buf)\s+\w+\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*;/) {
         my ($gate, $output, $input) = ($1, $2, $3);
-        if ($gate eq 'not') {
+        if ($config->{logic3d}) {
+            return line_directive($line_num, $source_file) .
+                   "  $output <= l3d_$gate($input);\n";
+        } elsif ($gate eq 'not') {
             return line_directive($line_num, $source_file) .
                    "  $output <= not $input;\n";
         } elsif ($gate eq 'buf') {
@@ -578,9 +587,12 @@ sub glob_to_regex {
 }
 
 sub port_type {
-    my ($msb, $lsb, $lib) = @_;
-    
-    if (defined $msb && defined $lsb) {
+    my ($msb, $lsb, $config) = @_;
+
+    if ($config->{logic3d}) {
+        # 3D logic mode - single bit only for ATPG gates
+        return "logic3d";
+    } elsif (defined $msb && defined $lsb) {
         return "std_logic_vector($msb downto $lsb)";
     } else {
         return "std_logic";
@@ -669,7 +681,10 @@ sub generate_header {
     $header .= "-- Mode: $mode\n";
     $header .= "-- sv2ghdl version $VERSION\n\n";
     
-    if ($lib eq 'ieee') {
+    if ($config->{logic3d}) {
+        $header .= "library work;\n";
+        $header .= "use work.logic3d_pkg.all;\n\n";
+    } elsif ($lib eq 'ieee') {
         $header .= "library ieee;\n";
         $header .= "use ieee.std_logic_1164.all;\n";
         $header .= "use ieee.numeric_std.all;\n\n";
