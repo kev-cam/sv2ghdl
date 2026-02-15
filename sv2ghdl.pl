@@ -160,8 +160,41 @@ sub translate_file {
     my $port_section_done = 0;
     my $arch_header_idx = -1;  # Index where architecture header ends
 
+    my $in_block_comment = 0;
+    my $in_initial = 0;
+    my $initial_depth = 0;  # begin/end nesting depth within initial
+    my $initial_pending = 0;  # saw 'initial' alone, waiting for begin/stmt
+    my @block_stack;  # tracks what each begin/end nesting level is: 'initial', 'if', 'else', 'block'
+    my $last_keyword = '';  # last control keyword seen (for begin context)
+
     foreach my $line (@lines) {
         $line_num++;
+
+        # Strip Verilog attributes (* ... *)
+        $line =~ s/\(\*.*?\*\)\s*//g;
+
+        # Handle block comments /* ... */
+        if ($in_block_comment) {
+            if ($line =~ s/^.*?\*\///) {
+                $in_block_comment = 0;
+                # Fall through to process rest of line
+            } else {
+                push @output, "--" . $line;
+                next;
+            }
+        }
+        # Strip inline block comments and detect unterminated ones
+        while ($line =~ s|/\*.*?\*/||g) {}  # Remove complete inline comments
+        if ($line =~ s|/\*.*$||) {
+            $in_block_comment = 1;
+            # Process what's left of the line before the comment
+        }
+
+        # Skip empty lines left after comment stripping
+        if ($line =~ /^\s*$/) {
+            push @output, "\n";
+            next;
+        }
 
         # State machine for entity/architecture boundary
         if ($line =~ /^\s*module\s+\w+/) {
@@ -172,7 +205,7 @@ sub translate_file {
         # Skip module, input, output, inout, parameter lines
         if ($in_entity && !$port_section_done &&
             $line !~ /^\s*(?:module|input|output|inout|parameter)\b/ &&
-            ($line =~ /^\s*(?:wire|reg|always|assign)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
+            ($line =~ /^\s*(?:wire|reg|always|assign|initial)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
             # Close entity, start architecture
             push @output, "end entity;\n\n";
             push @output, generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
@@ -186,7 +219,9 @@ sub translate_file {
             next;  # Footer will be added after loop
         }
 
-        my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture);
+        my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture,
+                                  \$in_initial, \$initial_depth, \$initial_pending,
+                                  \@block_stack, \$last_keyword);
 
 	if ($vhdl) {
 	    push @output,$vhdl;
@@ -231,26 +266,179 @@ sub translate_file {
 #-----------------------------------------------------------------------------
 
 sub translate_line {
-    my ($line, $line_num, $source_file, $mode) = @_;
-    
+    my ($line, $line_num, $source_file, $mode, $in_entity, $in_architecture,
+        $in_initial_ref, $initial_depth_ref, $initial_pending_ref,
+        $block_stack_ref, $last_keyword_ref) = @_;
+
     my $config = $MODES{$mode};
-    
+
     # Preserve blank lines
     return $line if $line =~ /^\s*$/;
-    
+
     # Preserve comments
     if ($line =~ m{^\s*//(.*)}) {
         return "--$1\n";
     }
-    
-    # Module declaration
-    if ($line =~ /^\s*module\s+(\w+)\s*\(/) {
+
+    # Preprocessor directives
+    if ($line =~ /^\s*`timescale\b/) {
+        return "-- " . $line;  # No VHDL equivalent
+    }
+    if ($line =~ /^\s*`include\b/) {
+        return "-- " . $line;  # Include files not supported
+    }
+    if ($line =~ /^\s*`(?:define|ifdef|ifndef|else|endif|undef)\b/) {
+        return "-- " . $line;
+    }
+
+    # --- Handle pending initial (saw 'initial' alone, waiting for begin/stmt) ---
+    if ($$initial_pending_ref) {
+        $$initial_pending_ref = 0;
+        if ($line =~ /^\s*begin\s*$/) {
+            $$in_initial_ref = 1;
+            $$initial_depth_ref = 1;
+            push @$block_stack_ref, 'initial';
+            return "  process\n  begin\n";
+        }
+        # Single statement after bare 'initial'
+        my $stmt = $line;
+        $stmt =~ s/^\s+//;
+        $stmt =~ s/\s+$//;
+        my $translated = translate_statement($stmt, $line_num, $source_file, $config);
+        return "  process\n  begin\n" .
+               "    $translated\n" .
+               "    wait;\n  end process;\n";
+    }
+
+    # --- Initial/sequential block state tracking ---
+    if ($$in_initial_ref) {
+        # Handle begin/end nesting within initial/sequential blocks
+        if ($line =~ /^\s*begin\s*$/) {
+            $$initial_depth_ref++;
+            # Determine context from last keyword
+            my $ctx = $$last_keyword_ref || 'block';
+            push @$block_stack_ref, $ctx;
+            $$last_keyword_ref = '';
+            return "";  # begin consumed (VHDL uses then/loop/etc. instead)
+        }
+        if ($line =~ /^\s*end\s*$/) {
+            $$initial_depth_ref--;
+            my $ctx = pop @$block_stack_ref // 'block';
+            if ($$initial_depth_ref <= 0) {
+                $$in_initial_ref = 0;
+                $$initial_depth_ref = 0;
+                @$block_stack_ref = ();
+                # Close any open if, then close process
+                my $close = "";
+                $close .= "    end if;\n" if $ctx eq 'if' || $ctx eq 'else';
+                return "${close}    wait;\n  end process;\n";
+            }
+            # Generate proper closing for the block context
+            if ($ctx eq 'if' || $ctx eq 'else') {
+                return "    end if;\n";
+            }
+            return "";  # plain block, no VHDL close needed
+        }
+    }
+
+    # Initial block with begin (on same line)
+    if ($line =~ /^\s*initial\s+begin\s*$/) {
+        $$in_initial_ref = 1;
+        $$initial_depth_ref = 1;
+        push @$block_stack_ref, 'initial';
+        $$last_keyword_ref = '';
         return line_directive($line_num, $source_file) .
-               "entity $1 is\n  port (\n";
+               "  process\n  begin\n";
+    }
+
+    # Bare 'initial' alone on a line — begin/stmt comes next
+    if ($line =~ /^\s*initial\s*$/) {
+        $$initial_pending_ref = 1;
+        return line_directive($line_num, $source_file);
+    }
+
+    # Initial block - single statement (no begin)
+    if ($line =~ /^\s*initial\s+(.+)/) {
+        my $stmt = $1;
+        my $translated = translate_statement($stmt, $line_num, $source_file, $config);
+        return line_directive($line_num, $source_file) .
+               "  process\n  begin\n" .
+               "    $translated\n" .
+               "    wait;\n  end process;\n";
+    }
+
+    # --- Delay statements ---
+    if ($line =~ /^\s*#\s*(\d+)\s*;?\s*$/) {
+        return line_directive($line_num, $source_file) .
+               "    wait for $1 ns;\n";
+    }
+
+    # --- Event declarations and triggers ---
+    if ($line =~ /^\s*event\s+\w+/) {
+        return "-- " . $line;  # Events have no direct VHDL equivalent
+    }
+    if ($line =~ /^\s*->\s*\w+/) {
+        return "-- " . $line;  # Event trigger: no direct VHDL equivalent
+    }
+
+    # --- Wait statements ---
+    if ($line =~ /^\s*wait\s*\(.+\)\s*;/) {
+        return "-- " . $line;  # wait(expr) not yet translated
+    }
+
+    # --- Fork/join, disable, forever ---
+    if ($line =~ /^\s*(?:fork|join)\b/) {
+        return "-- " . $line;
+    }
+    if ($line =~ /^\s*disable\s+\w+/) {
+        return "-- " . $line;
+    }
+    if ($line =~ /^\s*forever\b/) {
+        return "-- " . $line;
+    }
+
+    # --- System tasks (inside processes) ---
+    # $display with no args or empty parens = just a newline
+    if ($line =~ /^\s*\$display\s*(?:\(\s*\))?\s*;/) {
+        return line_directive($line_num, $source_file) .
+               "    report \"\" severity note;\n";
+    }
+    if ($line =~ /^\s*\$display\s*\((.+)\)\s*;/) {
+        my $args = $1;
+        return line_directive($line_num, $source_file) .
+               "    " . translate_display($args) . "\n";
+    }
+    if ($line =~ /^\s*\$write\s*\((.+)\)\s*;/) {
+        my $args = $1;
+        return line_directive($line_num, $source_file) .
+               "    " . translate_display($args) . "\n";
+    }
+    if ($line =~ /^\s*\$finish\s*(?:\(\s*\d*\s*\))?\s*;/) {
+        return line_directive($line_num, $source_file) .
+               "    std.env.finish;\n";
+    }
+    if ($line =~ /^\s*\$stop\s*(?:\(\s*\d*\s*\))?\s*;/) {
+        return line_directive($line_num, $source_file) .
+               "    std.env.stop;\n";
+    }
+    # Other system tasks - comment out rather than FIXME (cleaner output)
+    if ($line =~ /^\s*\$\w+/) {
+        return "-- " . $line;
+    }
+
+    # Module declaration — order matters: empty port list before generic port open
+    if ($line =~ /^\s*module\s+(\w+)\s*\(\s*\)\s*;/) {
+        # Module with empty port list: module foo();
+        return line_directive($line_num, $source_file) .
+               "entity $1 is\n";
     }
     if ($line =~ /^\s*module\s+(\w+)\s*;/) {
         return line_directive($line_num, $source_file) .
                "entity $1 is\n";
+    }
+    if ($line =~ /^\s*module\s+(\w+)\s*\(/) {
+        return line_directive($line_num, $source_file) .
+               "entity $1 is\n  port (\n";
     }
     
     # Parameters -> Generics
@@ -370,6 +558,7 @@ sub translate_line {
     # If statements
     if ($line =~ /^\s*if\s*\((.+)\)\s*$/) {
         my $condition = translate_condition($1);
+        $$last_keyword_ref = 'if' if $last_keyword_ref;
         return line_directive($line_num, $source_file) .
                "      if $condition then\n";
     }
@@ -377,6 +566,7 @@ sub translate_line {
     # Else if statements
     if ($line =~ /^\s*else\s+if\s*\((.+)\)\s*$/) {
         my $condition = translate_condition($1);
+        $$last_keyword_ref = 'if' if $last_keyword_ref;
         return line_directive($line_num, $source_file) .
                "      elsif $condition then\n";
     }
@@ -391,6 +581,7 @@ sub translate_line {
             $async_reset_clk = undef;  # Clear for next process
             return $result;
         } else {
+            $$last_keyword_ref = 'else' if $last_keyword_ref;
             return line_directive($line_num, $source_file) .
                    "      else\n";
         }
@@ -472,7 +663,9 @@ sub translate_line {
 sub extract_module_name {
     my ($lines) = @_;
     foreach my $line (@$lines) {
-        if ($line =~ /^\s*module\s+(\w+)/) {
+        my $l = $line;
+        $l =~ s/\(\*.*?\*\)\s*//g;  # Strip attributes
+        if ($l =~ /^\s*module\s+(\w+)/) {
             return $1;
         }
     }
@@ -605,9 +798,10 @@ sub translate_expression {
     # Numeric literals: 8'h00 -> x"00", 8'd10 -> std_logic_vector(to_unsigned(10, 8))
     $expr =~ s/(\d+)'h([0-9a-fA-F]+)/x"$2"/g;
     $expr =~ s/(\d+)'d(\d+)/std_logic_vector(to_unsigned($2, $1))/g;
-    # Single bit: 1'b0 -> '0', multi-bit: 4'b0101 -> "0101"
-    $expr =~ s/1'b([01])/'$1'/g;
-    $expr =~ s/(\d+)'b([01]+)/"$2"/g;
+    # Single bit: 1'b0 -> '0', 1'bx -> 'X', 1'bz -> 'Z'
+    $expr =~ s/1'b([01xXzZ])/'\U$1\E'/g;
+    # Multi-bit binary: 4'b0101 -> "0101", 4'bxxxx -> "XXXX"
+    $expr =~ s/(\d+)'b([01xXzZ]+)/"\U$2\E"/g;
 
     # Bit slicing: signal[msb:lsb] -> signal(msb downto lsb)
     $expr =~ s/(\w+)\[(\d+):(\d+)\]/$1($2 downto $3)/g;
@@ -639,6 +833,9 @@ sub translate_condition {
     # Remove whitespace
     $cond =~ s/^\s+|\s+$//g;
 
+    # Translate expressions within the condition
+    $cond = translate_expression($cond);
+
     # If it's just a bare identifier (no operators), add = '1'
     if ($cond =~ /^(\w+)$/) {
         return "$1 = '1'";
@@ -649,7 +846,15 @@ sub translate_condition {
         return "$1 = '0'";
     }
 
-    # Otherwise return as-is (already has comparison operators)
+    # Translate comparison operators
+    $cond =~ s/!==/\/=  /g;  # Verilog case inequality (extra space to not re-match)
+    $cond =~ s/===/=   /g;  # Verilog case equality
+    $cond =~ s/!=/\/=/g;    # Verilog inequality -> VHDL /=
+    $cond =~ s/==/=/g;      # Verilog equality -> VHDL =
+
+    # Clean up extra spaces from case operator translation
+    $cond =~ s/\s+/ /g;
+
     return $cond;
 }
 
@@ -657,6 +862,76 @@ sub concat {
     my ($items) = @_;
     my @parts = split /\s*,\s*/, $items;
     return join(' & ', @parts);
+}
+
+sub translate_statement {
+    my ($stmt, $line_num, $source_file, $config) = @_;
+
+    # Delay: # N ;
+    if ($stmt =~ /^#\s*(\d+)\s*;?$/) {
+        return "wait for $1 ns;";
+    }
+
+    # $display("string")
+    if ($stmt =~ /^\$display\s*\((.+)\)\s*;?$/) {
+        return translate_display($1);
+    }
+    # $write("string")
+    if ($stmt =~ /^\$write\s*\((.+)\)\s*;?$/) {
+        return translate_display($1);
+    }
+    # $finish
+    if ($stmt =~ /^\$finish\s*(?:\(\s*\d*\s*\))?\s*;?$/) {
+        return "std.env.finish;";
+    }
+    # $stop
+    if ($stmt =~ /^\$stop\s*(?:\(\s*\d*\s*\))?\s*;?$/) {
+        return "std.env.stop;";
+    }
+    # Blocking assignment
+    if ($stmt =~ /^(\w+)\s*=\s*(.+);$/) {
+        return "$1 := " . translate_expression($2) . ";";
+    }
+    # Non-blocking assignment
+    if ($stmt =~ /^(\w+)\s*<=\s*(.+);$/) {
+        return "$1 <= " . translate_expression($2) . ";";
+    }
+    # Default: comment out
+    $stmt =~ s/\s+$//;
+    return "-- FIXME: $stmt";
+}
+
+sub translate_display {
+    my ($args) = @_;
+
+    # Simple case: just a string literal
+    if ($args =~ /^\s*"([^"]*)"\s*$/) {
+        my $str = $1;
+        # Strip Verilog escape sequences that VHDL report doesn't need
+        $str =~ s/\\n$//;      # Trailing \n (report adds newline)
+        $str =~ s/\\n/\n/g;    # Embedded \n
+        $str =~ s/\\t/\t/g;    # Tab
+        $str =~ s/\\"/"/g;     # Escaped quote
+        $str =~ s/\\\\//g;     # Escaped backslash
+        # Escape VHDL double quotes
+        $str =~ s/"/""/g;
+        return "report \"$str\" severity note;";
+    }
+
+    # String with format arguments - extract just the string for now
+    if ($args =~ /^\s*"([^"]*)"/) {
+        my $str = $1;
+        $str =~ s/\\n$//;
+        $str =~ s/\\n/\n/g;
+        $str =~ s/\\t/\t/g;
+        $str =~ s/\\"/"/g;
+        $str =~ s/\\\\//g;
+        $str =~ s/"/""/g;
+        return "report \"$str\" severity note; -- FIXME: format args";
+    }
+
+    # No string literal - just a variable/expression
+    return "-- FIXME: \$display($args)";
 }
 
 sub add_intermediate {

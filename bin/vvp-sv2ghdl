@@ -1,0 +1,73 @@
+#!/bin/bash
+#
+# vvp-sv2ghdl - vvp-compatible wrapper for NVC elaborate + run
+#
+# Reads metadata from iverilog-sv2ghdl output directory, elaborates and runs
+# with NVC.  Filters NVC report output to match iverilog $display format.
+# Designed to work with the iverilog test suite (vvp_reg.pl --suffix=-sv2ghdl).
+#
+
+set -o pipefail
+export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
+
+# Parse arguments (vvp-compatible)
+SIMDIR=""
+for arg in "$@"; do
+    case "$arg" in
+        -n|-N|-compatible|-i|-v|-q|-s) ;;  # Silently accepted
+        -V)
+            echo "Icarus Verilog version 13.0 (sv2ghdl/nvc)"
+            exit 0 ;;
+        -l*|-m*|-M*) ;;  # Silently ignored
+        +*)          ;;  # Plusargs - ignored
+        *)
+            if [[ -z "$SIMDIR" ]]; then
+                SIMDIR="$arg"
+            fi
+            ;;
+    esac
+done
+
+if [[ -z "$SIMDIR" || ! -d "$SIMDIR" ]]; then
+    echo "vvp-sv2ghdl: not a directory: $SIMDIR" >&2
+    exit 1
+fi
+
+if [[ ! -f "$SIMDIR/_metadata" ]]; then
+    echo "vvp-sv2ghdl: no _metadata in $SIMDIR" >&2
+    exit 1
+fi
+
+# Read metadata
+source "$SIMDIR/_metadata"
+
+if [[ -z "$TOP_ENTITY" ]]; then
+    echo "vvp-sv2ghdl: no TOP_ENTITY in metadata" >&2
+    exit 1
+fi
+
+# Run NVC from the simulation directory (where work/ library lives)
+cd "$SIMDIR"
+
+# Elaborate
+nvc --std=2008 -e "$TOP_ENTITY" 2>&1
+if [[ $? -ne 0 ]]; then
+    exit 1
+fi
+
+# Run with output filter
+# NVC report format:  ** Note: 0ms+0: PASSED
+#                        Process :main:_p0 at main.vhd:15
+# iverilog format:    PASSED
+#
+# The awk filter extracts message text from ** Note lines, strips Process
+# continuation lines, and routes warnings/errors to stderr.
+nvc --std=2008 -r "$TOP_ENTITY" 2>&1 | awk '
+    /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
+    /^   Process /    { next }
+    /^   Procedure /  { next }
+    /^\*\* Debug: /   { next }
+    /^\*\* (Warning|Error|Fatal): / { print > "/dev/stderr"; next }
+    { print }
+'
+exit ${PIPESTATUS[0]}

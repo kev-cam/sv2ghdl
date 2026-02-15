@@ -1,0 +1,130 @@
+#!/bin/bash
+#
+# iverilog-sv2ghdl - iverilog-compatible wrapper for sv2ghdl + NVC
+#
+# Translates SystemVerilog to VHDL via sv2ghdl.pl, compiles with NVC.
+# Designed to work with the iverilog test suite (vvp_reg.pl --suffix=-sv2ghdl).
+#
+# The output file (-o) is a directory containing translated VHDL, NVC's work
+# library, and a _metadata file.  The test runner's "rm -rf ./vsim" cleans
+# everything up between tests.
+#
+
+set -o pipefail
+export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
+
+# Resolve script directory using bash string ops (no external commands)
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}/.."
+SV2GHDL="$SCRIPT_DIR/sv2ghdl.pl"
+
+# Defaults
+OUTPUT="a.out"
+TOP_MODULE=""
+TARGET="vvp"
+SOURCES=()
+ORIG_DIR="$(pwd)"
+
+# Parse arguments (iverilog-compatible)
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o)
+            OUTPUT="$2"; shift 2 ;;
+        -s)
+            TOP_MODULE="$2"; shift 2 ;;
+        -t)
+            TARGET="$2"; shift 2 ;;
+        -V)
+            echo "Icarus Verilog version 13.0 (sv2ghdl/nvc)"
+            exit 0 ;;
+        -g*)    shift ;;   # Generation flags - ignored
+        -D*)    shift ;;   # Defines - ignored
+        -I*)    shift ;;   # Include paths - ignored
+        -P*)    shift ;;   # Parameter overrides - ignored
+        -W*)    shift ;;   # Warnings - ignored
+        -S)     shift ;;   # Synthesize - ignored
+        -v)     shift ;;   # Verbose - ignored
+        -u)     shift ;;   # Separate compilation units - ignored
+        -m)     shift 2 ;; # Module - ignored
+        -m*)    shift ;;
+        -L)     shift 2 ;; # Library path - ignored
+        -L*)    shift ;;
+        -y)     shift 2 ;; # Library dir - ignored
+        -y*)    shift ;;
+        -B)     shift 2 ;; # Tool path - ignored
+        -B*)    shift ;;
+        -p*)    shift ;;   # Compiler param - ignored
+        -E)     shift ;;   # Preprocess only - ignored
+        -*)     shift ;;   # Any other flag - ignored
+        *)
+            SOURCES+=("$1"); shift ;;
+    esac
+done
+
+if [[ ${#SOURCES[@]} -eq 0 ]]; then
+    echo "iverilog-sv2ghdl: no source files" >&2
+    exit 1
+fi
+
+# Convert source paths to absolute before we cd
+ABS_SOURCES=()
+for src in "${SOURCES[@]}"; do
+    case "$src" in
+        /*) ABS_SOURCES+=("$src") ;;
+        *)  ABS_SOURCES+=("$ORIG_DIR/$src") ;;
+    esac
+done
+
+# Output directory (replaces the normal output file)
+# The test runner's "rm -rf ./vsim" cleans this up between tests.
+case "$OUTPUT" in
+    /*) OUTDIR="$OUTPUT" ;;
+    *)  OUTDIR="$ORIG_DIR/$OUTPUT" ;;
+esac
+rm -rf "$OUTDIR"
+mkdir -p "$OUTDIR"
+
+# Translate each source file
+LAST_SOURCE=""
+for src in "${ABS_SOURCES[@]}"; do
+    base="${src##*/}"         # basename
+    base="${base%.v}"         # strip .v
+    base="${base%.sv}"        # strip .sv
+    LAST_SOURCE="$src"
+
+    "$SV2GHDL" "$src" -o "$OUTDIR/${base}.vhd" 2>&1
+    if [[ $? -ne 0 ]]; then
+        exit 1
+    fi
+done
+
+# Compile each VHDL file with NVC (from within OUTDIR so work/ goes there)
+cd "$OUTDIR"
+for vhd in *.vhd; do
+    [[ -f "$vhd" ]] || continue
+    nvc --std=2008 -a "$vhd" 2>&1
+    if [[ $? -ne 0 ]]; then
+        exit 1
+    fi
+done
+
+# For -t null (CN tests), compilation is all we need
+if [[ "$TARGET" == "null" ]]; then
+    exit 0
+fi
+
+# Determine top entity
+if [[ -z "$TOP_MODULE" && -n "$LAST_SOURCE" ]]; then
+    TOP_MODULE=$(grep -m1 -oP '^\s*(?:\(\*.*?\*\)\s*)*module\s+\K\w+' "$LAST_SOURCE" 2>/dev/null)
+fi
+
+if [[ -z "$TOP_MODULE" ]]; then
+    echo "iverilog-sv2ghdl: cannot determine top module" >&2
+    exit 1
+fi
+
+# Write metadata for vvp-sv2ghdl
+cat > "$OUTDIR/_metadata" <<EOF
+TOP_ENTITY="$TOP_MODULE"
+EOF
+
+exit 0
