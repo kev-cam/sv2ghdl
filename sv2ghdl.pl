@@ -138,11 +138,54 @@ sub translate_file {
     my @lines = <$in_fh>;
     close $in_fh;
 
+    # Sanitize identifiers: VHDL doesn't allow leading/trailing underscores
+    # or double underscores in basic identifiers
+    foreach my $line (@lines) {
+        # Replace leading underscore on word-boundary identifiers: _foo → v_foo
+        # \b_ matches only at non-word→underscore boundary, so abc_def is untouched
+        $line =~ s/\b_(\w)/v_$1/g;
+    }
+
     # Extract module info
     my $module_name = extract_module_name(\@lines);
     my @ports = extract_ports(\@lines);
     my @signals = extract_signals(\@lines);
     my @instantiations = extract_instantiations(\@lines);
+
+    # Build type map for signals/ports (used for integer literal conversion)
+    our %signal_types = ();
+    foreach my $line (@lines) {
+        # Input/output ports: input [7:0] foo; or input bar;
+        if ($line =~ /^\s*(?:input|output|inout)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)/) {
+            my ($msb, $lsb, $name) = ($1, $2, $3);
+            if (defined $msb) {
+                $signal_types{$name} = { type => 'vector', width => $msb - $lsb + 1 };
+            } else {
+                $signal_types{$name} = { type => 'scalar' };
+            }
+        }
+        # Wire/reg declarations
+        if ($line =~ /^\s*(?:wire|reg)\s+(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?([\w\s,]+);/) {
+            my ($msb, $lsb, $names) = ($1, $2, $3);
+            foreach my $name (split /\s*,\s*/, $names) {
+                $name =~ s/^\s+|\s+$//g;
+                next if $name eq '';
+                if (defined $msb) {
+                    $signal_types{$name} = { type => 'vector', width => $msb - $lsb + 1 };
+                } else {
+                    $signal_types{$name} = { type => 'scalar' };
+                }
+            }
+        }
+        # Integer declarations
+        if ($line =~ /^\s*integer\s+([\w\s,]+);/) {
+            foreach my $name (split /\s*,\s*/, $1) {
+                $name =~ s/^\s+|\s+$//g;
+                next if $name eq '';
+                $signal_types{$name} = { type => 'integer' };
+            }
+        }
+    }
 
     # Build output array instead of printing directly
     my @output;
@@ -161,11 +204,14 @@ sub translate_file {
     my $arch_header_idx = -1;  # Index where architecture header ends
 
     my $in_block_comment = 0;
-    my $in_initial = 0;
-    my $initial_depth = 0;  # begin/end nesting depth within initial
-    my $initial_pending = 0;  # saw 'initial' alone, waiting for begin/stmt
-    my @block_stack;  # tracks what each begin/end nesting level is: 'initial', 'if', 'else', 'block'
-    my $last_keyword = '';  # last control keyword seen (for begin context)
+    my $in_process = 0;       # inside a process-generating block (initial or always)
+    my $process_depth = 0;    # begin/end nesting depth within process block
+    my $process_pending = 0;  # saw 'initial'/'always' alone, waiting for begin/stmt
+    my @block_stack;          # tracks what each begin/end nesting level is: 'initial', 'if', 'else', 'block'
+    my $last_keyword = '';    # last control keyword seen (for begin context)
+    my $in_task = 0;          # inside task/function block (skip until endtask/endfunction)
+    my $process_has_if = 0;   # process was opened with rising_edge/falling_edge if wrapper
+    my $process_has_sens = 0; # process has sensitivity list (no wait allowed)
 
     foreach my $line (@lines) {
         $line_num++;
@@ -205,7 +251,7 @@ sub translate_file {
         # Skip module, input, output, inout, parameter lines
         if ($in_entity && !$port_section_done &&
             $line !~ /^\s*(?:module|input|output|inout|parameter)\b/ &&
-            ($line =~ /^\s*(?:wire|reg|always|assign|initial)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
+            ($line =~ /^\s*(?:wire|reg|always|assign|initial|integer|real|time|task|function|genvar|generate|defparam|specify|localparam)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
             # Close entity, start architecture
             push @output, "end entity;\n\n";
             push @output, generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
@@ -215,13 +261,25 @@ sub translate_file {
         }
 
         if ($line =~ /^\s*endmodule/) {
-            # Just close architecture
+            # Auto-close any open process before ending module
+            if ($in_process) {
+                my $close = "";
+                $close .= "    end if;\n" if $process_has_if;
+                $close .= "    wait;\n" unless $process_has_sens;
+                push @output, "${close}  end process;\n";
+                $in_process = 0;
+                $process_depth = 0;
+                $process_has_if = 0;
+                $process_has_sens = 0;
+                @block_stack = ();
+            }
             next;  # Footer will be added after loop
         }
 
         my $vhdl = translate_line($line, $line_num, $input, $mode, $in_entity, $in_architecture,
-                                  \$in_initial, \$initial_depth, \$initial_pending,
-                                  \@block_stack, \$last_keyword);
+                                  \$in_process, \$process_depth, \$process_pending,
+                                  \@block_stack, \$last_keyword,
+                                  \$in_task, \$process_has_if, \$process_has_sens);
 
 	if ($vhdl) {
 	    push @output,$vhdl;
@@ -267,15 +325,21 @@ sub translate_file {
 
 sub translate_line {
     my ($line, $line_num, $source_file, $mode, $in_entity, $in_architecture,
-        $in_initial_ref, $initial_depth_ref, $initial_pending_ref,
-        $block_stack_ref, $last_keyword_ref) = @_;
+        $in_process_ref, $process_depth_ref, $process_pending_ref,
+        $block_stack_ref, $last_keyword_ref,
+        $in_task_ref, $process_has_if_ref, $process_has_sens_ref) = @_;
 
     my $config = $MODES{$mode};
 
     # Preserve blank lines
     return $line if $line =~ /^\s*$/;
 
-    # Preserve comments
+    # Strip inline // comments (but not inside strings)
+    if ($line =~ m{^([^"]*?)\s*//} && $line !~ m{^\s*//}) {
+        $line = $1 . "\n";
+    }
+
+    # Preserve full-line comments
     if ($line =~ m{^\s*//(.*)}) {
         return "--$1\n";
     }
@@ -291,16 +355,59 @@ sub translate_line {
         return "-- " . $line;
     }
 
-    # --- Handle pending initial (saw 'initial' alone, waiting for begin/stmt) ---
-    if ($$initial_pending_ref) {
-        $$initial_pending_ref = 0;
+    # --- Task/function block skipping ---
+    if ($$in_task_ref) {
+        if ($line =~ /^\s*(?:endtask|endfunction)\b/) {
+            $$in_task_ref = 0;
+        }
+        return "-- " . $line;  # Comment out everything inside task/function
+    }
+    if ($line =~ /^\s*(?:task|function)\b/) {
+        $$in_task_ref = 1;
+        return "-- " . $line;
+    }
+
+    # --- Integer/real/time variable declarations (become signals) ---
+    if ($line =~ /^\s*(integer|real|time)\s+([\w\s,]+);/) {
+        my ($type, $names) = ($1, $2);
+        my @var_names = split /\s*,\s*/, $names;
+        foreach my $name (@var_names) {
+            $name =~ s/^\s+|\s+$//g;
+            next if $name eq '';
+            our @signal_decls;
+            push @signal_decls, "  signal $name : $type;\n";
+        }
+        return "";  # Collected, will be inserted before begin
+    }
+
+    # --- Handle pending process (saw 'initial'/'always' alone, waiting for begin/stmt) ---
+    if ($$process_pending_ref) {
+        $$process_pending_ref = 0;
         if ($line =~ /^\s*begin\s*$/) {
-            $$in_initial_ref = 1;
-            $$initial_depth_ref = 1;
+            # initial/always begin → full tracked block at depth 1
+            $$in_process_ref = 1;
+            $$process_depth_ref = 1;
             push @$block_stack_ref, 'initial';
             return "  process\n  begin\n";
         }
-        # Single statement after bare 'initial'
+        # Multi-line construct (if, for, case, etc.) → open process at depth 0
+        # Inner begin/end will track the real nesting; process closes when depth returns to 0
+        if ($line =~ /^\s*(?:if|for|while|case|repeat)\b/) {
+            $$in_process_ref = 1;
+            $$process_depth_ref = 0;
+            $$last_keyword_ref = '';
+            $$process_has_if_ref = 0;
+            $$process_has_sens_ref = 0;
+            # Recursively process the line with process state already set
+            my $line_result = translate_line($line, $line_num, $source_file, $mode,
+                                             $in_entity, $in_architecture,
+                                             $in_process_ref, $process_depth_ref,
+                                             $process_pending_ref, $block_stack_ref,
+                                             $last_keyword_ref, $in_task_ref,
+                                             $process_has_if_ref, $process_has_sens_ref);
+            return "  process\n  begin\n" . ($line_result // "");
+        }
+        # Simple single-line statement
         my $stmt = $line;
         $stmt =~ s/^\s+//;
         $stmt =~ s/\s+$//;
@@ -310,11 +417,11 @@ sub translate_line {
                "    wait;\n  end process;\n";
     }
 
-    # --- Initial/sequential block state tracking ---
-    if ($$in_initial_ref) {
-        # Handle begin/end nesting within initial/sequential blocks
+    # --- Process block state tracking (initial and always blocks) ---
+    if ($$in_process_ref) {
+        # Handle begin/end nesting within process blocks
         if ($line =~ /^\s*begin\s*$/) {
-            $$initial_depth_ref++;
+            $$process_depth_ref++;
             # Determine context from last keyword
             my $ctx = $$last_keyword_ref || 'block';
             push @$block_stack_ref, $ctx;
@@ -322,16 +429,24 @@ sub translate_line {
             return "";  # begin consumed (VHDL uses then/loop/etc. instead)
         }
         if ($line =~ /^\s*end\s*$/) {
-            $$initial_depth_ref--;
+            $$process_depth_ref--;
             my $ctx = pop @$block_stack_ref // 'block';
-            if ($$initial_depth_ref <= 0) {
-                $$in_initial_ref = 0;
-                $$initial_depth_ref = 0;
+            if ($$process_depth_ref <= 0) {
+                $$in_process_ref = 0;
+                $$process_depth_ref = 0;
+                my $had_if = $$process_has_if_ref;
+                my $had_sens = $$process_has_sens_ref;
+                $$process_has_if_ref = 0;
+                $$process_has_sens_ref = 0;
                 @$block_stack_ref = ();
                 # Close any open if, then close process
                 my $close = "";
                 $close .= "    end if;\n" if $ctx eq 'if' || $ctx eq 'else';
-                return "${close}    wait;\n  end process;\n";
+                # If process was opened with edge-triggered if, close that too
+                $close .= "    end if;\n" if $had_if;
+                # No wait in processes with sensitivity lists
+                $close .= "    wait;\n" unless $had_sens;
+                return "${close}  end process;\n";
             }
             # Generate proper closing for the block context
             if ($ctx eq 'if' || $ctx eq 'else') {
@@ -343,17 +458,19 @@ sub translate_line {
 
     # Initial block with begin (on same line)
     if ($line =~ /^\s*initial\s+begin\s*$/) {
-        $$in_initial_ref = 1;
-        $$initial_depth_ref = 1;
+        $$in_process_ref = 1;
+        $$process_depth_ref = 1;
         push @$block_stack_ref, 'initial';
         $$last_keyword_ref = '';
+        $$process_has_if_ref = 0;
+        $$process_has_sens_ref = 0;
         return line_directive($line_num, $source_file) .
                "  process\n  begin\n";
     }
 
     # Bare 'initial' alone on a line — begin/stmt comes next
     if ($line =~ /^\s*initial\s*$/) {
-        $$initial_pending_ref = 1;
+        $$process_pending_ref = 1;
         return line_directive($line_num, $source_file);
     }
 
@@ -365,6 +482,24 @@ sub translate_line {
                "  process\n  begin\n" .
                "    $translated\n" .
                "    wait;\n  end process;\n";
+    }
+
+    # Bare always with begin (no sensitivity list): always begin ... end
+    if ($line =~ /^\s*always\s+begin\s*$/) {
+        $$in_process_ref = 1;
+        $$process_depth_ref = 1;
+        push @$block_stack_ref, 'initial';
+        $$last_keyword_ref = '';
+        $$process_has_if_ref = 0;
+        $$process_has_sens_ref = 0;
+        return line_directive($line_num, $source_file) .
+               "  process\n  begin\n";
+    }
+
+    # Bare 'always' alone on a line — begin/stmt comes next
+    if ($line =~ /^\s*always\s*$/) {
+        $$process_pending_ref = 1;
+        return line_directive($line_num, $source_file);
     }
 
     # --- Delay statements ---
@@ -448,7 +583,7 @@ sub translate_line {
     }
     
     # Ports
-    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
+    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config);
         my $separator = ($term eq ',') ? ';' : '';
@@ -456,7 +591,7 @@ sub translate_line {
                "    $name : in $vhdl_type$separator\n";
     }
 
-    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
+    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config);
         my $separator = ($term eq ',') ? ';' : '';
@@ -471,7 +606,7 @@ sub translate_line {
     }
     
     # Wire/reg declarations (internal signals) - multiple signals on one line
-    if ($line =~ /^\s*(?:wire|reg)\s+(?:\[(\d+):(\d+)\]\s+)?([\w\s,]+);/) {
+    if ($line =~ /^\s*(?:wire|reg)\s+(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?([\w\s,]+);/) {
         my ($msb, $lsb, $names) = ($1, $2, $3);
         my $vhdl_type = port_type($msb, $lsb, $config);
 
@@ -496,34 +631,117 @@ sub translate_line {
     }
     
     # Always blocks with asynchronous reset
-    if ($line =~ /^\s*always\s+@\(posedge\s+(\w+)\s+or\s+posedge\s+(\w+)\)/) {
+    if ($line =~ /^\s*always\s+@\s*\(\s*posedge\s+(\w+)\s+or\s+posedge\s+(\w+)\)/) {
         my ($clk, $rst) = ($1, $2);
         # Store clock name for elsif handling
         our $async_reset_clk = $clk;
+        $$in_process_ref = 1;
+        $$process_depth_ref = 1;
+        push @$block_stack_ref, 'initial';
+        $$last_keyword_ref = '';
+        $$process_has_if_ref = 0;
+        $$process_has_sens_ref = 1;
         return line_directive($line_num, $source_file) .
                "  process($clk, $rst)\n  begin\n";
     }
 
-    # Always blocks with synchronous logic only
-    if ($line =~ /^\s*always\s+@\(posedge\s+(\w+)\)/) {
+    # Always blocks with synchronous logic only (posedge)
+    if ($line =~ /^\s*always\s+@\s*\(\s*posedge\s+(\w+)\s*\)/) {
+        my $clk = $1;
+        my $null_body = ($line =~ /;\s*$/);
+        if ($null_body) {
+            return line_directive($line_num, $source_file) .
+                   "  -- null always @(posedge $clk)\n";
+        }
+        $$in_process_ref = 1;
+        $$process_depth_ref = 1;
+        push @$block_stack_ref, 'initial';
+        $$last_keyword_ref = '';
+        $$process_has_if_ref = 1;
+        $$process_has_sens_ref = 1;
         if ($config->{temporal}) {
             return line_directive($line_num, $source_file) .
-                   "  process\n  begin\n    wait until $1'event;\n    wait until rising_edge($1);\n";
+                   "  process\n  begin\n    wait until ${clk}'event;\n    wait until rising_edge($clk);\n";
         } else {
             return line_directive($line_num, $source_file) .
-                   "  process($1)\n  begin\n    if rising_edge($1) then\n";
+                   "  process($clk)\n  begin\n    if rising_edge($clk) then\n";
         }
     }
 
-    if ($line =~ /^\s*always\s+@\(\*\)/) {
+    # Always blocks with negedge
+    if ($line =~ /^\s*always\s+@\s*\(\s*negedge\s+(\w+)\s*\)/) {
+        my $clk = $1;
+        my $null_body = ($line =~ /;\s*$/);
+        if ($null_body) {
+            return line_directive($line_num, $source_file) .
+                   "  -- null always @(negedge $clk)\n";
+        }
+        $$in_process_ref = 1;
+        $$process_depth_ref = 1;
+        push @$block_stack_ref, 'initial';
+        $$last_keyword_ref = '';
+        $$process_has_if_ref = 1;
+        $$process_has_sens_ref = 1;
+        return line_directive($line_num, $source_file) .
+               "  process($clk)\n  begin\n    if falling_edge($clk) then\n";
+    }
+
+    # Always @(*) — combinational
+    if ($line =~ /^\s*always\s+@\s*\(\s*\*\s*\)\s*;?\s*$/) {
+        my $null_body = ($line =~ /;\s*$/);
+        if ($null_body) {
+            return line_directive($line_num, $source_file) .
+                   "  -- null always @(*)\n";
+        }
+        $$in_process_ref = 1;
+        $$process_depth_ref = 1;
+        push @$block_stack_ref, 'initial';
+        $$last_keyword_ref = '';
+        $$process_has_if_ref = 0;
+        $$process_has_sens_ref = 1;
         return line_directive($line_num, $source_file) .
                "  process(all)\n  begin\n";  # VHDL-2008 process(all)
     }
-    
-    # Assignments
-    if ($line =~ /^\s*assign\s+(\w+)\s*=\s*(.+);/) {
+
+    # Always @(signal list) — level-sensitive
+    if ($line =~ /^\s*always\s+@\s*\(([^)]+)\)\s*;?\s*$/) {
+        my $sens = $1;
+        my $null_body = ($line =~ /;\s*$/);
+        # Convert "or" to "," for VHDL sensitivity list
+        $sens =~ s/\bor\b/,/g;
+        $sens =~ s/\s+/ /g;
+        $sens =~ s/^\s+|\s+$//g;
+        if ($null_body) {
+            return line_directive($line_num, $source_file) .
+                   "  -- null always @($sens)\n";
+        }
+        $$in_process_ref = 1;
+        $$process_depth_ref = 1;
+        push @$block_stack_ref, 'initial';
+        $$last_keyword_ref = '';
+        $$process_has_if_ref = 0;
+        $$process_has_sens_ref = 1;
         return line_directive($line_num, $source_file) .
-               "  $1 <= $2;\n";
+               "  process($sens)\n  begin\n";
+    }
+
+    # Bare always with single statement (no @ or begin): always stmt;
+    if ($line =~ /^\s*always\s+(?!@|begin)(.+;)\s*$/) {
+        my $stmt = $1;
+        my $translated = translate_statement($stmt, $line_num, $source_file, $config);
+        return line_directive($line_num, $source_file) .
+               "  process\n  begin\n" .
+               "    $translated\n" .
+               "    wait;\n  end process;\n";
+    }
+    
+    # Assignments (concurrent)
+    if ($line =~ /^\s*assign\s+(\w+)\s*=\s*(.+);/) {
+        my ($lhs, $rhs) = ($1, $2);
+        my $translated_rhs = translate_expression($rhs);
+        $translated_rhs = convert_integer_for_type($translated_rhs, $lhs);
+        return line_directive($line_num, $source_file) .
+               "  $lhs <= $translated_rhs;\n";
     }
     
     # Non-blocking assignment (already uses <=)
@@ -545,33 +763,106 @@ sub translate_line {
             }
         }
 
+        my $translated_rhs = translate_expression($rhs);
+        # Convert bare integers based on target type
+        $translated_rhs = convert_integer_for_type($translated_rhs, $lhs);
+
         return line_directive($line_num, $source_file) .
-               "        $lhs <= " . translate_expression($rhs) . ";\n";
+               "        $lhs <= $translated_rhs;\n";
     }
 
     # Blocking assignment (= -> :=)
     if ($line =~ /^\s*(\w+)\s*=\s*(.+);/) {
+        my ($lhs, $rhs) = ($1, $2);
+        my $translated_rhs = translate_expression($rhs);
+        # Convert bare integers based on target type
+        $translated_rhs = convert_integer_for_type($translated_rhs, $lhs);
         return line_directive($line_num, $source_file) .
-               "        $1 := " . translate_expression($2) . ";\n";
+               "        $lhs := $translated_rhs;\n";
     }
 
-    # If statements
-    if ($line =~ /^\s*if\s*\((.+)\)\s*$/) {
-        my $condition = translate_condition($1);
-        $$last_keyword_ref = 'if' if $last_keyword_ref;
+    # If statements: if(cond) or if(cond) begin
+    if ($line =~ /^\s*if\s*\((.+)\)\s*(?:begin\s*)?$/) {
+        my $cond_text = $1;
+        my $has_begin = ($line =~ /begin\s*$/);
+        my $condition = translate_condition($cond_text);
+        if ($has_begin && $$in_process_ref) {
+            # if(cond) begin — consume begin, track depth
+            $$process_depth_ref++;
+            push @$block_stack_ref, 'if';
+        } else {
+            $$last_keyword_ref = 'if' if $last_keyword_ref;
+        }
         return line_directive($line_num, $source_file) .
                "      if $condition then\n";
     }
 
-    # Else if statements
-    if ($line =~ /^\s*else\s+if\s*\((.+)\)\s*$/) {
-        my $condition = translate_condition($1);
-        $$last_keyword_ref = 'if' if $last_keyword_ref;
+    # Else if statements: else if(cond) or else if(cond) begin
+    if ($line =~ /^\s*else\s+if\s*\((.+)\)\s*(?:begin\s*)?$/) {
+        my $cond_text = $1;
+        my $has_begin = ($line =~ /begin\s*$/);
+        my $condition = translate_condition($cond_text);
+        if ($has_begin && $$in_process_ref) {
+            $$process_depth_ref++;
+            push @$block_stack_ref, 'if';
+        } else {
+            $$last_keyword_ref = 'if' if $last_keyword_ref;
+        }
         return line_directive($line_num, $source_file) .
                "      elsif $condition then\n";
     }
 
-    # Else statements
+    # end else begin — close if, start else block
+    if ($line =~ /^\s*end\s+else\s+begin\s*$/ && $$in_process_ref) {
+        # The end closes the previous if block
+        $$process_depth_ref--;
+        my $ctx = pop @$block_stack_ref // 'block';
+        # Start the else block
+        $$process_depth_ref++;
+        push @$block_stack_ref, 'else';
+        return line_directive($line_num, $source_file) .
+               "      else\n";
+    }
+
+    # end else if(cond) begin — close if, start elsif block
+    if ($line =~ /^\s*end\s+else\s+if\s*\((.+)\)\s*(?:begin\s*)?$/ && $$in_process_ref) {
+        my $cond_text = $1;
+        my $has_begin = ($line =~ /begin\s*$/);
+        my $condition = translate_condition($cond_text);
+        $$process_depth_ref--;
+        my $ctx = pop @$block_stack_ref // 'block';
+        if ($has_begin) {
+            $$process_depth_ref++;
+            push @$block_stack_ref, 'if';
+        } else {
+            $$last_keyword_ref = 'if' if $last_keyword_ref;
+        }
+        return line_directive($line_num, $source_file) .
+               "      elsif $condition then\n";
+    }
+
+    # end else — close if, start else
+    if ($line =~ /^\s*end\s+else\s*$/ && $$in_process_ref) {
+        $$process_depth_ref--;
+        my $ctx = pop @$block_stack_ref // 'block';
+        $$last_keyword_ref = 'else' if $last_keyword_ref;
+        return line_directive($line_num, $source_file) .
+               "      else\n";
+    }
+
+    # Else begin
+    if ($line =~ /^\s*else\s+begin\s*$/) {
+        if ($$in_process_ref) {
+            $$process_depth_ref++;
+            push @$block_stack_ref, 'else';
+        } else {
+            $$last_keyword_ref = 'else' if $last_keyword_ref;
+        }
+        return line_directive($line_num, $source_file) .
+               "      else\n";
+    }
+
+    # Else statements (bare)
     if ($line =~ /^\s*else\s*$/) {
         our $async_reset_clk;
         if (defined($async_reset_clk)) {
@@ -587,14 +878,13 @@ sub translate_line {
         }
     }
 
-    # Begin/end blocks
+    # Begin/end blocks (fallback — only fires when NOT inside tracked process)
     if ($line =~ /^\s*begin\s*$/) {
         return "";  # VHDL doesn't need begin after if/process
     }
 
     if ($line =~ /^\s*end\s*$/) {
-        # Just close the outer if and the process
-        return "    end if;\n  end process;\n";
+        return "";  # Untracked end — comment out rather than generating broken VHDL
     }
     
     # Endmodule
@@ -792,11 +1082,34 @@ sub port_type {
     }
 }
 
+sub convert_integer_for_type {
+    my ($value, $target_name) = @_;
+    our %signal_types;
+
+    # If the value is not a bare integer, return as-is
+    return $value unless $value =~ /^\d+$/;
+
+    if (exists $signal_types{$target_name}) {
+        my $info = $signal_types{$target_name};
+        if ($info->{type} eq 'scalar') {
+            # std_logic: 0 → '0', 1 → '1'
+            return "'0'" if $value == 0;
+            return "'1'" if $value == 1;
+        } elsif ($info->{type} eq 'vector') {
+            # std_logic_vector: N → std_logic_vector(to_unsigned(N, width))
+            return "std_logic_vector(to_unsigned($value, $info->{width}))";
+        } elsif ($info->{type} eq 'integer') {
+            return $value;  # Integer targets accept integer literals
+        }
+    }
+    return $value;  # Unknown type, return as-is
+}
+
 sub translate_expression {
     my ($expr) = @_;
 
-    # Numeric literals: 8'h00 -> x"00", 8'd10 -> std_logic_vector(to_unsigned(10, 8))
-    $expr =~ s/(\d+)'h([0-9a-fA-F]+)/x"$2"/g;
+    # Numeric literals: 8'h00 -> x"00", 8'hzz -> x"zz", 8'd10 -> std_logic_vector(to_unsigned(10, 8))
+    $expr =~ s/(\d+)'h([0-9a-fA-FxXzZ]+)/x"$2"/g;
     $expr =~ s/(\d+)'d(\d+)/std_logic_vector(to_unsigned($2, $1))/g;
     # Single bit: 1'b0 -> '0', 1'bx -> 'X', 1'bz -> 'Z'
     $expr =~ s/1'b([01xXzZ])/'\U$1\E'/g;
@@ -855,6 +1168,13 @@ sub translate_condition {
     # Clean up extra spaces from case operator translation
     $cond =~ s/\s+/ /g;
 
+    # Type-aware integer conversion in comparisons: signal = 0 → signal = '0'
+    if ($cond =~ /^(\w+)\s*(=|\/=|<|>|<=|>=)\s*(\d+)$/) {
+        my ($sig, $op, $val) = ($1, $2, $3);
+        my $converted = convert_integer_for_type($val, $sig);
+        return "$sig $op $converted";
+    }
+
     return $cond;
 }
 
@@ -890,11 +1210,17 @@ sub translate_statement {
     }
     # Blocking assignment
     if ($stmt =~ /^(\w+)\s*=\s*(.+);$/) {
-        return "$1 := " . translate_expression($2) . ";";
+        my ($lhs, $rhs) = ($1, $2);
+        my $tr = translate_expression($rhs);
+        $tr = convert_integer_for_type($tr, $lhs);
+        return "$lhs := $tr;";
     }
     # Non-blocking assignment
     if ($stmt =~ /^(\w+)\s*<=\s*(.+);$/) {
-        return "$1 <= " . translate_expression($2) . ";";
+        my ($lhs, $rhs) = ($1, $2);
+        my $tr = translate_expression($rhs);
+        $tr = convert_integer_for_type($tr, $lhs);
+        return "$lhs <= $tr;";
     }
     # Default: comment out
     $stmt =~ s/\s+$//;
