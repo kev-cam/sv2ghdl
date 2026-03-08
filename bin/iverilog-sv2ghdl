@@ -2,7 +2,11 @@
 #
 # iverilog-sv2ghdl - iverilog-compatible wrapper for sv2ghdl + NVC
 #
-# Translates SystemVerilog to VHDL via sv2ghdl.pl, compiles with NVC.
+# Two-stage translation:
+#   1. Try iverilog -tvhdl -psv2vhdl=1 (native VHDL backend with entity
+#      instantiations for sv2vhdl primitives)
+#   2. Fall back to sv2ghdl.pl (Perl translator) if that fails
+#
 # Designed to work with the iverilog test suite (vvp_reg.pl --suffix=-sv2ghdl).
 #
 # The output file (-o) is a directory containing translated VHDL, NVC's work
@@ -16,6 +20,12 @@ export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
 # Resolve script directory using bash string ops (no external commands)
 SCRIPT_DIR="${BASH_SOURCE[0]%/*}/.."
 SV2GHDL="$SCRIPT_DIR/sv2ghdl.pl"
+
+# Tool paths: prefer build trees if available, else installed
+NVC="${NVC:-/usr/local/src/nvc/build/bin/nvc}"
+NVC_LIBDIR="${NVC_LIBDIR:-/usr/local/src/nvc/build/lib}"
+IVERILOG="${IVERILOG:-/usr/local/src/iverilog/driver/iverilog}"
+IVL_LIBDIR="${IVL_LIBDIR:-/tmp/ivl}"
 
 # Defaults
 OUTPUT="a.out"
@@ -83,29 +93,54 @@ esac
 rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR"
 
-# Translate each source file
-LAST_SOURCE=""
-for src in "${ABS_SOURCES[@]}"; do
-    base="${src##*/}"         # basename
-    base="${base%.v}"         # strip .v
-    base="${base%.sv}"        # strip .sv
-    LAST_SOURCE="$src"
+# --- Stage 1: Try iverilog -tvhdl -psv2vhdl=1 ---
+# Produces a single VHDL file with entity instantiations for sv2vhdl
+# primitives.  Uses --std=2040 for NVC compilation.
 
-    "$SV2GHDL" "$src" -o "$OUTDIR/${base}.vhd" 2>&1
-    if [[ $? -ne 0 ]]; then
-        exit 1
-    fi
-done
+IVERILOG_OK=0
+VHDL_OUT="$OUTDIR/design.vhd"
 
-# Compile each VHDL file with NVC (from within OUTDIR so work/ goes there)
-cd "$OUTDIR"
-for vhd in *.vhd; do
-    [[ -f "$vhd" ]] || continue
-    nvc --std=2008 -a "$vhd" 2>&1
-    if [[ $? -ne 0 ]]; then
-        exit 1
+if "$IVERILOG" -B"$IVL_LIBDIR" -tvhdl -psv2vhdl=1 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
+    if [[ -s "$VHDL_OUT" ]]; then
+        # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
+        cd "$OUTDIR"
+        if $NVC --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
+            IVERILOG_OK=1
+            echo "IVERILOG_BACKEND=1" >> "$OUTDIR/_metadata.tmp"
+        fi
     fi
-done
+fi
+
+# --- Stage 2: Fall back to sv2ghdl.pl ---
+
+if [[ $IVERILOG_OK -eq 0 ]]; then
+    # Clean up failed attempt
+    rm -f "$VHDL_OUT"
+    rm -rf "$OUTDIR/work"
+
+    LAST_SOURCE=""
+    for src in "${ABS_SOURCES[@]}"; do
+        base="${src##*/}"         # basename
+        base="${base%.v}"         # strip .v
+        base="${base%.sv}"        # strip .sv
+        LAST_SOURCE="$src"
+
+        "$SV2GHDL" "$src" -o "$OUTDIR/${base}.vhd" 2>&1
+        if [[ $? -ne 0 ]]; then
+            exit 1
+        fi
+    done
+
+    # Compile each VHDL file with NVC
+    cd "$OUTDIR"
+    for vhd in *.vhd; do
+        [[ -f "$vhd" ]] || continue
+        $NVC --std=2040 -L "$NVC_LIBDIR" -a "$vhd" 2>&1
+        if [[ $? -ne 0 ]]; then
+            exit 1
+        fi
+    done
+fi
 
 # For -t null (CN tests), compilation is all we need
 if [[ "$TARGET" == "null" ]]; then
@@ -113,7 +148,8 @@ if [[ "$TARGET" == "null" ]]; then
 fi
 
 # Determine top entity
-if [[ -z "$TOP_MODULE" && -n "$LAST_SOURCE" ]]; then
+if [[ -z "$TOP_MODULE" ]]; then
+    LAST_SOURCE="${ABS_SOURCES[${#ABS_SOURCES[@]}-1]}"
     TOP_MODULE=$(grep -m1 -oP '^\s*(?:\(\*.*?\*\)\s*)*module\s+\K\w+' "$LAST_SOURCE" 2>/dev/null)
 fi
 
@@ -123,8 +159,13 @@ if [[ -z "$TOP_MODULE" ]]; then
 fi
 
 # Write metadata for vvp-sv2ghdl
-cat > "$OUTDIR/_metadata" <<EOF
-TOP_ENTITY="$TOP_MODULE"
-EOF
+{
+    echo "TOP_ENTITY=\"$TOP_MODULE\""
+    if [[ $IVERILOG_OK -eq 1 ]]; then
+        echo "NVC_STD=\"2040\""
+    else
+        echo "NVC_STD=\"2040\""
+    fi
+} > "$OUTDIR/_metadata"
 
 exit 0

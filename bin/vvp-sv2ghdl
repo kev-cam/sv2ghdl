@@ -10,6 +10,10 @@
 set -o pipefail
 export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
 
+# NVC binary: prefer build tree if available, else installed
+NVC="${NVC:-/usr/local/src/nvc/build/bin/nvc}"
+NVC_LIBDIR="${NVC_LIBDIR:-/usr/local/src/nvc/build/lib}"
+
 # Parse arguments (vvp-compatible)
 SIMDIR=""
 for arg in "$@"; do
@@ -46,11 +50,15 @@ if [[ -z "$TOP_ENTITY" ]]; then
     exit 1
 fi
 
+# Use the VHDL standard from compilation stage (2040 for iverilog backend,
+# 2008 for sv2ghdl.pl fallback)
+STD="${NVC_STD:-2008}"
+
 # Run NVC from the simulation directory (where work/ library lives)
 cd "$SIMDIR"
 
 # Elaborate
-nvc --std=2008 -e "$TOP_ENTITY" 2>&1
+$NVC --std="$STD" -L "$NVC_LIBDIR" -e "$TOP_ENTITY" 2>&1
 if [[ $? -ne 0 ]]; then
     exit 1
 fi
@@ -62,7 +70,7 @@ fi
 #
 # The awk filter extracts message text from ** Note lines, strips Process
 # continuation lines, and routes warnings/errors to stderr.
-nvc --std=2008 -r "$TOP_ENTITY" 2>&1 | awk '
+$NVC --std="$STD" -L "$NVC_LIBDIR" -r "$TOP_ENTITY" 2>&1 | awk '
     /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
     /^   Process /    { next }
     /^   Procedure /  { next }
