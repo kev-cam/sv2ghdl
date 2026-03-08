@@ -5,10 +5,11 @@ VERILOG_FILES = $(wildcard *.v)
 WORK_DIR = work
 
 # Atalanta output files in work directory
-FAULT_VEC = $(patsubst %.v,work/%.tst,$(VERILOG_FILES))
-VHDL_CASE = $(patsubst %.v,work/%.vhd,$(VERILOG_FILES))
-VHD_TESTS = $(patsubst %.v,work/%_tb.vhd,$(VERILOG_FILES))
-TEST_LOGS = $(patsubst %.v,work/%.run,$(VERILOG_FILES))
+FAULT_VEC  = $(patsubst %.v,work/%.tst,$(VERILOG_FILES))
+VHDL_CASE  = $(patsubst %.v,work/%.vhd,$(VERILOG_FILES))
+VHD_TESTS  = $(patsubst %.v,work/%_tb.vhd,$(VERILOG_FILES))
+TEST_LOGS  = $(patsubst %.v,work/%.run,$(VERILOG_FILES))
+SPICE_STIM = $(patsubst %.v,work/%_stim.cir,$(VERILOG_FILES))
 
 fault_tests: $(FAULT_VEC)
 
@@ -29,6 +30,7 @@ show:
 	@echo Fault tests = $(FAULT_VEC)
 
 V2B=./verilog2bench.pl
+T2S=./test2spice.pl
 ATALANTA=atalanta
 
 # Create work directory
@@ -46,17 +48,23 @@ $(WORK_DIR)/%.bench: %.v | $(WORK_DIR)
 %_tb.vhd: %.tst
 	cd $$(dirname $@) ; ../test2vhdl.pl $$(basename $<)
 
+%_stim.cir: %.tst
+	cd $$(dirname $@) ; ../test2spice.pl $$(basename $<) -measure
+
 %.run: %_tb.vhd
 	ghdl -a $< $(subst _tb,,$<)
 	ghdl -r  $(patsubst $(WORK_DIR)/%.vhd,%,$<) > $@-tmp
 	mv $@-tmp $@
+
+# SPICE stimulus generation
+spice: $(WORK_DIR) fault_tests $(SPICE_STIM)
 
 # Clean work directory
 clean:
 	rm -rf $(WORK_DIR)
 
 # Phony targets
-.PHONY: all clean
+.PHONY: all clean spice
 
 # Help target
 help:
@@ -64,6 +72,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  all    - Run Atalanta on all gates (default)"
+	@echo "  spice  - Generate SPICE stimulus from ATPG patterns"
 	@echo "  clean  - Remove work directory"
 	@echo "  help   - Show this help message"
 	@echo ""

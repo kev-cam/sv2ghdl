@@ -1,0 +1,6 @@
+* Behavioral AND2 gate for ATPG stimulus demo
+*
+.subckt and2 a b y vdd vss
+* Two-stage: min(a,b) thresholded
+Bout y vss V = {V(vdd,vss) * URAMP(V(a,vss)-0.9)/0.9 * URAMP(V(b,vss)-0.9)/0.9}
+.ends and2
