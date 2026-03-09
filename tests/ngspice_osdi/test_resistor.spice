@@ -1,0 +1,7 @@
+OSDI resistor test
+.model rmod myresistor (r=1000)
+v1 1 0 dc 5
+nr1 1 0 rmod
+.dc v1 0 5 1
+.print dc i(v1)
+.end
