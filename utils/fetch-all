@@ -1,0 +1,25 @@
+#!/bin/bash
+
+here=$PWD
+
+for src in nvc xyce iverilog smak ltz kestrel ; do    
+    cd $here
+    if [ -d ../$src ] ; then
+	cd ../$src
+	echo $PWD
+	case $1 in
+	    status) git status | head -5 ;;
+	    build)  case $src in
+			smak) ;;
+			*)
+			    echo Building $src
+			    if [ -d ../$src-build ] ; then
+				make -j3 -C ../$src-build
+			    else
+				make -j3 
+			    fi ;;
+		    esac ;;
+	    *)      git pull ;;	    
+	esac
+    fi
+done
