@@ -1227,37 +1227,152 @@ sub translate_statement {
     return "-- FIXME: $stmt";
 }
 
+sub parse_display_args {
+    # Split a $display argument list respecting parenthesized expressions
+    # and quoted strings.  Returns a list of trimmed argument strings.
+    my ($str) = @_;
+    my @args;
+    my $depth = 0;
+    my $in_str = 0;
+    my $cur = '';
+    for my $i (0 .. length($str) - 1) {
+        my $c = substr($str, $i, 1);
+        if ($in_str) {
+            $cur .= $c;
+            if ($c eq '"' && substr($str, $i > 0 ? $i-1 : 0, 1) ne '\\') {
+                $in_str = 0;
+            }
+            next;
+        }
+        if ($c eq '"') {
+            $in_str = 1;
+            $cur .= $c;
+        } elsif ($c eq '(') {
+            $depth++;
+            $cur .= $c;
+        } elsif ($c eq ')') {
+            $depth--;
+            $cur .= $c;
+        } elsif ($c eq ',' && $depth == 0) {
+            push @args, $cur;
+            $cur = '';
+        } else {
+            $cur .= $c;
+        }
+    }
+    push @args, $cur if $cur ne '';
+    return map { s/^\s+//; s/\s+$//; $_ } @args;
+}
+
+sub format_arg_vhdl {
+    # Given a VHDL expression string and a format code letter,
+    # return the VHDL expression that produces the formatted string.
+    my ($expr, $code) = @_;
+    $code = lc($code);
+    if ($code eq 'h' || $code eq 'x') {
+        return "sv_hstr(std_logic_vector($expr))";
+    } elsif ($code eq 'b') {
+        return "sv_bstr(std_logic_vector($expr))";
+    } elsif ($code eq 'o') {
+        return "sv_ostr(std_logic_vector($expr))";
+    } elsif ($code eq 's' || $code eq 'c') {
+        return $expr;
+    } else {
+        # %d and anything else: decimal via integer'image
+        return "integer'image(to_integer(unsigned($expr)))";
+    }
+}
+
 sub translate_display {
     my ($args) = @_;
 
-    # Simple case: just a string literal
-    if ($args =~ /^\s*"([^"]*)"\s*$/) {
-        my $str = $1;
-        # Strip Verilog escape sequences that VHDL report doesn't need
-        $str =~ s/\\n$//;      # Trailing \n (report adds newline)
-        $str =~ s/\\n/\n/g;    # Embedded \n
-        $str =~ s/\\t/\t/g;    # Tab
-        $str =~ s/\\"/"/g;     # Escaped quote
-        $str =~ s/\\\\//g;     # Escaped backslash
-        # Escape VHDL double quotes
-        $str =~ s/"/""/g;
-        return "report \"$str\" severity note;";
+    my @parts = parse_display_args($args);
+
+    # Simple case: no arguments at all
+    return "report \"\" severity note;" unless @parts;
+
+    # First part should be the format string (quoted)
+    my $first = $parts[0];
+
+    # No format string — just an expression (e.g. $display(x))
+    unless ($first =~ /^\s*"/) {
+        my $expr = translate_expression($first);
+        return "report integer'image(to_integer(unsigned($expr))) severity note;";
     }
 
-    # String with format arguments - extract just the string for now
-    if ($args =~ /^\s*"([^"]*)"/) {
-        my $str = $1;
-        $str =~ s/\\n$//;
-        $str =~ s/\\n/\n/g;
-        $str =~ s/\\t/\t/g;
-        $str =~ s/\\"/"/g;
-        $str =~ s/\\\\//g;
-        $str =~ s/"/""/g;
-        return "report \"$str\" severity note; -- FIXME: format args";
+    # Extract the format string (strip outer quotes)
+    $first =~ /^\s*"(.*)"\s*$/s;
+    my $fmt = $1;
+
+    # Clean Verilog escapes
+    $fmt =~ s/\\n$//;       # Trailing \n (report adds newline)
+    $fmt =~ s/\\n/ /g;      # Embedded \n → space (VHDL report is one line)
+    $fmt =~ s/\\t/ /g;      # Tab → space
+    $fmt =~ s/\\"/"/g;      # Escaped quote
+    $fmt =~ s/\\\\//g;      # Escaped backslash
+
+    my @val_args = @parts[1 .. $#parts];
+    my $arg_idx = 0;
+
+    # Parse format string, splitting on % specifiers
+    my @segments;
+    my $literal = '';
+    my $i = 0;
+    while ($i < length($fmt)) {
+        my $c = substr($fmt, $i, 1);
+        if ($c eq '%' && $i + 1 < length($fmt)) {
+            my $next = substr($fmt, $i + 1, 1);
+            if ($next eq '%') {
+                # Literal %
+                $literal .= '%';
+                $i += 2;
+                next;
+            }
+            # Flush literal text
+            if ($literal ne '') {
+                my $escaped = $literal;
+                $escaped =~ s/"/""/g;
+                push @segments, "\"$escaped\"";
+                $literal = '';
+            }
+            # Skip width specifier digits
+            $i++;
+            while ($i < length($fmt) && substr($fmt, $i, 1) =~ /\d/) {
+                $i++;
+            }
+            if ($i < length($fmt)) {
+                my $code = substr($fmt, $i, 1);
+                $i++;
+                if ($code eq 'm') {
+                    push @segments, '"<module>"';
+                } elsif ($arg_idx <= $#val_args) {
+                    my $expr = translate_expression($val_args[$arg_idx++]);
+                    push @segments, format_arg_vhdl($expr, $code);
+                }
+            }
+        } else {
+            $literal .= $c;
+            $i++;
+        }
+    }
+    # Flush remaining literal
+    if ($literal ne '') {
+        my $escaped = $literal;
+        $escaped =~ s/"/""/g;
+        push @segments, "\"$escaped\"";
     }
 
-    # No string literal - just a variable/expression
-    return "-- FIXME: \$display($args)";
+    # If no segments, just report empty string
+    return "report \"\" severity note;" unless @segments;
+
+    # Single segment: no concatenation needed
+    if (@segments == 1) {
+        return "report $segments[0] severity note;";
+    }
+
+    # Join with VHDL concatenation operator
+    my $expr = join(' & ', @segments);
+    return "report $expr severity note;";
 }
 
 sub add_intermediate {
@@ -1288,7 +1403,9 @@ sub generate_header {
     } elsif ($lib eq 'ieee') {
         $header .= "library ieee;\n";
         $header .= "use ieee.std_logic_1164.all;\n";
-        $header .= "use ieee.numeric_std.all;\n\n";
+        $header .= "use ieee.numeric_std.all;\n";
+        $header .= "library sv2vhdl;\n";
+        $header .= "use sv2vhdl.sv_display_pkg.all;\n\n";
     } elsif ($lib eq 'cameron_eda') {
         $header .= "library cameron_eda;\n";
         $header .= "use cameron_eda.enhanced_logic_1164.all;\n";
