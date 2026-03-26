@@ -93,6 +93,7 @@ sub do_clean {
 # ── build ────────────────────────────────────────────────────────────
 sub do_build {
     my %ok;
+    my %elapsed;
     for my $proj (@projects) {
         my $name = $proj->{name};
         my $bdir = $proj->{build};
@@ -103,29 +104,36 @@ sub do_build {
         }
 
         # check deps
+        my $deps_met = 1;
         for my $dep (@{$proj->{deps} // []}) {
             unless ($ok{$dep}) {
                 banner($name, "SKIP (need $dep)");
-                next;
+                $deps_met = 0;
+                last;
             }
         }
+        next unless $deps_met;
 
         banner($name, 'build');
+        my $t0 = time();
         my $rc = run($build_cmd, $bdir);
+        $elapsed{$name} = time() - $t0;
         if ($rc == 0) {
             $ok{$name} = 1;
-            print "  OK\n";
+            printf "  OK (%ds)\n", $elapsed{$name};
         } else {
-            print "  FAILED (exit $rc)\n";
+            printf "  FAILED (exit %d, %ds)\n", $rc, $elapsed{$name};
         }
     }
 
     # summary
     print "\n", "=" x 35, "\n";
     for my $proj (@projects) {
+        my $name = $proj->{name};
         next unless -d $proj->{build};
-        printf "  %-12s %s\n", $proj->{name},
-            $ok{$proj->{name}} ? 'OK' : 'FAILED';
+        my $t = $elapsed{$name} ? sprintf(" %ds", $elapsed{$name}) : '';
+        printf "  %-12s %s%s\n", $name,
+            $ok{$name} ? 'OK' : 'FAILED', $t;
     }
     print "=" x 35, "\n";
 }
