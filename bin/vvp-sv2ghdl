@@ -58,7 +58,7 @@ STD="${NVC_STD:-2008}"
 cd "$SIMDIR"
 
 # Elaborate
-$NVC --std="$STD" -L "$NVC_LIBDIR" -e "$TOP_ENTITY" 2>&1
+timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" -e "$TOP_ENTITY" 2>&1
 if [[ $? -ne 0 ]]; then
     exit 1
 fi
@@ -70,7 +70,7 @@ fi
 #
 # The awk filter extracts message text from ** Note lines, strips Process
 # continuation lines, and routes warnings/errors to stderr.
-$NVC --std="$STD" -L "$NVC_LIBDIR" -r "$TOP_ENTITY" 2>&1 | awk '
+timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" -r "$TOP_ENTITY" 2>&1 | awk '
     /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
     /^   Process /    { next }
     /^   Procedure /  { next }

@@ -1,0 +1,3029 @@
+Running compiler/VVP tests for Icarus Verilog version: 13.
+----------------------------------------------------------------------------
+            macro_with_args: ==> Failed - running iverilog.
+                       mcl1: ==> Failed - running vvp.
+                      pr622: Passed.
+                      pr639: ==> Failed - running iverilog.
+                  pr1741212: ==> Failed - running iverilog.
+                  pr1912112: Passed.
+                  pr1925360: Passed.
+                    repeat1: ==> Failed - running vvp.
+                  pr2002443: ==> Failed - running iverilog.
+                    abstime: ==> Failed - running iverilog.
+                 pr2590274a: ==> Failed - running iverilog.
+                 pr2590274b: ==> Failed - running iverilog.
+                 pr2590274c: ==> Failed - running iverilog.
+                     bitsel: ==> Failed - output does not match gold file.
+                   bitsel10: ==> Failed - running iverilog.
+                    bitsel2: ==> Failed - running vvp.
+                    bitsel3: ==> Failed - running vvp.
+                    bitsel4: ==> Failed - running vvp.
+                    bitsel5: ==> Failed - running vvp.
+                    bitsel6: ==> Failed - running vvp.
+                    bitsel7: ==> Failed - running vvp.
+                    bitsel8: ==> Failed - running iverilog.
+                    bitsel9: ==> Failed - running vvp.
+                  bitwidth3: Passed.
+                      clog2: ==> Failed - running iverilog.
+               clog2-signal: ==> Failed - running iverilog.
+                  param_vec: Passed.
+                 param_vec2: Passed.
+                     pr498a: Passed.
+                      pr721: Passed.
+                      pr809: Passed.
+                     pr809b: Passed.
+                      pr979: ==> Failed - running iverilog.
+                     pr1000: Passed.
+                  pr1609611: ==> Failed - running vvp.
+                  pr1750870: Passed.
+                  pr1765789: Passed.
+                  pr1771903: ==> Failed - running iverilog.
+                  pr1793749: ==> Failed - output does not match gold file.
+                 pr1793749b: Passed.
+                 pr1861212b: ==> Failed - running iverilog.
+                 pr1864110c: ==> Failed - running iverilog.
+                  pr2806449: ==> Failed - running iverilog.
+                  pr2877555: ==> Failed - running vvp.
+                      real4: ==> Failed - running iverilog.
+                 realtobits: ==> Failed - running iverilog.
+                 specparam1: ==> Failed - running iverilog.
+                 specparam2: Passed.
+                      tern3: ==> Failed - running iverilog.
+                 v2005_math: ==> Failed - running iverilog.
+                    deposit: ==> Failed - running iverilog.
+               deposit_wire: ==> Failed - running vvp.
+                    sysargs: ==> Failed - running vvp.
+                fatal_et_al: ==> Failed - output does not match gold file.
+               fatal_et_al2: ==> Failed - RE (no error reported).
+            plus_arg_string: ==> Failed - running iverilog.
+                     fileio: ==> Failed - running iverilog.
+                  pr1494799: ==> Failed - output does not match gold file.
+                 pr2428890c: Passed.
+             sv_cast_darray: ==> Failed - running iverilog.
+                      br978: Passed.
+              br_ml20150424: Passed.
+                   simparam: ==> Failed - running iverilog.
+         blocking_repeat_ec: ==> Failed - running vvp.
+               ca_time_smtm: ==> Failed - running iverilog.
+                nb_array_pv: ==> Failed - running iverilog.
+                nb_ec_array: ==> Failed - output does not match gold file.
+             nb_ec_array_pv: ==> Failed - running iverilog.
+            nb_ec_array_pv2: ==> Failed - running vvp.
+                   nb_ec_pv: ==> Failed - running iverilog.
+                  nb_ec_pv2: ==> Failed - running iverilog.
+                 nb_ec_real: ==> Failed - running iverilog.
+               nb_ec_vector: ==> Failed - output does not match gold file.
+                  pr2486350: ==> Failed - running iverilog.
+                      pr534: ==> Failed - running iverilog.
+                      stime: ==> Failed - output does not match gold file.
+                     swrite: ==> Failed - running iverilog.
+                      time6: ==> Failed - running vvp.
+                     time6b: ==> Failed - running iverilog.
+                     time6c: ==> Failed - running iverilog.
+                    concat1: Passed.
+                    concat2: Passed.
+               constconcat1: ==> Failed - running iverilog.
+               constconcat2: ==> Failed - running iverilog.
+                 rptconcat2: Passed.
+            sdw_lvalconcat2: ==> Failed - running vvp.
+                      bool1: Passed.
+           compare_bool_reg: Passed.
+                 constfunc8: ==> Failed - running iverilog.
+                binary_nand: Passed.
+                 binary_nor: Passed.
+                  pr1528093: ==> Failed - running iverilog.
+                   br_gh456: ==> Failed - running iverilog.
+                 ca_64delay: ==> Failed - running iverilog.
+               ca_var_delay: ==> Failed - running iverilog.
+           cast_real_signed: ==> Failed - running iverilog.
+         cast_real_unsigned: ==> Failed - running iverilog.
+      module_port_shortreal: ==> Failed - running iverilog.
+                 pr1861212c: ==> Failed - running iverilog.
+                  pr1873372: ==> Failed - running iverilog.
+                  pr1880003: ==> Failed - running iverilog.
+                  pr1898293: ==> Failed - running iverilog.
+                  pr2123158: ==> Failed - running iverilog.
+                 pr2453002b: ==> Failed - running iverilog.
+                  pr2456943: ==> Failed - running iverilog.
+                  pr2715748: ==> Failed - running iverilog.
+                  pr2806474: ==> Failed - running iverilog.
+                  pr2976242: ==> Failed - running iverilog.
+                 pr2976242b: ==> Failed - running iverilog.
+                 pr2976242c: ==> Failed - CE - output does not match gold file.
+                      real8: ==> Failed - running iverilog.
+                 real_array: ==> Failed - running iverilog.
+              real_array_nb: ==> Failed - running iverilog.
+       real_concat_invalid1: Passed - CE.
+             real_mod_in_ca: ==> Failed - running iverilog.
+               real_op_fail: Passed - CE.
+           real_pulse_clean: ==> Failed - running iverilog.
+             real_pwr_in_ca: ==> Failed - running iverilog.
+        real_select_invalid: Passed - CE.
+            real_wire_array: ==> Failed - running iverilog.
+        real_wire_force_rel: ==> Failed - running iverilog.
+                      tern8: ==> Failed - running iverilog.
+                   br_gh99e: ==> Failed - running iverilog.
+                    pull371: ==> Failed - running iverilog.
+               sv-2val-nets: ==> Failed - running iverilog.
+                  pr2476430: ==> Failed - running iverilog.
+                   br_gh377: ==> Failed - output does not match gold file.
+              cmdline_parm1: ==> Failed - running vvp.
+                 array_dump: Error: unable to open work/array_dump.vcd for reading.
+==> Failed - output does not match gold file.
+                  pr2859628: Error: unable to open work/pr2859628.vcd for reading.
+==> Failed - output does not match gold file.
+                    big_int: ==> Failed - running vvp.
+              ca_pow_signed: ==> Failed - running iverilog.
+                      urand: ==> Failed - running iverilog.
+                       race: Passed.
+           automatic_error4: ==> Failed - CE (no error reported).
+        array_lval_select3a: Passed - CE.
+                     br605a: ==> Failed - running iverilog.
+                     br605b: ==> Failed - running iverilog.
+                      br971: ==> Failed - running iverilog.
+                     br1005: Passed - CE.
+                    br1015b: Passed - CE.
+             br_ml20150315b: Passed - CE.
+        sv_deferred_assert1: ==> Failed - CE (no error reported).
+        sv_deferred_assert2: ==> Failed - CE - output does not match gold file.
+        sv_deferred_assume1: ==> Failed - CE (no error reported).
+        sv_deferred_assume2: ==> Failed - CE - output does not match gold file.
+     unnamed_generate_block: ==> Failed - running iverilog.
+                  br_gh497b: ==> Failed - CE - output does not match gold file.
+                  br_gh497d: ==> Failed - CE - output does not match gold file.
+                  br_gh497f: ==> Failed - CE - output does not match gold file.
+                      addsr: Passed.
+                    addwide: ==> Failed - output does not match gold file.
+               always3.1.1A: ==> Failed - CE (no error reported).
+               always3.1.1B: Passed - CE.
+               always3.1.1C: ==> Failed - running vvp.
+               always3.1.1D: ==> Failed - running vvp.
+               always3.1.1E: ==> Failed - running vvp.
+               always3.1.1F: ==> Failed - running vvp.
+               always3.1.1G: ==> Failed - running iverilog.
+               always3.1.1H: ==> Failed - running iverilog.
+               always3.1.1I: ==> Failed - running vvp.
+               always3.1.1J: ==> Failed - running vvp.
+               always3.1.1K: ==> Failed - running iverilog.
+               always3.1.2A: ==> Failed - CE (no error reported).
+               always3.1.2B: Passed - CE.
+               always3.1.2C: Passed - CE.
+               always3.1.2D: Passed - CE.
+               always3.1.2E: Passed - CE.
+               always3.1.2F: Passed - CE.
+               always3.1.2G: Passed - CE.
+               always3.1.2H: Passed - CE.
+               always3.1.2I: Passed - CE.
+               always3.1.3A: ==> Failed - CE (no error reported).
+               always3.1.3B: ==> Failed - CE (no error reported).
+              always3.1.3B2: ==> Failed - running iverilog.
+               always3.1.3C: ==> Failed - CE (no error reported).
+               always3.1.3D: ==> Failed - CE (no error reported).
+              always3.1.3D2: ==> Failed - running iverilog.
+               always3.1.3E: ==> Failed - CE (no error reported).
+              always3.1.3E2: ==> Failed - running iverilog.
+               always3.1.3F: ==> Failed - CE (no error reported).
+              always3.1.3F2: ==> Failed - running iverilog.
+               always3.1.3G: ==> Failed - CE (no error reported).
+               always3.1.3H: ==> Failed - CE (no error reported).
+               always3.1.3J: ==> Failed - CE (no error reported).
+               always3.1.4A: ==> Failed - running vvp.
+               always3.1.4B: ==> Failed - running vvp.
+               always3.1.4C: ==> Failed - running vvp.
+               always3.1.4D: ==> Failed - running vvp.
+               always3.1.4E: ==> Failed - running vvp.
+               always3.1.4F: ==> Failed - running vvp.
+               always3.1.4G: ==> Failed - running vvp.
+               always3.1.4H: ==> Failed - output does not match gold file.
+               always3.1.4I: ==> Failed - running vvp.
+               always3.1.5A: ==> Failed - running vvp.
+               always3.1.5B: ==> Failed - running vvp.
+               always3.1.5C: ==> Failed - running vvp.
+               always3.1.5D: ==> Failed - running vvp.
+               always3.1.5E: ==> Failed - running vvp.
+               always3.1.5F: ==> Failed - running vvp.
+               always3.1.6A: ==> Failed - running vvp.
+               always3.1.6B: ==> Failed - running vvp.
+               always3.1.6C: ==> Failed - running vvp.
+               always3.1.6D: ==> Failed - running vvp.
+               always3.1.7A: ==> Failed - running vvp.
+               always3.1.7B: ==> Failed - running vvp.
+               always3.1.7C: ==> Failed - running vvp.
+               always3.1.7D: ==> Failed - running vvp.
+               always3.1.8A: ==> Failed - running vvp.
+               always3.1.9A: ==> Failed - CE (no error reported).
+               always3.1.9B: Passed - CE.
+               always3.1.9C: ==> Failed - running iverilog.
+               always3.1.9D: ==> Failed - running iverilog.
+              always3.1.10A: Passed - CE.
+              always3.1.11A: ==> Failed - running vvp.
+              always3.1.11B: ==> Failed - running vvp.
+              always3.1.12A: ==> Failed - output does not match gold file.
+              always3.1.12B: ==> Failed - output does not match gold file.
+              always3.1.12C: ==> Failed - running iverilog.
+     always_star_array_lval: ==> Failed - output does not match gold file.
+                    andnot1: Passed.
+              arith-unknown: ==> Failed - output does not match gold file.
+                     array4: ==> Failed - running vvp.
+                     array5: Passed - CE.
+                     array6: ==> Failed - running vvp.
+                     array7: ==> Failed - running iverilog.
+         array_lval_select1: ==> Failed - running iverilog.
+         array_lval_select2: ==> Failed - running iverilog.
+        array_lval_select3b: ==> Failed - CE (no error reported).
+        array_lval_select3c: ==> Failed - running iverilog.
+        array_lval_select4a: ==> Failed - running iverilog.
+        array_lval_select4b: ==> Failed - CE (no error reported).
+         array_lval_select5: ==> Failed - running iverilog.
+         array_lval_select6: ==> Failed - running iverilog.
+            array_packed_2d: ==> Failed - output does not match gold file.
+               array_select: ==> Failed - running iverilog.
+             array_select_a: ==> Failed - running iverilog.
+           array_word_check: ==> Failed - output does not match gold file.
+           array_word_width: ==> Failed - output does not match gold file.
+          array_word_width2: ==> Failed - running iverilog.
+                 assign3.2A: ==> Failed - running vvp.
+                 assign3.2B: ==> Failed - running vvp.
+                 assign3.2C: ==> Failed - running iverilog.
+                 assign3.2D: ==> Failed - running iverilog.
+                 assign3.2E: ==> Failed - running iverilog.
+                 assign_add: ==> Failed - running vvp.
+         assign_deassign_pv: ==> Failed - running iverilog.
+               assign_delay: ==> Failed - running vvp.
+                 assign_deq: ==> Failed - output does not match gold file.
+                  assign_ge: ==> Failed - output does not match gold file.
+                  assign_le: ==> Failed - output does not match gold file.
+                assign_mem1: ==> Failed - running vvp.
+                assign_mem2: ==> Failed - running vvp.
+                 assign_nb1: ==> Failed - output does not match gold file.
+                 assign_nb2: ==> Failed - running vvp.
+                 assign_neq: ==> Failed - output does not match gold file.
+                     attrib: ==> Failed - running vvp.
+            attrib01_module: ==> Failed - output does not match gold file.
+         attrib02_port_decl: ==> Failed - output does not match gold file.
+         attrib03_parameter: ==> Failed - output does not match gold file.
+           attrib04_net_var: ==> Failed - running vvp.
+         attrib05_port_conn: ==> Failed - output does not match gold file.
+   attrib06_operator_suffix: ==> Failed - output does not match gold file.
+         attrib07_func_call: Passed.
+          attrib08_mod_inst: ==> Failed - output does not match gold file.
+              attrib09_case: ==> Failed - output does not match gold file.
+                attrib_expr: Passed.
+           automatic_error1: ==> Failed - CE (no error reported).
+           automatic_error2: ==> Failed - CE (no error reported).
+           automatic_error3: ==> Failed - CE (no error reported).
+           automatic_error5: ==> Failed - CE (no error reported).
+           automatic_error6: ==> Failed - CE (no error reported).
+           automatic_error7: ==> Failed - CE (no error reported).
+           automatic_error8: ==> Failed - CE (no error reported).
+           automatic_error9: ==> Failed - CE (no error reported).
+          automatic_error10: ==> Failed - CE (no error reported).
+           automatic_events: ==> Failed - output does not match gold file.
+          automatic_events2: ==> Failed - output does not match gold file.
+          automatic_events3: ==> Failed - output does not match gold file.
+             automatic_task: ==> Failed - output does not match gold file.
+            automatic_task2: ==> Failed - output does not match gold file.
+            automatic_task3: ==> Failed - output does not match gold file.
+                   bitwidth: ==> Failed - running vvp.
+                  bitwidth2: ==> Failed - running vvp.
+                  blankport: Passed.
+    block_only_with_var_def: ==> Failed - running iverilog.
+                       bnot: Passed.
+                     br916a: ==> Failed - output does not match gold file.
+                     br916b: ==> Failed - output does not match gold file.
+                     br918a: ==> Failed - running vvp.
+                     br918b: ==> Failed - running vvp.
+                     br918c: ==> Failed - running vvp.
+                     br918d: ==> Failed - running vvp.
+                      br919: Passed.
+                      br924: Passed - CE.
+                      br930: Passed - CO.
+                      br931: ==> Failed - running iverilog.
+                      br935: ==> Failed - running iverilog.
+                      br937: ==> Failed - running iverilog.
+                      br946: ==> Failed - running iverilog.
+                      br947: ==> Failed - running iverilog.
+                      br948: ==> Failed - running iverilog.
+                      br955: ==> Failed - running iverilog.
+                     br960a: ==> Failed - output does not match gold file.
+                     br960b: ==> Failed - output does not match gold file.
+                     br960c: ==> Failed - output does not match gold file.
+                     br960d: ==> Failed - output does not match gold file.
+                      br961: Passed.
+                     br961a: ==> Failed - CE (no error reported).
+                      br965: ==> Failed - output does not match gold file.
+                      br967: ==> Failed - running iverilog.
+                      br968: ==> Failed - running iverilog.
+                      br972: ==> Failed - running vvp.
+                      br977: Passed.
+                      br982: ==> Failed - CE (no error reported).
+                     br982a: Passed - CE.
+                     br982b: ==> Failed - CE (no error reported).
+                      br988: ==> Failed - running iverilog.
+                      br990: Passed.
+                     br991a: ==> Failed - output does not match gold file.
+                      br999: Passed.
+                     br1000: ==> Failed - running vvp.
+                     br1001: ==> Failed - running iverilog.
+                     br1006: ==> Failed - output does not match gold file.
+                     br1007: ==> Failed - running iverilog.
+                     br1008: ==> Failed - running iverilog.
+                    br1015a: Passed - CE.
+                     br1019: ==> Failed - running iverilog.
+                     br1027: ==> Failed - output does not match gold file.
+                    br1027a: ==> Failed - CE (no error reported).
+                    br1027c: ==> Failed - CE (no error reported).
+                    br1027e: ==> Failed - CE (no error reported).
+                    br1029a: ==> Failed - running iverilog.
+                    br1029b: ==> Failed - running iverilog.
+                    br1029c: ==> Failed - CE (no error reported).
+                     br_gh6: ==> Failed - running iverilog.
+                     br_gh7: ==> Failed - output does not match gold file.
+                     br_gh8: ==> Failed - output does not match gold file.
+                     br_gh9: ==> Failed - running iverilog.
+                    br_gh11: Passed - CO.
+                    br_gh12: ==> Failed - output does not match gold file.
+                    br_gh13: Passed.
+                    br_gh14: Passed.
+                    br_gh15: Passed.
+                    br_gh18: Passed.
+                    br_gh19: Passed.
+                   br_gh19a: ==> Failed - running iverilog.
+                   br_gh19b: ==> Failed - running vvp.
+                    br_gh22: ==> Failed - running iverilog.
+                   br_gh25a: Passed - CE.
+                   br_gh25b: Passed - CE.
+                    br_gh26: Passed - CE.
+                    br_gh28: ==> Failed - running iverilog.
+                    br_gh30: ==> Failed - output does not match gold file.
+                    br_gh33: ==> Failed - output does not match gold file.
+                    br_gh37: ==> Failed - running vvp.
+                   br_gh60a: ==> Failed - CE (no error reported).
+                    br_gh62: ==> Failed - CE - output does not match gold file.
+                    br_gh79: ==> Failed - CE - output does not match gold file.
+                   br_gh99a: ==> Failed - running vvp.
+                   br_gh99b: ==> Failed - running vvp.
+                   br_gh99d: ==> Failed - running iverilog.
+                   br_gh99f: ==> Failed - running iverilog.
+                   br_gh99g: ==> Failed - running vvp.
+                   br_gh99h: ==> Failed - running vvp.
+                   br_gh99i: ==> Failed - running iverilog.
+                   br_gh99j: ==> Failed - running iverilog.
+                   br_gh99k: ==> Failed - running iverilog.
+                   br_gh99l: ==> Failed - running iverilog.
+                   br_gh99m: ==> Failed - running vvp.
+                   br_gh99o: ==> Failed - running vvp.
+                   br_gh99p: ==> Failed - running vvp.
+                   br_gh99q: ==> Failed - running iverilog.
+                   br_gh99r: ==> Failed - running vvp.
+                   br_gh99s: ==> Failed - running vvp.
+                   br_gh99t: ==> Failed - running iverilog.
+                   br_gh99u: ==> Failed - running iverilog.
+                   br_gh103: ==> Failed - running vvp.
+                  br_gh127a: ==> Failed - running iverilog.
+                  br_gh127b: ==> Failed - running iverilog.
+                  br_gh127c: ==> Failed - running iverilog.
+                  br_gh127d: ==> Failed - output does not match gold file.
+                  br_gh127e: ==> Failed - running iverilog.
+                  br_gh127f: ==> Failed - running iverilog.
+                   br_gh142: Passed - CE.
+                   br_gh152: ==> Failed - CE (no error reported).
+                   br_gh156: Error: unable to open work/br_gh156.vcd for reading.
+==> Failed - output does not match gold file.
+                   br_gh157: ==> Failed - CE - output does not match gold file.
+                   br_gh162: ==> Failed - running iverilog.
+                   br_gh163: ==> Failed - CE (no error reported).
+                   br_gh198: ==> Failed - running iverilog.
+                  br_gh199a: Passed.
+                  br_gh199b: ==> Failed - running iverilog.
+                   br_gh209: Error: unable to open work/br_gh209.dat for reading.
+==> Failed - output does not match gold file.
+                  br_gh244a: ==> Failed - running iverilog.
+                  br_gh244b: ==> Failed - running iverilog.
+                  br_gh277a: ==> Failed - running iverilog.
+                  br_gh283a: ==> Failed - running vvp.
+                  br_gh283b: ==> Failed - running vvp.
+                  br_gh283c: ==> Failed - running iverilog.
+                   br_gh309: Passed.
+                   br_gh315: ==> Failed - running iverilog.
+                  br_gh316a: ==> Failed - output does not match gold file.
+                  br_gh316b: ==> Failed - output does not match gold file.
+                  br_gh316c: ==> Failed - running iverilog.
+                   br_gh330: Passed.
+                   br_gh345: ==> Failed - running iverilog.
+                  br_gh356a: ==> Failed - output does not match gold file.
+                  br_gh356b: ==> Failed - output does not match gold file.
+                   br_gh435: Passed.
+                   br_gh484: Passed.
+                  br_gh497a: ==> Failed - running vvp.
+                  br_gh497c: ==> Failed - running iverilog.
+                  br_gh497e: Passed.
+                  br_gh508b: ==> Failed - running iverilog.
+                   br_gh515: ==> Failed - running vvp.
+                   br_gh531: ==> Failed - running iverilog.
+                   br_gh533: Passed - CE.
+                   br_gh567: ==> Failed - running iverilog.
+                   br_gh621: ==> Failed - running iverilog.
+                   br_gh632: ==> Failed - output does not match gold file.
+                  br_gh632b: ==> Failed - output does not match gold file.
+                  br_gh632c: ==> Failed - running iverilog.
+                   br_gh674: ==> Failed - running iverilog.
+                   br_gh732: ==> Failed - running iverilog.
+                  br_gh782c: ==> Failed - running iverilog.
+                  br_gh782d: ==> Failed - output does not match gold file.
+                  br_gh782e: ==> Failed - output does not match gold file.
+                  br_gh782f: ==> Failed - output does not match gold file.
+                   br_gh788: ==> Failed - output does not match gold file.
+                   br_gh793: Passed.
+                   br_gh827: ==> Failed - running iverilog.
+                   br_gh889: ==> Failed - output does not match gold file.
+                  br_gh956a: ==> Failed - CE - output does not match gold file.
+                  br_gh956b: ==> Failed - CE - output does not match gold file.
+                  br_gh1117: ==> Failed - CE - output does not match gold file.
+                  br_gh1173: ==> Failed - CE - output does not match gold file.
+                 br_gh1174a: ==> Failed - CE - output does not match gold file.
+                 br_gh1174b: ==> Failed - CE - output does not match gold file.
+                 br_gh1175a: ==> Failed - CE - output does not match gold file.
+                 br_gh1175b: ==> Failed - CE - output does not match gold file.
+                 br_gh1175c: ==> Failed - CE - output does not match gold file.
+                 br_gh1175d: ==> Failed - CE - output does not match gold file.
+                 br_gh1175e: ==> Failed - CE - output does not match gold file.
+                 br_gh1175f: ==> Failed - CE - output does not match gold file.
+                 br_gh1178a: ==> Failed - CE - output does not match gold file.
+                 br_gh1178b: ==> Failed - output does not match gold file.
+                 br_gh1178c: ==> Failed - running iverilog.
+                  br_gh1182: ==> Failed - CE (no error reported).
+                 br_gh1225a: ==> Failed - CE (no error reported).
+                 br_gh1225b: ==> Failed - CE (no error reported).
+                 br_gh1225c: ==> Failed - CE - output does not match gold file.
+                  br_gh1237: Passed.
+              br_ml20150315: ==> Failed - running vvp.
+              br_ml20150321: Passed - CE.
+              br_mw20171108: ==> Failed - running iverilog.
+             br_ml20190806a: ==> Failed - running iverilog.
+             br_ml20190806b: ==> Failed - running iverilog.
+              br_ml20190814: ==> Failed - output does not match gold file.
+                      bufif: ==> Failed - running iverilog.
+                     busbug: ==> Failed - running iverilog.
+                   ca_force: ==> Failed - running iverilog.
+                    ca_func: ==> Failed - running iverilog.
+                    ca_mult: ==> Failed - running iverilog.
+               ca_pow_synth: ==> Failed - running iverilog.
+            ca_pow_unsigned: ==> Failed - running iverilog.
+            ca_real_logical: ==> Failed - running iverilog.
+                    ca_time: ==> Failed - running iverilog.
+                   case3.8A: ==> Failed - output does not match gold file.
+                   case3.8B: ==> Failed - output does not match gold file.
+                   case3.8C: ==> Failed - output does not match gold file.
+                   case3.8D: Passed.
+                  casex3.9A: ==> Failed - output does not match gold file.
+                  casex3.9B: ==> Failed - output does not match gold file.
+                  casex3.9C: ==> Failed - output does not match gold file.
+                  casex3.9D: ==> Failed - output does not match gold file.
+                  casex3.9E: ==> Failed - output does not match gold file.
+                 casez3.10A: ==> Failed - output does not match gold file.
+                 casez3.10B: ==> Failed - output does not match gold file.
+                 casez3.10C: ==> Failed - output does not match gold file.
+                 casez3.10D: ==> Failed - output does not match gold file.
+                 casez3.10E: ==> Failed - output does not match gold file.
+                   cast_int: ==> Failed - running iverilog.
+           check_constant_1: Passed - CE.
+           check_constant_2: Passed - CE.
+           check_constant_3: ==> Failed - CE (no error reported).
+           check_constant_4: Passed - CE.
+           check_constant_5: Passed - CE.
+           check_constant_6: Passed - CE.
+           check_constant_7: Passed - CE.
+           check_constant_8: Passed - CE.
+           check_constant_9: Passed - CE.
+          check_constant_10: Passed - CE.
+          check_constant_11: Passed - CE.
+          check_constant_12: Passed - CE.
+          check_constant_13: Passed - CE.
+          check_constant_14: Passed - CE.
+          check_constant_15: Passed - CE.
+          check_constant_16: Passed - CE.
+          check_constant_17: Passed - CE.
+          check_constant_18: Passed - CE.
+          check_constant_19: Passed - CE.
+          check_constant_20: Passed - CE.
+                       cmos: ==> Failed - output does not match gold file.
+                   comp1000: ==> Failed - running iverilog.
+                   comp1001: ==> Failed - running iverilog.
+             comp1001_fail3: ==> Failed - running iverilog.
+             comp1001_fail4: Passed.
+             comp1001_fail5: ==> Failed - running vvp.
+               complex_lidx: ==> Failed - running iverilog.
+                    con_tri: ==> Failed - running vvp.
+                    concat3: ==> Failed - running iverilog.
+                    concat4: ==> Failed - output does not match gold file.
+       concat_zero_wid_fail: Passed - CE.
+      concat_zero_wid_fail2: Passed.
+                  cond_band: ==> Failed - running vvp.
+                  cond_wide: ==> Failed - running vvp.
+                 cond_wide2: ==> Failed - running vvp.
+                      const: ==> Failed - output does not match gold file.
+                     const2: Passed.
+                     const3: Passed.
+                     const4: ==> Failed - output does not match gold file.
+                   constadd: Passed.
+                  constadd2: Passed.
+                  constadd3: Passed.
+                 constfunc1: Passed.
+                 constfunc2: Passed.
+                 constfunc3: ==> Failed - running iverilog.
+                 constfunc4: ==> Failed - running iverilog.
+                 constfunc5: Passed.
+                 constfunc6: ==> Failed - running iverilog.
+                 constfunc7: ==> Failed - running iverilog.
+                 constfunc9: ==> Failed - running iverilog.
+                constfunc10: ==> Failed - running iverilog.
+                constfunc11: Passed.
+                constfunc12: ==> Failed - running iverilog.
+                constfunc13: ==> Failed - running iverilog.
+                constfunc14: ==> Failed - running iverilog.
+                constfunc15: ==> Failed - running iverilog.
+                  constmult: Passed.
+                  consttern: ==> Failed - output does not match gold file.
+                 contrib8.1: Passed.
+                 contrib8.2: ==> Failed - running vvp.
+                 contrib8.3: Passed - CE.
+                 contrib8.4: Passed.
+                 contrib8.5: ==> Failed - output does not match gold file.
+              countdrivers1: ==> Failed - running iverilog.
+              countdrivers2: ==> Failed - running iverilog.
+              countdrivers3: ==> Failed - running iverilog.
+              countdrivers4: ==> Failed - running iverilog.
+              countdrivers5: ==> Failed - running iverilog.
+                      cprop: ==> Failed - running vvp.
+           credence20041209: ==> Failed - running iverilog.
+              dangling_port: ==> Failed - output does not match gold file.
+                     dcomp1: ==> Failed - running vvp.
+               deassign3.4A: ==> Failed - running iverilog.
+               decl_assign1: Passed.
+                def_nettype: ==> Failed - running iverilog.
+           def_nettype_none: ==> Failed - CE - output does not match gold file.
+                    define1: ==> Failed - output does not match gold file.
+                   defparam: ==> Failed - running iverilog.
+                  defparam2: ==> Failed - running vvp.
+                  defparam3: ==> Failed - running vvp.
+                defparam3.5: ==> Failed - output does not match gold file.
+                  defparam4: ==> Failed - running vvp.
+                      delay: ==> Failed - running vvp.
+                     delay2: ==> Failed - running vvp.
+                     delay3: ==> Failed - running vvp.
+                     delay4: ==> Failed - running vvp.
+                     delay5: ==> Failed - running vvp.
+            delay_assign_nb: Passed.
+           delay_assign_nb2: Passed.
+                  delay_var: ==> Failed - running iverilog.
+        delayed_comp_reduct: Passed.
+                       dff1: ==> Failed - running vvp.
+                disable3.6A: ==> Failed - running iverilog.
+                disable3.6B: ==> Failed - running iverilog.
+            disable_cleanup: ==> Failed - running iverilog.
+               disable_fork: ==> Failed - running iverilog.
+                   disblock: Passed.
+                  disblock2: ==> Failed - running iverilog.
+                   disp_dec: ==> Failed - running vvp.
+                  disp_dec2: Passed.
+             disp_leading_z: ==> Failed - running vvp.
+                  disp_parm: ==> Failed - running vvp.
+                  disp_part: Passed.
+                      div16: ==> Failed - running iverilog.
+                    dotinid: ==> Failed - running iverilog.
+             drive_strength: ==> Failed - running vvp.
+            drive_strength1: ==> Failed - running vvp.
+            drive_strength2: ==> Failed - output does not match gold file.
+            drive_strength3: ==> Failed - running vvp.
+                     dummy7: ==> Failed - running vvp.
+               dump_memword: Error: unable to open work/test.vcd for reading.
+==> Failed - output does not match gold file.
+                   dumpvars: ==> Failed - running vvp.
+                        eeq: ==> Failed - running vvp.
+                      else1: ==> Failed - output does not match gold file.
+                      else2: ==> Failed - output does not match gold file.
+                      else3: ==> Failed - output does not match gold file.
+                 elsif_test: ==> Failed - output does not match gold file.
+                         eq: ==> Failed - running vvp.
+                    escape1: ==> Failed - running iverilog.
+                   escape2a: ==> Failed - running iverilog.
+                   escape2b: ==> Failed - running iverilog.
+                   escape2c: ==> Failed - running iverilog.
+                    escape3: Passed.
+                    escape4: ==> Failed - running iverilog.
+                   escape4b: ==> Failed - running iverilog.
+                     event2: ==> Failed - output does not match gold file.
+                     event3: ==> Failed - running iverilog.
+                  event3.15: ==> Failed - running iverilog.
+                event_array: Passed - CE.
+                 event_list: ==> Failed - output does not match gold file.
+                event_list2: ==> Failed - output does not match gold file.
+                event_list3: ==> Failed - running vvp.
+                     extend: ==> Failed - output does not match gold file.
+                  fdisplay1: ==> Failed - running vvp.
+                  fdisplay2: ==> Failed - running vvp.
+           fdisplay_fail_fd: ==> Failed - output does not match gold file.
+          fdisplay_fail_mcd: ==> Failed - output does not match gold file.
+                       fifo: ==> Failed - output does not match gold file.
+                     fopen1: ==> Failed - running vvp.
+                     fopen2: ==> Failed - output does not match gold file.
+                   for3.16A: ==> Failed - output does not match gold file.
+                     force1: ==> Failed - running iverilog.
+                     force2: ==> Failed - running iverilog.
+                 force3.17A: ==> Failed - running iverilog.
+                 force3.17B: ==> Failed - running iverilog.
+                 force3.17C: ==> Failed - running iverilog.
+            force_lval_part: ==> Failed - running iverilog.
+       force_release_reg_pv: ==> Failed - running iverilog.
+     force_release_wire8_pv: ==> Failed - running iverilog.
+      force_release_wire_pv: ==> Failed - running iverilog.
+                      fork1: ==> Failed - running iverilog.
+                  fork3.19A: ==> Failed - running iverilog.
+                  fork3.19B: ==> Failed - running iverilog.
+                     format: ==> Failed - running iverilog.
+                       fr47: Passed.
+                      fread: ==> Failed - running iverilog.
+                   fscanf_u: ==> Failed - running iverilog.
+              fscanf_u_warn: ==> Failed - running iverilog.
+                   fscanf_z: ==> Failed - running iverilog.
+              fscanf_z_warn: ==> Failed - running iverilog.
+                  function1: ==> Failed - output does not match gold file.
+                  function2: Passed.
+                  function3: ==> Failed - running iverilog.
+              function3.11B: Passed.
+              function3.11C: Passed.
+              function3.11D: ==> Failed - output does not match gold file.
+              function3.11F: Passed.
+                  function4: Passed - CE.
+                  function5: ==> Failed - running iverilog.
+                  function6: ==> Failed - running iverilog.
+                  function7: ==> Failed - running vvp.
+                  function8: ==> Failed - running iverilog.
+                  function9: ==> Failed - running iverilog.
+               function_exp: Passed.
+                     ga_and: ==> Failed - running iverilog.
+                     ga_mod: ==> Failed - running vvp.
+                    ga_mod1: ==> Failed - running vvp.
+                    ga_mod2: ==> Failed - running vvp.
+                    ga_nand: ==> Failed - running iverilog.
+                     ga_nor: ==> Failed - running iverilog.
+                      ga_or: ==> Failed - running iverilog.
+                    ga_xnor: ==> Failed - running iverilog.
+                     ga_xor: ==> Failed - running iverilog.
+                      galan: ==> Failed - running vvp.
+              gate_connect1: ==> Failed - running vvp.
+              gate_connect2: ==> Failed - CE - output does not match gold file.
+              gen_case_opt1: ==> Failed - output does not match gold file.
+              gen_case_opt2: Passed.
+              gen_case_opt3: Passed.
+                     gencrc: ==> Failed - running vvp.
+              generate_case: ==> Failed - running vvp.
+             generate_case2: ==> Failed - running vvp.
+             generate_case3: ==> Failed - running vvp.
+        generate_multi_loop: ==> Failed - running iverilog.
+           generate_specify: Passed - CE.
+         generate_specparam: Passed - CE.
+                    genloop: ==> Failed - running vvp.
+              genvar_scopes: ==> Failed - running iverilog.
+                     hello1: Passed.
+             hier_ref_error: ==> Failed - CE (no error reported).
+                  hierspace: ==> Failed - running iverilog.
+                      idiv1: ==> Failed - running vvp.
+                      idiv2: Passed.
+                      idiv3: ==> Failed - output does not match gold file.
+                     ifdef1: Passed.
+                     ifdef2: ==> Failed - output does not match gold file.
+                     ifdef3: Passed.
+                     ifdef4: ==> Failed - output does not match gold file.
+                 ifdef_fail: ==> Failed - CE (no error reported).
+                   include1: ==> Failed - running iverilog.
+                   include2: ==> Failed - running iverilog.
+                   include3: ==> Failed - running iverilog.
+         indef_width_concat: ==> Failed - CE - output does not match gold file.
+                    initmod: ==> Failed - running iverilog.
+                   initmod2: ==> Failed - running vvp.
+                      inout: ==> Failed - output does not match gold file.
+                     inout2: ==> Failed - running vvp.
+                     inout3: ==> Failed - running iverilog.
+                     inout4: ==> Failed - running iverilog.
+            int_not_signext: ==> Failed - output does not match gold file.
+                 integer1lt: ==> Failed - running vvp.
+                 integer2le: ==> Failed - running vvp.
+                 integer3gt: ==> Failed - running vvp.
+                 integer4ge: ==> Failed - running vvp.
+                   integer5: Passed.
+                  itor_rtoi: ==> Failed - running iverilog.
+                      land2: ==> Failed - running vvp.
+                      land3: ==> Failed - running vvp.
+                      land4: ==> Failed - output does not match gold file.
+                    landor1: Passed.
+                    ldelay1: ==> Failed - output does not match gold file.
+                    ldelay2: Passed.
+                    ldelay3: ==> Failed - output does not match gold file.
+                    ldelay4: Passed.
+                    ldelay5: ==> Failed - running vvp.
+                  lh_catadd: ==> Failed - running vvp.
+                  lh_memcat: ==> Failed - running iverilog.
+                 lh_memcat2: ==> Failed - running vvp.
+                 lh_memcat3: ==> Failed - running vvp.
+                 lh_varindx: ==> Failed - output does not match gold file.
+                lh_varindx2: ==> Failed - running vvp.
+                lh_varindx4: ==> Failed - running vvp.
+                lh_varindx5: ==> Failed - running vvp.
+                   long_div: ==> Failed - output does not match gold file.
+                     macro2: Passed.
+                 macro_args: ==> Failed - running iverilog.
+             macro_comment1: Passed.
+             macro_comment2: Passed.
+             macro_comment3: Passed.
+    macro_comment_multiline: Passed.
+         macro_redefinition: ==> Failed - output does not match gold file.
+          macro_replacement: ==> Failed - output does not match gold file.
+                     macsub: Passed.
+                     mangle: ==> Failed - running iverilog.
+                   mangle_1: ==> Failed - running iverilog.
+               many_drivers: ==> Failed - running vvp.
+                       mcl2: ==> Failed - running vvp.
+                       mem1: ==> Failed - running vvp.
+                   mem2port: ==> Failed - running vvp.
+                  memassign: ==> Failed - running vvp.
+                     memidx: ==> Failed - output does not match gold file.
+                  memidxrng: ==> Failed - running vvp.
+                    meminit: Passed.
+                   meminit2: Passed.
+                 memport_bs: ==> Failed - output does not match gold file.
+                     memref: ==> Failed - output does not match gold file.
+                 mhead_task: Passed.
+         mixed_type_div_mod: ==> Failed - running iverilog.
+           mixed_width_case: ==> Failed - running iverilog.
+                   modparam: ==> Failed - running vvp.
+                module3.12A: ==> Failed - output does not match gold file.
+                module3.12B: ==> Failed - output does not match gold file.
+ module_inout_port_list_def: Passed - CE.
+     module_inout_port_type: Passed - CE.
+ module_input_port_list_def: Passed - CE.
+     module_input_port_type: Passed - CE.
+       module_nonansi_fail1: Passed - CE.
+       module_nonansi_fail2: Passed - CE.
+       module_nonansi_fail3: Passed - CE.
+       module_nonansi_fail4: Passed - CE.
+       module_nonansi_fail5: Passed - CE.
+       module_nonansi_fail6: Passed - CE.
+       module_nonansi_fail7: Passed - CE.
+       module_nonansi_fail8: Passed - CE.
+       module_nonansi_fail9: Passed - CE.
+      module_nonansi_fail10: Passed - CE.
+      module_nonansi_fail11: Passed - CE.
+      module_nonansi_fail12: Passed - CE.
+      module_nonansi_fail13: Passed - CE.
+    module_nonansi_integer1: Passed.
+    module_nonansi_integer2: Passed.
+module_nonansi_integer_fail: Passed - CE.
+       module_nonansi_time1: Passed.
+       module_nonansi_time2: Passed.
+   module_nonansi_time_fail: Passed - CE.
+        module_nonansi_vec1: Passed.
+        module_nonansi_vec2: Passed.
+   module_nonansi_vec_fail1: Passed - CE.
+   module_nonansi_vec_fail2: Passed - CE.
+   module_nonansi_vec_fail3: Passed - CE.
+module_output_port_list_def: ==> Failed - output does not match gold file.
+    module_output_port_var1: Passed.
+    module_output_port_var2: Passed.
+ module_port_range_mismatch: Passed - CE.
+                    modulus: ==> Failed - running vvp.
+                   modulus2: ==> Failed - running vvp.
+                    monitor: ==> Failed - running vvp.
+                   monitor2: ==> Failed - output does not match gold file.
+                   monitor3: ==> Failed - running vvp.
+                      mult1: ==> Failed - running vvp.
+                     mult16: ==> Failed - output does not match gold file.
+                      mult2: ==> Failed - running vvp.
+         multi_bit_strength: ==> Failed - output does not match gold file.
+         multi_driver_delay: ==> Failed - running vvp.
+             multiply_large: ==> Failed - running vvp.
+                    muxtest: Passed.
+       named_event_no_edges: ==> Failed - CE (no error reported).
+                  nb_assign: ==> Failed - running iverilog.
+                   nb_delay: ==> Failed - running iverilog.
+               nb_ec_concat: ==> Failed - running iverilog.
+             nb_ec_multi_ev: ==> Failed - running iverilog.
+                  nblkorder: Passed.
+            negative_genvar: ==> Failed - running vvp.
+                   negvalue: ==> Failed - output does not match gold file.
+                       neq1: ==> Failed - output does not match gold file.
+                nested_func: ==> Failed - running iverilog.
+         nested_impl_event1: ==> Failed - running iverilog.
+         nested_impl_event2: ==> Failed - running iverilog.
+            no_if_statement: ==> Failed - CE (no error reported).
+     no_timescale_in_module: Passed - CE.
+                      npmos: Passed.
+                     npmos2: ==> Failed - running iverilog.
+                     onehot: ==> Failed - running iverilog.
+                    p_monta: Passed.
+               par_mismatch: ==> Failed - CE (no error reported).
+               param-extend: ==> Failed - output does not match gold file.
+                  param_add: Passed.
+                  param_and: Passed.
+                 param_and2: Passed.
+                 param_band: Passed.
+                 param_binv: Passed.
+                  param_bor: Passed.
+               param_concat: Passed.
+                  param_eq3: Passed.
+                 param_expr: Passed.
+                  param_mod: Passed.
+               param_select: Passed.
+              param_select2: Passed.
+              param_select3: Passed.
+               param_string: Passed.
+                 param_tern: Passed.
+                param_tern2: Passed.
+                param_test1: ==> Failed - output does not match gold file.
+                param_test2: ==> Failed - running vvp.
+                param_test4: Passed.
+                param_times: Passed.
+             parameter_1bit: Passed.
+     parameter_in_generate1: Passed - CE.
+       parameter_no_default: Passed - CE.
+            parameter_omit1: Passed - CE.
+            parameter_omit2: Passed - CE.
+            parameter_omit3: Passed - CE.
+    parameter_omit_invalid1: Passed - CE.
+    parameter_omit_invalid2: Passed - CE.
+    parameter_omit_invalid3: Passed - CE.
+parameter_override_invalid1: Passed - CE.
+parameter_override_invalid2: Passed - CE.
+parameter_override_invalid3: Passed - CE.
+parameter_override_invalid4: Passed - CE.
+parameter_override_invalid5: Passed - CE.
+parameter_override_invalid6: Passed - CE.
+                  patch1268: ==> Failed - running iverilog.
+                       pca1: ==> Failed - running iverilog.
+                        pic: ==> Failed - running iverilog.
+                 port-test2: ==> Failed - output does not match gold file.
+                 port-test3: Passed - CE.
+                port-test4a: Passed - CE.
+                port-test4b: Passed - CE.
+                 port-test5: ==> Failed - running vvp.
+                 port-test6: ==> Failed - running vvp.
+                 port-test7: ==> Failed - output does not match gold file.
+                    posedge: Passed.
+                     pow-ca: ==> Failed - running iverilog.
+                  pow-const: Passed.
+                   pow-proc: ==> Failed - running vvp.
+              pow_ca_signed: ==> Failed - running iverilog.
+            pow_ca_unsigned: ==> Failed - running iverilog.
+             pow_reg_signed: ==> Failed - running iverilog.
+           pow_reg_unsigned: ==> Failed - running iverilog.
+                 pow_signed: ==> Failed - running vvp.
+               pow_unsigned: ==> Failed - running vvp.
+                      pr136: ==> Failed - running vvp.
+                      pr142: ==> Failed - running vvp.
+                      pr183: Passed - CO.
+                      pr224: ==> Failed - running iverilog.
+                     pr224a: ==> Failed - running iverilog.
+                      pr243: ==> Failed - output does not match gold file.
+                      pr245: ==> Failed - output does not match gold file.
+                  pr245_std: ==> Failed - output does not match gold file.
+                      pr273: ==> Failed - running vvp.
+                      pr298: ==> Failed - running vvp.
+                      pr304: Passed.
+                      pr307: Passed.
+                     pr307a: ==> Failed - output does not match gold file.
+                      pr312: ==> Failed - running vvp.
+                      pr338: Passed - CO.
+                      pr355: ==> Failed - running iverilog.
+                      pr377: ==> Failed - output does not match gold file.
+                      pr434: ==> Failed - output does not match gold file.
+                      pr445: Passed.
+                      pr478: Passed.
+                      pr487: ==> Failed - output does not match gold file.
+                      pr492: ==> Failed - running vvp.
+                     pr498b: ==> Failed - CE - output does not match gold file.
+                      pr508: Passed.
+                      pr509: ==> Failed - running vvp.
+                     pr509b: ==> Failed - running vvp.
+                      pr511: ==> Failed - running vvp.
+                      pr513: Passed.
+                      pr522: ==> Failed - running iverilog.
+                      pr524: ==> Failed - output does not match gold file.
+                      pr527: ==> Failed - running iverilog.
+                      pr528: ==> Failed - running vvp.
+                     pr528b: ==> Failed - running vvp.
+                      pr529: ==> Failed - running iverilog.
+                     pr530a: ==> Failed - running vvp.
+                     pr530b: ==> Failed - running vvp.
+                     pr530c: ==> Failed - running vvp.
+                     pr531a: ==> Failed - running vvp.
+                     pr531b: ==> Failed - running vvp.
+                      pr532: ==> Failed - running vvp.
+                     pr532b: ==> Failed - running vvp.
+                      pr533: ==> Failed - running vvp.
+                      pr538: ==> Failed - running iverilog.
+                      pr540: ==> Failed - running iverilog.
+                     pr540b: ==> Failed - running iverilog.
+                     pr540c: ==> Failed - running iverilog.
+                      pr541: ==> Failed - output does not match gold file.
+                      pr542: ==> Failed - running vvp.
+                      pr544: ==> Failed - output does not match gold file.
+                      pr547: ==> Failed - output does not match gold file.
+                      pr556: ==> Failed - running iverilog.
+                      pr564: ==> Failed - running iverilog.
+                      pr569: ==> Failed - output does not match gold file.
+                      pr572: ==> Failed - running iverilog.
+                     pr572b: ==> Failed - running iverilog.
+                      pr578: Passed.
+                      pr584: ==> Failed - running iverilog.
+                      pr585: ==> Failed - running vvp.
+                      pr587: ==> Failed - running iverilog.
+                      pr590: ==> Failed - output does not match gold file.
+                      pr594: ==> Failed - running iverilog.
+                      pr596: ==> Failed - running iverilog.
+                      pr602: ==> Failed - running vvp.
+                      pr617: ==> Failed - running iverilog.
+                      pr632: ==> Failed - running vvp.
+                      pr673: ==> Failed - running vvp.
+                      pr675: ==> Failed - running vvp.
+                      pr678: ==> Failed - running iverilog.
+                      pr690: ==> Failed - running vvp.
+                      pr693: ==> Failed - running iverilog.
+                      pr699: ==> Failed - running iverilog.
+                     pr699b: ==> Failed - running iverilog.
+                      pr704: ==> Failed - running iverilog.
+                      pr707: ==> Failed - running iverilog.
+                      pr708: ==> Failed - running iverilog.
+                      pr710: ==> Failed - running iverilog.
+                      pr718: Passed.
+                      pr722: ==> Failed - running iverilog.
+                      pr729: ==> Failed - running iverilog.
+                      pr734: ==> Failed - running iverilog.
+                      pr735: Passed.
+                      pr748: ==> Failed - running vvp.
+                      pr751: ==> Failed - running vvp.
+                      pr757: ==> Failed - running vvp.
+                      pr772: ==> Failed - running iverilog.
+                      pr810: Passed.
+                      pr812: ==> Failed - running iverilog.
+                      pr820: ==> Failed - running vvp.
+                      pr823: Passed.
+                      pr841: ==> Failed - running iverilog.
+                      pr842: Passed.
+                      pr848: ==> Failed - running vvp.
+                      pr856: Passed.
+                      pr859: Passed.
+                      pr860: Passed.
+                      pr872: ==> Failed - running iverilog.
+                      pr902: ==> Failed - output does not match gold file.
+                      pr905: ==> Failed - output does not match gold file.
+                      pr910: ==> Failed - running vvp.
+                      pr913: ==> Failed - running vvp.
+                      pr923: ==> Failed - running vvp.
+                      pr938: ==> Failed - output does not match gold file.
+                     pr938b: ==> Failed - output does not match gold file.
+                 pr938b_std: ==> Failed - output does not match gold file.
+                      pr941: Passed.
+                      pr973: ==> Failed - running iverilog.
+                      pr978: ==> Failed - running iverilog.
+                      pr985: ==> Failed - output does not match gold file.
+                      pr987: ==> Failed - running iverilog.
+                      pr990: ==> Failed - output does not match gold file.
+                      pr991: ==> Failed - output does not match gold file.
+                      pr993: ==> Failed - running iverilog.
+                      pr995: ==> Failed - output does not match gold file.
+                     pr1002: ==> Failed - running vvp.
+                    pr1002a: ==> Failed - output does not match gold file.
+                     pr1007: ==> Failed - running iverilog.
+                     pr1008: ==> Failed - output does not match gold file.
+                     pr1022: Passed.
+                     pr1024: Passed.
+                     pr1026: ==> Failed - running vvp.
+                     pr1029: ==> Failed - running vvp.
+                     pr1032: ==> Failed - running vvp.
+                     pr1033: ==> Failed - running iverilog.
+                     pr1065: ==> Failed - running vvp.
+                     pr1072: Passed.
+                     pr1077: ==> Failed - running vvp.
+                     pr1087: ==> Failed - output does not match gold file.
+                     pr1101: ==> Failed - running vvp.
+                     pr1115: ==> Failed - running vvp.
+                  pr1353345: ==> Failed - running vvp.
+                 pr1353345b: ==> Failed - running vvp.
+                  pr1367855: ==> Failed - running vvp.
+                  pr1380261: ==> Failed - running vvp.
+                  pr1403406: ==> Failed - output does not match gold file.
+                 pr1403406a: ==> Failed - output does not match gold file.
+                 pr1403406b: ==> Failed - output does not match gold file.
+                  pr1421777: ==> Failed - running vvp.
+                  pr1444055: ==> Failed - output does not match gold file.
+                 pr1449749a: Passed.
+                  pr1455873: Passed.
+                  pr1465769: ==> Failed - running vvp.
+                  pr1467825: Passed - CO.
+                  pr1474283: ==> Failed - running iverilog.
+                  pr1474316: ==> Failed - running vvp.
+                  pr1474318: ==> Failed - running vvp.
+                  pr1476440: ==> Failed - running iverilog.
+                  pr1477190: ==> Failed - running iverilog.
+                  pr1478121: ==> Failed - running iverilog.
+                  pr1478988: ==> Failed - running vvp.
+                  pr1489568: Passed.
+                  pr1489570: ==> Failed - running vvp.
+                  pr1491355: ==> Failed - running iverilog.
+                  pr1492075: ==> Failed - running vvp.
+                  pr1508882: ==> Failed - running vvp.
+                  pr1510724: ==> Failed - running iverilog.
+                  pr1515168: ==> Failed - running vvp.
+                  pr1520314: ==> Failed - running iverilog.
+                  pr1522570: ==> Failed - running vvp.
+                  pr1530426: Passed.
+                  pr1561597: Passed.
+                  pr1565544: ==> Failed - running vvp.
+                 pr1565699b: ==> Failed - running vvp.
+                  pr1570451: ==> Failed - running vvp.
+                 pr1570451b: ==> Failed - running vvp.
+                  pr1570635: ==> Failed - running vvp.
+                 pr1570635b: Passed.
+                  pr1574175: ==> Failed - running iverilog.
+                  pr1581580: ==> Failed - running vvp.
+                  pr1587634: Passed - CO.
+                  pr1587669: ==> Failed - running vvp.
+                  pr1589497: ==> Failed - running vvp.
+                  pr1598445: ==> Failed - running iverilog.
+                  pr1601896: Passed.
+                  pr1601898: Passed.
+                  pr1603313: ==> Failed - running vvp.
+                  pr1603918: ==> Failed - running vvp.
+                  pr1612693: ==> Failed - running vvp.
+                  pr1623097: ==> Failed - running vvp.
+                  pr1625912: ==> Failed - running iverilog.
+                  pr1628288: ==> Failed - running iverilog.
+                  pr1628300: ==> Failed - running iverilog.
+                  pr1629683: ==> Failed - running vvp.
+                  pr1632861: ==> Failed - running vvp.
+                  pr1634526: ==> Failed - running vvp.
+                  pr1636409: ==> Failed - running iverilog.
+                  pr1637208: ==> Failed - running vvp.
+                  pr1638985: ==> Failed - running iverilog.
+                  pr1639060: ==> Failed - running vvp.
+                  pr1639064: ==> Failed - running iverilog.
+                 pr1639064b: ==> Failed - running iverilog.
+                  pr1639968: ==> Failed - running vvp.
+                  pr1639971: ==> Failed - output does not match gold file.
+                  pr1645277: ==> Failed - output does not match gold file.
+                  pr1645518: ==> Failed - running vvp.
+                  pr1648365: ==> Failed - running vvp.
+                  pr1650842: ==> Failed - output does not match gold file.
+                  pr1657307: ==> Failed - output does not match gold file.
+                  pr1661640: ==> Failed - running iverilog.
+                  pr1662508: ==> Failed - running vvp.
+                  pr1664684: ==> Failed - output does not match gold file.
+                  pr1675789: ==> Failed - running iverilog.
+                 pr1675789b: ==> Failed - running iverilog.
+                  pr1676071: ==> Failed - running vvp.
+                  pr1676836: ==> Failed - output does not match gold file.
+                  pr1682887: Passed.
+                  pr1687193: ==> Failed - running iverilog.
+                  pr1688717: Passed.
+                  pr1690058: Passed.
+                 pr1691599b: ==> Failed - running vvp.
+                  pr1691709: Passed.
+                  pr1693890: Passed.
+                  pr1693921: Passed.
+                  pr1694413: Passed.
+                  pr1694427: Passed.
+                  pr1695257: Passed - CO.
+                  pr1695309: ==> Failed - running vvp.
+                  pr1695322: ==> Failed - running iverilog.
+                  pr1695334: ==> Failed - running vvp.
+                  pr1696137: ==> Failed - running vvp.
+                  pr1697250: ==> Failed - running vvp.
+                  pr1697732: Passed.
+                  pr1698499: ==> Failed - running iverilog.
+                  pr1698658: ==> Failed - output does not match gold file.
+                  pr1698659: ==> Failed - running iverilog.
+                  pr1698820: ==> Failed - output does not match gold file.
+                  pr1699444: Passed.
+                  pr1699519: ==> Failed - running iverilog.
+                  pr1701855: ==> Failed - output does not match gold file.
+                 pr1701855b: ==> Failed - running iverilog.
+                  pr1701889: ==> Failed - running iverilog.
+                  pr1701921: ==> Failed - running vvp.
+                  pr1702593: ==> Failed - output does not match gold file.
+                  pr1703120: ==> Failed - running iverilog.
+                  pr1703346: ==> Failed - running iverilog.
+                  pr1703959: ==> Failed - running vvp.
+                  pr1704013: Passed - CE.
+                 pr1704726a: ==> Failed - CE - output does not match gold file.
+                 pr1704726b: ==> Failed - running iverilog.
+                 pr1704726c: ==> Failed - CE - output does not match gold file.
+                 pr1704726d: ==> Failed - CE - output does not match gold file.
+                  pr1705027: Passed - CO.
+                  pr1716276: ==> Failed - output does not match gold file.
+                  pr1717361: ==> Failed - running iverilog.
+                  pr1719055: ==> Failed - running iverilog.
+                  pr1723367: ==> Failed - running iverilog.
+                  pr1735724: Passed - CE.
+                  pr1735822: ==> Failed - running iverilog.
+                  pr1735836: ==> Failed - running iverilog.
+                 pr1740476b: ==> Failed - running iverilog.
+                  pr1742910: ==> Failed - running vvp.
+                  pr1745005: ==> Failed - running vvp.
+                  pr1746401: ==> Failed - running iverilog.
+                  pr1746848: ==> Failed - output does not match gold file.
+                  pr1752353: ==> Failed - running vvp.
+                 pr1752823a: ==> Failed - running iverilog.
+                 pr1752823b: ==> Failed - running iverilog.
+                  pr1755593: ==> Failed - running vvp.
+                  pr1755629: ==> Failed - running vvp.
+                  pr1758122: ==> Failed - running iverilog.
+                  pr1758135: ==> Failed - running vvp.
+                  pr1763333: ==> Failed - CE (no error reported).
+                  pr1770199: ==> Failed - output does not match gold file.
+                  pr1776485: ==> Failed - running iverilog.
+                  pr1777103: ==> Failed - running iverilog.
+                  pr1780480: ==> Failed - running vvp.
+                  pr1784984: ==> Failed - running vvp.
+                 pr1787394a: ==> Failed - output does not match gold file.
+                 pr1787394b: ==> Failed - output does not match gold file.
+                  pr1787423: ==> Failed - running vvp.
+                 pr1787423b: ==> Failed - running vvp.
+                 pr1787423c: ==> Failed - running vvp.
+                  pr1792108: ==> Failed - output does not match gold file.
+                  pr1792152: ==> Failed - output does not match gold file.
+                  pr1792734: ==> Failed - output does not match gold file.
+                  pr1793157: Passed.
+                  pr1794362: ==> Failed - running vvp.
+                 pr1795005a: ==> Failed - output does not match gold file.
+                 pr1795005b: ==> Failed - output does not match gold file.
+                  pr1799904: ==> Failed - running iverilog.
+                  pr1804877: ==> Failed - running iverilog.
+                  pr1805837: ==> Failed - output does not match gold file.
+                  pr1812297: ==> Failed - running iverilog.
+                  pr1819452: ==> Failed - running iverilog.
+                  pr1820472: ==> Failed - running iverilog.
+                  pr1822658: Passed.
+                  pr1823732: ==> Failed - running iverilog.
+                  pr1828642: ==> Failed - output does not match gold file.
+                  pr1830834: ==> Failed - running vvp.
+                  pr1831724: ==> Failed - output does not match gold file.
+                 pr1832097a: ==> Failed - running iverilog.
+                 pr1832097b: ==> Failed - running iverilog.
+                  pr1833024: ==> Failed - CE - output does not match gold file.
+                  pr1833754: Passed - CE.
+                  pr1841300: ==> Failed - running iverilog.
+                  pr1845683: Passed.
+                  pr1851310: ==> Failed - output does not match gold file.
+                  pr1855504: ==> Failed - running vvp.
+                 pr1861212a: ==> Failed - running iverilog.
+                 pr1862744a: ==> Failed - running vvp.
+                 pr1862744b: ==> Failed - CE - output does not match gold file.
+                  pr1866215: ==> Failed - running vvp.
+                 pr1866215b: ==> Failed - running vvp.
+                 pr1867161a: ==> Failed - output does not match gold file.
+                 pr1867161b: ==> Failed - output does not match gold file.
+                  pr1867332: Passed - CO.
+                  pr1868792: ==> Failed - output does not match gold file.
+                 pr1868991a: ==> Failed - running vvp.
+                 pr1868991b: Passed - CO.
+                  pr1869769: ==> Failed - running iverilog.
+                  pr1869772: Passed.
+                  pr1869781: ==> Failed - running iverilog.
+                  pr1873146: Passed.
+                  pr1875866: ==> Failed - running iverilog.
+                 pr1875866b: ==> Failed - running iverilog.
+                  pr1876798: ==> Failed - running iverilog.
+                  pr1877740: Passed.
+                  pr1877743: ==> Failed - output does not match gold file.
+                  pr1878909: ==> Failed - running iverilog.
+                  pr1879226: ==> Failed - running vvp.
+                  pr1883052: ==> Failed - running vvp.
+                 pr1883052b: ==> Failed - running iverilog.
+                  pr1885847: Passed.
+                  pr1887168: ==> Failed - output does not match gold file.
+                  pr1892959: ==> Failed - running iverilog.
+                 pr1892959b: ==> Failed - running iverilog.
+                  pr1898983: ==> Failed - running iverilog.
+                  pr1901125: Passed.
+                  pr1903157: Passed - CO.
+                  pr1903324: ==> Failed - running iverilog.
+                  pr1903343: ==> Failed - output does not match gold file.
+                  pr1903520: ==> Failed - running vvp.
+                  pr1907192: Passed.
+                  pr1909940: Passed - CE.
+                 pr1909940b: Passed - CE.
+                  pr1912843: Passed.
+                 pr1913918a: Passed.
+                 pr1913918b: Passed.
+                 pr1913918c: Passed.
+                  pr1913937: ==> Failed - running iverilog.
+                  pr1916261: Passed.
+                  pr1921332: Passed - CO.
+                  pr1924845: Passed.
+                  pr1925356: Passed.
+                 pr1925363a: Passed - CE.
+                 pr1925363b: Passed - CE.
+                  pr1932444: ==> Failed - output does not match gold file.
+                  pr1934744: ==> Failed - running iverilog.
+                  pr1936363: ==> Failed - running vvp.
+                  pr1938138: Passed - CE.
+                  pr1939165: Passed.
+                  pr1946411: Passed.
+                  pr1948110: ==> Failed - running iverilog.
+                  pr1948342: ==> Failed - running vvp.
+                  pr1949025: ==> Failed - output does not match gold file.
+                  pr1950282: Passed.
+                  pr1956211: Passed.
+                  pr1958801: ==> Failed - output does not match gold file.
+                  pr1960545: ==> Failed - running iverilog.
+                  pr1960548: Passed.
+                  pr1960558: ==> Failed - output does not match gold file.
+                  pr1960575: ==> Failed - output does not match gold file.
+                  pr1960596: ==> Failed - output does not match gold file.
+                  pr1960619: ==> Failed - running iverilog.
+                  pr1960625: Passed.
+                  pr1960633: ==> Failed - running vvp.
+                  pr1963240: ==> Failed - output does not match gold file.
+                  pr1963960: ==> Failed - running iverilog.
+                  pr1963962: ==> Failed - running iverilog.
+                 pr1971662a: Passed - CE.
+                 pr1971662b: Passed - CE.
+                  pr1978358: ==> Failed - running iverilog.
+                 pr1978358b: ==> Failed - running iverilog.
+                 pr1978358c: ==> Failed - output does not match gold file.
+                 pr1978358d: ==> Failed - output does not match gold file.
+                  pr1983762: ==> Failed - running vvp.
+                  pr1985582: ==> Failed - running iverilog.
+                  pr1988302: ==> Failed - running vvp.
+                 pr1988302b: Passed - CE.
+                  pr1988310: Passed.
+                  pr1990029: ==> Failed - running iverilog.
+                  pr1990164: Passed.
+                  pr1990269: ==> Failed - running iverilog.
+                  pr1992244: Passed.
+                  pr1992729: ==> Failed - running iverilog.
+                  pr1993479: ==> Failed - output does not match gold file.
+                  pr2001162: ==> Failed - running iverilog.
+                  pr2011429: ==> Failed - output does not match gold file.
+                  pr2013758: ==> Failed - running vvp.
+                  pr2014673: Passed.
+                  pr2015466: ==> Failed - running vvp.
+                 pr2018235a: ==> Failed - running vvp.
+                 pr2018235b: ==> Failed - running iverilog.
+                  pr2018305: Passed.
+                  pr2019553: ==> Failed - running vvp.
+                  pr2029336: ==> Failed - running iverilog.
+                  pr2030767: Passed.
+                  pr2036953: ==> Failed - output does not match gold file.
+                  pr2038048: ==> Failed - running vvp.
+                  pr2039632: Passed - CE.
+                  pr2039694: ==> Failed - output does not match gold file.
+                  pr2043324: Passed.
+                  pr2043585: ==> Failed - output does not match gold file.
+                  pr2051694: ==> Failed - CE (no error reported).
+                  pr2051975: Passed - CE.
+                  pr2053944: ==> Failed - running iverilog.
+                  pr2076363: ==> Failed - running iverilog.
+                  pr2076391: ==> Failed - running iverilog.
+                  pr2076425: ==> Failed - running vvp.
+                  pr2085984: ==> Failed - output does not match gold file.
+                  pr2091455: ==> Failed - output does not match gold file.
+                  pr2109179: ==> Failed - running vvp.
+                  pr2117473: ==> Failed - running iverilog.
+                  pr2117488: Passed.
+                  pr2119622: Passed.
+                  pr2121536: ==> Failed - running iverilog.
+                 pr2121536b: ==> Failed - running iverilog.
+                  pr2123190: ==> Failed - running iverilog.
+                  pr2132552: ==> Failed - running vvp.
+                  pr2136787: ==> Failed - running vvp.
+                  pr2138682: ==> Failed - output does not match gold file.
+                  pr2138979: ==> Failed - running iverilog.
+                 pr2138979b: ==> Failed - running iverilog.
+                 pr2138979c: ==> Failed - running vvp.
+                 pr2138979d: ==> Failed - running iverilog.
+                  pr2139593: Passed.
+                  pr2146620: ==> Failed - output does not match gold file.
+                 pr2146620b: ==> Failed - output does not match gold file.
+                 pr2146620c: Passed.
+                  pr2146824: Passed.
+                  pr2148401: ==> Failed - output does not match gold file.
+                  pr2152011: ==> Failed - running iverilog.
+                  pr2159630: ==> Failed - running vvp.
+                  pr2166188: Passed.
+                  pr2166311: ==> Failed - running iverilog.
+                  pr2169870: ==> Failed - output does not match gold file.
+                  pr2172606: ==> Failed - output does not match gold file.
+                 pr2172606b: ==> Failed - running iverilog.
+                  pr2181249: Passed.
+                  pr2190323: Passed.
+                  pr2201909: ==> Failed - running iverilog.
+                 pr2201909b: ==> Failed - running iverilog.
+                  pr2202706: ==> Failed - running iverilog.
+                 pr2202706b: ==> Failed - running iverilog.
+                 pr2202706c: ==> Failed - running iverilog.
+                 pr2202846a: Passed.
+                 pr2202846b: Passed.
+                 pr2202846c: Passed.
+                  pr2208681: Passed.
+                  pr2215342: Passed.
+                  pr2219441: ==> Failed - running vvp.
+                 pr2219441b: ==> Failed - running vvp.
+                  pr2224845: ==> Failed - running vvp.
+                  pr2224949: ==> Failed - running iverilog.
+                  pr2233180: ==> Failed - running vvp.
+                 pr2233180b: ==> Failed - running vvp.
+                 pr2233180c: ==> Failed - running vvp.
+                  pr2233192: ==> Failed - running vvp.
+                 pr2233192b: ==> Failed - running vvp.
+                 pr2233192c: ==> Failed - running vvp.
+                  pr2248925: Passed.
+                  pr2251119: ==> Failed - running iverilog.
+                  pr2257003: Passed.
+                 pr2257003b: Passed.
+                  pr2270035: ==> Failed - running iverilog.
+                  pr2276163: Passed.
+                  pr2281479: ==> Failed - output does not match gold file.
+                  pr2305307: Passed.
+                 pr2305307b: ==> Failed - running vvp.
+                 pr2305307c: Passed.
+                  pr2306259: Passed.
+                  pr2350934: ==> Failed - running iverilog.
+                 pr2350934b: ==> Failed - running iverilog.
+                  pr2350988: ==> Failed - running iverilog.
+                  pr2352834: ==> Failed - running vvp.
+                  pr2355304: Passed.
+                 pr2355304b: ==> Failed - output does not match gold file.
+                  pr2358264: Passed.
+                  pr2358848: Passed.
+                 pr2395378a: Passed - CE.
+                 pr2395378b: ==> Failed - CE (no error reported).
+                 pr2395378c: Passed - CE.
+                  pr2395835: Passed.
+                 pr2425055a: ==> Failed - output does not match gold file.
+                 pr2425055b: ==> Failed - output does not match gold file.
+                 pr2425055c: ==> Failed - output does not match gold file.
+                  pr2428890: Passed.
+                 pr2428890b: Passed.
+                  pr2434688: ==> Failed - output does not match gold file.
+                 pr2434688b: ==> Failed - output does not match gold file.
+                  pr2450244: Passed.
+                  pr2453002: ==> Failed - running iverilog.
+                  pr2459681: ==> Failed - output does not match gold file.
+                 pr2470181a: Passed.
+                 pr2470181b: ==> Failed - output does not match gold file.
+                  pr2503208: ==> Failed - running vvp.
+                  pr2528915: Passed - CE.
+                  pr2533175: ==> Failed - output does not match gold file.
+                  pr2579479: ==> Failed - running vvp.
+                  pr2580730: ==> Failed - running iverilog.
+                  pr2593733: Passed.
+                  pr2597278: ==> Failed - running iverilog.
+                 pr2597278b: Passed - CE.
+                  pr2605006: ==> Failed - running iverilog.
+                  pr2673846: Passed.
+                  pr2688910: ==> Failed - running iverilog.
+                  pr2709097: ==> Failed - output does not match gold file.
+                  pr2715547: ==> Failed - output does not match gold file.
+                  pr2715558: ==> Failed - running vvp.
+                 pr2715558b: ==> Failed - output does not match gold file.
+                  pr2721213: Passed.
+                 pr2722330a: Passed.
+                 pr2722330b: ==> Failed - output does not match gold file.
+                 pr2722339a: Passed.
+                 pr2722339b: Passed.
+                  pr2723712: Passed.
+                 pr2725700a: ==> Failed - running vvp.
+                 pr2725700b: ==> Failed - running iverilog.
+                 pr2725700c: ==> Failed - running iverilog.
+                  pr2728032: ==> Failed - running iverilog.
+                  pr2728547: ==> Failed - running iverilog.
+                 pr2728812a: ==> Failed - running iverilog.
+                 pr2728812b: Passed - CE.
+                 pr2728812c: Passed - CE.
+                  pr2745281: ==> Failed - running iverilog.
+                  pr2781595: ==> Failed - output does not match gold file.
+                  pr2785294: ==> Failed - running vvp.
+                  pr2788686: ==> Failed - running iverilog.
+                  pr2790236: ==> Failed - output does not match gold file.
+                  pr2792883: Passed - CE.
+                  pr2792897: ==> Failed - running iverilog.
+                  pr2794144: ==> Failed - CE - output does not match gold file.
+                 pr2800985a: ==> Failed - running iverilog.
+                  pr2801134: ==> Failed - output does not match gold file.
+                  pr2801662: ==> Failed - running vvp.
+                  pr2809288: ==> Failed - CE (no error reported).
+                 pr2815398a: ==> Failed - running iverilog.
+             pr2815398a_std: ==> Failed - running iverilog.
+                 pr2815398b: ==> Failed - running iverilog.
+                  pr2818823: ==> Failed - running iverilog.
+                  pr2823414: ==> Failed - CE (no error reported).
+                  pr2823711: ==> Failed - running vvp.
+                  pr2824189: ==> Failed - running iverilog.
+                  pr2829776: ==> Failed - running iverilog.
+                 pr2829776b: ==> Failed - output does not match gold file.
+                  pr2832234: ==> Failed - running vvp.
+                  pr2834340: ==> Failed - running iverilog.
+                 pr2834340b: ==> Failed - running vvp.
+                 pr2835632a: ==> Failed - running iverilog.
+                 pr2835632b: ==> Failed - running vvp.
+                  pr2837451: ==> Failed - running vvp.
+                  pr2842185: Passed.
+                  pr2842621: ==> Failed - running iverilog.
+              pr2842621_std: ==> Failed - running iverilog.
+                  pr2848986: ==> Failed - CE - output does not match gold file.
+                  pr2849783: ==> Failed - running iverilog.
+                  pr2865563: Passed.
+                  pr2877564: ==> Failed - CE - output does not match gold file.
+                  pr2883958: ==> Failed - running iverilog.
+                  pr2885048: ==> Failed - running vvp.
+                  pr2890322: Passed.
+                  pr2901556: ==> Failed - running vvp.
+                 pr2909386a: Passed.
+                 pr2909386b: ==> Failed - running vvp.
+                  pr2909414: ==> Failed - output does not match gold file.
+                  pr2909555: ==> Failed - running iverilog.
+                  pr2913404: ==> Failed - running iverilog.
+                  pr2913416: Passed.
+                 pr2913438a: Passed.
+                 pr2913438b: Passed.
+                  pr2913927: ==> Failed - running iverilog.
+                  pr2918095: ==> Failed - running iverilog.
+                  pr2922063: ==> Failed - output does not match gold file.
+                 pr2922063a: ==> Failed - running iverilog.
+                 pr2922063b: ==> Failed - running iverilog.
+                  pr2924354: ==> Failed - output does not match gold file.
+                  pr2929913: Passed.
+                  pr2930506: ==> Failed - running iverilog.
+                  pr2937417: ==> Failed - running iverilog.
+                 pr2937417b: ==> Failed - running iverilog.
+                 pr2937417c: ==> Failed - running iverilog.
+                  pr2941939: ==> Failed - running iverilog.
+                  pr2943394: ==> Failed - running vvp.
+                  pr2951657: ==> Failed - running vvp.
+                  pr2969724: ==> Failed - running iverilog.
+                  pr2971207: ==> Failed - running iverilog.
+                  pr2972866: ==> Failed - output does not match gold file.
+                  pr2973532: ==> Failed - running vvp.
+                  pr2974051: ==> Failed - running iverilog.
+                  pr2974216: ==> Failed - running vvp.
+                 pr2974216b: ==> Failed - running iverilog.
+                  pr2974294: ==> Failed - running vvp.
+                  pr2985542: Passed.
+                  pr2986497: Passed - CO.
+                  pr2986528: ==> Failed - running vvp.
+                  pr2991457: Passed.
+                 pr2991457b: ==> Failed - running vvp.
+                  pr2994193: ==> Failed - running vvp.
+                  pr2998515: ==> Failed - output does not match gold file.
+                  pr3011327: ==> Failed - output does not match gold file.
+                  pr3012758: Passed.
+                  pr3015421: ==> Failed - CE (no error reported).
+                  pr3022502: ==> Failed - running iverilog.
+                  pr3024131: ==> Failed - running iverilog.
+                  pr3039548: Passed.
+                  pr3044843: ==> Failed - running iverilog.
+                 pr3054101a: ==> Failed - running iverilog.
+                 pr3054101b: ==> Failed - running iverilog.
+                 pr3054101c: ==> Failed - running iverilog.
+                 pr3054101d: ==> Failed - running iverilog.
+                 pr3054101e: ==> Failed - running iverilog.
+                 pr3054101f: ==> Failed - running iverilog.
+                 pr3054101g: ==> Failed - running iverilog.
+                 pr3054101h: ==> Failed - running iverilog.
+                 pr3061015a: Passed - CE.
+                 pr3061015b: Passed - CE.
+                 pr3061015c: ==> Failed - CE (no error reported).
+                  pr3064375: ==> Failed - running vvp.
+                  pr3064511: ==> Failed - running vvp.
+                  pr3077640: ==> Failed - output does not match gold file.
+                  pr3078759: Passed - CO.
+                  pr3098439: ==> Failed - running iverilog.
+                 pr3098439a: ==> Failed - running iverilog.
+                 pr3098439b: ==> Failed - running iverilog.
+                  pr3103880: ==> Failed - running iverilog.
+                  pr3104254: ==> Failed - output does not match gold file.
+                 pr3112073a: ==> Failed - CE (no error reported).
+                  pr3149494: ==> Failed - output does not match gold file.
+                  pr3190941: ==> Failed - CE - output does not match gold file.
+                  pr3190948: Passed.
+                  pr3194155: ==> Failed - running iverilog.
+                  pr3197861: ==> Failed - running iverilog.
+                  pr3197917: ==> Failed - running iverilog.
+                  pr3270320: Passed - CE.
+                  pr3284821: ==> Failed - running iverilog.
+                  pr3292735: Passed.
+                 pr3296466a: ==> Failed - running vvp.
+                 pr3296466b: ==> Failed - running iverilog.
+                 pr3296466c: ==> Failed - running iverilog.
+                 pr3296466d: ==> Failed - running iverilog.
+                  pr3306516: ==> Failed - output does not match gold file.
+                  pr3309391: Passed.
+                  pr3368642: ==> Failed - running iverilog.
+                  pr3409749: ==> Failed - running iverilog.
+                 pr3437290a: ==> Failed - running vvp.
+                 pr3437290b: ==> Failed - running vvp.
+                 pr3437290c: ==> Failed - running vvp.
+                  pr3441576: ==> Failed - running vvp.
+                  pr3445452: ==> Failed - running iverilog.
+                  pr3452808: ==> Failed - running iverilog.
+                  pr3465541: ==> Failed - output does not match gold file.
+                  pr3477107: ==> Failed - running iverilog.
+                  pr3499807: ==> Failed - running vvp.
+                  pr3522653: ==> Failed - output does not match gold file.
+                  pr3527022: ==> Failed - running iverilog.
+                  pr3527694: ==> Failed - running vvp.
+                  pr3534422: ==> Failed - running iverilog.
+                  pr3539372: Passed.
+                  pr3549328: ==> Failed - CE (no error reported).
+                  pr3557493: ==> Failed - output does not match gold file.
+                  pr3561350: Passed.
+                  pr3563412: ==> Failed - output does not match gold file.
+                  pr3571573: ==> Failed - running vvp.
+                  pr3582052: ==> Failed - running iverilog.
+                  pr3587570: ==> Failed - running iverilog.
+                  pr3592746: ==> Failed - output does not match gold file.
+                       prng: ==> Failed - running vvp.
+                   ptest001: ==> Failed - output does not match gold file.
+                   ptest002: ==> Failed - running vvp.
+                   ptest003: ==> Failed - running vvp.
+                   ptest004: Passed.
+                   ptest005: Passed.
+                   ptest006: Passed.
+                   ptest007: Passed.
+                   ptest008: ==> Failed - running vvp.
+                   ptest009: Passed.
+                   ptest010: Passed.
+                   ptest011: ==> Failed - output does not match gold file.
+                 pullupdown: ==> Failed - output does not match gold file.
+                pullupdown2: ==> Failed - running iverilog.
+                pullupdown3: ==> Failed - running iverilog.
+           pv_undef_sig_sel: ==> Failed - running iverilog.
+                 pv_wr_vec4: ==> Failed - running iverilog.
+              pv_wr_vec4_nb: ==> Failed - running iverilog.
+           pv_wr_vec4_nb_ec: ==> Failed - running iverilog.
+                pv_wr_vec4a: ==> Failed - running iverilog.
+             pv_wr_vec4a_nb: ==> Failed - running iverilog.
+          pv_wr_vec4a_nb_ec: ==> Failed - running iverilog.
+                      qmark: Passed.
+                     qmark1: Passed.
+                     qmark3: Passed.
+                     qmark5: Passed.
+                     qmark6: ==> Failed - running vvp.
+                      queue: ==> Failed - running iverilog.
+                 queue_stat: ==> Failed - output does not match gold file.
+                    ram16x1: ==> Failed - output does not match gold file.
+                     random: ==> Failed - output does not match gold file.
+              readmem-error: ==> Failed - running iverilog.
+                  readmemb1: ==> Failed - running vvp.
+                  readmemb2: ==> Failed - running vvp.
+                  readmemb3: ==> Failed - running vvp.
+                  readmemh1: ==> Failed - running vvp.
+                 readmemh1a: ==> Failed - running vvp.
+                  readmemh2: ==> Failed - running vvp.
+                  readmemh3: ==> Failed - running vvp.
+                  readmemh4: ==> Failed - running vvp.
+                  readmemh5: ==> Failed - CE (no error reported).
+                       real: ==> Failed - running iverilog.
+                      real2: ==> Failed - running iverilog.
+                      real3: ==> Failed - running iverilog.
+                      real5: ==> Failed - output does not match gold file.
+                      real6: ==> Failed - running iverilog.
+                      real7: ==> Failed - running iverilog.
+                      real9: ==> Failed - running iverilog.
+                     real10: Passed.
+                     real11: ==> Failed - running iverilog.
+       real_array_multi_dim: ==> Failed - running iverilog.
+ real_array_store_after_cmp: ==> Failed - running iverilog.
+       real_assign_deassign: ==> Failed - running iverilog.
+       real_concat_invalid2: Passed - CE.
+                 real_delay: ==> Failed - running iverilog.
+                real_events: ==> Failed - running iverilog.
+             real_force_rel: ==> Failed - running iverilog.
+           real_invalid_ops: ==> Failed - CE - output does not match gold file.
+               real_logical: ==> Failed - running iverilog.
+         real_reg_force_rel: ==> Failed - running iverilog.
+            recursive_func1: ==> Failed - running iverilog.
+      recursive_func_const1: Passed.
+             recursive_task: ==> Failed - running iverilog.
+            redef_net_error: Passed - CE.
+            redef_reg_error: Passed - CE.
+                    repeat2: ==> Failed - running vvp.
+          repeat_expr_probe: ==> Failed - output does not match gold file.
+         repl_zero_wid_fail: Passed - CE.
+         repl_zero_wid_pass: ==> Failed - output does not match gold file.
+                   resetall: ==> Failed - output does not match gold file.
+                  resetall2: ==> Failed - output does not match gold file.
+                    resolv1: ==> Failed - running vvp.
+           rise_fall_decay1: ==> Failed - running iverilog.
+           rise_fall_decay2: ==> Failed - running iverilog.
+           rise_fall_delay1: ==> Failed - running iverilog.
+           rise_fall_delay2: ==> Failed - running iverilog.
+           rise_fall_delay3: ==> Failed - running iverilog.
+                     rl_pow: ==> Failed - running iverilog.
+                     rnpmos: ==> Failed - running vvp.
+                    rnpmos2: ==> Failed - running iverilog.
+                        rop: ==> Failed - output does not match gold file.
+                  rptconcat: Passed.
+                      rtran: ==> Failed - running vvp.
+                   rtranif0: ==> Failed - running vvp.
+                   rtranif1: ==> Failed - running vvp.
+                      scanf: ==> Failed - running iverilog.
+                     scanf2: ==> Failed - running iverilog.
+                     scanf3: ==> Failed - running iverilog.
+                     scanf4: ==> Failed - running iverilog.
+                     sched1: ==> Failed - running vvp.
+                     sched2: ==> Failed - running vvp.
+                   schedule: Passed.
+                     scope1: ==> Failed - running iverilog.
+                     scope2: ==> Failed - output does not match gold file.
+                    scope2b: ==> Failed - CE (no error reported).
+                     scope4: ==> Failed - output does not match gold file.
+                     scope5: ==> Failed - running iverilog.
+              scoped_events: ==> Failed - running iverilog.
+                       sdf1: ==> Failed - output does not match gold file.
+                       sdf2: ==> Failed - output does not match gold file.
+                       sdf3: ==> Failed - output does not match gold file.
+                       sdf4: ==> Failed - output does not match gold file.
+                       sdf5: ==> Failed - output does not match gold file.
+                       sdf6: ==> Failed - output does not match gold file.
+                       sdf7: ==> Failed - output does not match gold file.
+                       sdf8: ==> Failed - output does not match gold file.
+                sdf_del_max: ==> Failed - running iverilog.
+                sdf_del_min: ==> Failed - running iverilog.
+                sdf_del_typ: ==> Failed - running iverilog.
+                 sdf_esc_id: ==> Failed - running iverilog.
+                sdw_always1: ==> Failed - running vvp.
+                sdw_always2: ==> Failed - running vvp.
+                sdw_always3: ==> Failed - running vvp.
+                  sdw_array: ==> Failed - running vvp.
+                 sdw_assign: ==> Failed - running iverilog.
+                   sdw_dsbl: ==> Failed - running iverilog.
+                  sdw_force: ==> Failed - running iverilog.
+              sdw_function1: ==> Failed - running vvp.
+              sdw_function2: ==> Failed - running vvp.
+              sdw_function3: ==> Failed - running vvp.
+              sdw_function4: ==> Failed - running vvp.
+              sdw_function5: ==> Failed - running vvp.
+               sdw_instmod1: ==> Failed - output does not match gold file.
+               sdw_instmod2: ==> Failed - output does not match gold file.
+                    sdw_int: ==> Failed - running vvp.
+             sdw_lvalconcat: Passed.
+                 sdw_param1: ==> Failed - running vvp.
+                 sdw_param2: ==> Failed - running vvp.
+                sdw_release: ==> Failed - running iverilog.
+                sdw_stmt002: ==> Failed - output does not match gold file.
+                  sdw_task1: ==> Failed - running vvp.
+                  sdw_task2: ==> Failed - running vvp.
+            sel_rval_bit_ob: ==> Failed - running iverilog.
+           sel_rval_part_ob: ==> Failed - running iverilog.
+                     select: ==> Failed - running vvp.
+                    select2: ==> Failed - running vvp.
+                    select3: ==> Failed - running vvp.
+                    select4: ==> Failed - running vvp.
+                    select5: Passed.
+                    select6: ==> Failed - running iverilog.
+                    select7: ==> Failed - running iverilog.
+                    select8: ==> Failed - running iverilog.
+             select_padding: ==> Failed - running vvp.
+                   shellho1: ==> Failed - running iverilog.
+                     shift1: ==> Failed - running vvp.
+                     shift2: ==> Failed - running vvp.
+                     shift3: ==> Failed - running vvp.
+                     shift4: ==> Failed - running iverilog.
+                     shift5: Passed.
+                  shift_pad: Passed.
+                    signed1: Passed.
+                    signed2: ==> Failed - output does not match gold file.
+                    signed3: ==> Failed - output does not match gold file.
+                    signed4: ==> Failed - output does not match gold file.
+                    signed5: Passed.
+                    signed6: Passed.
+                    signed7: Passed.
+                    signed8: ==> Failed - running iverilog.
+                    signed9: Passed.
+                   signed10: ==> Failed - running vvp.
+                   signed11: Passed.
+                   signed12: ==> Failed - output does not match gold file.
+                   signed13: Passed.
+                   signed_a: ==> Failed - running iverilog.
+            signed_equality: Passed.
+         signed_net_display: ==> Failed - running iverilog.
+                signed_part: ==> Failed - running vvp.
+                  signed_pv: ==> Failed - running iverilog.
+                        sp2: Error: unable to open work/sp2.inv for reading.
+==> Failed - output does not match gold file.
+                   specify1: Passed - CO.
+                   specify2: ==> Failed - running vvp.
+                   specify3: ==> Failed - running vvp.
+                   specify4: ==> Failed - running vvp.
+                   specify5: ==> Failed - running iverilog.
+                 specify_01: ==> Failed - output does not match gold file.
+                     sqrt32: ==> Failed - running iverilog.
+                   sscanf_u: ==> Failed - running iverilog.
+                   sscanf_z: ==> Failed - running iverilog.
+                stask_parm1: Passed.
+                stask_parm2: Passed.
+        stask_sens_null_arg: ==> Failed - running vvp.
+                    string1: Passed.
+                    string2: ==> Failed - running iverilog.
+                    string3: ==> Failed - running iverilog.
+                    string4: ==> Failed - running iverilog.
+                    string5: ==> Failed - output does not match gold file.
+                    string7: ==> Failed - running iverilog.
+                    string8: ==> Failed - output does not match gold file.
+                    string9: ==> Failed - running iverilog.
+                   string10: ==> Failed - output does not match gold file.
+                   string11: ==> Failed - running iverilog.
+                   string12: Passed.
+                   string13: ==> Failed - running iverilog.
+                   string14: ==> Failed - running iverilog.
+                    supply1: ==> Failed - running vvp.
+                    supply2: ==> Failed - running vvp.
+          switch_primitives: ==> Failed - running vvp.
+        sys_func_task_error: ==> Failed - running iverilog.
+                       talu: ==> Failed - running vvp.
+                 task-scope: ==> Failed - running iverilog.
+                  task3.14A: Passed.
+                  task3.14B: Passed.
+                  task3.14C: Passed.
+                  task3.14D: Passed.
+                  task3.14E: Passed.
+                  task3.14F: ==> Failed - running iverilog.
+                task_bypath: Passed.
+          task_in_expr_fail: Passed - CE.
+                 task_inpad: Passed.
+               task_iotypes: Passed.
+              task_iotypes2: ==> Failed - running iverilog.
+                   task_mem: ==> Failed - running iverilog.
+         task_nonansi_fail1: ==> Failed - CE (no error reported).
+         task_nonansi_fail2: ==> Failed - CE (no error reported).
+         task_nonansi_fail3: ==> Failed - CE (no error reported).
+         task_nonansi_fail4: ==> Failed - CE (no error reported).
+         task_nonansi_fail5: ==> Failed - CE (no error reported).
+         task_nonansi_fail6: ==> Failed - CE (no error reported).
+         task_nonansi_fail7: ==> Failed - CE (no error reported).
+         task_nonansi_fail8: ==> Failed - CE (no error reported).
+         task_nonansi_fail9: ==> Failed - CE (no error reported).
+        task_nonansi_fail10: ==> Failed - CE (no error reported).
+        task_nonansi_fail11: ==> Failed - CE (no error reported).
+      task_nonansi_integer1: Passed.
+      task_nonansi_integer2: Passed.
+  task_nonansi_integer_fail: ==> Failed - CE (no error reported).
+         task_nonansi_real1: ==> Failed - output does not match gold file.
+         task_nonansi_real2: ==> Failed - output does not match gold file.
+     task_nonansi_real_fail: ==> Failed - CE (no error reported).
+         task_nonansi_time1: Passed.
+         task_nonansi_time2: Passed.
+     task_nonansi_time_fail: ==> Failed - CE (no error reported).
+          task_nonansi_vec1: Passed.
+          task_nonansi_vec2: Passed.
+     task_nonansi_vec_fail1: ==> Failed - CE (no error reported).
+     task_nonansi_vec_fail2: ==> Failed - CE (no error reported).
+     task_nonansi_vec_fail3: ==> Failed - CE (no error reported).
+                  task_noop: Passed.
+                 task_noop2: Passed - CO.
+                task_omemw2: ==> Failed - output does not match gold file.
+                task_omemw3: Passed - CO.
+   task_port_range_mismatch: ==> Failed - CE (no error reported).
+             task_port_size: Passed.
+                 task_scope: ==> Failed - running iverilog.
+                      tern1: Passed.
+                      tern2: Passed - CO.
+                      tern4: ==> Failed - running vvp.
+                      tern5: ==> Failed - output does not match gold file.
+                      tern6: Passed.
+                      tern7: Passed.
+                      tern9: ==> Failed - running vvp.
+                     tern10: Passed.
+                test_bufif0: ==> Failed - running iverilog.
+                test_bufif1: ==> Failed - running iverilog.
+               test_disphob: ==> Failed - running vvp.
+             test_dispwided: ==> Failed - running vvp.
+              test_extended: ==> Failed - running vvp.
+test_mos_strength_reduction: Passed.
+                  test_nmos: ==> Failed - running iverilog.
+                test_notif0: ==> Failed - running iverilog.
+                test_notif1: ==> Failed - running iverilog.
+                  test_pmos: ==> Failed - running iverilog.
+                 test_rnmos: ==> Failed - running iverilog.
+                 test_rpmos: ==> Failed - running iverilog.
+                 test_width: ==> Failed - running iverilog.
+                      time1: ==> Failed - running vvp.
+                      time2: ==> Failed - running iverilog.
+                      time3: ==> Failed - running vvp.
+                      time4: ==> Failed - running vvp.
+                      time5: ==> Failed - running vvp.
+                      time7: ==> Failed - running vvp.
+                      time8: ==> Failed - running vvp.
+                  timeform1: ==> Failed - output does not match gold file.
+                  timeform2: ==> Failed - output does not match gold file.
+                 timescale1: ==> Failed - output does not match gold file.
+                 timescale2: ==> Failed - running vvp.
+                 timescale3: Passed - CE.
+                       tran: ==> Failed - running vvp.
+                    tranif0: ==> Failed - running vvp.
+                    tranif1: ==> Failed - running vvp.
+                tran-keeper: ==> Failed - running vvp.
+                       tri0: ==> Failed - running vvp.
+                      tri0b: ==> Failed - running vvp.
+                       tri1: ==> Failed - running vvp.
+                       tri2: ==> Failed - running iverilog.
+                       tri3: ==> Failed - output does not match gold file.
+                     triand: ==> Failed - running vvp.
+                      trior: ==> Failed - running vvp.
+                     types1: Passed.
+                   udp_bufg: Passed.
+                  udp_bufg2: Passed.
+                     udp_bx: ==> Failed - running iverilog.
+             udp_delay_fail: Passed - CE.
+                    udp_dff: ==> Failed - running iverilog.
+                udp_dff_std: ==> Failed - running iverilog.
+               udp_eval_arg: ==> Failed - output does not match gold file.
+                   udp_jkff: ==> Failed - running iverilog.
+             udp_output_reg: ==> Failed - running iverilog.
+             udp_real_delay: Passed.
+                  udp_sched: ==> Failed - running iverilog.
+                      udp_x: ==> Failed - running vvp.
+                  unary_and: Passed.
+                unary_lnot1: ==> Failed - running vvp.
+                unary_lnot2: ==> Failed - running vvp.
+                unary_lnot3: ==> Failed - running vvp.
+                unary_minus: ==> Failed - running vvp.
+               unary_minus1: ==> Failed - running vvp.
+               unary_minus2: ==> Failed - output does not match gold file.
+               unary_minus3: Passed.
+               unary_minus4: Passed.
+                 unary_nand: Passed.
+                unary_nand2: Passed.
+                  unary_nor: Passed.
+                 unary_nor2: Passed.
+                  unary_not: ==> Failed - running vvp.
+                   unary_or: Passed.
+                unary_xnor1: Passed.
+                unary_xnor2: Passed.
+                  unary_xor: Passed.
+                uncon_drive: ==> Failed - running iverilog.
+                      undef: ==> Failed - output does not match gold file.
+          undef_lval_select: ==> Failed - output does not match gold file.
+         undef_lval_select2: ==> Failed - output does not match gold file.
+        undef_lval_select3a: ==> Failed - running iverilog.
+        undef_lval_select3b: Passed - CE.
+        undef_lval_select3c: Passed - CE.
+        undef_lval_select4a: ==> Failed - running iverilog.
+        undef_lval_select4b: Passed - CE.
+        undef_lval_select4c: Passed - CE.
+         undef_lval_select5: Passed.
+            undefined_shift: ==> Failed - output does not match gold file.
+     unnamed_block_var_decl: Passed - CE.
+      unnamed_fork_var_decl: Passed - CE.
+                    urand_r: ==> Failed - output does not match gold file.
+                   urand_r2: ==> Failed - output does not match gold file.
+                   urand_r3: ==> Failed - output does not match gold file.
+                      uwire: Passed.
+                     uwire2: Passed.
+                 uwire_fail: ==> Failed - CE - output does not match gold file.
+                     vardly: ==> Failed - output does not match gold file.
+                   varlsfht: Passed.
+                  varlsfht1: Passed.
+                  varlsfht2: Passed.
+                   varrshft: Passed.
+                  varrshft1: Passed.
+                  varrshft2: Passed.
+                    vcd-dup: ==> Failed - running vvp.
+                     vector: ==> Failed - running vvp.
+      verify_two_var_delays: ==> Failed - running iverilog.
+           vvp_scalar_value: ==> Failed - running vvp.
+                      wait1: ==> Failed - running vvp.
+                      wait2: ==> Failed - running vvp.
+                      wait3: ==> Failed - output does not match gold file.
+                  wildsense: Passed.
+                 wildsense2: ==> Failed - running vvp.
+                   wireadd1: ==> Failed - output does not match gold file.
+                     wireeq: Passed.
+                     wirege: ==> Failed - output does not match gold file.
+                   wireland: Passed.
+                     wirele: ==> Failed - output does not match gold file.
+                   wiremod1: ==> Failed - running vvp.
+                     wiresl: ==> Failed - running vvp.
+                    wiresl2: ==> Failed - running vvp.
+                     wiresr: ==> Failed - running vvp.
+                   wiresub1: ==> Failed - output does not match gold file.
+                   wirexor1: ==> Failed - running iverilog.
+             writemem-error: ==> Failed - running iverilog.
+                 writememb1: ==> Failed - running iverilog.
+                 writememb2: ==> Failed - running iverilog.
+                 writememh1: ==> Failed - running iverilog.
+                 writememh2: ==> Failed - running iverilog.
+                  xnor_test: ==> Failed - running vvp.
+                         z1: Passed.
+                         z2: Passed.
+                  zero_repl: ==> Failed - running iverilog.
+             zero_repl_fail: Passed - CE.
+                       cmpi: Passed.
+                always_comb: ==> Failed - running iverilog.
+           always_comb_fail: ==> Failed - CE (no error reported).
+          always_comb_fail3: ==> Failed - CE (no error reported).
+          always_comb_fail4: Passed - CE.
+        always_comb_no_sens: ==> Failed - running iverilog.
+          always_comb_rfunc: ==> Failed - running iverilog.
+           always_comb_trig: ==> Failed - running iverilog.
+      always_comb_void_func: ==> Failed - running iverilog.
+           always_comb_warn: ==> Failed - running iverilog.
+                  always_ff: ==> Failed - running iverilog.
+             always_ff_fail: ==> Failed - CE (no error reported).
+            always_ff_fail2: ==> Failed - CE (no error reported).
+            always_ff_fail3: ==> Failed - CE (no error reported).
+            always_ff_fail4: Passed - CE.
+          always_ff_no_sens: Passed - CE.
+             always_ff_warn: ==> Failed - running iverilog.
+        always_ff_warn_sens: ==> Failed - running iverilog.
+               always_latch: ==> Failed - running iverilog.
+          always_latch_fail: ==> Failed - CE (no error reported).
+         always_latch_fail3: ==> Failed - CE (no error reported).
+         always_latch_fail4: Passed - CE.
+       always_latch_no_sens: Passed - CE.
+          always_latch_trig: ==> Failed - running iverilog.
+          always_latch_warn: ==> Failed - running iverilog.
+                 array_size: ==> Failed - running vvp.
+               array_string: ==> Failed - running iverilog.
+    array_unpacked_sysfunct: ==> Failed - running iverilog.
+               array_packed: ==> Failed - running iverilog.
+       assign_op_after_cmp1: ==> Failed - output does not match gold file.
+       assign_op_after_cmp2: ==> Failed - output does not match gold file.
+       assign_op_after_cmp3: ==> Failed - running iverilog.
+           assign_op_concat: ==> Failed - running iverilog.
+              assign_op_oob: ==> Failed - running iverilog.
+       assign_op_real_array: ==> Failed - running iverilog.
+   assign_op_real_array_oob: ==> Failed - running iverilog.
+             assign_op_type: ==> Failed - output does not match gold file.
+          automatic_error14: ==> Failed - CE (no error reported).
+          automatic_error15: ==> Failed - CE (no error reported).
+          automatic_error16: ==> Failed - CE (no error reported).
+          automatic_error17: ==> Failed - CE (no error reported).
+          automatic_error18: ==> Failed - CE (no error reported).
+                      bitp1: ==> Failed - running iverilog.
+                       bits: ==> Failed - running iverilog.
+                      bits2: ==> Failed - running iverilog.
+                      bits3: ==> Failed - running iverilog.
+                      br884: ==> Failed - running iverilog.
+                     br917a: ==> Failed - running iverilog.
+                     br917b: ==> Failed - running iverilog.
+                     br917c: ==> Failed - running iverilog.
+                     br917d: ==> Failed - running iverilog.
+                      br921: ==> Failed - output does not match gold file.
+                     br932a: ==> Failed - output does not match gold file.
+                     br932b: ==> Failed - running iverilog.
+                      br936: ==> Failed - running iverilog.
+                      br956: ==> Failed - running iverilog.
+                      br959: ==> Failed - running iverilog.
+                      br962: ==> Failed - running iverilog.
+                      br963: ==> Failed - running iverilog.
+                      br973: ==> Failed - running iverilog.
+                     br974a: ==> Failed - running iverilog.
+                     br974b: ==> Failed - running iverilog.
+                     br974c: ==> Failed - running iverilog.
+                      br975: ==> Failed - CE - output does not match gold file.
+                      br979: Passed.
+                     br991b: ==> Failed - CE (no error reported).
+                    br1003a: ==> Failed - running iverilog.
+                    br1003b: ==> Failed - running iverilog.
+                    br1003c: ==> Failed - running iverilog.
+                    br1003d: ==> Failed - running iverilog.
+                     br1004: ==> Failed - running iverilog.
+                     br1025: ==> Failed - running iverilog.
+                    br1027b: ==> Failed - output does not match gold file.
+                    br1027d: ==> Failed - output does not match gold file.
+                    br1027f: ==> Failed - output does not match gold file.
+                     br_gh4: ==> Failed - running iverilog.
+                    br_gh4a: ==> Failed - running iverilog.
+                   br_gh72a: Passed.
+                   br_gh72b: Passed.
+              br_gh72b_fail: ==> Failed - CE (no error reported).
+                  br_gh104a: ==> Failed - running iverilog.
+                  br_gh104b: ==> Failed - running iverilog.
+                  br_gh105a: Passed.
+                  br_gh105b: Passed.
+                  br_gh112a: ==> Failed - running vvp.
+                  br_gh112b: ==> Failed - running vvp.
+                  br_gh112c: ==> Failed - running vvp.
+                  br_gh112d: ==> Failed - running vvp.
+                  br_gh112e: ==> Failed - running iverilog.
+                  br_gh112f: ==> Failed - running iverilog.
+                   br_gh129: ==> Failed - running iverilog.
+                  br_gh130a: Passed - CE.
+                  br_gh130b: ==> Failed - running iverilog.
+                   br_gh165: ==> Failed - running iverilog.
+                  br_gh164a: ==> Failed - running iverilog.
+                  br_gh164b: ==> Failed - running iverilog.
+                  br_gh164c: ==> Failed - running iverilog.
+                  br_gh164d: ==> Failed - running iverilog.
+                  br_gh164e: ==> Failed - running iverilog.
+                  br_gh167a: ==> Failed - running iverilog.
+                  br_gh167b: ==> Failed - running iverilog.
+                  br_gh177a: ==> Failed - running iverilog.
+                  br_gh177b: ==> Failed - running iverilog.
+             br_gh191_break: ==> Failed - running iverilog.
+          br_gh191_continue: ==> Failed - running iverilog.
+                   br_gh194: ==> Failed - running iverilog.
+                   br_gh219: ==> Failed - running iverilog.
+                   br_gh220: ==> Failed - running iverilog.
+                   br_gh224: ==> Failed - running iverilog.
+                   br_gh226: ==> Failed - running iverilog.
+                   br_gh231: ==> Failed - running iverilog.
+                   br_gh243: ==> Failed - running iverilog.
+                   br_gh265: ==> Failed - CE - output does not match gold file.
+                  br_gh277b: ==> Failed - running iverilog.
+                   br_gh280: ==> Failed - running iverilog.
+                   br_gh281: ==> Failed - running iverilog.
+                  br_gh281b: ==> Failed - running iverilog.
+                  br_gh289a: ==> Failed - running iverilog.
+                  br_gh289b: ==> Failed - running iverilog.
+                  br_gh289c: ==> Failed - running iverilog.
+                  br_gh289d: ==> Failed - running iverilog.
+                   br_gh337: ==> Failed - running iverilog.
+                   br_gh361: ==> Failed - running iverilog.
+                   br_gh365: ==> Failed - running iverilog.
+                   br_gh366: Passed.
+                   br_gh368: ==> Failed - output does not match gold file.
+                   br_gh374: Passed.
+                  br_gh386a: ==> Failed - running iverilog.
+                  br_gh386b: ==> Failed - running iverilog.
+                  br_gh386c: Passed - CE.
+                  br_gh386d: ==> Failed - running iverilog.
+                   br_gh388: ==> Failed - running iverilog.
+                   br_gh391: ==> Failed - running iverilog.
+                   br_gh411: Passed.
+                   br_gh418: ==> Failed - running iverilog.
+                   br_gh433: ==> Failed - running iverilog.
+                   br_gh437: ==> Failed - running iverilog.
+                   br_gh443: ==> Failed - running iverilog.
+                   br_gh445: Passed.
+                   br_gh461: ==> Failed - running iverilog.
+                   br_gh477: ==> Failed - running iverilog.
+                   br_gh478: ==> Failed - running iverilog.
+                   br_gh498: ==> Failed - running iverilog.
+                  br_gh508a: ==> Failed - running iverilog.
+                   br_gh527: ==> Failed - running iverilog.
+                   br_gh530: Passed - CO.
+                   br_gh540: ==> Failed - output does not match gold file.
+                   br_gh553: ==> Failed - running iverilog.
+                   br_gh556: ==> Failed - running iverilog.
+                   br_gh568: ==> Failed - running iverilog.
+                  br_gh661a: ==> Failed - running iverilog.
+                  br_gh661b: ==> Failed - running iverilog.
+                   br_gh672: ==> Failed - running iverilog.
+                   br_gh699: ==> Failed - CE (no error reported).
+                   br_gh756: ==> Failed - output does not match gold file.
+                  br_gh782a: ==> Failed - output does not match gold file.
+                  br_gh782b: ==> Failed - output does not match gold file.
+                   br_gh800: ==> Failed - running iverilog.
+                   br_gh801: ==> Failed - running iverilog.
+                  br_gh801b: ==> Failed - running iverilog.
+                  br_gh1222: ==> Failed - CE - output does not match gold file.
+                 br_gh1223a: ==> Failed - running iverilog.
+                 br_gh1223b: ==> Failed - running iverilog.
+                 br_gh1223c: ==> Failed - running iverilog.
+                  br_gh1230: ==> Failed - running iverilog.
+              br_ml20171017: ==> Failed - running iverilog.
+              br_ml20180227: Passed - CE.
+             br_ml20180309a: ==> Failed - running iverilog.
+             br_ml20180309b: ==> Failed - running iverilog.
+             br_ml20181012a: ==> Failed - CE (no error reported).
+             br_ml20181012b: ==> Failed - CE (no error reported).
+             br_ml20181012c: ==> Failed - CE (no error reported).
+             br_ml20181012d: ==> Failed - CE (no error reported).
+              br_ml20191221: ==> Failed - running iverilog.
+              br_mw20200501: ==> Failed - running iverilog.
+              case_priority: ==> Failed - running iverilog.
+                case_unique: ==> Failed - running iverilog.
+                  cast_real: ==> Failed - running iverilog.
+      cfunc_assign_op_mixed: ==> Failed - output does not match gold file.
+         cfunc_assign_op_pv: ==> Failed - output does not match gold file.
+       cfunc_assign_op_real: ==> Failed - running iverilog.
+        cfunc_assign_op_vec: ==> Failed - output does not match gold file.
+                 clkgen_bit: ==> Failed - running iverilog.
+               clkgen_logic: ==> Failed - running iverilog.
+                 clkgen_net: ==> Failed - running iverilog.
+                 clkgen_reg: ==> Failed - running iverilog.
+           disable_fork_cmd: ==> Failed - output does not match gold file.
+                display_bug: ==> Failed - running iverilog.
+                       edge: ==> Failed - running iverilog.
+            enum_base_atom2: ==> Failed - running iverilog.
+       enum_base_fail_array: ==> Failed - CE (no error reported).
+      enum_base_fail_darray: ==> Failed - CE (no error reported).
+        enum_base_fail_enum: ==> Failed - CE (no error reported).
+       enum_base_fail_queue: ==> Failed - CE (no error reported).
+      enum_base_fail_range1: ==> Failed - CE (no error reported).
+      enum_base_fail_range2: ==> Failed - CE (no error reported).
+      enum_base_fail_range3: ==> Failed - CE (no error reported).
+       enum_base_fail_real1: ==> Failed - CE (no error reported).
+       enum_base_fail_real2: ==> Failed - CE (no error reported).
+     enum_base_fail_string1: ==> Failed - CE (no error reported).
+     enum_base_fail_string2: ==> Failed - CE (no error reported).
+      enum_base_fail_struct: ==> Failed - CE (no error reported).
+          enum_base_integer: ==> Failed - running iverilog.
+             enum_base_none: ==> Failed - running iverilog.
+            enum_base_range: ==> Failed - running iverilog.
+           enum_base_scalar: ==> Failed - running iverilog.
+             enum_base_time: ==> Failed - running iverilog.
+        enum_base_typename1: ==> Failed - running iverilog.
+        enum_base_typename2: ==> Failed - running iverilog.
+        enum_compatibility1: ==> Failed - running iverilog.
+        enum_compatibility2: ==> Failed - running iverilog.
+        enum_compatibility3: ==> Failed - running iverilog.
+        enum_compatibility4: ==> Failed - running iverilog.
+        enum_compatibility5: ==> Failed - running iverilog.
+        enum_compatibility6: ==> Failed - output does not match gold file.
+        enum_compatibility7: ==> Failed - running iverilog.
+        enum_compatibility8: ==> Failed - running iverilog.
+   enum_compatibility_fail1: Passed - CE.
+   enum_compatibility_fail2: ==> Failed - CE (no error reported).
+   enum_compatibility_fail3: Passed - CE.
+   enum_compatibility_fail4: Passed - CE.
+   enum_compatibility_fail5: ==> Failed - CE (no error reported).
+   enum_compatibility_fail6: ==> Failed - CE (no error reported).
+   enum_compatibility_fail7: Passed - CE.
+   enum_compatibility_fail8: Passed - CE.
+           enum_elem_ranges: ==> Failed - running iverilog.
+          enum_dims_invalid: Passed - CE.
+             enum_in_struct: ==> Failed - running iverilog.
+              enum_in_class: ==> Failed - running iverilog.
+    enum_in_class_name_coll: Passed - CE.
+             enum_line_info: ==> Failed - CE - output does not match gold file.
+        enum_method_signed1: ==> Failed - running iverilog.
+        enum_method_signed2: ==> Failed - running iverilog.
+        enum_method_signed3: ==> Failed - running iverilog.
+        enum_method_signed4: ==> Failed - running iverilog.
+                  enum_next: ==> Failed - running iverilog.
+                 enum_order: ==> Failed - running iverilog.
+                 enum_ports: ==> Failed - running iverilog.
+                 enum_test1: ==> Failed - running iverilog.
+                 enum_test2: Passed.
+                 enum_test3: ==> Failed - CE (no error reported).
+                 enum_test4: Passed.
+                 enum_test5: ==> Failed - CE (no error reported).
+                 enum_test6: ==> Failed - CE (no error reported).
+                 enum_test7: ==> Failed - CE (no error reported).
+                 enum_test8: ==> Failed - running iverilog.
+            enum_value_expr: ==> Failed - running iverilog.
+                enum_values: ==> Failed - running iverilog.
+         escaped_macro_name: ==> Failed - running iverilog.
+            extra_semicolon: Passed.
+                   fileline: ==> Failed - output does not match gold file.
+                  fileline2: Passed.
+                      final: ==> Failed - running iverilog.
+                     final2: ==> Failed - running iverilog.
+             first_last_num: ==> Failed - running iverilog.
+              fork_join_any: ==> Failed - running iverilog.
+              fork_join_dis: ==> Failed - output does not match gold file.
+             fork_join_none: ==> Failed - running iverilog.
+                       fr49: ==> Failed - running iverilog.
+            func_empty_arg1: ==> Failed - running iverilog.
+            func_empty_arg2: ==> Failed - running iverilog.
+            func_empty_arg3: ==> Failed - running iverilog.
+       func_empty_arg_fail1: Passed - CE.
+       func_empty_arg_fail2: Passed - CE.
+       func_empty_arg_fail3: Passed - CE.
+       func_empty_arg_fail4: Passed - CE.
+             func_init_var1: ==> Failed - running iverilog.
+             func_init_var2: ==> Failed - running iverilog.
+             func_init_var3: ==> Failed - running iverilog.
+     func_void_in_expr_fail: Passed - CE.
+                 function10: Passed - CO.
+                 function11: ==> Failed - CE (no error reported).
+                 function12: ==> Failed - running iverilog.
+             genvar_inc_dec: ==> Failed - running iverilog.
+          genvar_compressed: ==> Failed - running iverilog.
+            generate_module: Passed - CE.
+          generate_timeunit: Passed - CE.
+                  ibit_test: ==> Failed - running iverilog.
+                 ibyte_test: ==> Failed - running iverilog.
+                  iint_test: ==> Failed - running iverilog.
+              ilongint_test: ==> Failed - running iverilog.
+             implicit_cast1: ==> Failed - running iverilog.
+             implicit_cast2: ==> Failed - running iverilog.
+             implicit_cast3: ==> Failed - running iverilog.
+             implicit_cast4: ==> Failed - running iverilog.
+             implicit_cast5: ==> Failed - running iverilog.
+             implicit_cast6: ==> Failed - running iverilog.
+             implicit_cast7: ==> Failed - running iverilog.
+             implicit_cast8: ==> Failed - running iverilog.
+             implicit_cast9: ==> Failed - running iverilog.
+            implicit_cast10: ==> Failed - running iverilog.
+            implicit_cast11: ==> Failed - running iverilog.
+            implicit_cast12: ==> Failed - running iverilog.
+            implicit_cast13: ==> Failed - running iverilog.
+             implicit-port1: ==> Failed - running iverilog.
+             implicit-port2: Passed - CE.
+             implicit-port3: Passed - CE.
+             implicit-port4: ==> Failed - output does not match gold file.
+             implicit-port5: ==> Failed - output does not match gold file.
+             implicit-port6: Passed - CE.
+             implicit-port7: ==> Failed - output does not match gold file.
+               inc_dec_stmt: ==> Failed - running iverilog.
+                  int_param: ==> Failed - running iverilog.
+             ishortint_test: ==> Failed - running iverilog.
+                     iuint1: ==> Failed - running iverilog.
+                     l_impl: ==> Failed - running iverilog.
+                    l_equiv: ==> Failed - running iverilog.
+                 l_equiv_ca: ==> Failed - running iverilog.
+              l_equiv_const: Passed.
+        localparam_implicit: ==> Failed - running iverilog.
+       localparam_implicit2: Passed - CE.
+       localparam_implicit3: Passed - CE.
+           localparam_query: ==> Failed - running iverilog.
+           localparam_type2: ==> Failed - running iverilog.
+      logical_short_circuit: ==> Failed - running iverilog.
+                      logp2: ==> Failed - running vvp.
+               mod_inst_pkg: ==> Failed - running iverilog.
+  module_nonansi_atom2_fail: Passed - CE.
+       module_nonansi_enum1: ==> Failed - running iverilog.
+       module_nonansi_enum2: ==> Failed - running iverilog.
+   module_nonansi_enum_fail: Passed - CE.
+        module_nonansi_int1: ==> Failed - running iverilog.
+        module_nonansi_int2: ==> Failed - running iverilog.
+     module_nonansi_parray1: ==> Failed - running iverilog.
+     module_nonansi_parray2: ==> Failed - running iverilog.
+ module_nonansi_parray_fail: Passed - CE.
+       module_nonansi_real1: ==> Failed - running iverilog.
+       module_nonansi_real2: ==> Failed - running iverilog.
+   module_nonansi_real_fail: Passed - CE.
+     module_nonansi_struct1: ==> Failed - running iverilog.
+     module_nonansi_struct2: ==> Failed - running iverilog.
+ module_nonansi_struct_fail: Passed - CE.
+ module_output_port_sv_var1: ==> Failed - running iverilog.
+ module_output_port_sv_var2: ==> Failed - running iverilog.
+ module_port_typedef_array1: ==> Failed - running iverilog.
+ module_port_typedef_vector: ==> Failed - running iverilog.
+                named_begin: ==> Failed - running iverilog.
+           named_begin_fail: Passed - CE.
+                 named_fork: ==> Failed - running iverilog.
+            named_fork_fail: Passed - CE.
+             net_class_fail: Passed - CE.
+            net_darray_fail: ==> Failed - CE (no error reported).
+             net_queue_fail: ==> Failed - CE (no error reported).
+            net_string_fail: Passed - CE.
+    package_vec_part_select: ==> Failed - running iverilog.
+                    packeda: ==> Failed - running iverilog.
+                   packeda2: ==> Failed - running iverilog.
+     parameter_in_generate2: Passed - CE.
+ parameter_no_default_fail1: Passed - CE.
+ parameter_no_default_fail2: Passed - CE.
+parameter_no_default_toplvl: ==> Failed - running iverilog.
+parameter_override_invalid7: Passed - CE.
+parameter_override_invalid8: Passed - CE.
+           parameter_scalar: ==> Failed - running iverilog.
+            parameter_type2: ==> Failed - running iverilog.
+                parpkg_test: ==> Failed - running iverilog.
+               parpkg_test2: ==> Failed - running iverilog.
+               parpkg_test3: ==> Failed - running iverilog.
+              part_sel_port: ==> Failed - running iverilog.
+                     plus_5: ==> Failed - running iverilog.
+                  pr3366114: ==> Failed - running iverilog.
+                 pr3366217a: ==> Failed - CE (no error reported).
+                 pr3366217b: ==> Failed - CE (no error reported).
+                 pr3366217c: ==> Failed - CE (no error reported).
+                 pr3366217d: ==> Failed - CE (no error reported).
+                 pr3366217e: ==> Failed - running iverilog.
+                 pr3366217f: ==> Failed - running iverilog.
+                 pr3366217g: ==> Failed - CE (no error reported).
+                 pr3366217h: ==> Failed - running iverilog.
+                 pr3366217i: ==> Failed - running iverilog.
+                  pr3390385: ==> Failed - running iverilog.
+                 pr3390385b: ==> Failed - running iverilog.
+                 pr3390385c: ==> Failed - running iverilog.
+                 pr3390385d: ==> Failed - running iverilog.
+                  pr3462145: ==> Failed - output does not match gold file.
+                  pr3515542: ==> Failed - CE - output does not match gold file.
+                  pr3534333: ==> Failed - output does not match gold file.
+                  pr3576165: ==> Failed - running iverilog.
+                   program2: ==> Failed - running iverilog.
+                   program3: ==> Failed - running iverilog.
+                  program3b: Passed - CE.
+                   program4: ==> Failed - running iverilog.
+                  program5a: ==> Failed - CE (no error reported).
+                  program5b: Passed - CE.
+              program_hello: ==> Failed - running iverilog.
+             program_hello2: Passed - CE.
+                 pv_wr_vec2: ==> Failed - running iverilog.
+              pv_wr_vec2_nb: ==> Failed - running iverilog.
+           pv_wr_vec2_nb_ec: ==> Failed - running iverilog.
+                pv_wr_vec2a: ==> Failed - running iverilog.
+             pv_wr_vec2a_nb: ==> Failed - running iverilog.
+          pv_wr_vec2a_nb_ec: ==> Failed - running iverilog.
+            recursive_func2: ==> Failed - running iverilog.
+      recursive_func_const2: ==> Failed - running iverilog.
+                 sbyte_test: ==> Failed - running iverilog.
+              scalar_vector: Passed.
+               sf_countbits: ==> Failed - running iverilog.
+               sf_countones: ==> Failed - running iverilog.
+               sf_isunknown: ==> Failed - running iverilog.
+                  sf_onehot: ==> Failed - running iverilog.
+                 sf_onehot0: ==> Failed - running iverilog.
+                   sformatf: ==> Failed - running iverilog.
+                simple_byte: ==> Failed - running iverilog.
+                 simple_int: ==> Failed - running iverilog.
+             simple_longint: ==> Failed - running iverilog.
+            simple_shortint: ==> Failed - running iverilog.
+                  sint_test: ==> Failed - running iverilog.
+                  size_cast: ==> Failed - running iverilog.
+                 size_cast2: ==> Failed - running iverilog.
+                 size_cast3: ==> Failed - running iverilog.
+                 size_cast4: ==> Failed - running iverilog.
+                 size_cast5: ==> Failed - running iverilog.
+            size_cast_fail1: Passed - CE.
+            size_cast_fail2: Passed - CE.
+            size_cast_fail3: Passed - CE.
+              slongint_test: ==> Failed - running iverilog.
+             sshortint_test: ==> Failed - running iverilog.
+              string_events: ==> Failed - running iverilog.
+               string_index: ==> Failed - running iverilog.
+                    struct1: ==> Failed - running iverilog.
+                    struct2: ==> Failed - running iverilog.
+                    struct3: ==> Failed - running iverilog.
+                   struct3b: ==> Failed - running iverilog.
+                    struct4: ==> Failed - running iverilog.
+                    struct5: ==> Failed - running iverilog.
+                    struct6: ==> Failed - running iverilog.
+                    struct7: ==> Failed - running iverilog.
+                    struct8: ==> Failed - running iverilog.
+                    struct9: ==> Failed - running iverilog.
+                   struct10: ==> Failed - running iverilog.
+           struct_line_info: ==> Failed - CE - output does not match gold file.
+       struct_member_signed: ==> Failed - running iverilog.
+        struct_packed_array: ==> Failed - running iverilog.
+       struct_packed_array2: ==> Failed - running iverilog.
+  struct_packed_darray_fail: ==> Failed - CE (no error reported).
+   struct_packed_member_def: ==> Failed - CE (no error reported).
+   struct_packed_queue_fail: ==> Failed - CE (no error reported).
+     struct_packed_sysfunct: ==> Failed - output does not match gold file.
+    struct_packed_sysfunct2: ==> Failed - running iverilog.
+  struct_packed_uarray_fail: ==> Failed - CE (no error reported).
+      struct_invalid_member: ==> Failed - CE - output does not match gold file.
+              struct_signed: ==> Failed - running iverilog.
+               sv-constants: ==> Failed - running vvp.
+              sv_ap_parray1: ==> Failed - running iverilog.
+              sv_ap_parray2: ==> Failed - running iverilog.
+              sv_ap_parray3: Passed.
+              sv_ap_parray4: ==> Failed - running iverilog.
+         sv_ap_parray_fail1: ==> Failed - CE (no error reported).
+         sv_ap_parray_fail2: ==> Failed - CE (no error reported).
+         sv_ap_parray_fail3: ==> Failed - CE (no error reported).
+              sv_ap_struct1: ==> Failed - running iverilog.
+              sv_ap_struct2: ==> Failed - running iverilog.
+              sv_ap_struct3: ==> Failed - running iverilog.
+              sv_ap_struct4: ==> Failed - running iverilog.
+         sv_ap_struct_fail1: ==> Failed - CE (no error reported).
+         sv_ap_struct_fail2: ==> Failed - CE (no error reported).
+     sv_assign_pattern_cast: ==> Failed - running iverilog.
+    sv_assign_pattern_const: ==> Failed - running iverilog.
+   sv_assign_pattern_concat: ==> Failed - running iverilog.
+   sv_assign_pattern_expand: ==> Failed - running iverilog.
+     sv_assign_pattern_func: ==> Failed - running iverilog.
+       sv_assign_pattern_op: ==> Failed - running iverilog.
+     sv_assign_pattern_part: ==> Failed - running iverilog.
+   sv_array_assign_pattern2: ==> Failed - running iverilog.
+          sv_array_cassign1: ==> Failed - running iverilog.
+          sv_array_cassign2: ==> Failed - running iverilog.
+          sv_array_cassign3: ==> Failed - running iverilog.
+          sv_array_cassign4: ==> Failed - running iverilog.
+          sv_array_cassign5: ==> Failed - running iverilog.
+     sv_array_cassign_fail1: Passed - CE.
+     sv_array_cassign_fail2: Passed - CE.
+     sv_array_cassign_fail3: Passed - CE.
+     sv_array_cassign_fail4: Passed - CE.
+     sv_array_cassign_fail5: Passed - CE.
+     sv_array_cassign_fail6: Passed - CE.
+     sv_array_cassign_fail7: Passed - CE.
+     sv_array_cassign_fail8: Passed - CE.
+     sv_array_cassign_fail9: Passed - CE.
+    sv_array_cassign_fail10: Passed - CE.
+    sv_array_cassign_fail11: Passed - CE.
+             sv_array_query: ==> Failed - running iverilog.
+            sv_cast_integer: ==> Failed - running iverilog.
+           sv_cast_integer2: ==> Failed - running iverilog.
+       sv_cast_packed_array: ==> Failed - running iverilog.
+      sv_cast_packed_struct: ==> Failed - running iverilog.
+             sv_cast_string: ==> Failed - running iverilog.
+            sv_cast_typedef: ==> Failed - running iverilog.
+                  sv_class1: ==> Failed - running iverilog.
+                  sv_class2: ==> Failed - running iverilog.
+                  sv_class3: ==> Failed - running iverilog.
+                  sv_class4: ==> Failed - running iverilog.
+                  sv_class5: ==> Failed - running iverilog.
+                  sv_class6: ==> Failed - running iverilog.
+                  sv_class7: ==> Failed - running iverilog.
+                  sv_class8: ==> Failed - running iverilog.
+                  sv_class9: ==> Failed - running iverilog.
+                 sv_class10: ==> Failed - running iverilog.
+                 sv_class11: ==> Failed - running iverilog.
+                 sv_class12: ==> Failed - running iverilog.
+                 sv_class13: ==> Failed - running iverilog.
+                 sv_class14: ==> Failed - running iverilog.
+                 sv_class15: ==> Failed - running iverilog.
+                 sv_class16: ==> Failed - running iverilog.
+                 sv_class17: ==> Failed - running iverilog.
+                 sv_class18: ==> Failed - running iverilog.
+                 sv_class19: ==> Failed - running iverilog.
+                 sv_class20: ==> Failed - running iverilog.
+                 sv_class21: ==> Failed - running iverilog.
+                 sv_class22: ==> Failed - running iverilog.
+                 sv_class23: ==> Failed - running iverilog.
+                 sv_class24: ==> Failed - running iverilog.
+           sv_class_compat1: ==> Failed - running iverilog.
+           sv_class_compat2: ==> Failed - running iverilog.
+      sv_class_compat_fail1: Passed - CE.
+      sv_class_compat_fail2: Passed - CE.
+      sv_class_compat_fail3: Passed - CE.
+      sv_class_constructor1: ==> Failed - output does not match gold file.
+  sv_class_constructor_fail: ==> Failed - CE (no error reported).
+        sv_class_empty_item: ==> Failed - running iverilog.
+    sv_class_extends_scoped: ==> Failed - running iverilog.
+        sv_class_localparam: ==> Failed - running iverilog.
+         sv_class_new_fail1: Passed - CE.
+         sv_class_new_fail2: Passed - CE.
+          sv_class_new_init: ==> Failed - output does not match gold file.
+        sv_class_new_typed1: ==> Failed - running iverilog.
+        sv_class_new_typed2: ==> Failed - running iverilog.
+        sv_class_new_typed3: ==> Failed - running iverilog.
+   sv_class_new_typed_fail1: Passed - CE.
+   sv_class_new_typed_fail2: Passed - CE.
+   sv_class_new_typed_fail3: Passed - CE.
+   sv_class_new_typed_fail4: Passed - CE.
+    sv_class_in_module_decl: ==> Failed - running iverilog.
+  sv_class_method_call_void: ==> Failed - running iverilog.
+   sv_class_method_default1: ==> Failed - running iverilog.
+   sv_class_method_default2: ==> Failed - running iverilog.
+ sv_class_method_lt_static1: ==> Failed - CE (no error reported).
+ sv_class_method_lt_static2: ==> Failed - CE (no error reported).
+    sv_class_method_signed1: ==> Failed - running iverilog.
+    sv_class_method_signed2: ==> Failed - running iverilog.
+   sv_class_method_var_init: ==> Failed - running iverilog.
+      sv_class_prop_shadow1: ==> Failed - running iverilog.
+      sv_class_prop_shadow2: ==> Failed - running iverilog.
+  sv_class_property_signed1: ==> Failed - running iverilog.
+  sv_class_property_signed2: ==> Failed - running iverilog.
+  sv_class_property_signed3: ==> Failed - running iverilog.
+  sv_class_property_signed4: ==> Failed - running iverilog.
+            sv_class_return: ==> Failed - running iverilog.
+      sv_class_static_prop1: ==> Failed - running iverilog.
+      sv_class_static_prop2: ==> Failed - running iverilog.
+      sv_class_static_prop3: ==> Failed - running iverilog.
+      sv_class_static_prop4: ==> Failed - running iverilog.
+            sv_class_super1: ==> Failed - output does not match gold file.
+            sv_class_super2: ==> Failed - output does not match gold file.
+            sv_class_super3: ==> Failed - running iverilog.
+            sv_class_super4: ==> Failed - running iverilog.
+            sv_class_super5: ==> Failed - running iverilog.
+            sv_class_super6: ==> Failed - running iverilog.
+             sv_class_task1: ==> Failed - output does not match gold file.
+     sv_class_virt_new_fail: Passed - CE.
+                 sv_darray1: ==> Failed - running iverilog.
+                 sv_darray2: ==> Failed - running iverilog.
+                 sv_darray3: ==> Failed - running iverilog.
+                 sv_darray4: ==> Failed - running iverilog.
+                 sv_darray5: ==> Failed - running iverilog.
+                sv_darray5b: ==> Failed - running iverilog.
+                 sv_darray6: ==> Failed - running iverilog.
+                 sv_darray7: ==> Failed - running iverilog.
+            sv_darray_args1: ==> Failed - running iverilog.
+            sv_darray_args2: ==> Failed - running iverilog.
+           sv_darray_args2b: ==> Failed - running iverilog.
+            sv_darray_args3: ==> Failed - running iverilog.
+            sv_darray_args4: ==> Failed - running iverilog.
+          sv_darray_assign1: ==> Failed - running iverilog.
+          sv_darray_assign2: ==> Failed - running iverilog.
+     sv_darray_assign_fail1: Passed - CE.
+     sv_darray_assign_fail2: Passed - CE.
+     sv_darray_assign_fail3: Passed - CE.
+     sv_darray_assign_fail4: Passed - CE.
+     sv_darray_assign_fail5: Passed - CE.
+     sv_darray_assign_fail6: Passed - CE.
+      sv_darray_copy_empty1: ==> Failed - running iverilog.
+      sv_darray_copy_empty2: ==> Failed - running iverilog.
+      sv_darray_copy_empty3: ==> Failed - running iverilog.
+      sv_darray_copy_empty4: ==> Failed - running iverilog.
+      sv_darray_decl_assign: ==> Failed - running iverilog.
+         sv_darray_function: ==> Failed - running iverilog.
+         sv_darray_oob_real: ==> Failed - running iverilog.
+       sv_darray_oob_string: ==> Failed - running iverilog.
+         sv_darray_oob_vec2: ==> Failed - running iverilog.
+         sv_darray_oob_vec4: ==> Failed - running iverilog.
+           sv_darray_signed: ==> Failed - running iverilog.
+        sv_darray_word_size: ==> Failed - running iverilog.
+               sv_end_label: ==> Failed - running iverilog.
+          sv_end_label_fail: ==> Failed - CE - output does not match gold file.
+              sv_end_labels: ==> Failed - output does not match gold file.
+          sv_end_labels_bad: ==> Failed - CE (no error reported).
+      sv_end_labels_unnamed: ==> Failed - CE - output does not match gold file.
+                   sv_enum1: ==> Failed - running iverilog.
+                 sv_export1: ==> Failed - running iverilog.
+                 sv_export2: ==> Failed - running iverilog.
+                 sv_export3: ==> Failed - running iverilog.
+                 sv_export4: ==> Failed - running iverilog.
+                 sv_export5: ==> Failed - running iverilog.
+                 sv_export6: ==> Failed - running iverilog.
+            sv_export_fail1: ==> Failed - CE (no error reported).
+            sv_export_fail2: ==> Failed - CE (no error reported).
+            sv_export_fail3: ==> Failed - CE (no error reported).
+            sv_export_fail4: ==> Failed - CE (no error reported).
+            sv_export_fail5: ==> Failed - CE (no error reported).
+            sv_export_fail6: ==> Failed - CE (no error reported).
+            sv_for_variable: ==> Failed - running iverilog.
+                sv_foreach1: ==> Failed - running iverilog.
+                sv_foreach2: ==> Failed - running iverilog.
+                sv_foreach3: ==> Failed - running iverilog.
+                sv_foreach4: ==> Failed - running iverilog.
+                sv_foreach5: ==> Failed - running iverilog.
+                sv_foreach6: ==> Failed - running iverilog.
+                sv_foreach7: ==> Failed - running iverilog.
+                sv_foreach8: ==> Failed - running iverilog.
+           sv_foreach_fail1: ==> Failed - CE (no error reported).
+        sv_immediate_assert: ==> Failed - output does not match gold file.
+        sv_immediate_assume: ==> Failed - output does not match gold file.
+       sv_import_hier_fail1: Passed - CE.
+       sv_import_hier_fail2: Passed - CE.
+       sv_import_hier_fail3: Passed - CE.
+                   sv_macro: ==> Failed - running iverilog.
+                  sv_macro2: ==> Failed - running iverilog.
+                 sv_macro3a: Passed.
+                 sv_macro3b: Passed.
+         sv_new_array_error: ==> Failed - CE - output does not match gold file.
+                 sv_package: ==> Failed - output does not match gold file.
+                sv_package2: ==> Failed - running iverilog.
+                sv_package3: ==> Failed - running iverilog.
+                sv_package4: ==> Failed - running iverilog.
+                sv_package5: ==> Failed - running iverilog.
+   sv_package_implicit_var1: Passed - CE.
+   sv_package_implicit_var2: Passed - CE.
+            sv_packed_port1: ==> Failed - running iverilog.
+            sv_packed_port2: ==> Failed - running iverilog.
+         sv_param_port_list: ==> Failed - running iverilog.
+               sv_pkg_class: ==> Failed - running iverilog.
+           sv_port_default1: ==> Failed - running iverilog.
+           sv_port_default2: ==> Failed - running iverilog.
+           sv_port_default3: ==> Failed - running iverilog.
+           sv_port_default4: ==> Failed - running iverilog.
+           sv_port_default5: ==> Failed - running iverilog.
+           sv_port_default6: ==> Failed - running iverilog.
+           sv_port_default7: ==> Failed - running iverilog.
+           sv_port_default8: ==> Failed - running iverilog.
+           sv_port_default9: ==> Failed - running iverilog.
+          sv_port_default10: ==> Failed - running iverilog.
+          sv_port_default11: ==> Failed - running iverilog.
+          sv_port_default12: ==> Failed - running iverilog.
+          sv_port_default13: ==> Failed - CE (no error reported).
+          sv_port_default14: Passed - CE.
+        sv_ps_array_cassign: ==> Failed - running iverilog.
+            sv_ps_function1: ==> Failed - running iverilog.
+            sv_ps_function2: ==> Failed - running iverilog.
+            sv_ps_function3: ==> Failed - running iverilog.
+            sv_ps_function4: ==> Failed - running iverilog.
+            sv_ps_function5: ==> Failed - running iverilog.
+            sv_ps_function6: ==> Failed - running iverilog.
+            sv_ps_function7: ==> Failed - running iverilog.
+       sv_ps_function_fail1: Passed - CE.
+       sv_ps_function_fail2: Passed - CE.
+       sv_ps_function_fail3: Passed - CE.
+           sv_ps_hier_fail1: Passed - CE.
+           sv_ps_hier_fail2: Passed - CE.
+          sv_ps_member_sel1: ==> Failed - running iverilog.
+          sv_ps_member_sel2: ==> Failed - running iverilog.
+          sv_ps_member_sel3: ==> Failed - running iverilog.
+              sv_ps_method1: ==> Failed - running iverilog.
+              sv_ps_method2: ==> Failed - running iverilog.
+              sv_ps_method3: ==> Failed - running iverilog.
+              sv_ps_method4: ==> Failed - running iverilog.
+                sv_ps_type1: ==> Failed - running iverilog.
+           sv_ps_type_cast1: ==> Failed - running iverilog.
+           sv_ps_type_cast2: ==> Failed - running iverilog.
+          sv_ps_type_class1: ==> Failed - running iverilog.
+      sv_ps_type_class_prop: ==> Failed - running iverilog.
+           sv_ps_type_enum1: ==> Failed - running iverilog.
+           sv_ps_type_expr1: ==> Failed - running iverilog.
+           sv_ps_type_expr2: ==> Failed - running iverilog.
+         sv_ps_type_struct1: ==> Failed - running iverilog.
+                 sv_ps_var1: ==> Failed - running iverilog.
+                  sv_queue1: ==> Failed - running iverilog.
+                  sv_queue2: ==> Failed - running iverilog.
+                  sv_queue3: ==> Failed - running iverilog.
+           sv_queue_assign1: ==> Failed - running iverilog.
+           sv_queue_assign2: Passed.
+      sv_queue_assign_fail1: Passed - CE.
+      sv_queue_assign_fail2: Passed - CE.
+      sv_queue_assign_fail3: Passed - CE.
+      sv_queue_assign_fail4: Passed - CE.
+      sv_queue_assign_fail5: Passed - CE.
+      sv_queue_assign_fail6: Passed - CE.
+       sv_queue_copy_empty1: ==> Failed - running iverilog.
+       sv_queue_copy_empty2: ==> Failed - running iverilog.
+         sv_queue_function1: ==> Failed - running iverilog.
+         sv_queue_function2: ==> Failed - running iverilog.
+          sv_queue_oob_real: ==> Failed - running iverilog.
+        sv_queue_oob_string: ==> Failed - running iverilog.
+          sv_queue_oob_vec2: ==> Failed - running iverilog.
+          sv_queue_oob_vec4: ==> Failed - running iverilog.
+            sv_queue_parray: ==> Failed - running iverilog.
+    sv_queue_parray_bounded: ==> Failed - running iverilog.
+       sv_queue_parray_fail: ==> Failed - CE - output does not match gold file.
+              sv_queue_real: ==> Failed - running iverilog.
+      sv_queue_real_bounded: ==> Failed - running iverilog.
+         sv_queue_real_fail: ==> Failed - CE - output does not match gold file.
+    sv_queue_method_signed1: ==> Failed - running iverilog.
+    sv_queue_method_signed2: ==> Failed - running iverilog.
+    sv_queue_method_signed3: ==> Failed - running iverilog.
+    sv_queue_method_signed4: ==> Failed - running iverilog.
+            sv_queue_string: ==> Failed - running iverilog.
+    sv_queue_string_bounded: ==> Failed - running iverilog.
+       sv_queue_string_fail: ==> Failed - CE - output does not match gold file.
+               sv_queue_vec: ==> Failed - running iverilog.
+       sv_queue_vec_bounded: ==> Failed - running iverilog.
+          sv_queue_vec_fail: ==> Failed - CE - output does not match gold file.
+              sv_root_class: ==> Failed - running iverilog.
+               sv_root_func: ==> Failed - running iverilog.
+               sv_root_task: ==> Failed - output does not match gold file.
+              sv_sign_cast1: ==> Failed - running iverilog.
+              sv_sign_cast2: ==> Failed - running iverilog.
+              sv_sign_cast3: ==> Failed - running iverilog.
+                 sv_string1: ==> Failed - running iverilog.
+                 sv_string2: ==> Failed - running iverilog.
+                 sv_string3: ==> Failed - running iverilog.
+                 sv_string4: ==> Failed - running iverilog.
+                 sv_string5: ==> Failed - running iverilog.
+                 sv_string6: ==> Failed - running iverilog.
+                 sv_string7: ==> Failed - running iverilog.
+                sv_string7b: ==> Failed - running iverilog.
+                 sv_string8: ==> Failed - running iverilog.
+                 sv_string9: ==> Failed - running iverilog.
+          sv_timeunit_prec1: ==> Failed - running iverilog.
+          sv_timeunit_prec2: ==> Failed - running iverilog.
+         sv_timeunit_prec3a: ==> Failed - running iverilog.
+         sv_timeunit_prec3b: ==> Failed - running iverilog.
+         sv_timeunit_prec3c: ==> Failed - running iverilog.
+         sv_timeunit_prec3d: ==> Failed - running iverilog.
+         sv_timeunit_prec4a: ==> Failed - running iverilog.
+         sv_timeunit_prec4b: ==> Failed - running iverilog.
+     sv_timeunit_prec_fail1: ==> Failed - CE - output does not match gold file.
+     sv_timeunit_prec_fail2: ==> Failed - CE - output does not match gold file.
+             sv_type_param1: ==> Failed - running iverilog.
+             sv_type_param2: ==> Failed - running iverilog.
+             sv_type_param3: ==> Failed - running iverilog.
+             sv_type_param4: ==> Failed - running iverilog.
+             sv_type_param5: ==> Failed - running iverilog.
+             sv_type_param6: ==> Failed - running iverilog.
+             sv_type_param7: ==> Failed - running iverilog.
+        sv_type_param_fail1: Passed - CE.
+        sv_type_param_fail2: Passed - CE.
+     sv_typedef_array_base1: ==> Failed - running iverilog.
+     sv_typedef_array_base2: ==> Failed - running iverilog.
+     sv_typedef_array_base3: ==> Failed - running iverilog.
+     sv_typedef_array_base4: ==> Failed - running iverilog.
+         sv_typedef_chained: ==> Failed - running iverilog.
+       sv_typedef_circular1: ==> Failed - CE (no error reported).
+       sv_typedef_circular2: Passed - CE.
+    sv_typedef_darray_base1: ==> Failed - running iverilog.
+    sv_typedef_darray_base2: ==> Failed - running iverilog.
+    sv_typedef_darray_base3: ==> Failed - running iverilog.
+    sv_typedef_darray_base4: ==> Failed - running iverilog.
+        sv_typedef_fwd_base: ==> Failed - running iverilog.
+       sv_typedef_fwd_class: ==> Failed - running iverilog.
+      sv_typedef_fwd_class2: ==> Failed - running iverilog.
+       sv_typedef_fwd_union: ==> Failed - running iverilog.
+  sv_typedef_fwd_union_fail: ==> Failed - CE (no error reported).
+       sv_typedef_fwd_enum1: ==> Failed - running iverilog.
+       sv_typedef_fwd_enum2: ==> Failed - running iverilog.
+       sv_typedef_fwd_enum3: ==> Failed - running iverilog.
+   sv_typedef_fwd_enum_fail: ==> Failed - CE (no error reported).
+      sv_typedef_fwd_struct: ==> Failed - running iverilog.
+ sv_typedef_fwd_struct_fail: ==> Failed - CE (no error reported).
+    sv_typedef_nested_array: ==> Failed - running iverilog.
+     sv_typedef_queue_base1: ==> Failed - running iverilog.
+     sv_typedef_queue_base2: ==> Failed - running iverilog.
+     sv_typedef_queue_base3: ==> Failed - running iverilog.
+     sv_typedef_queue_base4: ==> Failed - running iverilog.
+          sv_typedef_scope1: ==> Failed - running iverilog.
+          sv_typedef_scope2: ==> Failed - running iverilog.
+          sv_typedef_scope3: ==> Failed - running iverilog.
+                  sv_union1: ==> Failed - running iverilog.
+                 sv_union1b: ==> Failed - running iverilog.
+                  sv_union2: ==> Failed - running iverilog.
+                 sv_union2b: ==> Failed - running iverilog.
+                  sv_union3: ==> Failed - running iverilog.
+                 sv_union3b: ==> Failed - running iverilog.
+                 sv_union4b: ==> Failed - running iverilog.
+                  sv_unit1b: ==> Failed - running iverilog.
+                  sv_unit1c: ==> Failed - running iverilog.
+                  sv_unit2b: ==> Failed - running iverilog.
+                  sv_unit3b: ==> Failed - running iverilog.
+                  sv_unit4b: ==> Failed - running iverilog.
+           sv_unpacked_port: ==> Failed - running iverilog.
+          sv_unpacked_port2: ==> Failed - running iverilog.
+           sv_unpacked_wire: ==> Failed - running iverilog.
+          sv_unpacked_wire2: ==> Failed - running iverilog.
+                  sv_uwire1: ==> Failed - running iverilog.
+                  sv_uwire2: ==> Failed - running iverilog.
+                  sv_uwire3: ==> Failed - running iverilog.
+                  sv_uwire4: ==> Failed - running iverilog.
+               sv_var_block: ==> Failed - running iverilog.
+                 sv_var_for: ==> Failed - running iverilog.
+            sv_var_for_fail: Passed - CE.
+            sv_var_function: ==> Failed - running iverilog.
+               sv_var_init1: ==> Failed - running vvp.
+               sv_var_init2: ==> Failed - running iverilog.
+              sv_var_module: ==> Failed - running iverilog.
+       sv_var_module_inout1: Passed - CE.
+       sv_var_module_inout2: ==> Failed - CE (no error reported).
+       sv_var_module_input1: ==> Failed - running iverilog.
+       sv_var_module_input2: ==> Failed - running iverilog.
+      sv_var_module_output1: ==> Failed - running iverilog.
+      sv_var_module_output2: ==> Failed - running iverilog.
+             sv_var_package: ==> Failed - running iverilog.
+                sv_var_task: ==> Failed - running iverilog.
+              sv_void_cast1: ==> Failed - running iverilog.
+              sv_void_cast2: ==> Failed - running iverilog.
+              sv_void_cast3: ==> Failed - running iverilog.
+              sv_void_cast4: Passed.
+         sv_void_cast_fail1: ==> Failed - CE (no error reported).
+         sv_void_cast_fail2: ==> Failed - CE (no error reported).
+         sv_void_cast_fail3: ==> Failed - CE (no error reported).
+        sv_wildcard_import1: ==> Failed - running iverilog.
+        sv_wildcard_import2: ==> Failed - running iverilog.
+        sv_wildcard_import3: ==> Failed - running iverilog.
+        sv_wildcard_import4: ==> Failed - CE - output does not match gold file.
+        sv_wildcard_import5: ==> Failed - CE - output does not match gold file.
+        sv_wildcard_import6: ==> Failed - running iverilog.
+        sv_wildcard_import7: ==> Failed - running iverilog.
+           sys_func_as_task: ==> Failed - running iverilog.
+           task_init_assign: ==> Failed - output does not match gold file.
+             task_init_var1: ==> Failed - running iverilog.
+             task_init_var2: ==> Failed - running iverilog.
+             task_init_var3: ==> Failed - running iverilog.
+    task_nonansi_atom2_fail: ==> Failed - CE (no error reported).
+         task_nonansi_enum1: ==> Failed - output does not match gold file.
+         task_nonansi_enum2: ==> Failed - output does not match gold file.
+     task_nonansi_enum_fail: ==> Failed - CE (no error reported).
+          task_nonansi_int1: ==> Failed - output does not match gold file.
+          task_nonansi_int2: ==> Failed - output does not match gold file.
+       task_nonansi_parray1: ==> Failed - output does not match gold file.
+       task_nonansi_parray2: ==> Failed - output does not match gold file.
+   task_nonansi_parray_fail: ==> Failed - CE (no error reported).
+       task_nonansi_struct1: ==> Failed - output does not match gold file.
+       task_nonansi_struct2: ==> Failed - output does not match gold file.
+   task_nonansi_struct_fail: ==> Failed - CE (no error reported).
+           task_port_types1: ==> Failed - output does not match gold file.
+           task_port_types2: ==> Failed - output does not match gold file.
+                task_scope2: ==> Failed - running iverilog.
+               test_inc_dec: ==> Failed - running iverilog.
+              test_tliteral: ==> Failed - running iverilog.
+                timeliteral: ==> Failed - running iverilog.
+          two_state_display: ==> Failed - running iverilog.
+                 ubyte_test: ==> Failed - running iverilog.
+                  uint_test: ==> Failed - running iverilog.
+              ulongint_test: ==> Failed - running iverilog.
+       undef_lval_select_SV: ==> Failed - output does not match gold file.
+   union_packed_darray_fail: ==> Failed - CE (no error reported).
+    union_packed_queue_fail: ==> Failed - CE (no error reported).
+   union_packed_uarray_fail: ==> Failed - CE (no error reported).
+          unp_array_typedef: ==> Failed - running iverilog.
+  packed_dims_invalid_class: Passed - CE.
+ packed_dims_invalid_module: Passed - CE.
+             ushortint_test: ==> Failed - running iverilog.
+           vvp_recv_vec4_pv: ==> Failed - running iverilog.
+                  wait_fork: ==> Failed - output does not match gold file.
+                     sf1289: ==> Failed - running iverilog.
+             wild_cmp_const: Passed.
+               wild_cmp_net: ==> Failed - running iverilog.
+               wild_cmp_var: ==> Failed - running iverilog.
+               wild_cmp_err: ==> Failed - CE - output does not match gold file.
+              wild_cmp_err2: ==> Failed - CE - output does not match gold file.
+                     gh161a: ==> Failed - running iverilog.
+                     gh161b: ==> Failed - running iverilog.
+                   pull371b: ==> Failed - running iverilog.
+                   br_gh175: ==> Failed - running iverilog.
+                   br_gh307: ==> Failed - running iverilog.
+                  br_gh390a: Passed - CE.
+                  br_gh390b: ==> Failed - running iverilog.
+                   br_gh412: ==> Failed - running iverilog.
+                   br_gh414: ==> Failed - running iverilog.
+                   br_gh436: ==> Failed - running iverilog.
+                   br_gh451: ==> Failed - running iverilog.
+                   br_gh453: ==> Failed - running iverilog.
+                   br_gh460: ==> Failed - running iverilog.
+                   issue576: ==> Failed - output does not match gold file.
+                  br_gh823a: ==> Failed - CE (no error reported).
+                  br_gh823b: ==> Failed - CE (no error reported).
+                  br_gh840a: ==> Failed - CE (no error reported).
+                  br_gh840b: ==> Failed - CE (no error reported).
+                   br_gh979: ==> Failed - running iverilog.
+            bitsel_real_idx: ==> Failed - CE - output does not match gold file.
+           partsel_real_idx: ==> Failed - CE - output does not match gold file.
+        ipsdownsel_real_idx: ==> Failed - CE - output does not match gold file.
+          ipsupsel_real_idx: ==> Failed - CE - output does not match gold file.
+                 real_edges: ==> Failed - CE (no error reported).
+                      br942: ==> Failed - running iverilog.
+                  br943_944: ==> Failed - running iverilog.
+                      br985: ==> Failed - running iverilog.
+                      br986: ==> Failed - running iverilog.
+                      br987: ==> Failed - running iverilog.
+                 ivlh_event: ==> Failed - running iverilog.
+        ivlh_rising_falling: ==> Failed - running iverilog.
+                ivlh_textio: ==> Failed - running iverilog.
+               test_dec2to4: ==> Failed - running iverilog.
+            test_enumsystem: ==> Failed - running iverilog.
+                test_forgen: ==> Failed - running iverilog.
+                  test_gxor: ==> Failed - running iverilog.
+               test_mux2to1: ==> Failed - running iverilog.
+    test_signal_init_assign: ==> Failed - running iverilog.
+                test_system: ==> Failed - running iverilog.
+              test_timebase: ==> Failed - running iverilog.
+               test_varray1: ==> Failed - running iverilog.
+             test_when_else: ==> Failed - running iverilog.
+                test_work14: ==> Failed - running iverilog.
+       vhdl_and104_stdlogic: ==> Failed - running iverilog.
+             vhdl_and23_bit: ==> Failed - running iverilog.
+              vhdl_and_gate: ==> Failed - running iverilog.
+              vhdl_andg_bit: ==> Failed - running iverilog.
+         vhdl_andg_stdlogic: ==> Failed - running iverilog.
+        vhdl_array_of_array: ==> Failed - running iverilog.
+            vhdl_case_multi: ==> Failed - running iverilog.
+               vhdl_boolean: ==> Failed - running iverilog.
+                vhdl_concat: ==> Failed - running iverilog.
+           vhdl_concat_func: ==> Failed - running iverilog.
+     vhdl_concurrent_assert: ==> Failed - running iverilog.
+         vhdl_const_package: ==> Failed - running iverilog.
+          vhdl_const_record: ==> Failed - running iverilog.
+           vhdl_const_array: ==> Failed - running iverilog.
+          vhdl_delay_assign: ==> Failed - running iverilog.
+            vhdl_elab_range: ==> Failed - running iverilog.
+             vhdl_eval_cond: ==> Failed - running iverilog.
+                 vhdl_expr1: ==> Failed - running iverilog.
+          vhdl_generic_eval: ==> Failed - running iverilog.
+             vhdl_fa4_test1: ==> Failed - running iverilog.
+             vhdl_fa4_test2: ==> Failed - running iverilog.
+             vhdl_fa4_test3: ==> Failed - running iverilog.
+             vhdl_fa4_test4: Not Implemented.
+             vhdl_file_open: ==> Failed - running iverilog.
+       vhdl_generic_default: ==> Failed - running iverilog.
+                  vhdl_init: ==> Failed - running iverilog.
+            vhdl_image_attr: ==> Failed - running iverilog.
+                 vhdl_inout: ==> Failed - running iverilog.
+        vhdl_labeled_assign: ==> Failed - running iverilog.
+                  vhdl_lfcr: ==> Failed - running iverilog.
+                 vhdl_logic: ==> Failed - running iverilog.
+                  vhdl_loop: ==> Failed - running iverilog.
+        vhdl_multidim_array: Not Implemented.
+      vhdl_nand104_stdlogic: ==> Failed - running iverilog.
+            vhdl_nand23_bit: ==> Failed - running iverilog.
+             vhdl_nandg_bit: ==> Failed - running iverilog.
+        vhdl_nandg_stdlogic: ==> Failed - running iverilog.
+       vhdl_nor104_stdlogic: ==> Failed - running iverilog.
+             vhdl_nor23_bit: ==> Failed - running iverilog.
+              vhdl_norg_bit: ==> Failed - running iverilog.
+         vhdl_norg_stdlogic: ==> Failed - running iverilog.
+       vhdl_not104_stdlogic: ==> Failed - running iverilog.
+             vhdl_not23_bit: ==> Failed - running iverilog.
+      vhdl_notfunc_stdlogic: ==> Failed - running iverilog.
+              vhdl_notg_bit: ==> Failed - running iverilog.
+         vhdl_notg_stdlogic: ==> Failed - running iverilog.
+                   vhdl_now: ==> Failed - running iverilog.
+        vhdl_or104_stdlogic: ==> Failed - running iverilog.
+              vhdl_or23_bit: ==> Failed - running iverilog.
+               vhdl_org_bit: ==> Failed - running iverilog.
+          vhdl_org_stdlogic: ==> Failed - running iverilog.
+               vhdl_pow_rem: ==> Failed - running iverilog.
+          vhdl_prefix_array: ==> Failed - running iverilog.
+             vhdl_procedure: ==> Failed - running iverilog.
+         vhdl_process_scope: ==> Failed - running iverilog.
+            vhdl_rand23_bit: ==> Failed - running iverilog.
+                 vhdl_range: ==> Failed - running iverilog.
+            vhdl_range_func: ==> Failed - running iverilog.
+                  vhdl_real: ==> Failed - running iverilog.
+           vhdl_record_elab: ==> Failed - running iverilog.
+                vhdl_reduce: ==> Failed - running iverilog.
+                vhdl_report: ==> Failed - running iverilog.
+                vhdl_resize: ==> Failed - running iverilog.
+                  vhdl_rtoi: ==> Failed - running iverilog.
+             vhdl_sa1_test1: ==> Failed - running iverilog.
+             vhdl_sa1_test2: ==> Failed - running iverilog.
+             vhdl_sa1_test3: ==> Failed - running iverilog.
+            vhdl_sadd23_bit: ==> Failed - running iverilog.
+       vhdl_sadd23_stdlogic: ==> Failed - running iverilog.
+            vhdl_sdiv23_bit: ==> Failed - running iverilog.
+       vhdl_sdiv23_stdlogic: ==> Failed - running iverilog.
+              vhdl_selected: ==> Failed - running iverilog.
+                 vhdl_shift: ==> Failed - running iverilog.
+               vhdl_signals: ==> Failed - running iverilog.
+            vhdl_smul23_bit: ==> Failed - running iverilog.
+       vhdl_smul23_stdlogic: ==> Failed - running iverilog.
+            vhdl_ssub23_bit: ==> Failed - running iverilog.
+       vhdl_ssub23_stdlogic: ==> Failed - running iverilog.
+          vhdl_struct_array: ==> Failed - running iverilog.
+              vhdl_subtypes: ==> Failed - running iverilog.
+            vhdl_subprogram: ==> Failed - running iverilog.
+                vhdl_string: ==> Failed - running iverilog.
+            vhdl_string_lim: ==> Failed - running iverilog.
+                 vhdl_test1: ==> Failed - running iverilog.
+                 vhdl_test2: ==> Failed - running iverilog.
+                 vhdl_test3: ==> Failed - running iverilog.
+                 vhdl_test4: ==> Failed - running iverilog.
+                 vhdl_test5: ==> Failed - running iverilog.
+                 vhdl_test6: ==> Failed - running iverilog.
+                 vhdl_test7: ==> Failed - running iverilog.
+                 vhdl_test8: ==> Failed - running iverilog.
+                 vhdl_test9: ==> Failed - running iverilog.
+          vhdl_textio_write: ==> Failed - running iverilog.
+           vhdl_textio_read: ==> Failed - running iverilog.
+                  vhdl_time: ==> Failed - running iverilog.
+            vhdl_to_integer: ==> Failed - running iverilog.
+            vhdl_uadd23_bit: ==> Failed - running iverilog.
+       vhdl_uadd23_stdlogic: ==> Failed - running iverilog.
+            vhdl_udiv23_bit: ==> Failed - running iverilog.
+       vhdl_udiv23_stdlogic: ==> Failed - running iverilog.
+            vhdl_umul23_bit: ==> Failed - running iverilog.
+       vhdl_umul23_stdlogic: ==> Failed - running iverilog.
+           vhdl_unary_minus: ==> Failed - running iverilog.
+             vhdl_unbounded: ==> Failed - running iverilog.
+        vhdl_unbounded_func: ==> Failed - running iverilog.
+            vhdl_usub23_bit: ==> Failed - running iverilog.
+       vhdl_usub23_stdlogic: ==> Failed - running iverilog.
+              vhdl_var_init: ==> Failed - running iverilog.
+                  vhdl_wait: ==> Failed - running iverilog.
+                 vhdl_while: ==> Failed - running iverilog.
+      vhdl_xnor104_stdlogic: ==> Failed - running iverilog.
+            vhdl_xnor23_bit: ==> Failed - running iverilog.
+             vhdl_xnorg_bit: ==> Failed - running iverilog.
+        vhdl_xnorg_stdlogic: ==> Failed - running iverilog.
+             vhdl_xor23_bit: ==> Failed - running iverilog.
+              vhdl_xorg_bit: ==> Failed - running iverilog.
+         vhdl_xorg_stdlogic: ==> Failed - running iverilog.
+                      work7: ==> Failed - running iverilog.
+                     work7b: ==> Failed - running iverilog.
+                  basicexpr: ==> Failed - output does not match gold file.
+                 basicexpr2: ==> Failed - output does not match gold file.
+                 basicexpr3: ==> Failed - output does not match gold file.
+                 basicexpr4: ==> Failed - output does not match gold file.
+                 basiclatch: ==> Failed - output does not match gold file.
+                   basicreg: ==> Failed - output does not match gold file.
+                 basicstate: ==> Failed - output does not match gold file.
+                basicstate2: ==> Failed - output does not match gold file.
+                blocksynth1: Passed.
+                blocksynth2: Passed.
+                blocksynth3: Passed.
+                     br993a: Passed.
+                     br993b: Passed.
+                      br994: Passed.
+                      br995: ==> Failed - CE (no error reported).
+                   br_gh99v: ==> Failed - running vvp.
+                   br_gh99w: ==> Failed - running vvp.
+                   br_gh99x: ==> Failed - running vvp.
+                   br_gh115: ==> Failed - running vvp.
+                  br_gh306a: Passed - CE.
+                  br_gh306b: Passed - CE.
+                      case4: Passed.
+                      case5: ==> Failed - running vvp.
+             case5-syn-fail: ==> Failed - CE (no error reported).
+                      case6: ==> Failed - running vvp.
+                      case7: ==> Failed - running vvp.
+            case_wo_default: ==> Failed - running iverilog.
+                 casesynth1: ==> Failed - running vvp.
+                 casesynth2: ==> Failed - running vvp.
+                 casesynth3: ==> Failed - running vvp.
+                 casesynth4: ==> Failed - output does not match gold file.
+                 casesynth5: ==> Failed - output does not match gold file.
+                 casesynth6: ==> Failed - running iverilog.
+                 casesynth7: ==> Failed - output does not match gold file.
+                 casesynth8: Passed - CE.
+                 casesynth9: ==> Failed - running iverilog.
+                    condit1: ==> Failed - running vvp.
+               conditsynth1: ==> Failed - running vvp.
+               conditsynth2: ==> Failed - running vvp.
+               conditsynth3: ==> Failed - running vvp.
+             ff_dual_enable: ==> Failed - output does not match gold file.
+             for_loop_synth: ==> Failed - output does not match gold file.
+            for_loop_synth2: ==> Failed - running vvp.
+            if_part_no_else: ==> Failed - output does not match gold file.
+           if_part_no_else2: ==> Failed - output does not match gold file.
+               inside_synth: ==> Failed - running vvp.
+              inside_synth2: ==> Failed - output does not match gold file.
+              inside_synth3: ==> Failed - running vvp.
+                      land5: ==> Failed - running vvp.
+                  lcatsynth: ==> Failed - running iverilog.
+                  memsynth8: Passed.
+                   multireg: ==> Failed - output does not match gold file.
+               not_a_latch1: ==> Failed - output does not match gold file.
+               not_a_latch2: ==> Failed - output does not match gold file.
+               partselsynth: ==> Failed - running vvp.
+                      pr519: Passed.
+                      pr685: ==> Failed - output does not match gold file.
+                     shiftl: ==> Failed - output does not match gold file.
+                sqrt32synth: ==> Failed - running iverilog.
+                   ssetclr1: ==> Failed - running vvp.
+                   ssetclr2: ==> Failed - running vvp.
+                   ssetclr3: ==> Failed - running vvp.
+           synth_if_no_else: ==> Failed - output does not match gold file.
+                ufuncsynth1: ==> Failed - running vvp.
+============================================================================
+Test results:
+  Total=3018, Passed=613, Failed=2403, Not Implemented=2, Expected Fail=0

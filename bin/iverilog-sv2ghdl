@@ -100,7 +100,7 @@ mkdir -p "$OUTDIR"
 IVERILOG_OK=0
 VHDL_OUT="$OUTDIR/design.vhd"
 
-if "$IVERILOG" -B"$IVL_LIBDIR" -tvhdl -psv2vhdl=1 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
+if timeout 30 "$IVERILOG" -B"$IVL_LIBDIR" -tvhdl -psv2vhdl=1 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
     if [[ -s "$VHDL_OUT" ]]; then
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
