@@ -56,11 +56,42 @@ sub banner { printf "\n── %-12s %s ──\n", $_[0], $_[1] // '' }
 
 # ── status ───────────────────────────────────────────────────────────
 sub do_status {
+    my $fmt = "  %-12s %-25s %3dM  %3dU  %s\n";
+    printf "  %-12s %-25s %4s  %4s  %s\n",
+        'REPO', 'BRANCH', 'MOD', 'UNT', 'SYNC';
+    print "  ", "-" x 72, "\n";
     for my $repo (@repos) {
         my $dir = abs_path("$SRC/$repo") // "$SRC/$repo";
         next unless -d "$dir/.git";
-        banner($repo);
-        run("git status --short --branch", $dir);
+
+        # branch info
+        my $branch = `git -C '$dir' symbolic-ref --short HEAD 2>/dev/null`;
+        chomp $branch;
+        $branch = '(detached)' unless $branch;
+        $branch = substr($branch, 0, 24) . '..' if length($branch) > 25;
+
+        # ahead/behind
+        my $sync = '';
+        my $ab = `git -C '$dir' rev-list --left-right --count HEAD...\@{upstream} 2>/dev/null`;
+        chomp $ab;
+        if ($ab =~ /^(\d+)\t(\d+)$/) {
+            my ($ahead, $behind) = ($1, $2);
+            my @parts;
+            push @parts, "ahead $ahead" if $ahead > 0;
+            push @parts, "behind $behind" if $behind > 0;
+            $sync = join(', ', @parts) || 'up to date';
+        } else {
+            $sync = 'no upstream';
+        }
+
+        # count modified and untracked
+        my @lines = `git -C '$dir' status --short 2>/dev/null`;
+        my ($mod, $unt) = (0, 0);
+        for (@lines) {
+            if (/^\?\?/) { $unt++ } else { $mod++ }
+        }
+
+        printf $fmt, $repo, $branch, $mod, $unt, $sync;
     }
 }
 
