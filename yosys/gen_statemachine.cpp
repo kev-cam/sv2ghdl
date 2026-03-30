@@ -134,7 +134,9 @@ int main(int argc, char **argv)
 
         if (type == "$scopeinfo") continue;
 
-        if (type == "$adff") {
+        bool is_reg = (type == "$adff" || type == "$dff" || type == "$adffe"
+                       || type == "$dffe" || type == "$sdff" || type == "$sdffe");
+        if (is_reg) {
             RegInfo reg;
             auto &q = cell->getPort(ID::Q);
             auto &d = cell->getPort(ID::D);
@@ -142,12 +144,15 @@ int main(int argc, char **argv)
             reg.d_expr = sig_expr(d, sigmap);
             reg.width = q.size();
 
-            // Get async reset value
-            auto arst_val = cell->getParam(ID(ARST_VALUE));
-            uint64_t rv = 0;
-            for (int i = arst_val.bits().size()-1; i >= 0; i--)
-                rv = (rv << 1) | (arst_val[i] == RTLIL::S1 ? 1 : 0);
-            reg.arst_val = rv;
+            // Get async reset value if present
+            reg.arst_val = 0;
+            if (type == "$adff" || type == "$adffe") {
+                auto arst_val = cell->getParam(ID(ARST_VALUE));
+                uint64_t rv = 0;
+                for (int i = arst_val.size()-1; i >= 0; i--)
+                    rv = (rv << 1) | (arst_val[i] == RTLIL::S1 ? 1 : 0);
+                reg.arst_val = rv;
+            }
 
             registers.push_back(reg);
         } else {
@@ -193,6 +198,22 @@ int main(int argc, char **argv)
     fprintf(out, "#include <stdint.h>\n");
     fprintf(out, "#include <stdio.h>\n\n");
 
+    // Input struct (primary inputs, excluding clk/rst)
+    fprintf(out, "typedef struct {\n");
+    bool has_inputs = false;
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        if (wire->port_input) {
+            std::string wn = cname(wire->name.str());
+            if (wn != "_clk" && wn != "_rst") {
+                fprintf(out, "    uint64_t %s;  // %d bits\n", wn.c_str(), wire->width);
+                has_inputs = true;
+            }
+        }
+    }
+    if (!has_inputs) fprintf(out, "    int _dummy;\n");
+    fprintf(out, "} inputs_t;\n\n");
+
     // State struct
     fprintf(out, "typedef struct {\n");
     for (auto &reg : registers)
@@ -217,29 +238,41 @@ int main(int argc, char **argv)
     fprintf(out, "}\n\n");
 
     // Cycle evaluation function
-    fprintf(out, "void sm_eval(state_t *s, outputs_t *o) {\n");
-    fprintf(out, "    // Register aliases (current state)\n");
+    fprintf(out, "void sm_eval(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+    fprintf(out, "    // Input aliases\n");
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        if (wire->port_input) {
+            std::string wn = cname(wire->name.str());
+            if (wn == "_clk" || wn == "_rst")
+                fprintf(out, "    uint64_t %s = 0;  // clock/reset handled externally\n", wn.c_str());
+            else
+                fprintf(out, "    uint64_t %s = in->%s;\n", wn.c_str(), wn.c_str());
+        }
+    }
+    fprintf(out, "\n    // Register aliases (current state)\n");
     for (auto &reg : registers)
         fprintf(out, "    uint64_t %s = s->%s;\n", reg.name.c_str(), reg.name.c_str());
     fprintf(out, "\n");
 
-    // Declare combinational wires
+    // Declare all wires not already covered by registers or inputs
     fprintf(out, "    // Combinational wires\n");
     std::set<std::string> declared;
     for (auto &reg : registers)
         declared.insert(reg.name);
-    for (auto *cell : sorted) {
-        if (cell->hasPort(ID::Y)) {
-            auto &y = cell->getPort(ID::Y);
-            for (auto &chunk : y.chunks()) {
-                if (chunk.wire) {
-                    std::string wn = cname(chunk.wire->name.str());
-                    if (!declared.count(wn)) {
-                        fprintf(out, "    uint64_t %s;\n", wn.c_str());
-                        declared.insert(wn);
-                    }
-                }
-            }
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        if (wire->port_input) {
+            declared.insert(cname(wire->name.str()));
+            continue;
+        }
+    }
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        std::string wn = cname(wire->name.str());
+        if (!declared.count(wn)) {
+            fprintf(out, "    uint64_t %s = 0;\n", wn.c_str());
+            declared.insert(wn);
         }
     }
     fprintf(out, "\n");
@@ -325,6 +358,61 @@ int main(int argc, char **argv)
                 fprintf(out, "    if (%s) %s = %s;\n",
                         s_bit.c_str(), y_name.c_str(), b_slice.c_str());
             }
+        } else if (type == "$mux") {
+            fprintf(out, "    %s = %s ? %s : %s;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::S), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str());
+        } else if (type == "$ne") {
+            fprintf(out, "    %s = (%s != %s) ? 1 : 0;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+        } else if (type == "$lt") {
+            fprintf(out, "    %s = (%s < %s) ? 1 : 0;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+        } else if (type == "$le") {
+            fprintf(out, "    %s = (%s <= %s) ? 1 : 0;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+        } else if (type == "$gt") {
+            fprintf(out, "    %s = (%s > %s) ? 1 : 0;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+        } else if (type == "$ge") {
+            fprintf(out, "    %s = (%s >= %s) ? 1 : 0;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+        } else if (type == "$mul") {
+            fprintf(out, "    %s = (%s * %s) & UINT64_C(0x%llx);\n",
+                    y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
+                    (unsigned long long)mask);
+        } else if (type == "$neg") {
+            fprintf(out, "    %s = (-%s) & UINT64_C(0x%llx);\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    (unsigned long long)mask);
+        } else if (type == "$reduce_and") {
+            auto a = sig_expr(cell->getPort(ID::A), sigmap);
+            int a_width = cell->getPort(ID::A).size();
+            uint64_t a_mask = a_width >= 64 ? ~0ULL : ((1ULL << a_width) - 1);
+            fprintf(out, "    %s = ((%s & UINT64_C(0x%llx)) == UINT64_C(0x%llx)) ? 1 : 0;\n",
+                    y_name.c_str(), a.c_str(),
+                    (unsigned long long)a_mask, (unsigned long long)a_mask);
+        } else if (type == "$reduce_xor") {
+            fprintf(out, "    { uint64_t _t = %s; _t ^= _t >> 32; _t ^= _t >> 16; "
+                    "_t ^= _t >> 8; _t ^= _t >> 4; _t ^= _t >> 2; _t ^= _t >> 1; "
+                    "%s = _t & 1; }\n",
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(), y_name.c_str());
+        } else if (type == "$reduce_bool") {
+            fprintf(out, "    %s = (%s != 0) ? 1 : 0;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str());
+        } else if (type == "$xnor") {
+            fprintf(out, "    %s = (~(%s ^ %s)) & UINT64_C(0x%llx);\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
+                    (unsigned long long)mask);
         } else {
             fprintf(out, "    // TODO: unhandled cell type %s\n", type.c_str());
         }
@@ -337,28 +425,44 @@ int main(int argc, char **argv)
         fprintf(out, "    s->%s = %s;\n", reg.name.c_str(), reg.d_expr.c_str());
     fprintf(out, "\n");
 
-    // Copy outputs
+    // Copy outputs — trace through sigmap to find the actual source
     fprintf(out, "    // Outputs\n");
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
         if (wire->port_output) {
             std::string wn = cname(wire->name.str());
-            if (declared.count(wn))
-                fprintf(out, "    o->%s = %s;\n", wn.c_str(), wn.c_str());
+            SigSpec port_sig(wire);
+            std::string expr = sig_expr(port_sig, sigmap);
+            fprintf(out, "    o->%s = %s;\n", wn.c_str(), expr.c_str());
         }
     }
     fprintf(out, "}\n\n");
 
-    // Testbench
+    // Testbench — auto-generated from output ports
     fprintf(out, "int main(void) {\n");
     fprintf(out, "    state_t s;\n");
+    fprintf(out, "    inputs_t in = {0};\n");
     fprintf(out, "    outputs_t o;\n");
+    fprintf(out, "    int cycles = 2000000;\n");
     fprintf(out, "    sm_reset(&s);\n");
-    fprintf(out, "    for (int i = 0; i < 2000000; i++)\n");
-    fprintf(out, "        sm_eval(&s, &o);\n");
-    fprintf(out, "    printf(\"Counter: %%u\\n\", (unsigned)o._u_cnt_count);\n");
-    fprintf(out, "    printf(\"LFSR:    %%08x\\n\", (unsigned)o._u_lfsr_q);\n");
-    fprintf(out, "    printf(\"ALU:     %%02x\\n\", (unsigned)o._alu_result);\n");
+    fprintf(out, "    for (int i = 0; i < cycles; i++)\n");
+    fprintf(out, "        sm_eval(&s, &in, &o);\n");
+    fprintf(out, "    printf(\"Cycles: %%d\\n\", cycles);\n");
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        if (wire->port_output) {
+            std::string wn = cname(wire->name.str());
+            if (wire->width > 32)
+                fprintf(out, "    printf(\"%s: %%016llx\\n\", (unsigned long long)o.%s);\n",
+                        wn.c_str(), wn.c_str());
+            else if (wire->width > 8)
+                fprintf(out, "    printf(\"%s: %%08x\\n\", (unsigned)o.%s);\n",
+                        wn.c_str(), wn.c_str());
+            else
+                fprintf(out, "    printf(\"%s: %%02x\\n\", (unsigned)o.%s);\n",
+                        wn.c_str(), wn.c_str());
+        }
+    }
     fprintf(out, "    return 0;\n");
     fprintf(out, "}\n");
 
