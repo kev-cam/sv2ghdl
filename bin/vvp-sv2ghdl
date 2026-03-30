@@ -13,6 +13,7 @@ export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
 # NVC binary: prefer build tree if available, else installed
 NVC="${NVC:-/usr/local/src/nvc/build/bin/nvc}"
 NVC_LIBDIR="${NVC_LIBDIR:-/usr/local/src/nvc/build/lib}"
+RESOLVER="${NVC_LIBDIR}/sv2vhdl/libresolver.so"
 
 # Parse arguments (vvp-compatible)
 SIMDIR=""
@@ -70,7 +71,13 @@ fi
 #
 # The awk filter extracts message text from ** Note lines, strips Process
 # continuation lines, and routes warnings/errors to stderr.
-timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" -r "$TOP_ENTITY" 2>&1 | awk '
+# Load resolver plugin if available (generates per-net resolution via Python)
+LOAD_RESOLVER=""
+if [[ -f "$RESOLVER" ]]; then
+    LOAD_RESOLVER="--load=$RESOLVER"
+fi
+
+timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r "$TOP_ENTITY" 2>&1 | awk '
     /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
     /^   Process /    { next }
     /^   Procedure /  { next }
