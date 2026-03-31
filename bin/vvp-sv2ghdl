@@ -75,14 +75,30 @@ fi
 LOAD_RESOLVER=""
 if [[ -f "$RESOLVER" ]]; then
     LOAD_RESOLVER="--load=$RESOLVER"
+    export SV2VHDL_QUIET=1
 fi
 
 timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r "$TOP_ENTITY" 2>&1 | awk '
+    /^\*\* Note: loading VHPI/  { next }
     /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
     /^   Process /    { next }
     /^   Procedure /  { next }
     /^\*\* Debug: /   { next }
     /^\*\* (Warning|Error|Fatal): / { print > "/dev/stderr"; next }
+    /^plugin loaded/  { next }
+    /^Python /        { next }
+    /^loaded /        { next }
+    /^===.*===/       { next }
+    /^---/            { next }
+    /^region:/        { next }
+    /^  instance:/    { next }
+    /^    port /      { next }
+    /^      drv=/     { next }
+    /^Total /         { next }
+    /^Nets /          { next }
+    /^resolver:/      { next }
+    /^Root:/          { next }
+    /^Initial /       { next }
     { print }
 '
 exit ${PIPESTATUS[0]}

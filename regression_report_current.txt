@@ -1900,7 +1900,7 @@ test_mos_strength_reduction: Passed.
                       wait3: ==> Failed - output does not match gold file.
                   wildsense: Passed.
                  wildsense2: ==> Failed - running vvp.
-                   wireadd1: ==> Failed - output does not match gold file.
+                   wireadd1: ==> Failed - running vvp.
                      wireeq: Passed.
                      wirege: ==> Failed - output does not match gold file.
                    wireland: Passed.
@@ -1909,7 +1909,7 @@ test_mos_strength_reduction: Passed.
                      wiresl: ==> Failed - running vvp.
                     wiresl2: ==> Failed - running vvp.
                      wiresr: ==> Failed - running vvp.
-                   wiresub1: ==> Failed - output does not match gold file.
+                   wiresub1: ==> Failed - running vvp.
                    wirexor1: ==> Failed - running iverilog.
              writemem-error: ==> Failed - running iverilog.
                  writememb1: ==> Failed - running iverilog.
