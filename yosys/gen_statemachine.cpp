@@ -99,6 +99,20 @@ static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
     return expr;
 }
 
+// Check if cell has signed operands
+static bool is_signed(RTLIL::Cell *cell) {
+    return cell->hasParam(ID(A_SIGNED)) &&
+           cell->getParam(ID(A_SIGNED)).as_bool();
+}
+
+// Generate sign-extension expression for comparison operands
+static std::string signed_expr(const std::string &expr, int width) {
+    if (width >= 64) return "(int64_t)" + expr;
+    std::ostringstream oss;
+    oss << "((int64_t)((" << expr << ") << " << (64 - width) << ") >> " << (64 - width) << ")";
+    return oss.str();
+}
+
 int main(int argc, char **argv)
 {
     const char *verilog_file = argc > 1 ? argv[1] : "/tmp/rtl_design.v";
@@ -122,17 +136,76 @@ int main(int argc, char **argv)
     struct RegInfo {
         std::string name;
         std::string d_expr;
+        std::string en_expr;  // empty = always enabled
         int width;
         uint64_t arst_val;
     };
+    struct MemInfo {
+        std::string name;
+        int width;          // bits per word
+        int depth;          // number of words
+        int abits;          // address bits
+        std::map<int, uint64_t> init;  // addr -> value
+    };
+    std::map<std::string, MemInfo> memories;  // keyed by MEMID
+
     std::vector<RegInfo> registers;
     std::vector<RTLIL::Cell*> comb_cells;
 
+    // First pass: collect memory info from $meminit cells
+    for (auto &c : mod->cells_) {
+        auto *cell = c.second;
+        auto type = cell->type.str();
+        if (type == "$meminit" || type == "$meminit_v2") {
+            std::string memid = cell->getParam(ID(MEMID)).decode_string();
+            int width = cell->getParam(ID(WIDTH)).as_int();
+            int abits = cell->getParam(ID(ABITS)).as_int();
+            auto &addr_sig = cell->getPort(ID(ADDR));
+            auto &data_sig = cell->getPort(ID(DATA));
+
+            auto &mem = memories[memid];
+            mem.name = cname(memid);
+            mem.width = width;
+            mem.abits = abits;
+
+            // Get address and data constants
+            auto addr_const = sigmap(addr_sig).as_const();
+            auto data_const = sigmap(data_sig).as_const();
+            uint64_t addr = 0;
+            for (int i = addr_const.size()-1; i >= 0; i--)
+                addr = (addr << 1) | (addr_const[i] == RTLIL::S1 ? 1 : 0);
+            uint64_t data = 0;
+            for (int i = data_const.size()-1; i >= 0; i--)
+                data = (data << 1) | (data_const[i] == RTLIL::S1 ? 1 : 0);
+            mem.init[addr] = data;
+            int words = cell->getParam(ID(WORDS)).as_int();
+            if ((int)addr + words > mem.depth)
+                mem.depth = addr + words;
+        }
+    }
+
+    // Second pass: get depth from $memrd cells if not set
+    for (auto &c : mod->cells_) {
+        auto *cell = c.second;
+        auto type = cell->type.str();
+        if (type == "$memrd" || type == "$memrd_v2") {
+            std::string memid = cell->getParam(ID(MEMID)).decode_string();
+            auto &mem = memories[memid];
+            if (mem.depth == 0)
+                mem.depth = 1 << cell->getParam(ID(ABITS)).as_int();
+            mem.width = cell->getParam(ID(WIDTH)).as_int();
+            mem.abits = cell->getParam(ID(ABITS)).as_int();
+            mem.name = cname(memid);
+        }
+    }
+
+    // Main pass: classify cells
     for (auto &c : mod->cells_) {
         auto *cell = c.second;
         auto type = cell->type.str();
 
         if (type == "$scopeinfo") continue;
+        if (type == "$meminit" || type == "$meminit_v2") continue;  // already handled
 
         bool is_reg = (type == "$adff" || type == "$dff" || type == "$adffe"
                        || type == "$dffe" || type == "$sdff" || type == "$sdffe");
@@ -154,6 +227,17 @@ int main(int argc, char **argv)
                 reg.arst_val = rv;
             }
 
+            // Get clock enable if present
+            if (type == "$dffe" || type == "$adffe" || type == "$sdffe") {
+                if (cell->hasPort(ID::EN)) {
+                    reg.en_expr = sig_expr(cell->getPort(ID::EN), sigmap);
+                    // Check enable polarity
+                    if (cell->hasParam(ID(EN_POLARITY)) &&
+                        !cell->getParam(ID(EN_POLARITY)).as_bool())
+                        reg.en_expr = "(!" + reg.en_expr + ")";
+                }
+            }
+
             registers.push_back(reg);
         } else {
             comb_cells.push_back(cell);
@@ -164,10 +248,13 @@ int main(int argc, char **argv)
     // Map output wire -> cell that produces it
     std::map<RTLIL::Wire*, RTLIL::Cell*> wire_driver;
     for (auto *cell : comb_cells) {
-        if (cell->hasPort(ID::Y)) {
-            auto &y = cell->getPort(ID::Y);
-            for (auto &chunk : y.chunks())
-                if (chunk.wire) wire_driver[chunk.wire] = cell;
+        // Check Y port (most cells) and DATA port ($memrd)
+        for (auto port_id : {ID::Y, ID(DATA)}) {
+            if (cell->hasPort(port_id)) {
+                auto &y = cell->getPort(port_id);
+                for (auto &chunk : y.chunks())
+                    if (chunk.wire) wire_driver[chunk.wire] = cell;
+            }
         }
     }
 
@@ -218,6 +305,9 @@ int main(int argc, char **argv)
     fprintf(out, "typedef struct {\n");
     for (auto &reg : registers)
         fprintf(out, "    uint64_t %s;  // %d bits\n", reg.name.c_str(), reg.width);
+    for (auto &m : memories)
+        fprintf(out, "    uint64_t %s[%d];  // %d x %d-bit\n",
+                m.second.name.c_str(), m.second.depth, m.second.depth, m.second.width);
     fprintf(out, "} state_t;\n\n");
 
     // Output struct (observable signals)
@@ -235,6 +325,16 @@ int main(int argc, char **argv)
     for (auto &reg : registers)
         fprintf(out, "    s->%s = UINT64_C(0x%llx);\n",
                 reg.name.c_str(), (unsigned long long)reg.arst_val);
+    for (auto &m : memories) {
+        auto &mem = m.second;
+        for (int i = 0; i < mem.depth; i++) {
+            auto it = mem.init.find(i);
+            uint64_t val = (it != mem.init.end()) ? it->second : 0;
+            if (val != 0)
+                fprintf(out, "    s->%s[%d] = UINT64_C(0x%llx);\n",
+                        mem.name.c_str(), i, (unsigned long long)val);
+        }
+    }
     fprintf(out, "}\n\n");
 
     // Cycle evaluation function
@@ -290,6 +390,25 @@ int main(int argc, char **argv)
                 y_width = y.size();
             }
         }
+        // Handle $memrd separately (uses DATA port, not Y)
+        if (type == "$memrd" || type == "$memrd_v2") {
+            std::string memid = cell->getParam(ID(MEMID)).decode_string();
+            auto &data_port = cell->getPort(ID(DATA));
+            std::string data_name;
+            if (data_port.chunks().begin() != data_port.chunks().end() &&
+                (*data_port.chunks().begin()).wire)
+                data_name = cname((*data_port.chunks().begin()).wire->name.str());
+            if (!data_name.empty()) {
+                auto addr = sig_expr(cell->getPort(ID(ADDR)), sigmap);
+                int abits = cell->getParam(ID(ABITS)).as_int();
+                uint64_t addr_mask = (1ULL << abits) - 1;
+                fprintf(out, "    %s = s->%s[%s & UINT64_C(0x%llx)];\n",
+                        data_name.c_str(), cname(memid).c_str(),
+                        addr.c_str(), (unsigned long long)addr_mask);
+            }
+            continue;
+        }
+
         if (y_name.empty()) continue;
 
         uint64_t mask = y_width >= 64 ? ~0ULL : ((1ULL << y_width) - 1);
@@ -368,21 +487,41 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str());
         } else if (type == "$lt") {
-            fprintf(out, "    %s = (%s < %s) ? 1 : 0;\n", y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+            auto a = sig_expr(cell->getPort(ID::A), sigmap);
+            auto b = sig_expr(cell->getPort(ID::B), sigmap);
+            if (is_signed(cell)) {
+                int aw = cell->getPort(ID::A).size();
+                int bw = cell->getPort(ID::B).size();
+                a = signed_expr(a, aw); b = signed_expr(b, bw);
+            }
+            fprintf(out, "    %s = (%s < %s) ? 1 : 0;\n", y_name.c_str(), a.c_str(), b.c_str());
         } else if (type == "$le") {
-            fprintf(out, "    %s = (%s <= %s) ? 1 : 0;\n", y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+            auto a = sig_expr(cell->getPort(ID::A), sigmap);
+            auto b = sig_expr(cell->getPort(ID::B), sigmap);
+            if (is_signed(cell)) {
+                int aw = cell->getPort(ID::A).size();
+                int bw = cell->getPort(ID::B).size();
+                a = signed_expr(a, aw); b = signed_expr(b, bw);
+            }
+            fprintf(out, "    %s = (%s <= %s) ? 1 : 0;\n", y_name.c_str(), a.c_str(), b.c_str());
         } else if (type == "$gt") {
-            fprintf(out, "    %s = (%s > %s) ? 1 : 0;\n", y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+            auto a = sig_expr(cell->getPort(ID::A), sigmap);
+            auto b = sig_expr(cell->getPort(ID::B), sigmap);
+            if (is_signed(cell)) {
+                int aw = cell->getPort(ID::A).size();
+                int bw = cell->getPort(ID::B).size();
+                a = signed_expr(a, aw); b = signed_expr(b, bw);
+            }
+            fprintf(out, "    %s = (%s > %s) ? 1 : 0;\n", y_name.c_str(), a.c_str(), b.c_str());
         } else if (type == "$ge") {
-            fprintf(out, "    %s = (%s >= %s) ? 1 : 0;\n", y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+            auto a = sig_expr(cell->getPort(ID::A), sigmap);
+            auto b = sig_expr(cell->getPort(ID::B), sigmap);
+            if (is_signed(cell)) {
+                int aw = cell->getPort(ID::A).size();
+                int bw = cell->getPort(ID::B).size();
+                a = signed_expr(a, aw); b = signed_expr(b, bw);
+            }
+            fprintf(out, "    %s = (%s >= %s) ? 1 : 0;\n", y_name.c_str(), a.c_str(), b.c_str());
         } else if (type == "$mul") {
             fprintf(out, "    %s = (%s * %s) & UINT64_C(0x%llx);\n",
                     y_name.c_str(),
@@ -421,8 +560,13 @@ int main(int argc, char **argv)
 
     // Update registers (next state)
     fprintf(out, "    // Register updates (next state)\n");
-    for (auto &reg : registers)
-        fprintf(out, "    s->%s = %s;\n", reg.name.c_str(), reg.d_expr.c_str());
+    for (auto &reg : registers) {
+        if (reg.en_expr.empty())
+            fprintf(out, "    s->%s = %s;\n", reg.name.c_str(), reg.d_expr.c_str());
+        else
+            fprintf(out, "    if (%s) s->%s = %s;\n",
+                    reg.en_expr.c_str(), reg.name.c_str(), reg.d_expr.c_str());
+    }
     fprintf(out, "\n");
 
     // Copy outputs — trace through sigmap to find the actual source
