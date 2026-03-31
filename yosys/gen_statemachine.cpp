@@ -199,6 +199,8 @@ int main(int argc, char **argv)
         }
     }
 
+    std::set<std::string> reg_names_used;
+
     // Main pass: classify cells
     for (auto &c : mod->cells_) {
         auto *cell = c.second;
@@ -213,7 +215,12 @@ int main(int argc, char **argv)
             RegInfo reg;
             auto &q = cell->getPort(ID::Q);
             auto &d = cell->getPort(ID::D);
-            reg.name = cname((*q.chunks().begin()).wire->name.str());
+            // Use wire name, but fall back to cell name on collision
+            std::string wname = cname((*q.chunks().begin()).wire->name.str());
+            if (reg_names_used.count(wname))
+                wname = cname(cell->name.str());
+            reg_names_used.insert(wname);
+            reg.name = wname;
             reg.d_expr = sig_expr(d, sigmap);
             reg.width = q.size();
 
