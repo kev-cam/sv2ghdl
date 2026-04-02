@@ -155,6 +155,7 @@ int main(int argc, char **argv)
         std::string name;
         std::string d_expr;
         std::string en_expr;  // empty = always enabled
+        std::string src;      // source location "file:line.col"
         int width;
         uint64_t arst_val;
     };
@@ -241,6 +242,7 @@ int main(int argc, char **argv)
             reg.name = wname;
             reg.d_expr = sig_expr(d, sigmap);
             reg.width = q.size();
+            reg.src = cell->get_src_attribute();
 
             // Get async reset value if present
             reg.arst_val = 0;
@@ -302,6 +304,21 @@ int main(int argc, char **argv)
     };
     for (auto *cell : comb_cells)
         topo_visit(cell);
+
+    // Helper: emit #line directive from Yosys src attribute
+    // Format: "filename:line.col-line.col" -> #line <line> "filename"
+    auto emit_line_directive = [](FILE *f, RTLIL::Cell *cell) {
+        auto src = cell->get_src_attribute();
+        if (src.empty()) return;
+        // Parse "filename:line.col..."
+        auto colon = src.rfind(':');
+        if (colon == std::string::npos) return;
+        std::string file = src.substr(0, colon);
+        int line = 0;
+        sscanf(src.c_str() + colon + 1, "%d", &line);
+        if (line > 0)
+            fprintf(f, "#line %d \"%s\"\n", line, file.c_str());
+    };
 
     // Generate C code
     FILE *out = fopen(output_file, "w");
@@ -415,6 +432,9 @@ int main(int argc, char **argv)
                 y_width = y.size();
             }
         }
+        // Emit source location for debugger
+        emit_line_directive(out, cell);
+
         // Handle $memrd separately (uses DATA port, not Y)
         if (type == "$memrd" || type == "$memrd_v2") {
             std::string memid = cell->getParam(ID(MEMID)).decode_string();
@@ -586,6 +606,17 @@ int main(int argc, char **argv)
     // Update registers (next state)
     fprintf(out, "    // Register updates (next state)\n");
     for (auto &reg : registers) {
+        // Emit source location for register assignment
+        if (!reg.src.empty()) {
+            auto colon = reg.src.rfind(':');
+            if (colon != std::string::npos) {
+                std::string file = reg.src.substr(0, colon);
+                int line = 0;
+                sscanf(reg.src.c_str() + colon + 1, "%d", &line);
+                if (line > 0)
+                    fprintf(out, "#line %d \"%s\"\n", line, file.c_str());
+            }
+        }
         if (reg.en_expr.empty())
             fprintf(out, "    s->%s = %s;\n", reg.name.c_str(), reg.d_expr.c_str());
         else
