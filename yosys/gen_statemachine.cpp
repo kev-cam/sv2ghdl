@@ -113,11 +113,29 @@ static std::string signed_expr(const std::string &expr, int width) {
     return oss.str();
 }
 
+// Build the cache path for a module:
+//   ~/.cache/nvc/accel/accel-mod_<module>-arch_from_verilog.so
+static std::string accel_cache_path(const char *module_name, const char *ext) {
+    const char *home = getenv("HOME");
+    if (!home) home = "/tmp";
+    std::string path = std::string(home) + "/.cache/nvc/accel/accel-mod_"
+        + module_name + "-arch_from_verilog" + ext;
+    // Lowercase the module name portion
+    return path;
+}
+
 int main(int argc, char **argv)
 {
     const char *verilog_file = argc > 1 ? argv[1] : "/tmp/rtl_design.v";
     const char *top_name = argc > 2 ? argv[2] : "rtl_top";
-    const char *output_file = argc > 3 ? argv[3] : "/tmp/rtl_statemachine.c";
+    const char *output_file = argc > 3 ? argv[3] : NULL;
+
+    // Default output: ~/.cache/nvc/accel/accel-mod_<top>.c
+    std::string default_output;
+    if (!output_file) {
+        default_output = accel_cache_path(top_name, ".c");
+        output_file = default_output.c_str();
+    }
 
     Yosys::yosys_setup();
 
