@@ -111,27 +111,67 @@ if timeout 30 "$IVERILOG" -B"$IVL_LIBDIR" -tvhdl -psv2vhdl=1 -o "$VHDL_OUT" "${A
     fi
 fi
 
-# --- Stage 2: Fall back to sv2ghdl.pl ---
+# --- Stage 2: Try iverilog per-module ---
+# Split the source into individual modules and try iverilog on each one.
+# This handles files where some modules translate but others don't.
 
 if [[ $IVERILOG_OK -eq 0 ]]; then
-    # Clean up failed attempt
     rm -f "$VHDL_OUT"
     rm -rf "$OUTDIR/work"
 
-    LAST_SOURCE=""
-    for src in "${ABS_SOURCES[@]}"; do
-        base="${src##*/}"         # basename
-        base="${base%.v}"         # strip .v
-        base="${base%.sv}"        # strip .sv
-        LAST_SOURCE="$src"
+    SPLIT_DIR="$OUTDIR/_split"
+    mkdir -p "$SPLIT_DIR"
+    MODULES_OK=0
+    MODULES_FAIL=0
 
-        "$SV2GHDL" "$src" -o "$OUTDIR/${base}.vhd" 2>&1
-        if [[ $? -ne 0 ]]; then
-            exit 1
+    for src in "${ABS_SOURCES[@]}"; do
+        # Split source file into individual module files
+        awk '
+            /^\s*module\s+/ {
+                if (out) close(out)
+                match($0, /module\s+([a-zA-Z_][a-zA-Z0-9_]*)/, m)
+                modname = m[1]
+                out = "'"$SPLIT_DIR"'/" modname ".v"
+                # Write preamble (timescale etc) to each module file
+                print preamble > out
+            }
+            /^\s*`timescale/ { preamble = preamble $0 "\n"; next }
+            /^\s*`define/ { preamble = preamble $0 "\n"; next }
+            /^\s*`include/ { preamble = preamble $0 "\n"; next }
+            { if (out) print >> out }
+        ' "$src"
+    done
+
+    # Try iverilog on each module individually
+    for mod_v in "$SPLIT_DIR"/*.v; do
+        [[ -f "$mod_v" ]] || continue
+        modname="${mod_v##*/}"
+        modname="${modname%.v}"
+        mod_vhd="$OUTDIR/${modname}.vhd"
+
+        if timeout 30 "$IVERILOG" -B"$IVL_LIBDIR" -tvhdl -psv2vhdl=1 \
+                -o "$mod_vhd" "$mod_v" 2>/dev/null && [[ -s "$mod_vhd" ]]; then
+            MODULES_OK=$((MODULES_OK + 1))
+        else
+            # iverilog failed — try sv2ghdl.pl on this module
+            rm -f "$mod_vhd"
+            if "$SV2GHDL" "$mod_v" -o "$mod_vhd" 2>/dev/null; then
+                MODULES_OK=$((MODULES_OK + 1))
+            else
+                rm -f "$mod_vhd"
+                MODULES_FAIL=$((MODULES_FAIL + 1))
+            fi
         fi
     done
 
-    # Compile each VHDL file with NVC
+    rm -rf "$SPLIT_DIR"
+
+    if [[ $MODULES_OK -eq 0 ]]; then
+        echo "iverilog-sv2ghdl: no modules translated" >&2
+        exit 1
+    fi
+
+    # Compile each translated VHDL file with NVC
     cd "$OUTDIR"
     for vhd in *.vhd; do
         [[ -f "$vhd" ]] || continue

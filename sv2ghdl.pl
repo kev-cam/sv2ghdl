@@ -91,36 +91,133 @@ unless ($find_files) {
     }
 }
 
+# Split a Verilog file into individual modules
+# Returns list of {name => "modname", file => "/tmp/path.v", start => N, end => M}
+sub split_modules {
+    my ($input) = @_;
+    open my $fh, '<', $input or die "Can't open $input: $!\n";
+    my @lines = <$fh>;
+    close $fh;
+
+    my @modules;
+    my $cur_name;
+    my $cur_start;
+    my @cur_lines;
+    my @preamble;  # timescale, includes etc before first module
+
+    for (my $i = 0; $i < @lines; $i++) {
+        if ($lines[$i] =~ /^\s*module\s+(\w+)/) {
+            if ($cur_name) {
+                # Save previous module
+                push @modules, { name => $cur_name, lines => [@preamble, @cur_lines],
+                                  start => $cur_start, end => $i - 1 };
+            }
+            $cur_name = $1;
+            $cur_start = $i + 1;
+            @cur_lines = ($lines[$i]);
+        }
+        elsif ($cur_name) {
+            push @cur_lines, $lines[$i];
+            if ($lines[$i] =~ /^\s*endmodule\b/) {
+                push @modules, { name => $cur_name, lines => [@preamble, @cur_lines],
+                                  start => $cur_start, end => $i + 1 };
+                $cur_name = undef;
+                @cur_lines = ();
+            }
+        }
+        else {
+            # Before first module — preamble (timescale, defines, etc)
+            push @preamble, $lines[$i];
+        }
+    }
+
+    # Write each module to a temp file
+    my $tmpdir = "/tmp/sv2ghdl_split_$$";
+    mkdir $tmpdir unless -d $tmpdir;
+
+    for my $mod (@modules) {
+        $mod->{file} = "$tmpdir/$mod->{name}.v";
+        open my $out, '>', $mod->{file} or die "Can't write $mod->{file}: $!\n";
+        print $out @{$mod->{lines}};
+        close $out;
+    }
+
+    return @modules;
+}
+
 # Main translation
 if (@input_files == 1 && $output_file) {
-    # Single file with explicit output
+    # Single file with explicit output — try whole file first
     print STDERR "Translating $input_files[0] -> $output_file (mode: $mode)\n" if $verbose;
-    translate_file($input_files[0], $output_file, $mode);
+    eval { translate_file($input_files[0], $output_file, $mode) };
+    if ($@) {
+        # Whole-file failed — try splitting into modules
+        print STDERR "  Whole-file translation failed, splitting into modules...\n" if $verbose;
+        my @modules = split_modules($input_files[0]);
+        my $out_dir = dirname($output_file);
+
+        my $ok = 0;
+        for my $mod (@modules) {
+            my $mod_out = "$out_dir/$mod->{name}.vhd";
+            print STDERR "  Translating module $mod->{name}...\n" if $verbose;
+            eval { translate_file($mod->{file}, $mod_out, $mode) };
+            if ($@) {
+                print STDERR "  ✗ $mod->{name}: $@" if $verbose;
+            } else {
+                print STDERR "  ✓ $mod->{name}\n" if $verbose;
+                $ok++;
+            }
+        }
+        die "No modules translated successfully\n" unless $ok;
+    }
     print STDERR "✓ Translation complete\n" if $verbose;
-    
+
 } elsif ($output_dir) {
     # Multiple files to output directory
     mkdir $output_dir unless -d $output_dir;
     print STDERR "Translating " . scalar(@input_files) . " files to $output_dir/ (mode: $mode)\n" if $verbose;
-    
+
     foreach my $input_file (@input_files) {
-        my $basename = basename($input_file, '.v', '.sv');
-        my $output = "$output_dir/$basename.vhd";
-        
-        print STDERR "  $input_file -> $output\n" if $verbose;
-        translate_file($input_file, $output, $mode);
+        # Split each file into modules
+        my @modules = split_modules($input_file);
+        if (@modules <= 1) {
+            # Single module — translate directly
+            my $basename = basename($input_file, '.v', '.sv');
+            my $output = "$output_dir/$basename.vhd";
+            print STDERR "  $input_file -> $output\n" if $verbose;
+            eval { translate_file($input_file, $output, $mode) };
+            warn "  ✗ $input_file: $@" if $@;
+        } else {
+            # Multiple modules — translate each
+            for my $mod (@modules) {
+                my $mod_out = "$output_dir/$mod->{name}.vhd";
+                print STDERR "  $mod->{name} -> $mod_out\n" if $verbose;
+                eval { translate_file($mod->{file}, $mod_out, $mode) };
+                warn "  ✗ $mod->{name}: $@" if $@;
+            }
+        }
     }
-    
+
     print STDERR "✓ Translated " . scalar(@input_files) . " files\n" if $verbose;
-    
+
 } else {
     # Single file, default output name
     my $input_file = $input_files[0];
     my $basename = basename($input_file, '.v', '.sv');
     $output_file = "$basename.vhd";
-    
+
     print STDERR "Translating $input_file -> $output_file (mode: $mode)\n" if $verbose;
-    translate_file($input_file, $output_file, $mode);
+    eval { translate_file($input_file, $output_file, $mode) };
+    if ($@) {
+        # Try per-module
+        my @modules = split_modules($input_file);
+        my $out_dir = dirname($output_file);
+        for my $mod (@modules) {
+            my $mod_out = "$out_dir/$mod->{name}.vhd";
+            eval { translate_file($mod->{file}, $mod_out, $mode) };
+            warn "  ✗ $mod->{name}: $@" if $@;
+        }
+    }
     print STDERR "✓ Translation complete\n" if $verbose;
 }
 
