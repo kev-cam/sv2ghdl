@@ -126,9 +126,11 @@ static std::string accel_cache_path(const char *module_name, const char *ext) {
 
 int main(int argc, char **argv)
 {
+    fprintf(stderr, "gen_statemachine starting...\n");
     const char *verilog_file = argc > 1 ? argv[1] : "/tmp/rtl_design.v";
     const char *top_name = argc > 2 ? argv[2] : "rtl_top";
     const char *output_file = argc > 3 ? argv[3] : NULL;
+    fprintf(stderr, "  input: %s  top: %s\n", verilog_file, top_name);
 
     // Default output: ~/.cache/nvc/accel/accel-mod_<top>.c
     std::string default_output;
@@ -139,7 +141,12 @@ int main(int argc, char **argv)
 
     Yosys::yosys_setup();
 
-    std::string cmd = std::string("read_verilog ") + verilog_file;
+    // Use -sv flag for .sv files
+    std::string sv_flag = "";
+    std::string vf(verilog_file);
+    if (vf.size() >= 3 && vf.substr(vf.size()-3) == ".sv")
+        sv_flag = " -sv";
+    std::string cmd = std::string("read_verilog") + sv_flag + " " + verilog_file;
     Yosys::run_pass(cmd);
     Yosys::run_pass(std::string("hierarchy -top ") + top_name);
     Yosys::run_pass("proc");
@@ -271,6 +278,74 @@ int main(int argc, char **argv)
         }
     }
 
+    // --- FSM detection ---
+    // A register is likely an FSM state variable if:
+    //   1. Width <= 8 bits (at most 256 states)
+    //   2. Its Q output drives the select (S) port of a $pmux or $mux cell
+    // We also accept registers whose name contains "state" or "fsm".
+    std::set<RTLIL::Wire*> mux_select_wires;
+    for (auto *cell : comb_cells) {
+        auto type = cell->type.str();
+        if (type == "$pmux" || type == "$mux") {
+            if (cell->hasPort(ID::S)) {
+                for (auto &chunk : cell->getPort(ID::S).chunks())
+                    if (chunk.wire) mux_select_wires.insert(chunk.wire);
+            }
+        }
+    }
+
+    struct FsmInfo {
+        size_t reg_idx;         // index into registers[]
+        std::string name;
+        int width;
+        int max_states;         // 1 << width
+    };
+    std::vector<FsmInfo> fsms;
+
+    for (size_t i = 0; i < registers.size(); i++) {
+        auto &reg = registers[i];
+        if (reg.width < 2 || reg.width > 6) continue;  // FSMs are 2-6 bits (4-64 states)
+
+        bool is_mux_sel = false;
+        // Check if this register's Q wire feeds a mux select
+        for (auto &c : mod->cells_) {
+            auto *cell = c.second;
+            auto type = cell->type.str();
+            bool is_this_reg = (type == "$adff" || type == "$dff" || type == "$adffe"
+                                || type == "$dffe" || type == "$sdff" || type == "$sdffe");
+            if (is_this_reg && cell->hasPort(ID::Q)) {
+                auto &q = cell->getPort(ID::Q);
+                if (q.chunks().begin() != q.chunks().end() && (*q.chunks().begin()).wire) {
+                    std::string wn = cname((*q.chunks().begin()).wire->name.str());
+                    if (wn == reg.name) {
+                        // Check if the Q wire is in our mux select set
+                        for (auto &chunk : q.chunks())
+                            if (chunk.wire && mux_select_wires.count(chunk.wire))
+                                is_mux_sel = true;
+                    }
+                }
+            }
+        }
+
+        // Also accept by name pattern
+        bool name_match = (reg.name.find("state") != std::string::npos ||
+                           reg.name.find("fsm") != std::string::npos ||
+                           reg.name.find("_st") != std::string::npos);
+
+        if (is_mux_sel || name_match) {
+            FsmInfo fsm;
+            fsm.reg_idx = i;
+            fsm.name = reg.name;
+            fsm.width = reg.width;
+            fsm.max_states = 1 << reg.width;
+            fsms.push_back(fsm);
+            fprintf(stderr, "FSM detected: %s (%d bits, %d max states)%s%s\n",
+                    reg.name.c_str(), reg.width, fsm.max_states,
+                    is_mux_sel ? " [mux-select]" : "",
+                    name_match ? " [name-match]" : "");
+        }
+    }
+
     // Build dependency graph for topological sort
     // Map output wire -> cell that produces it
     std::map<RTLIL::Wire*, RTLIL::Cell*> wire_driver;
@@ -351,6 +426,25 @@ int main(int argc, char **argv)
         fprintf(out, "    uint64_t %s[%d];  // %d x %d-bit\n",
                 m.second.name.c_str(), m.second.depth, m.second.depth, m.second.width);
     fprintf(out, "} state_t;\n\n");
+
+    // FSM coverage struct
+    if (!fsms.empty()) {
+        fprintf(out, "#define SM_NUM_FSMS %zu\n", fsms.size());
+        fprintf(out, "typedef struct {\n");
+        for (auto &fsm : fsms) {
+            fprintf(out, "    uint8_t  %s_seen[%d];          // state coverage\n",
+                    fsm.name.c_str(), fsm.max_states);
+            fprintf(out, "    uint8_t  %s_trans[%d][%d];     // transition coverage\n",
+                    fsm.name.c_str(), fsm.max_states, fsm.max_states);
+            fprintf(out, "    uint64_t %s_prev;              // previous state value\n",
+                    fsm.name.c_str());
+            fprintf(out, "    int      %s_valid;             // prev is valid\n",
+                    fsm.name.c_str());
+        }
+        fprintf(out, "    uint64_t cycle_count;\n");
+        fprintf(out, "} fsm_coverage_t;\n\n");
+        fprintf(out, "static fsm_coverage_t sm_fsm_cov;\n\n");
+    }
 
     // Output struct (observable signals)
     fprintf(out, "typedef struct {\n");
@@ -625,6 +719,26 @@ int main(int argc, char **argv)
     }
     fprintf(out, "\n");
 
+    // FSM coverage tracking
+    if (!fsms.empty()) {
+        fprintf(out, "    // FSM coverage update\n");
+        fprintf(out, "    sm_fsm_cov.cycle_count++;\n");
+        for (auto &fsm : fsms) {
+            uint64_t mask = fsm.max_states - 1;
+            fprintf(out, "    {\n");
+            fprintf(out, "        uint64_t _cur = s->%s & UINT64_C(0x%llx);\n",
+                    fsm.name.c_str(), (unsigned long long)mask);
+            fprintf(out, "        sm_fsm_cov.%s_seen[_cur] = 1;\n", fsm.name.c_str());
+            fprintf(out, "        if (sm_fsm_cov.%s_valid)\n", fsm.name.c_str());
+            fprintf(out, "            sm_fsm_cov.%s_trans[sm_fsm_cov.%s_prev][_cur] = 1;\n",
+                    fsm.name.c_str(), fsm.name.c_str());
+            fprintf(out, "        sm_fsm_cov.%s_prev = _cur;\n", fsm.name.c_str());
+            fprintf(out, "        sm_fsm_cov.%s_valid = 1;\n", fsm.name.c_str());
+            fprintf(out, "    }\n");
+        }
+        fprintf(out, "\n");
+    }
+
     // Copy outputs — trace through sigmap to find the actual source
     fprintf(out, "    // Outputs\n");
     for (auto &w : mod->wires_) {
@@ -637,6 +751,41 @@ int main(int argc, char **argv)
         }
     }
     fprintf(out, "}\n\n");
+
+    // FSM coverage report function
+    if (!fsms.empty()) {
+        fprintf(out, "void sm_fsm_coverage_report(FILE *f) {\n");
+        fprintf(out, "    fprintf(f, \"=== FSM Coverage Report (%%lu cycles) ===\\n\",\n");
+        fprintf(out, "            (unsigned long)sm_fsm_cov.cycle_count);\n");
+        for (auto &fsm : fsms) {
+            fprintf(out, "    {\n");
+            fprintf(out, "        int states_hit = 0, trans_hit = 0;\n");
+            fprintf(out, "        for (int i = 0; i < %d; i++)\n", fsm.max_states);
+            fprintf(out, "            if (sm_fsm_cov.%s_seen[i]) states_hit++;\n",
+                    fsm.name.c_str());
+            fprintf(out, "        for (int i = 0; i < %d; i++)\n", fsm.max_states);
+            fprintf(out, "            for (int j = 0; j < %d; j++)\n", fsm.max_states);
+            fprintf(out, "                if (sm_fsm_cov.%s_trans[i][j]) trans_hit++;\n",
+                    fsm.name.c_str());
+            fprintf(out, "        fprintf(f, \"  FSM '%s' (%d-bit, %d max states):\\n\");\n",
+                    fsm.name.c_str(), fsm.width, fsm.max_states);
+            fprintf(out, "        fprintf(f, \"    States visited: %%d / %d\\n\", states_hit);\n",
+                    fsm.max_states);
+            fprintf(out, "        fprintf(f, \"    Transitions:    %%d\\n\", trans_hit);\n");
+            fprintf(out, "        fprintf(f, \"    State detail:\");\n");
+            fprintf(out, "        for (int i = 0; i < %d; i++)\n", fsm.max_states);
+            fprintf(out, "            if (sm_fsm_cov.%s_seen[i])\n", fsm.name.c_str());
+            fprintf(out, "                fprintf(f, \" %%d\", i);\n");
+            fprintf(out, "        fprintf(f, \"\\n\");\n");
+            fprintf(out, "        fprintf(f, \"    Transitions detail:\\n\");\n");
+            fprintf(out, "        for (int i = 0; i < %d; i++)\n", fsm.max_states);
+            fprintf(out, "            for (int j = 0; j < %d; j++)\n", fsm.max_states);
+            fprintf(out, "                if (sm_fsm_cov.%s_trans[i][j])\n", fsm.name.c_str());
+            fprintf(out, "                    fprintf(f, \"      %%d -> %%d\\n\", i, j);\n");
+            fprintf(out, "    }\n");
+        }
+        fprintf(out, "}\n\n");
+    }
 
     // Testbench — auto-generated from output ports
     fprintf(out, "#ifndef SM_NO_MAIN\n");
@@ -664,6 +813,8 @@ int main(int argc, char **argv)
                         wn.c_str(), wn.c_str());
         }
     }
+    if (!fsms.empty())
+        fprintf(out, "    sm_fsm_coverage_report(stdout);\n");
     fprintf(out, "    return 0;\n");
     fprintf(out, "}\n");
     fprintf(out, "#endif // SM_NO_MAIN\n");

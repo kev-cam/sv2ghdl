@@ -21,11 +21,31 @@ export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
 SCRIPT_DIR="${BASH_SOURCE[0]%/*}/.."
 SV2GHDL="$SCRIPT_DIR/sv2ghdl.pl"
 
-# Tool paths: prefer build trees if available, else installed
-NVC="${NVC:-/usr/local/src/nvc/build/bin/nvc}"
-NVC_LIBDIR="${NVC_LIBDIR:-/usr/local/src/nvc/build/lib}"
-IVERILOG="${IVERILOG:-/usr/local/src/iverilog/driver/iverilog}"
-IVL_LIBDIR="${IVL_LIBDIR:-/tmp/ivl}"
+# Tool paths: use PATH unless overridden by environment
+NVC="${NVC:-nvc}"
+IVERILOG="${IVERILOG:-iverilog}"
+
+# Derive NVC library path from binary location.
+# Build tree:  .../nvc-build/bin/nvc -> .../nvc-build/lib
+# Installed:   /usr/local/bin/nvc   -> /usr/local/lib/nvc
+if [[ -z "$NVC_LIBDIR" ]]; then
+    _nvc_bin=$(command -v "$NVC" 2>/dev/null)
+    if [[ -n "$_nvc_bin" ]]; then
+        _nvc_bin=$(readlink -f "$_nvc_bin")
+        _nvc_prefix="${_nvc_bin%/bin/nvc}"
+        # Check build-tree layout first (lib/sv2vhdl/ sibling to bin/)
+        if [[ -d "$_nvc_prefix/lib/sv2vhdl" ]]; then
+            NVC_LIBDIR="$_nvc_prefix/lib"
+        # Installed layout: /usr/local/lib/nvc/sv2vhdl/
+        elif [[ -d "$_nvc_prefix/lib/nvc/sv2vhdl" ]]; then
+            NVC_LIBDIR="$_nvc_prefix/lib/nvc"
+        else
+            NVC_LIBDIR="$_nvc_prefix/lib/nvc"
+        fi
+    else
+        NVC_LIBDIR="/usr/local/lib/nvc"
+    fi
+fi
 
 # Defaults
 OUTPUT="a.out"
@@ -100,7 +120,7 @@ mkdir -p "$OUTDIR"
 IVERILOG_OK=0
 VHDL_OUT="$OUTDIR/design.vhd"
 
-if timeout 30 "$IVERILOG" -B"$IVL_LIBDIR" -tvhdl -psv2vhdl=1 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
+if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
     if [[ -s "$VHDL_OUT" ]]; then
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
