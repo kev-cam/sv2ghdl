@@ -26,3 +26,9 @@ yosys/gen_statemachine: yosys/gen_statemachine.cpp
 
 gen_sm: yosys/gen_statemachine
 	@echo "Usage: yosys/gen_statemachine <input.v> <top_module> <output.c>"
+
+# Z3-based coverage solver
+YOSYS_DIR ?= /usr/local/src/yosys
+Z3_LDFLAGS = -lz3
+yosys/cover_solve: yosys/cover_solve.cpp
+	g++ -std=c++17 -O2 -I$(YOSYS_DIR) -D_YOSYS_ -DYOSYS_ENABLE_READLINE=0 -DYOSYS_ENABLE_TCL=0 -o $@ $< -L$(YOSYS_DIR) -lyosys -Wl,-rpath,$(YOSYS_DIR) $(Z3_LDFLAGS)
