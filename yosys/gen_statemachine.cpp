@@ -851,9 +851,15 @@ int main(int argc, char **argv)
     fprintf(mout, "static int sm_reg_widths[%zu];\n\n", registers.size());
 
     // Signal name table for plugin binding
+    // Strip leading _ (Yosys \ prefix) and uppercase (VHDL convention)
+    // to match NVC's internal signal names
     fprintf(mout, "const char *sm_reg_names[] = {");
-    for (auto &reg : registers)
-        fprintf(mout, "\"%s\", ", reg.name.c_str());
+    for (auto &reg : registers) {
+        std::string name = reg.name;
+        if (!name.empty() && name[0] == '_') name = name.substr(1);
+        for (auto &c : name) c = toupper(c);
+        fprintf(mout, "\"%s\", ", name.c_str());
+    }
     fprintf(mout, "};\n");
     fprintf(mout, "int sm_n_regs = %zu;\n\n", registers.size());
 

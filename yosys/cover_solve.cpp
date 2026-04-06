@@ -206,6 +206,8 @@ int main(int argc, char **argv)
     std::function<z3::expr(const SigSpec&, int)> sig_to_z3;
     sig_to_z3 = [&](const SigSpec &sig, int cycle) -> z3::expr {
         auto mapped = sigmap(sig);
+        if (mapped.size() == 0)
+            return ctx.bv_val(0, 1);  // degenerate: return 1-bit zero
         if (mapped.is_fully_const()) {
             auto val = mapped.as_const();
             uint64_t v = 0;
@@ -268,54 +270,75 @@ int main(int argc, char **argv)
             z3::expr y = get_var(cycle, y_name, y_width);
 
             try {
+                if (y_width == 0) continue;  // skip zero-width signals
                 z3::expr constraint = ctx.bool_val(true);
                 bool have_constraint = false;
+
+                // Helper: normalize two operands to the same width
+                auto norm2 = [&](z3::expr &a, z3::expr &b, int target_w) {
+                    unsigned aw = a.get_sort().bv_size();
+                    unsigned bw = b.get_sort().bv_size();
+                    unsigned tw = (unsigned)target_w;
+                    if (aw < tw) a = z3::zext(a, tw - aw);
+                    else if (aw > tw) a = a.extract(tw - 1, 0);
+                    if (bw < tw) b = z3::zext(b, tw - bw);
+                    else if (bw > tw) b = b.extract(tw - 1, 0);
+                };
+                auto norm1 = [&](z3::expr &a, int target_w) {
+                    unsigned aw = a.get_sort().bv_size();
+                    unsigned tw = (unsigned)target_w;
+                    if (aw < tw) a = z3::zext(a, tw - aw);
+                    else if (aw > tw) a = a.extract(tw - 1, 0);
+                };
 
                 if (type == "$add") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
-                    // Extend to output width
-                    if (a.get_sort().bv_size() < (unsigned)y_width)
-                        a = z3::zext(a, y_width - a.get_sort().bv_size());
-                    if (b.get_sort().bv_size() < (unsigned)y_width)
-                        b = z3::zext(b, y_width - b.get_sort().bv_size());
+                    norm2(a, b, y_width);
                     constraint = (y == (a + b)); have_constraint = true;
                 } else if (type == "$sub") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
-                    if (a.get_sort().bv_size() < (unsigned)y_width)
-                        a = z3::zext(a, y_width - a.get_sort().bv_size());
-                    if (b.get_sort().bv_size() < (unsigned)y_width)
-                        b = z3::zext(b, y_width - b.get_sort().bv_size());
+                    norm2(a, b, y_width);
                     constraint = (y == (a - b)); have_constraint = true;
                 } else if (type == "$and") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
+                    norm2(a, b, y_width);
                     constraint = (y == (a & b)); have_constraint = true;
                 } else if (type == "$or") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
+                    norm2(a, b, y_width);
                     constraint = (y == (a | b)); have_constraint = true;
                 } else if (type == "$xor") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
+                    norm2(a, b, y_width);
                     constraint = (y == (a ^ b)); have_constraint = true;
                 } else if (type == "$not") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
+                    norm1(a, y_width);
                     constraint = (y == ~a); have_constraint = true;
                 } else if (type == "$eq") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
+                    int max_w = std::max(a.get_sort().bv_size(), b.get_sort().bv_size());
+                    norm2(a, b, max_w);
                     z3::expr cmp = z3::ite(a == b, ctx.bv_val(1, y_width), ctx.bv_val(0, y_width));
                     constraint = (y == cmp); have_constraint = true;
                 } else if (type == "$ne") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
+                    int max_w = std::max(a.get_sort().bv_size(), b.get_sort().bv_size());
+                    norm2(a, b, max_w);
                     z3::expr cmp = z3::ite(a != b, ctx.bv_val(1, y_width), ctx.bv_val(0, y_width));
                     constraint = (y == cmp); have_constraint = true;
                 } else if (type == "$lt") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
+                    int max_w = std::max(a.get_sort().bv_size(), b.get_sort().bv_size());
+                    norm2(a, b, max_w);
                     z3::expr cmp = is_signed(cell)
                         ? z3::ite(a < b, ctx.bv_val(1, y_width), ctx.bv_val(0, y_width))
                         : z3::ite(z3::ult(a, b), ctx.bv_val(1, y_width), ctx.bv_val(0, y_width));
@@ -324,6 +347,7 @@ int main(int argc, char **argv)
                     auto s = sig_to_z3(cell->getPort(ID::S), cycle);
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
+                    norm2(a, b, y_width);
                     z3::expr sel = z3::ite(s == ctx.bv_val(1, s.get_sort().bv_size()), b, a);
                     constraint = (y == sel); have_constraint = true;
                 } else if (type == "$pmux") {
@@ -357,24 +381,17 @@ int main(int argc, char **argv)
                 } else if (type == "$shl") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
-                    if (a.get_sort().bv_size() < (unsigned)y_width)
-                        a = z3::zext(a, y_width - a.get_sort().bv_size());
-                    if (b.get_sort().bv_size() < (unsigned)y_width)
-                        b = z3::zext(b, y_width - b.get_sort().bv_size());
+                    norm2(a, b, y_width);
                     constraint = (y == z3::shl(a, b)); have_constraint = true;
                 } else if (type == "$shr") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
-                    if (b.get_sort().bv_size() < a.get_sort().bv_size())
-                        b = z3::zext(b, a.get_sort().bv_size() - b.get_sort().bv_size());
+                    norm1(a, y_width); norm1(b, y_width);
                     constraint = (y == z3::lshr(a, b)); have_constraint = true;
                 } else if (type == "$mul") {
                     auto a = sig_to_z3(cell->getPort(ID::A), cycle);
                     auto b = sig_to_z3(cell->getPort(ID::B), cycle);
-                    if (a.get_sort().bv_size() < (unsigned)y_width)
-                        a = z3::zext(a, y_width - a.get_sort().bv_size());
-                    if (b.get_sort().bv_size() < (unsigned)y_width)
-                        b = z3::zext(b, y_width - b.get_sort().bv_size());
+                    norm2(a, b, y_width);
                     constraint = (y == (a * b)); have_constraint = true;
                 }
 
