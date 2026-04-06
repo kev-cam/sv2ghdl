@@ -2,7 +2,7 @@
 # fetch-all: update and build all sv2ghdl-related projects
 #
 # Usage:
-#   fetch-all              # git pull all repos
+#   fetch-all              # git status for all repos (default)
 #   fetch-all status       # git status for all repos
 #   fetch-all build        # build all projects
 #   fetch-all build -j4    # build all projects (parallel via smak)
@@ -20,7 +20,7 @@ my $SRC  = '/usr/local/src';
 my $SMAK = "$SRC/smak/smak";
 
 # ── parse args ───────────────────────────────────────────────────────
-my $action = shift // 'pull';
+my $action = shift // 'status';
 my $jobs = 0;
 for (@ARGV) { $jobs = $1 if /^-j(\d+)$/; }
 
@@ -56,6 +56,14 @@ sub banner { printf "\n── %-12s %s ──\n", $_[0], $_[1] // '' }
 
 # ── status ───────────────────────────────────────────────────────────
 sub do_status {
+    # Fetch all remotes first so ahead/behind is current
+    print "  Fetching remotes...\n";
+    for my $repo (@repos) {
+        my $dir = abs_path("$SRC/$repo") // "$SRC/$repo";
+        next unless -d "$dir/.git";
+        `git -C '$dir' fetch --quiet 2>/dev/null`;
+    }
+
     my $fmt = "  %-12s %-25s %3dM  %3dU  %s\n";
     printf "  %-12s %-25s %4s  %4s  %s\n",
         'REPO', 'BRANCH', 'MOD', 'UNT', 'SYNC';
