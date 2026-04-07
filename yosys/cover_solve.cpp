@@ -10,6 +10,7 @@
 #include <kernel/rtlil.h>
 #include <kernel/sigtools.h>
 #include <z3++.h>
+#include <functional>
 #include <cstdio>
 #include <string>
 #include <map>
@@ -46,12 +47,19 @@ int main(int argc, char **argv)
     const char *verilog_file = nullptr;
     const char *top_name = nullptr;
     int depth = 15;
+    bool mine_mode = false;
+    const char *mine_out = nullptr;
     std::vector<std::pair<std::string, uint64_t>> targets;  // signal=value pairs
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--depth" && i+1 < argc) {
             depth = atoi(argv[++i]);
+        } else if (arg == "--mine") {
+            mine_mode = true;
+        } else if (arg == "--mine-out" && i+1 < argc) {
+            mine_out = argv[++i];
+            mine_mode = true;
         } else if (arg.substr(0, 9) == "--target=") {
             auto eq = arg.find('=', 9);
             if (eq != std::string::npos) {
@@ -455,6 +463,213 @@ int main(int argc, char **argv)
         }
     }
     fprintf(stderr, "\n");
+
+    // --- Invariant mining mode ---
+    // For each candidate predicate, check if its negation is UNSAT across all cycles.
+    // If UNSAT, the predicate is a proven invariant -> emit as SVA assertion.
+    if (mine_mode) {
+        FILE *out = mine_out ? fopen(mine_out, "w") : stdout;
+        if (!out) { perror("fopen"); return 1; }
+
+        fprintf(out, "// Auto-generated invariants from %s\n", verilog_file);
+        fprintf(out, "// Mined by cover_solve --mine (depth=%d)\n", depth);
+        fprintf(out, "// Bind file: each property assumes the DUT signals are accessible\n\n");
+        fprintf(out, "module %s_invariants(input logic clk_i, input logic rst_ni);\n\n",
+                top_name);
+
+        int n_proved = 0, n_disproved = 0, n_total = 0;
+
+        // Helper: check if `pred` is invariant over cycles 1..depth (after reset)
+        // by checking if !pred is SAT at any cycle. If UNSAT, it's an invariant.
+        auto check_invariant = [&](const std::string &name, std::function<z3::expr(int)> pred_at_cycle) -> bool {
+            n_total++;
+            solver.push();
+            z3::expr_vector neg(ctx);
+            for (int c = 1; c <= depth; c++) {
+                neg.push_back(!pred_at_cycle(c));
+            }
+            solver.add(z3::mk_or(neg));
+            auto r = solver.check();
+            solver.pop();
+            if (r == z3::unsat) {
+                n_proved++;
+                return true;
+            }
+            n_disproved++;
+            return false;
+        };
+
+        // ----- Class 1: register width-based invariants -----
+        // For each register, check tautological bounds and equality with reset value
+        fprintf(stderr, "Mining invariants...\n");
+
+        // Class 1a: register equals its reset value forever (only for narrow regs)
+        // Most won't hold (regs change), but we check anyway — fast UNSAT/SAT.
+        // Skip this — too many trivially-false properties.
+
+        // Class 1b: mutex pairs of 1-bit signals
+        // For each pair of single-bit registers, check if they're mutually exclusive.
+        std::vector<std::string> bit_regs_all;
+        for (auto &reg : registers) {
+            if (reg.width == 1) bit_regs_all.push_back(reg.name);
+        }
+        fprintf(stderr, "  %zu single-bit registers — pre-filtering to non-trivial ones\n",
+                bit_regs_all.size());
+
+        // Pre-filter: only keep signals that can take BOTH values (0 and 1) within depth.
+        // Otherwise mutex/equivalence checks are vacuously true.
+        std::vector<std::string> bit_regs;
+        for (auto &name : bit_regs_all) {
+            // Can it ever be 1?
+            solver.push();
+            z3::expr_vector ones(ctx);
+            for (int c = 1; c <= depth; c++)
+                ones.push_back(get_var(c, name, 1) == ctx.bv_val(1, 1));
+            solver.add(z3::mk_or(ones));
+            bool can_be_one = (solver.check() == z3::sat);
+            solver.pop();
+            if (!can_be_one) continue;
+
+            // Can it ever be 0?
+            solver.push();
+            z3::expr_vector zeros(ctx);
+            for (int c = 1; c <= depth; c++)
+                zeros.push_back(get_var(c, name, 1) == ctx.bv_val(0, 1));
+            solver.add(z3::mk_or(zeros));
+            bool can_be_zero = (solver.check() == z3::sat);
+            solver.pop();
+            if (!can_be_zero) continue;
+
+            bit_regs.push_back(name);
+        }
+        fprintf(stderr, "  %zu non-trivial 1-bit registers (mutex check)\n", bit_regs.size());
+
+        // Limit pairs to avoid explosion
+        int max_pairs = 500;
+        int pair_count = 0;
+        for (size_t i = 0; i < bit_regs.size() && pair_count < max_pairs; i++) {
+            for (size_t j = i+1; j < bit_regs.size() && pair_count < max_pairs; j++) {
+                pair_count++;
+                std::string a = bit_regs[i], b = bit_regs[j];
+                // Strip leading _ for SVA output
+                std::string a_sva = a[0]=='_' ? a.substr(1) : a;
+                std::string b_sva = b[0]=='_' ? b.substr(1) : b;
+
+                // Check: a && b is always false (mutex)
+                if (check_invariant("mutex_" + a + "_" + b, [&](int c) {
+                    z3::expr av = get_var(c, a, 1);
+                    z3::expr bv = get_var(c, b, 1);
+                    return !(av == ctx.bv_val(1, 1) && bv == ctx.bv_val(1, 1));
+                })) {
+                    fprintf(out, "  // mutex: %s and %s never both 1\n", a_sva.c_str(), b_sva.c_str());
+                    fprintf(out, "  property p_mutex_%s_%s; @(posedge clk_i) disable iff (!rst_ni) "
+                            "!(%s && %s); endproperty\n",
+                            a_sva.c_str(), b_sva.c_str(), a_sva.c_str(), b_sva.c_str());
+                    fprintf(out, "  a_mutex_%s_%s: assert property(p_mutex_%s_%s);\n\n",
+                            a_sva.c_str(), b_sva.c_str(), a_sva.c_str(), b_sva.c_str());
+                }
+
+                // Check: a == b always (equivalence)
+                if (check_invariant("eq_" + a + "_" + b, [&](int c) {
+                    z3::expr av = get_var(c, a, 1);
+                    z3::expr bv = get_var(c, b, 1);
+                    return av == bv;
+                })) {
+                    fprintf(out, "  // equivalence: %s == %s always\n", a_sva.c_str(), b_sva.c_str());
+                    fprintf(out, "  property p_eq_%s_%s; @(posedge clk_i) disable iff (!rst_ni) "
+                            "(%s == %s); endproperty\n",
+                            a_sva.c_str(), b_sva.c_str(), a_sva.c_str(), b_sva.c_str());
+                    fprintf(out, "  a_eq_%s_%s: assert property(p_eq_%s_%s);\n\n",
+                            a_sva.c_str(), b_sva.c_str(), a_sva.c_str(), b_sva.c_str());
+                }
+            }
+        }
+        fprintf(stderr, "  checked %d 1-bit pairs\n", pair_count);
+
+        // Class 2: constant bits in wider registers
+        // For each multi-bit register, check if specific bits are stuck at 0 or 1.
+        // Skip memory arrays (auto-named with _mem_NN suffix from Yosys flattening)
+        for (auto &reg : registers) {
+            if (reg.width < 2 || reg.width > 32) continue;
+            // Skip flattened memory entries — they're covered by user writes,
+            // not by initialization, so "stuck at 0" is just "never written yet"
+            if (reg.name.find("_mem_") != std::string::npos) continue;
+            if (reg.name.find("fifo_mem") != std::string::npos) continue;
+            // Pre-filter: register must actually have been seen at non-zero
+            solver.push();
+            z3::expr_vector nonzero(ctx);
+            for (int c = 1; c <= depth; c++) {
+                z3::expr r = get_var(c, reg.name, reg.width);
+                nonzero.push_back(r != ctx.bv_val(0, reg.width));
+            }
+            solver.add(z3::mk_or(nonzero));
+            bool active = (solver.check() == z3::sat);
+            solver.pop();
+            if (!active) continue;
+            std::string name_sva = reg.name[0]=='_' ? reg.name.substr(1) : reg.name;
+            for (int b = 0; b < reg.width && b < 8; b++) {  // limit to lower 8 bits
+                // Check: bit b is always 0
+                if (check_invariant("zero_" + reg.name + "_" + std::to_string(b),
+                                    [&](int c) {
+                    z3::expr r = get_var(c, reg.name, reg.width);
+                    z3::expr bit = r.extract(b, b);
+                    return bit == ctx.bv_val(0, 1);
+                })) {
+                    fprintf(out, "  // %s[%d] always 0\n", name_sva.c_str(), b);
+                    fprintf(out, "  property p_z_%s_%d; @(posedge clk_i) disable iff (!rst_ni) "
+                            "%s[%d] == 1'b0; endproperty\n",
+                            name_sva.c_str(), b, name_sva.c_str(), b);
+                    fprintf(out, "  a_z_%s_%d: assert property(p_z_%s_%d);\n\n",
+                            name_sva.c_str(), b, name_sva.c_str(), b);
+                }
+            }
+        }
+
+        // Class 3: FSM state value range
+        // For each detected FSM, check that state never exceeds its valid range
+        for (auto &reg : registers) {
+            if (reg.width < 2 || reg.width > 6) continue;
+            if (reg.name.find("state") == std::string::npos &&
+                reg.name.find("fsm") == std::string::npos) continue;
+
+            std::string name_sva = reg.name[0]=='_' ? reg.name.substr(1) : reg.name;
+            // Find max value reachable
+            int max_val = -1;
+            for (int v = 0; v < (1 << reg.width); v++) {
+                solver.push();
+                z3::expr_vector reach(ctx);
+                for (int c = 1; c <= depth; c++) {
+                    z3::expr s = get_var(c, reg.name, reg.width);
+                    reach.push_back(s == ctx.bv_val(v, reg.width));
+                }
+                solver.add(z3::mk_or(reach));
+                if (solver.check() == z3::sat) max_val = v;
+                solver.pop();
+            }
+            if (max_val >= 0 && max_val < (1 << reg.width) - 1) {
+                fprintf(out, "  // FSM %s never exceeds %d (in %d cycles)\n",
+                        name_sva.c_str(), max_val, depth);
+                fprintf(out, "  property p_range_%s; @(posedge clk_i) disable iff (!rst_ni) "
+                        "%s <= %d'd%d; endproperty\n",
+                        name_sva.c_str(), name_sva.c_str(), reg.width, max_val);
+                fprintf(out, "  a_range_%s: assert property(p_range_%s);\n\n",
+                        name_sva.c_str(), name_sva.c_str());
+                n_proved++;
+            }
+            n_total++;
+        }
+
+        fprintf(out, "endmodule\n");
+        if (mine_out) fclose(out);
+
+        fprintf(stderr, "\n=== Invariant Mining Summary ===\n");
+        fprintf(stderr, "Checked: %d  Proved: %d  Disproved: %d\n",
+                n_total, n_proved, n_disproved);
+        if (mine_out) fprintf(stderr, "Output: %s\n", mine_out);
+
+        Yosys::yosys_shutdown();
+        return 0;
+    }
 
     // If no explicit targets, auto-detect from FSM registers
     if (targets.empty()) {
