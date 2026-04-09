@@ -28,9 +28,9 @@ mkdir -p "$DEST"
 echo "==> Triggering build inside container (this takes a while)"
 ssh $SSH_OPTS root@localhost /opt/sv2ghdl/docker/build_stack.sh
 
-echo "==> Rsyncing /opt/sv2ghdl-stack/usr/ -> $DEST"
+echo "==> Rsyncing /home/claude/sv2ghdl-stack/usr/ -> $DEST"
 rsync -av -e "ssh $SSH_OPTS" \
-    root@localhost:/opt/sv2ghdl-stack/usr/ "$DEST/"
+    root@localhost:/home/claude/sv2ghdl-stack/usr/ "$DEST/"
 
 echo
 echo "Done. To install on the host:"

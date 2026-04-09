@@ -39,7 +39,7 @@ curl -fLO https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/$F
 podman build -t sv2ghdl-base -f $F .
 podman run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
 ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh
-rsync -av -e 'ssh -p 2222' root@localhost:/opt/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
+rsync -av -e 'ssh -p 2222' root@localhost:/home/claude/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
 sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
 ```
 
@@ -64,8 +64,8 @@ curl -fL https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/build_sta
     | bash
 ```
 
-The build runs directly in WSL and installs into `/opt/sv2ghdl-stack/usr`;
-copy onto the WSL `/usr/local` with `sudo rsync -a /opt/sv2ghdl-stack/usr/ /usr/local/`.
+The build runs directly in WSL and installs into `/home/claude/sv2ghdl-stack/usr`;
+copy onto the WSL `/usr/local` with `sudo rsync -a /home/claude/sv2ghdl-stack/usr/ /usr/local/`.
 
 Visit <http://localhost:8080> after starting the container for instructions.
 Default SSH password is `sv2ghdl` — change it before exposing the port.

@@ -33,7 +33,7 @@ docker run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base</pre>
 <h2>1. Build the stack inside the container</h2>
 <pre>ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh</pre>
 <p>Default password: <code>sv2ghdl</code>. Output lands in
-<code>/opt/sv2ghdl-stack/usr</code>, structured to mirror a host
+<code>/home/claude/sv2ghdl-stack/usr</code>, structured to mirror a host
 <code>/usr/local</code>.</p>
 
 <p>To also build Trilinos 14.4 + Xyce (adds ~30–90 min and several GB), set
@@ -42,7 +42,7 @@ docker run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base</pre>
 
 <h2>2. Export the build to the host</h2>
 <pre>rsync -av -e 'ssh -p 2222' \
-    root@localhost:/opt/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
+    root@localhost:/home/claude/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
 sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/</pre>
 
 <h2>3. Verify on the host</h2>
@@ -53,8 +53,8 @@ iverilog-sv2ghdl --help</pre>
 <h2>What's inside</h2>
 <ul>
   <li><code>/opt/sv2ghdl</code> — sv2ghdl source (mounted in at image build)</li>
-  <li><code>/opt/sv2ghdl-stack/src</code> — upstream sources cloned by build_stack.sh</li>
-  <li><code>/opt/sv2ghdl-stack/usr</code> — installed binaries / libs / headers</li>
+  <li><code>/home/claude/sv2ghdl-stack/src</code> — upstream sources cloned by build_stack.sh</li>
+  <li><code>/home/claude/sv2ghdl-stack/usr</code> — installed binaries / libs / headers</li>
 </ul>
 
 <div class="note">

@@ -1,22 +1,43 @@
 #!/usr/bin/env bash
 # Build the sv2ghdl simulation stack from clean upstream sources.
-# Run inside the sv2ghdl-base container. Result lands in /opt/sv2ghdl-stack/usr.
+#
+# By design this builds as a regular user. If invoked as root (typical inside
+# a container), it creates the user `claude` (group `dev`) and re-execs itself
+# as that user. The build then lives under ~claude — never under /opt or any
+# system directory — which keeps file ownership sane and matches how a normal
+# developer would do it on their own machine.
 set -euo pipefail
 
-PREFIX=${PREFIX:-/opt/sv2ghdl-stack/usr}
-SRC=${SRC:-/opt/sv2ghdl-stack/src}
-SV2GHDL_DIR=${SV2GHDL_DIR:-/opt/sv2ghdl}
+BUILD_USER=${BUILD_USER:-claude}
+BUILD_GROUP=${BUILD_GROUP:-dev}
+
+if [[ $EUID -eq 0 ]]; then
+    if ! getent group "$BUILD_GROUP" >/dev/null; then
+        groupadd "$BUILD_GROUP"
+    fi
+    if ! id -u "$BUILD_USER" >/dev/null 2>&1; then
+        useradd -m -g "$BUILD_GROUP" -s /bin/bash "$BUILD_USER"
+    fi
+    echo "==> re-executing as $BUILD_USER:$BUILD_GROUP"
+    # Forward any user-set overrides; otherwise let the child pick its defaults
+    # under ~claude.
+    exec runuser -u "$BUILD_USER" -- bash "$0" "$@"
+fi
+
+# --- now running as the regular build user ----------------------------------
+HOME_DIR=$(getent passwd "$(id -un)" | cut -d: -f6)
+PREFIX=${PREFIX:-$HOME_DIR/sv2ghdl-stack/usr}
+SRC=${SRC:-$HOME_DIR/sv2ghdl-stack/src}
+SV2GHDL_DIR=${SV2GHDL_DIR:-$HOME_DIR/sv2ghdl}
 SV2GHDL_REPO=${SV2GHDL_REPO:-https://github.com/kev-cam/sv2ghdl.git}
 mkdir -p "$PREFIX/bin" "$PREFIX/lib" "$SRC"
 export PATH="$PREFIX/bin:$PATH"
 JOBS=$(nproc)
 
 # Self-bootstrap: if the sv2ghdl source tree isn't present (e.g. running this
-# script via curl|bash on a bare WSL), clone it first.
+# script via curl|bash on a bare WSL), clone it into the user's home.
 if [[ ! -d "$SV2GHDL_DIR" ]]; then
-    sudo mkdir -p "$(dirname "$SV2GHDL_DIR")" 2>/dev/null || mkdir -p "$(dirname "$SV2GHDL_DIR")"
-    git clone --depth=1 "$SV2GHDL_REPO" "$SV2GHDL_DIR" 2>/dev/null \
-        || sudo git clone --depth=1 "$SV2GHDL_REPO" "$SV2GHDL_DIR"
+    git clone --depth=1 "$SV2GHDL_REPO" "$SV2GHDL_DIR"
 fi
 
 clone_or_update() {

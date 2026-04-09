@@ -12,7 +12,7 @@
 # Trigger a clean stack build:
 #     ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh
 # Export to the host:
-#     rsync -av -e 'ssh -p 2222' root@localhost:/opt/sv2ghdl-stack/usr/ /tmp/export/
+#     rsync -av -e 'ssh -p 2222' root@localhost:/home/claude/sv2ghdl-stack/usr/ /tmp/export/
 #     sudo rsync -a /tmp/export/ /usr/local/
 #
 # Default root password is "sv2ghdl" — change it before exposing the port.
