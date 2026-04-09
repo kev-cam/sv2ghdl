@@ -13,6 +13,10 @@ RUN pacman -Syu --noconfirm \
       python python-pip perl \
       tcl tk boost \
       openssh rsync nginx \
+      cmake gcc-fortran \
+      openmpi \
+      openblas lapack \
+      suitesparse fftw \
  && pacman -Scc --noconfirm
 
 ARG SV2GHDL_REPO=https://github.com/kev-cam/sv2ghdl.git

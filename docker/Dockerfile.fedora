@@ -14,6 +14,10 @@ RUN dnf install -y \
       tcl-devel tk-devel boost-devel \
       openssh-server rsync nginx \
       hostname procps-ng \
+      cmake gcc-gfortran \
+      openmpi-devel \
+      openblas-devel lapack-devel \
+      suitesparse-devel fftw-devel \
     && dnf clean all
 
 ARG SV2GHDL_REPO=https://github.com/kev-cam/sv2ghdl.git

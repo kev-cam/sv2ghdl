@@ -36,6 +36,10 @@ docker run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base</pre>
 <code>/opt/sv2ghdl-stack/usr</code>, structured to mirror a host
 <code>/usr/local</code>.</p>
 
+<p>To also build Trilinos 14.4 + Xyce (adds ~30–90 min and several GB), set
+<code>BUILD_XYCE=1</code>:</p>
+<pre>ssh -p 2222 root@localhost BUILD_XYCE=1 /opt/sv2ghdl/docker/build_stack.sh</pre>
+
 <h2>2. Export the build to the host</h2>
 <pre>rsync -av -e 'ssh -p 2222' \
     root@localhost:/opt/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
