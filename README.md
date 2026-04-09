@@ -18,6 +18,15 @@ docker/export.sh /tmp/sv2ghdl-export
 sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
 ```
 
+Or with podman (rootless, no daemon):
+
+```sh
+podman build -t sv2ghdl-base -f docker/Containerfile .
+podman run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
+docker/export.sh /tmp/sv2ghdl-export
+sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
+```
+
 Visit <http://localhost:8080> after starting the container for instructions.
 Default SSH password is `sv2ghdl` — change it before exposing the port.
 
