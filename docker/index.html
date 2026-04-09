@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sv2ghdl build container</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px;
+         margin: 2em auto; padding: 0 1em; color: #222; line-height: 1.5; }
+  h1, h2 { color: #1a4480; }
+  code, pre { background: #f4f4f4; border-radius: 4px; }
+  code { padding: 1px 6px; }
+  pre { padding: 12px; overflow-x: auto; }
+  .note { background: #fff8dc; border-left: 4px solid #d4a017;
+          padding: 10px 14px; margin: 1em 0; }
+</style>
+</head>
+<body>
+<h1>sv2ghdl build container</h1>
+
+<p>This container holds the <strong>sv2ghdl</strong> source plus the apt-installable
+build dependencies for the simulation stack. The heavy components
+(iverilog, NVC, GHDL, Yosys) are built on demand inside the container
+and exported to the host.</p>
+
+<h2>1. Build the stack inside the container</h2>
+<pre>ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh</pre>
+<p>Default password: <code>sv2ghdl</code>. Output lands in
+<code>/opt/sv2ghdl-stack/usr</code>, structured to mirror a host
+<code>/usr/local</code>.</p>
+
+<h2>2. Export the build to the host</h2>
+<pre>rsync -av -e 'ssh -p 2222' \
+    root@localhost:/opt/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
+sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/</pre>
+
+<h2>3. Verify on the host</h2>
+<pre>which iverilog nvc ghdl yosys
+nvc --version
+iverilog-sv2ghdl --help</pre>
+
+<h2>What's inside</h2>
+<ul>
+  <li><code>/opt/sv2ghdl</code> — sv2ghdl source (mounted in at image build)</li>
+  <li><code>/opt/sv2ghdl-stack/src</code> — upstream sources cloned by build_stack.sh</li>
+  <li><code>/opt/sv2ghdl-stack/usr</code> — installed binaries / libs / headers</li>
+</ul>
+
+<div class="note">
+<strong>Security:</strong> the default root password is the literal string
+<code>sv2ghdl</code>. Change it before exposing the SSH port to anything other
+than localhost.
+</div>
+
+<h2>Repos pulled by build_stack.sh</h2>
+<ul>
+  <li><a href="https://github.com/kev-cam/iverilog">github.com/kev-cam/iverilog</a> &mdash; iverilog with VHDL backend</li>
+  <li><a href="https://github.com/kev-cam/nvc">github.com/kev-cam/nvc</a> &mdash; NVC with --std=2040 + sv2vhdl resolver</li>
+  <li><a href="https://github.com/kev-cam/ghdl">github.com/kev-cam/ghdl</a> &mdash; GHDL fork</li>
+  <li><a href="https://github.com/YosysHQ/yosys">github.com/YosysHQ/yosys</a> &mdash; Yosys (upstream)</li>
+</ul>
+</body>
+</html>
