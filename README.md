@@ -47,6 +47,26 @@ Note: binary compatibility — an Ubuntu 22.04 build exports cleanly onto most
 current glibc-based hosts. Build on the variant matching your host distro if
 you hit glibc-version mismatches.
 
+### Windows (WSL2, no container)
+
+WSL2 already gives you a real Linux environment, so the easiest path on
+Windows is to skip containers entirely:
+
+```powershell
+wsl --install -d Ubuntu-22.04
+```
+
+Then inside the new Ubuntu shell:
+
+```sh
+sudo apt-get update && sudo apt-get install -y curl
+curl -fL https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/build_stack.sh \
+    | bash
+```
+
+The build runs directly in WSL and installs into `/opt/sv2ghdl-stack/usr`;
+copy onto the WSL `/usr/local` with `sudo rsync -a /opt/sv2ghdl-stack/usr/ /usr/local/`.
+
 Visit <http://localhost:8080> after starting the container for instructions.
 Default SSH password is `sv2ghdl` — change it before exposing the port.
 

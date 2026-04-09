@@ -3,11 +3,21 @@
 # Run inside the sv2ghdl-base container. Result lands in /opt/sv2ghdl-stack/usr.
 set -euo pipefail
 
-PREFIX=/opt/sv2ghdl-stack/usr
-SRC=/opt/sv2ghdl-stack/src
+PREFIX=${PREFIX:-/opt/sv2ghdl-stack/usr}
+SRC=${SRC:-/opt/sv2ghdl-stack/src}
+SV2GHDL_DIR=${SV2GHDL_DIR:-/opt/sv2ghdl}
+SV2GHDL_REPO=${SV2GHDL_REPO:-https://github.com/kev-cam/sv2ghdl.git}
 mkdir -p "$PREFIX/bin" "$PREFIX/lib" "$SRC"
 export PATH="$PREFIX/bin:$PATH"
 JOBS=$(nproc)
+
+# Self-bootstrap: if the sv2ghdl source tree isn't present (e.g. running this
+# script via curl|bash on a bare WSL), clone it first.
+if [[ ! -d "$SV2GHDL_DIR" ]]; then
+    sudo mkdir -p "$(dirname "$SV2GHDL_DIR")" 2>/dev/null || mkdir -p "$(dirname "$SV2GHDL_DIR")"
+    git clone --depth=1 "$SV2GHDL_REPO" "$SV2GHDL_DIR" 2>/dev/null \
+        || sudo git clone --depth=1 "$SV2GHDL_REPO" "$SV2GHDL_DIR"
+fi
 
 clone_or_update() {
     local url=$1 dir=$2
@@ -42,19 +52,19 @@ clone_or_update https://github.com/YosysHQ/yosys.git yosys
   && make -j$JOBS PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
 
 echo "===== sv2ghdl wrappers + sv2vhdl library ====="
-cp /opt/sv2ghdl/bin/* "$PREFIX/bin/"
+cp "$SV2GHDL_DIR"/bin/* "$PREFIX/bin/"
 mkdir -p "$PREFIX/lib/nvc"
-if [[ -d /opt/sv2ghdl/packages/sv2vhdl ]]; then
-    cp -r /opt/sv2ghdl/packages/sv2vhdl "$PREFIX/lib/nvc/"
-    ( cd /opt/sv2ghdl/packages/sv2vhdl \
+if [[ -d "$SV2GHDL_DIR"/packages/sv2vhdl ]]; then
+    cp -r "$SV2GHDL_DIR"/packages/sv2vhdl "$PREFIX/lib/nvc/"
+    ( cd "$SV2GHDL_DIR"/packages/sv2vhdl \
       && "$PREFIX/bin/nvc" --std=2040 --work="$PREFIX/lib/nvc/sv2vhdl" -a *.vhd )
 fi
 
 # Yosys-linked helpers
-if [[ -f /opt/sv2ghdl/yosys/gen_statemachine.cpp ]]; then
-    ( cd /opt/sv2ghdl && YOSYS_DIR="$SRC/yosys" make yosys/gen_statemachine yosys/cover_solve || true )
-    cp /opt/sv2ghdl/yosys/gen_statemachine "$PREFIX/bin/" 2>/dev/null || true
-    cp /opt/sv2ghdl/yosys/cover_solve      "$PREFIX/bin/" 2>/dev/null || true
+if [[ -f "$SV2GHDL_DIR"/yosys/gen_statemachine.cpp ]]; then
+    ( cd "$SV2GHDL_DIR" && YOSYS_DIR="$SRC/yosys" make yosys/gen_statemachine yosys/cover_solve || true )
+    cp "$SV2GHDL_DIR"/yosys/gen_statemachine "$PREFIX/bin/" 2>/dev/null || true
+    cp "$SV2GHDL_DIR"/yosys/cover_solve      "$PREFIX/bin/" 2>/dev/null || true
 fi
 
 echo "===== smak (parallel make; nvc/Trilinos builds will use it soon) ====="
