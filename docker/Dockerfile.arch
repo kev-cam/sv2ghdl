@@ -8,7 +8,7 @@ RUN pacman -Syu --noconfirm \
       base-devel git \
       flex bison gperf \
       llvm clang \
-      readline zlib libelf libffi openssl \
+      readline zlib zstd libelf libffi openssl \
       check gcc-ada z3 \
       python python-pip perl \
       tcl tk boost \
