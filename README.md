@@ -18,18 +18,34 @@ docker/export.sh /tmp/sv2ghdl-export
 sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
 ```
 
-Or with podman (rootless, no daemon) — no clone needed, fetch the
-Containerfile directly:
+Or with podman (rootless, no daemon) — no clone needed, fetch the right
+Containerfile for your distro and build directly. Available variants:
+
+| Distro                  | Containerfile             |
+|-------------------------|---------------------------|
+| Ubuntu 22.04 (default)  | `Dockerfile.ubuntu22`     |
+| Fedora                  | `Dockerfile.fedora`       |
+| Arch                    | `Dockerfile.arch`         |
+
+Pick automatically from `/etc/os-release`:
 
 ```sh
-curl -fLO https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/Dockerfile
-mv Dockerfile Containerfile
-podman build -t sv2ghdl-base .
+case "$(. /etc/os-release; echo $ID)" in
+  fedora|rhel|centos|rocky) F=Dockerfile.fedora ;;
+  arch|manjaro)             F=Dockerfile.arch ;;
+  *)                        F=Dockerfile.ubuntu22 ;;
+esac
+curl -fLO https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/$F
+podman build -t sv2ghdl-base -f $F .
 podman run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
 ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh
 rsync -av -e 'ssh -p 2222' root@localhost:/opt/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
 sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
 ```
+
+Note: binary compatibility — an Ubuntu 22.04 build exports cleanly onto most
+current glibc-based hosts. Build on the variant matching your host distro if
+you hit glibc-version mismatches.
 
 Visit <http://localhost:8080> after starting the container for instructions.
 Default SSH password is `sv2ghdl` — change it before exposing the port.

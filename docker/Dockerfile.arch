@@ -1,0 +1,34 @@
+# Arch Linux variant of the sv2ghdl build container.
+# See Dockerfile.ubuntu22 for the canonical layout and usage notes.
+
+FROM archlinux:latest
+
+RUN pacman -Syu --noconfirm \
+ && pacman -S --noconfirm \
+      base-devel git \
+      flex bison gperf \
+      llvm clang \
+      readline zlib libelf libffi openssl \
+      check gcc-ada z3 \
+      python python-pip perl \
+      tcl tk boost \
+      openssh rsync nginx \
+ && pacman -Scc --noconfirm
+
+ARG SV2GHDL_REPO=https://github.com/kev-cam/sv2ghdl.git
+ARG SV2GHDL_REF=main
+RUN git clone --depth=1 --branch "$SV2GHDL_REF" "$SV2GHDL_REPO" /opt/sv2ghdl \
+ && chmod +x /opt/sv2ghdl/docker/build_stack.sh
+
+RUN ssh-keygen -A \
+ && sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config \
+ && sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+ && echo 'root:sv2ghdl' | chpasswd
+
+RUN cp /opt/sv2ghdl/docker/index.html /usr/share/nginx/html/index.html
+
+RUN printf '#!/bin/sh\nset -e\n/usr/sbin/sshd\nexec nginx -g "daemon off;"\n' \
+    > /usr/local/bin/start.sh && chmod +x /usr/local/bin/start.sh
+
+EXPOSE 22 80
+CMD ["/usr/local/bin/start.sh"]
