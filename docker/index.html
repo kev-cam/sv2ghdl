@@ -22,6 +22,14 @@ build dependencies for the simulation stack. The heavy components
 (iverilog, NVC, GHDL, Yosys) are built on demand inside the container
 and exported to the host.</p>
 
+<p>Image is OCI-compliant — works with either <strong>docker</strong> or
+<strong>podman</strong>. Examples below show docker; substitute <code>podman</code>
+verbatim if you prefer rootless.</p>
+
+<h2>0. Build and run the container</h2>
+<pre>docker build -t sv2ghdl-base -f docker/Dockerfile .
+docker run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base</pre>
+
 <h2>1. Build the stack inside the container</h2>
 <pre>ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh</pre>
 <p>Default password: <code>sv2ghdl</code>. Output lands in

@@ -7,11 +7,15 @@
 #     docker/export.sh /custom/path
 #     SV2GHDL_PORT=2222 docker/export.sh     # override SSH port
 #
-# Prerequisites:
+# Prerequisites (docker or podman — both work, no code changes needed):
 #     docker build -t sv2ghdl-base -f docker/Dockerfile .
 #     docker run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
+#  -or-
+#     podman build -t sv2ghdl-base -f docker/Dockerfile .
+#     podman run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
 #
 # Visit http://localhost:8080 for the in-container instructions page.
+# This script itself only uses ssh + rsync, so it's runtime-agnostic.
 
 set -euo pipefail
 

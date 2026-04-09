@@ -3,10 +3,12 @@
 # happen at runtime via docker/build_stack.sh, so they can be re-run against
 # fresh upstream sources without rebuilding the image.
 #
-# Build:
+# Build (docker or podman — Containerfile symlink is provided too):
 #     docker build -t sv2ghdl-base -f docker/Dockerfile .
-# Run with sshd exposed:
-#     docker run -d --name sv2ghdl -p 2222:22 sv2ghdl-base
+#     podman build -t sv2ghdl-base -f docker/Dockerfile .
+# Run with sshd + nginx exposed:
+#     docker run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
+#     podman run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
 # Trigger a clean stack build:
 #     ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh
 # Export to the host:
