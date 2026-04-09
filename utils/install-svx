@@ -1,0 +1,64 @@
+#!/bin/bash
+#
+# install-svx — install svx-* wrappers into a bin directory
+#
+# Creates wrapper scripts (not symlinks) so they can be tweaked per host:
+#   svx-iverilog  → sv2ghdl/bin/iverilog-sv2ghdl
+#   svx-vvp       → sv2ghdl/bin/vvp-sv2ghdl
+#   svx-verilator → sv2ghdl/bin/verilator-sv2ghdl
+#
+# Usage:
+#   install-svx              # install to /usr/local/bin
+#   install-svx ~/bin        # install to a custom prefix
+#   install-svx --uninstall  # remove from /usr/local/bin
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
+SV2GHDL_BIN="$SCRIPT_DIR/bin"
+
+DEST="/usr/local/bin"
+UNINSTALL=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall|-u) UNINSTALL=1 ;;
+        -h|--help)
+            sed -n '3,16p' "$0"; exit 0 ;;
+        -*) echo "unknown flag: $arg" >&2; exit 1 ;;
+        *)  DEST="$arg" ;;
+    esac
+done
+
+# name → backing script
+declare -A WRAPPERS=(
+    [svx-iverilog]="$SV2GHDL_BIN/iverilog-sv2ghdl"
+    [svx-vvp]="$SV2GHDL_BIN/vvp-sv2ghdl"
+    [svx-verilator]="$SV2GHDL_BIN/verilator-sv2ghdl"
+)
+
+if [[ $UNINSTALL -eq 1 ]]; then
+    for name in "${!WRAPPERS[@]}"; do
+        if [[ -e "$DEST/$name" ]]; then
+            rm -f "$DEST/$name" && echo "removed $DEST/$name"
+        fi
+    done
+    exit 0
+fi
+
+mkdir -p "$DEST"
+for name in "${!WRAPPERS[@]}"; do
+    target="${WRAPPERS[$name]}"
+    if [[ ! -x "$target" ]]; then
+        echo "skip $name: $target not executable" >&2
+        continue
+    fi
+    cat > "$DEST/$name" <<EOF
+#!/bin/bash
+# svx wrapper — installed by sv2ghdl/utils/install-svx
+exec "$target" "\$@"
+EOF
+    chmod +x "$DEST/$name"
+    echo "installed $DEST/$name → $target"
+done

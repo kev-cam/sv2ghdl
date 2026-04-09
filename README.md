@@ -181,6 +181,30 @@ sudo cp sv2ghdl.pl /usr/local/bin/
 
 **Requirements:** Perl 5.10+ (standard on Linux/macOS)
 
+### Drop-in wrappers for iverilog / verilator
+
+sv2ghdl ships wrapper scripts that route `iverilog`, `vvp`, and `verilator`
+invocations through `sv2ghdl.pl` + NVC, so existing flows can try the NVC
+path without changing build files. They are installed under `svx-` names
+to avoid shadowing the real tools:
+
+```bash
+sudo utils/install-svx           # installs to /usr/local/bin
+utils/install-svx ~/bin          # or a custom prefix
+utils/install-svx --uninstall    # remove
+```
+
+This creates `svx-iverilog`, `svx-vvp`, and `svx-verilator` as small bash
+wrappers that `exec` the backing scripts in `bin/`:
+
+| Wrapper | Backing script | Notes |
+|---|---|---|
+| `svx-iverilog` | `bin/iverilog-sv2ghdl` | Tries `iverilog -tvhdl`, falls back to `sv2ghdl.pl` per module |
+| `svx-vvp` | `bin/vvp-sv2ghdl` | Elaborates + runs with NVC, filters output to iverilog `$display` format |
+| `svx-verilator` | `bin/verilator-sv2ghdl` | Handles `--binary -o OUT [--top T] sources…`; any unsupported flag or failure falls through to the real `verilator` (override with `VERILATOR=…`) |
+
+Set `SVX_VERBOSE=1` to log fall-through decisions.
+
 ## Usage
 
 ```bash
