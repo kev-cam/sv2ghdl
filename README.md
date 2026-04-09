@@ -18,12 +18,16 @@ docker/export.sh /tmp/sv2ghdl-export
 sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
 ```
 
-Or with podman (rootless, no daemon):
+Or with podman (rootless, no daemon) — no clone needed, fetch the
+Containerfile directly:
 
 ```sh
-podman build -t sv2ghdl-base -f docker/Containerfile .
+curl -fLO https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/Dockerfile
+mv Dockerfile Containerfile
+podman build -t sv2ghdl-base .
 podman run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
-docker/export.sh /tmp/sv2ghdl-export
+ssh -p 2222 root@localhost /opt/sv2ghdl/docker/build_stack.sh
+rsync -av -e 'ssh -p 2222' root@localhost:/opt/sv2ghdl-stack/usr/ /tmp/sv2ghdl-export/
 sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
 ```
 

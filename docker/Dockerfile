@@ -32,9 +32,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       openssh-server rsync nginx \
     && rm -rf /var/lib/apt/lists/*
 
-# sv2ghdl source itself, plus the build script.
-COPY . /opt/sv2ghdl
-RUN chmod +x /opt/sv2ghdl/docker/build_stack.sh
+# sv2ghdl source itself. Cloned from upstream so this Dockerfile is
+# standalone — you can `curl` just this file and `docker build .` without
+# needing a local checkout. Override SV2GHDL_REPO/SV2GHDL_REF at build time
+# to point at a fork or branch.
+ARG SV2GHDL_REPO=https://github.com/kev-cam/sv2ghdl.git
+ARG SV2GHDL_REF=main
+RUN git clone --depth=1 --branch "$SV2GHDL_REF" "$SV2GHDL_REPO" /opt/sv2ghdl \
+ && chmod +x /opt/sv2ghdl/docker/build_stack.sh
 
 # sshd setup.
 RUN mkdir -p /var/run/sshd \
