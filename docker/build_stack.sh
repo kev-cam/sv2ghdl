@@ -69,8 +69,10 @@ clone_or_update https://github.com/kev-cam/ghdl.git ghdl
 
 echo "===== yosys ====="
 clone_or_update https://github.com/YosysHQ/yosys.git yosys
+# ENABLE_LIBYOSYS=1 builds libyosys.so so gen_statemachine/cover_solve can link.
 ( cd "$SRC/yosys" && make config-gcc \
-  && make -j$JOBS PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
+  && make -j$JOBS PREFIX="$PREFIX" ENABLE_LIBYOSYS=1 \
+  && make install PREFIX="$PREFIX" ENABLE_LIBYOSYS=1 )
 
 echo "===== sv2ghdl wrappers + sv2vhdl library ====="
 cp "$SV2GHDL_DIR"/bin/* "$PREFIX/bin/"
