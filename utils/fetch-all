@@ -27,7 +27,7 @@ for (@ARGV) { $jobs = $1 if /^-j(\d+)$/; }
 my $build_cmd = $jobs > 0 ? "$SMAK -j$jobs" : $SMAK;
 
 # ── repos (git pull targets) ────────────────────────────────────────
-my @repos = qw(smak Trilinos xyce nvc iverilog ghdl ltz kestrel sv2ghdl);
+my @repos = qw(smak Trilinos xyce nvc iverilog ghdl yosys Nuitka ltz kestrel sv2ghdl);
 
 # ── buildable projects in dependency order ───────────────────────────
 # build_dir is where 'smak' (or 'smak -jN') runs
