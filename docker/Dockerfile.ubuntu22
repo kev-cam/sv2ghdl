@@ -23,7 +23,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential automake autoconf libtool pkg-config git ca-certificates \
-      flex bison gperf \
+      flex bison gperf libfl-dev \
       llvm-dev clang \
       libreadline-dev zlib1g-dev libdw-dev libffi-dev libssl-dev \
       check gnat libz3-dev z3 \

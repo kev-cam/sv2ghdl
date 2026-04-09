@@ -6,7 +6,7 @@ FROM fedora:40
 RUN dnf install -y \
       @development-tools \
       automake autoconf libtool pkgconf git \
-      flex bison gperf \
+      flex bison gperf flex-devel \
       llvm-devel clang \
       readline-devel zlib-devel elfutils-devel libffi-devel openssl-devel \
       check-devel gcc-gnat z3-devel z3 \
