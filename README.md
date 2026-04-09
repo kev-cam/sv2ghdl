@@ -4,6 +4,23 @@
 
 sv2ghdl translates SystemVerilog RTL into VHDL for use with GHDL and NVC simulators. The generated VHDL leverages simulator extensions that go beyond what SystemVerilog offers, including multi-UDN wires, bidirectional components, and improved unknown-state handling.
 
+## Quick start: clean build via container
+
+The full simulation stack (iverilog with VHDL backend, NVC, GHDL, Yosys, plus
+sv2ghdl itself) can be built from clean upstream sources inside a small
+Ubuntu container and rsync'd onto a host `/usr/local`. Works with docker or
+podman:
+
+```sh
+docker build -t sv2ghdl-base -f docker/Dockerfile .
+docker run -d --name sv2ghdl -p 2222:22 -p 8080:80 sv2ghdl-base
+docker/export.sh /tmp/sv2ghdl-export
+sudo rsync -a /tmp/sv2ghdl-export/ /usr/local/
+```
+
+Visit <http://localhost:8080> after starting the container for instructions.
+Default SSH password is `sv2ghdl` — change it before exposing the port.
+
 ## Vision: HDLs for the AI Era
 
 IEEE standards are a **portable floor, not a ceiling**. They ensure baseline code works everywhere, but there's no reason you can't build on top. Commercial tools have always added proprietary extensions; open-source tools like GHDL and NVC can do the same - transparently.
