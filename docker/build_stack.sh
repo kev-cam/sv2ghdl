@@ -142,10 +142,10 @@ if [[ $BUILD_DIGITAL = 1 ]]; then
 fi
 
 # Trilinos + Xyce: built when mode is 'full' or 'analog'. Adds ~30-90 min
-# and several GB. Uses smak if available, else plain make -j.
+# and several GB. Plain make -j (smak doesn't yet handle cmake's Makefile2
+# dispatch pattern).
 if [[ $BUILD_ANALOG = 1 ]]; then
     MAKE_CMD="make -j$JOBS"
-    command -v smak >/dev/null 2>&1 && MAKE_CMD="smak -j$JOBS"
 
     if [[ -d "$PREFIX/lib/cmake/Trilinos" ]]; then
         echo "===== Trilinos (already built, skipping) ====="
