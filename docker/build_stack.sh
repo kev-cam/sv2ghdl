@@ -73,6 +73,18 @@ clone_or_update() {
     fi
 }
 
+# smak first — its bundled cmake wrapper provides a modern cmake (≥3.23)
+# needed by nvc, Trilinos, and Xyce.
+if [[ -x "$PREFIX/bin/smak" ]]; then
+    echo "===== smak (already installed, skipping) ====="
+else
+    echo "===== smak ====="
+    clone_or_update https://github.com/kev-cam/smak.git smak
+    if [[ -x "$SRC/smak/smak-install" ]]; then
+        "$SRC/smak/smak-install" "$PREFIX"
+    fi
+fi
+
 if [[ $BUILD_DIGITAL = 1 ]]; then
     if [[ -x "$PREFIX/bin/iverilog" ]]; then
         echo "===== iverilog (already built, skipping) ====="
@@ -126,19 +138,6 @@ if [[ $BUILD_DIGITAL = 1 ]]; then
         ( cd "$SV2GHDL_DIR" && YOSYS_DIR="$SRC/yosys" make yosys/gen_statemachine yosys/cover_solve || true )
         cp "$SV2GHDL_DIR"/yosys/gen_statemachine "$PREFIX/bin/" 2>/dev/null || true
         cp "$SV2GHDL_DIR"/yosys/cover_solve      "$PREFIX/bin/" 2>/dev/null || true
-    fi
-fi
-
-if [[ -x "$PREFIX/bin/smak" ]]; then
-    echo "===== smak (already installed, skipping) ====="
-else
-    echo "===== smak ====="
-    clone_or_update https://github.com/kev-cam/smak.git smak
-    # smak's own installer copies the tree to $PREFIX/share/smak/ and symlinks
-    # bin/smak → ../share/smak/smak (the wrapper's SCRIPT_DIR resolution follows
-    # the symlink back to the real source, so it can find Smak.pm + helpers).
-    if [[ -x "$SRC/smak/smak-install" ]]; then
-        "$SRC/smak/smak-install" "$PREFIX"
     fi
 fi
 
