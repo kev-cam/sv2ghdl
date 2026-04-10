@@ -114,13 +114,11 @@ fi
 
 echo "===== smak (parallel make; nvc/Trilinos builds will use it soon) ====="
 clone_or_update https://github.com/kev-cam/smak.git smak
-# smak is pure Perl — no compile step, just install the entry-point.
-if [[ -f "$SRC/smak/smak" ]]; then
-    install -m 0755 "$SRC/smak/smak" "$PREFIX/bin/smak"
-fi
-if [[ -f "$SRC/smak/Smak.pm" ]]; then
-    mkdir -p "$PREFIX/share/perl5"
-    cp "$SRC/smak/Smak.pm" "$PREFIX/share/perl5/"
+# smak's own installer copies the tree to $PREFIX/share/smak/ and symlinks
+# bin/smak → ../share/smak/smak (the wrapper's SCRIPT_DIR resolution follows
+# the symlink back to the real source, so it can find Smak.pm + helpers).
+if [[ -x "$SRC/smak/smak-install" ]]; then
+    "$SRC/smak/smak-install" "$PREFIX"
 fi
 
 # Trilinos + Xyce: built when mode is 'full' or 'analog'. Adds ~30-90 min
