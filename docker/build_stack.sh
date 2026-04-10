@@ -75,7 +75,7 @@ clone_or_update() {
 
 # smak first — its bundled cmake wrapper provides a modern cmake (≥3.23)
 # needed by nvc, Trilinos, and Xyce.
-if [[ -x "$PREFIX/bin/smak" ]]; then
+if [[ -L "$PREFIX/bin/cmake" && -x "$PREFIX/bin/smak" ]]; then
     echo "===== smak (already installed, skipping) ====="
 else
     echo "===== smak ====="
