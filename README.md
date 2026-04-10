@@ -64,6 +64,18 @@ curl -fL https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/build_sta
     | bash
 ```
 
+`build_stack.sh` takes an optional mode argument to pick a slice of the stack:
+
+| Mode      | Builds                                                         |
+|-----------|----------------------------------------------------------------|
+| `full`    | everything — digital tools + Xyce (default)                    |
+| `digital` | just iverilog, nvc, ghdl, yosys and the sv2ghdl wrappers       |
+| `analog`  | just Xyce (and Trilinos, its dependency)                       |
+
+`full` is the default and includes Trilinos + Xyce, which adds roughly
+30–90 minutes and several GB. Pass a mode via `bash -s --`, e.g.
+`… | bash -s -- digital` to skip the analog build.
+
 The build runs directly in WSL and installs into `/home/claude/sv2ghdl-stack/usr`;
 copy onto the WSL `/usr/local` with `sudo rsync -a /home/claude/sv2ghdl-stack/usr/ /usr/local/`.
 

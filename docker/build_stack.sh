@@ -11,6 +11,28 @@ set -euo pipefail
 BUILD_USER=${BUILD_USER:-claude}
 BUILD_GROUP=${BUILD_GROUP:-dev}
 
+# Mode selects which slice of the stack to build:
+#   full    - everything (digital + analog)   [default]
+#   digital - just the digital simulation tools (iverilog/nvc/ghdl/yosys/sv2ghdl)
+#   analog  - just Xyce (and Trilinos, its dependency)
+MODE=${1:-full}
+case "$MODE" in
+    full|digital|analog) ;;
+    -h|--help)
+        echo "Usage: $0 [full|digital|analog]"
+        echo "  full    everything (default)"
+        echo "  digital iverilog, nvc, ghdl, yosys, sv2ghdl wrappers"
+        echo "  analog  Xyce (+ Trilinos)"
+        exit 0 ;;
+    *)
+        echo "Usage: $0 [full|digital|analog]" >&2
+        exit 1 ;;
+esac
+BUILD_DIGITAL=0
+BUILD_ANALOG=0
+[[ $MODE = full || $MODE = digital ]] && BUILD_DIGITAL=1
+[[ $MODE = full || $MODE = analog  ]] && BUILD_ANALOG=1
+
 if [[ $EUID -eq 0 ]]; then
     if ! getent group "$BUILD_GROUP" >/dev/null; then
         groupadd "$BUILD_GROUP"
@@ -51,43 +73,43 @@ clone_or_update() {
     fi
 }
 
-echo "===== iverilog ====="
-clone_or_update https://github.com/kev-cam/iverilog.git iverilog
-( cd "$SRC/iverilog" && sh autoconf.sh && ./configure --prefix="$PREFIX" \
-  && make -j$JOBS && make install )
+if [[ $BUILD_DIGITAL = 1 ]]; then
+    echo "===== iverilog ====="
+    clone_or_update https://github.com/kev-cam/iverilog.git iverilog
+    ( cd "$SRC/iverilog" && sh autoconf.sh && ./configure --prefix="$PREFIX" \
+      && make -j$JOBS && make install )
 
-echo "===== nvc ====="
-clone_or_update https://github.com/kev-cam/nvc.git nvc
-( cd "$SRC/nvc" && ./autogen.sh && mkdir -p build && cd build \
-  && CFLAGS="-g -O2 -fPIC -ftls-model=global-dynamic" \
-     ../configure --prefix="$PREFIX" \
-  && make -j$JOBS && make install )
+    echo "===== nvc ====="
+    clone_or_update https://github.com/kev-cam/nvc.git nvc
+    ( cd "$SRC/nvc" && ./autogen.sh && mkdir -p build && cd build \
+      && CFLAGS="-g -O2 -fPIC -ftls-model=global-dynamic" \
+         ../configure --prefix="$PREFIX" \
+      && make -j$JOBS && make install )
 
-echo "===== ghdl ====="
-clone_or_update https://github.com/kev-cam/ghdl.git ghdl
-( cd "$SRC/ghdl" && ./configure --prefix="$PREFIX" && make -j$JOBS && make install )
+    echo "===== ghdl ====="
+    clone_or_update https://github.com/kev-cam/ghdl.git ghdl
+    ( cd "$SRC/ghdl" && ./configure --prefix="$PREFIX" && make -j$JOBS && make install )
 
-echo "===== yosys ====="
-clone_or_update https://github.com/YosysHQ/yosys.git yosys
-# ENABLE_LIBYOSYS=1 builds libyosys.so so gen_statemachine/cover_solve can link.
-( cd "$SRC/yosys" && make config-gcc \
-  && make -j$JOBS PREFIX="$PREFIX" ENABLE_LIBYOSYS=1 \
-  && make install PREFIX="$PREFIX" ENABLE_LIBYOSYS=1 )
+    echo "===== yosys ====="
+    clone_or_update https://github.com/YosysHQ/yosys.git yosys
+    ( cd "$SRC/yosys" && make config-gcc \
+      && make -j$JOBS PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
 
-echo "===== sv2ghdl wrappers + sv2vhdl library ====="
-cp "$SV2GHDL_DIR"/bin/* "$PREFIX/bin/"
-mkdir -p "$PREFIX/lib/nvc"
-if [[ -d "$SV2GHDL_DIR"/packages/sv2vhdl ]]; then
-    cp -r "$SV2GHDL_DIR"/packages/sv2vhdl "$PREFIX/lib/nvc/"
-    ( cd "$SV2GHDL_DIR"/packages/sv2vhdl \
-      && "$PREFIX/bin/nvc" --std=2040 --work="$PREFIX/lib/nvc/sv2vhdl" -a *.vhd )
-fi
+    echo "===== sv2ghdl wrappers + sv2vhdl library ====="
+    cp "$SV2GHDL_DIR"/bin/* "$PREFIX/bin/"
+    mkdir -p "$PREFIX/lib/nvc"
+    if [[ -d "$SV2GHDL_DIR"/packages/sv2vhdl ]]; then
+        cp -r "$SV2GHDL_DIR"/packages/sv2vhdl "$PREFIX/lib/nvc/"
+        ( cd "$SV2GHDL_DIR"/packages/sv2vhdl \
+          && "$PREFIX/bin/nvc" --std=2040 --work="$PREFIX/lib/nvc/sv2vhdl" -a *.vhd )
+    fi
 
-# Yosys-linked helpers
-if [[ -f "$SV2GHDL_DIR"/yosys/gen_statemachine.cpp ]]; then
-    ( cd "$SV2GHDL_DIR" && YOSYS_DIR="$SRC/yosys" make yosys/gen_statemachine yosys/cover_solve || true )
-    cp "$SV2GHDL_DIR"/yosys/gen_statemachine "$PREFIX/bin/" 2>/dev/null || true
-    cp "$SV2GHDL_DIR"/yosys/cover_solve      "$PREFIX/bin/" 2>/dev/null || true
+    # Yosys-linked helpers
+    if [[ -f "$SV2GHDL_DIR"/yosys/gen_statemachine.cpp ]]; then
+        ( cd "$SV2GHDL_DIR" && YOSYS_DIR="$SRC/yosys" make yosys/gen_statemachine yosys/cover_solve || true )
+        cp "$SV2GHDL_DIR"/yosys/gen_statemachine "$PREFIX/bin/" 2>/dev/null || true
+        cp "$SV2GHDL_DIR"/yosys/cover_solve      "$PREFIX/bin/" 2>/dev/null || true
+    fi
 fi
 
 echo "===== smak (parallel make; nvc/Trilinos builds will use it soon) ====="
@@ -101,9 +123,9 @@ if [[ -f "$SRC/smak/Smak.pm" ]]; then
     cp "$SRC/smak/Smak.pm" "$PREFIX/share/perl5/"
 fi
 
-# Trilinos + Xyce: skipped by default — adds ~30-90 minutes and several GB.
-# Set BUILD_XYCE=1 to enable. Uses smak if available, else plain make -j.
-if [[ "${BUILD_XYCE:-0}" = 1 ]]; then
+# Trilinos + Xyce: built when mode is 'full' or 'analog'. Adds ~30-90 min
+# and several GB. Uses smak if available, else plain make -j.
+if [[ $BUILD_ANALOG = 1 ]]; then
     MAKE_CMD="make -j$JOBS"
     command -v smak >/dev/null 2>&1 && MAKE_CMD="smak -j$JOBS"
 
