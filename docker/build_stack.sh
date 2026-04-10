@@ -74,27 +74,44 @@ clone_or_update() {
 }
 
 if [[ $BUILD_DIGITAL = 1 ]]; then
-    echo "===== iverilog ====="
-    clone_or_update https://github.com/kev-cam/iverilog.git iverilog
-    ( cd "$SRC/iverilog" && sh autoconf.sh && ./configure --prefix="$PREFIX" \
-      && make -j$JOBS && make install )
+    if [[ -x "$PREFIX/bin/iverilog" ]]; then
+        echo "===== iverilog (already built, skipping) ====="
+    else
+        echo "===== iverilog ====="
+        clone_or_update https://github.com/kev-cam/iverilog.git iverilog
+        ( cd "$SRC/iverilog" && sh autoconf.sh && ./configure --prefix="$PREFIX" \
+          && make -j$JOBS && make install )
+    fi
 
-    echo "===== nvc ====="
-    clone_or_update https://github.com/kev-cam/nvc.git nvc
-    ( cd "$SRC/nvc" && ./autogen.sh && mkdir -p build && cd build \
-      && CFLAGS="-g -O2 -fPIC -ftls-model=global-dynamic" \
-         ../configure --prefix="$PREFIX" \
-      && make -j$JOBS && make install )
+    if [[ -x "$PREFIX/bin/nvc" ]]; then
+        echo "===== nvc (already built, skipping) ====="
+    else
+        echo "===== nvc ====="
+        clone_or_update https://github.com/kev-cam/nvc.git nvc
+        ( cd "$SRC/nvc" && ./autogen.sh && mkdir -p build && cd build \
+          && CFLAGS="-g -O2 -fPIC -ftls-model=global-dynamic" \
+             ../configure --prefix="$PREFIX" \
+          && make -j$JOBS && make install )
+    fi
 
-    echo "===== ghdl ====="
-    clone_or_update https://github.com/kev-cam/ghdl.git ghdl
-    ( cd "$SRC/ghdl" && ./configure --prefix="$PREFIX" && make -j$JOBS && make install )
+    if [[ -x "$PREFIX/bin/ghdl" ]]; then
+        echo "===== ghdl (already built, skipping) ====="
+    else
+        echo "===== ghdl ====="
+        clone_or_update https://github.com/kev-cam/ghdl.git ghdl
+        ( cd "$SRC/ghdl" && ./configure --prefix="$PREFIX" && make -j$JOBS && make install )
+    fi
 
-    echo "===== yosys ====="
-    clone_or_update https://github.com/YosysHQ/yosys.git yosys
-    ( cd "$SRC/yosys" && make config-gcc \
-      && make -j$JOBS PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
+    if [[ -x "$PREFIX/bin/yosys" ]]; then
+        echo "===== yosys (already built, skipping) ====="
+    else
+        echo "===== yosys ====="
+        clone_or_update https://github.com/YosysHQ/yosys.git yosys
+        ( cd "$SRC/yosys" && make config-gcc \
+          && make -j$JOBS PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
+    fi
 
+    # Always re-copy wrappers and helpers (cheap)
     echo "===== sv2ghdl wrappers + sv2vhdl library ====="
     cp "$SV2GHDL_DIR"/bin/* "$PREFIX/bin/"
     mkdir -p "$PREFIX/lib/nvc"
@@ -112,13 +129,17 @@ if [[ $BUILD_DIGITAL = 1 ]]; then
     fi
 fi
 
-echo "===== smak (parallel make; nvc/Trilinos builds will use it soon) ====="
-clone_or_update https://github.com/kev-cam/smak.git smak
-# smak's own installer copies the tree to $PREFIX/share/smak/ and symlinks
-# bin/smak → ../share/smak/smak (the wrapper's SCRIPT_DIR resolution follows
-# the symlink back to the real source, so it can find Smak.pm + helpers).
-if [[ -x "$SRC/smak/smak-install" ]]; then
-    "$SRC/smak/smak-install" "$PREFIX"
+if [[ -x "$PREFIX/bin/smak" ]]; then
+    echo "===== smak (already installed, skipping) ====="
+else
+    echo "===== smak ====="
+    clone_or_update https://github.com/kev-cam/smak.git smak
+    # smak's own installer copies the tree to $PREFIX/share/smak/ and symlinks
+    # bin/smak → ../share/smak/smak (the wrapper's SCRIPT_DIR resolution follows
+    # the symlink back to the real source, so it can find Smak.pm + helpers).
+    if [[ -x "$SRC/smak/smak-install" ]]; then
+        "$SRC/smak/smak-install" "$PREFIX"
+    fi
 fi
 
 # Trilinos + Xyce: built when mode is 'full' or 'analog'. Adds ~30-90 min
@@ -127,34 +148,45 @@ if [[ $BUILD_ANALOG = 1 ]]; then
     MAKE_CMD="make -j$JOBS"
     command -v smak >/dev/null 2>&1 && MAKE_CMD="smak -j$JOBS"
 
-    echo "===== Trilinos 14.4 ====="
-    if [[ ! -d "$SRC/Trilinos" ]]; then
-        git clone --depth=1 --branch trilinos-release-14-4-branch \
-            https://github.com/trilinos/Trilinos.git "$SRC/Trilinos"
+    if [[ -d "$PREFIX/lib/cmake/Trilinos" ]]; then
+        echo "===== Trilinos (already built, skipping) ====="
+    else
+        echo "===== Trilinos 14.4 ====="
+        if [[ ! -d "$SRC/Trilinos" ]]; then
+            git clone --depth=1 --branch trilinos-release-14-4-branch \
+                https://github.com/trilinos/Trilinos.git "$SRC/Trilinos"
+        fi
+
+        # Xyce ships the trilinos-base.cmake config we use to seed the build.
+        clone_or_update https://github.com/kev-cam/xyce.git xyce
+
+        mkdir -p "$SRC/trilinos-build"
+        ( cd "$SRC/trilinos-build" \
+          && cmake \
+               -C "$SRC/xyce/cmake/trilinos/trilinos-base.cmake" \
+               -D CMAKE_INSTALL_PREFIX="$PREFIX" \
+               -D BUILD_SHARED_LIBS=ON \
+               -D AMD_INCLUDE_DIRS=/usr/include/suitesparse \
+               "$SRC/Trilinos" \
+          && $MAKE_CMD install )
     fi
 
-    # Xyce ships the trilinos-base.cmake config we use to seed the build.
-    clone_or_update https://github.com/kev-cam/xyce.git xyce
+    if [[ -x "$PREFIX/bin/Xyce" ]]; then
+        echo "===== Xyce (already built, skipping) ====="
+    else
+        echo "===== Xyce ====="
+        # Ensure xyce source is present (may have been cloned for Trilinos above)
+        clone_or_update https://github.com/kev-cam/xyce.git xyce
 
-    mkdir -p "$SRC/trilinos-build"
-    ( cd "$SRC/trilinos-build" \
-      && cmake \
-           -C "$SRC/xyce/cmake/trilinos/trilinos-base.cmake" \
-           -D CMAKE_INSTALL_PREFIX="$PREFIX" \
-           -D BUILD_SHARED_LIBS=ON \
-           -D AMD_INCLUDE_DIRS=/usr/include/suitesparse \
-           "$SRC/Trilinos" \
-      && $MAKE_CMD install )
-
-    echo "===== Xyce ====="
-    mkdir -p "$SRC/xyce-build"
-    ( cd "$SRC/xyce-build" \
-      && cmake \
-           -D CMAKE_INSTALL_PREFIX="$PREFIX" \
-           -D Trilinos_ROOT="$PREFIX" \
-           -D BUILD_SHARED_LIBS=ON \
-           "$SRC/xyce" \
-      && $MAKE_CMD install )
+        mkdir -p "$SRC/xyce-build"
+        ( cd "$SRC/xyce-build" \
+          && cmake \
+               -D CMAKE_INSTALL_PREFIX="$PREFIX" \
+               -D Trilinos_ROOT="$PREFIX" \
+               -D BUILD_SHARED_LIBS=ON \
+               "$SRC/xyce" \
+          && $MAKE_CMD install )
+    fi
 fi
 
 echo "===== done. exported tree: $PREFIX ====="
