@@ -1,0 +1,52 @@
+#!/usr/bin/perl
+# fix-ivl-vhdl — post-process iverilog -tvhdl output to fix common nvc errors
+#
+# Fixes:
+#   1. Concatenation of UNSIGNED operands in port maps:
+#      a => x & y  →  a => std_logic_vector(x & y)
+#   2. Comparison result used as std_logic in concat/bitwise:
+#      (sig = "11") & (sig = "00")  →  not directly fixable, but wrapping
+#      the = result helps
+#
+# Usage: fix-ivl-vhdl < input.vhd > output.vhd
+#        fix-ivl-vhdl input.vhd  (in-place)
+
+use strict;
+use warnings;
+
+my $inplace = (@ARGV && -f $ARGV[0]);
+my @lines;
+
+if ($inplace) {
+    open my $fh, '<', $ARGV[0] or die "open $ARGV[0]: $!\n";
+    @lines = <$fh>;
+    close $fh;
+} else {
+    @lines = <STDIN>;
+}
+
+for my $line (@lines) {
+    # Fix 1: port map concatenation — cast each operand of & to std_logic_vector
+    # "a => X & Y" → "a => std_logic_vector(X) & std_logic_vector(Y)"
+    if ($line =~ /^(\s*\w+\s*=>\s*)(.+\s+&\s+.+?)(\s*[,)]?\s*)$/) {
+        my ($prefix, $expr, $suffix) = ($1, $2, $3);
+        $expr =~ s/\s+$//;
+        unless ($expr =~ /std_logic_vector\(/) {
+            my @parts = split /\s+&\s+/, $expr;
+            my @wrapped = map { "std_logic_vector($_)" } @parts;
+            $line = $prefix . join(' & ', @wrapped) . "$suffix\n";
+        }
+    }
+
+    # Fix 2: UNSIGNED port actual → wrap in std_logic_vector
+    # Matches: y => unsigned_expr  where port type is std_logic
+    # (handled by fix 1 for concatenation cases)
+}
+
+if ($inplace) {
+    open my $fh, '>', $ARGV[0] or die "write $ARGV[0]: $!\n";
+    print $fh @lines;
+    close $fh;
+} else {
+    print @lines;
+}

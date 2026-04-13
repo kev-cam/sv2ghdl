@@ -144,38 +144,49 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
     MODULES_OK=0
     MODULES_FAIL=0
 
+    # Collect defines/timescale/includes across ALL source files into a
+    # shared preamble, then split each file's modules into individual .v
+    # files with that preamble prepended.  This mirrors Verilog's "one long
+    # stream" compilation model where `defines are sticky.
+    PREAMBLE_FILE="$SPLIT_DIR/_preamble.v"
+    : > "$PREAMBLE_FILE"
+
     for src in "${ABS_SOURCES[@]}"; do
-        # Split source file into individual module files
         awk '
+            /^\s*`timescale/ { print >> "'"$PREAMBLE_FILE"'"; next }
+            /^\s*`define/    { print >> "'"$PREAMBLE_FILE"'"; next }
+            /^\s*`include/   { print >> "'"$PREAMBLE_FILE"'"; next }
             /^\s*module\s+/ {
                 if (out) close(out)
                 match($0, /module\s+([a-zA-Z_][a-zA-Z0-9_]*)/, m)
                 modname = m[1]
                 out = "'"$SPLIT_DIR"'/" modname ".v"
-                # Write preamble (timescale etc) to each module file
-                print preamble > out
+                system("cat '"$PREAMBLE_FILE"' > " out)
             }
-            /^\s*`timescale/ { preamble = preamble $0 "\n"; next }
-            /^\s*`define/ { preamble = preamble $0 "\n"; next }
-            /^\s*`include/ { preamble = preamble $0 "\n"; next }
             { if (out) print >> out }
         ' "$src"
     done
 
-    # Try iverilog on each module individually
+    # Try iverilog on each module, validate with nvc -a, fall back to sv2ghdl.pl
+    cd "$OUTDIR"
     for mod_v in "$SPLIT_DIR"/*.v; do
         [[ -f "$mod_v" ]] || continue
         modname="${mod_v##*/}"
         modname="${modname%.v}"
+        [[ "$modname" == "_preamble" ]] && continue
         mod_vhd="$OUTDIR/${modname}.vhd"
 
-        if timeout 30 "$IVERILOG" -B"$IVL_LIBDIR" -tvhdl -psv2vhdl=1 \
-                -o "$mod_vhd" "$mod_v" 2>/dev/null && [[ -s "$mod_vhd" ]]; then
+        if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 \
+                -o "$mod_vhd" "$mod_v" 2>/dev/null \
+                && [[ -s "$mod_vhd" ]] \
+                && $NVC --std=2040 -L "$NVC_LIBDIR" -a "$mod_vhd" >/dev/null 2>&1; then
             MODULES_OK=$((MODULES_OK + 1))
         else
-            # iverilog failed — try sv2ghdl.pl on this module
+            # iverilog failed or produced invalid VHDL — try sv2ghdl.pl
             rm -f "$mod_vhd"
-            if "$SV2GHDL" "$mod_v" -o "$mod_vhd" 2>/dev/null; then
+            if "$SV2GHDL" "$mod_v" -o "$mod_vhd" 2>/dev/null \
+                    && [[ -s "$mod_vhd" ]] \
+                    && $NVC --std=2040 -L "$NVC_LIBDIR" -a "$mod_vhd" >/dev/null 2>&1; then
                 MODULES_OK=$((MODULES_OK + 1))
             else
                 rm -f "$mod_vhd"
@@ -190,16 +201,6 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
         echo "iverilog-sv2ghdl: no modules translated" >&2
         exit 1
     fi
-
-    # Compile each translated VHDL file with NVC
-    cd "$OUTDIR"
-    for vhd in *.vhd; do
-        [[ -f "$vhd" ]] || continue
-        $NVC --std=2040 -L "$NVC_LIBDIR" -a "$vhd" 2>&1
-        if [[ $? -ne 0 ]]; then
-            exit 1
-        fi
-    done
 fi
 
 # For -t null (CN tests), compilation is all we need

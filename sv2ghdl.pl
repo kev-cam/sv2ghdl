@@ -253,7 +253,7 @@ sub translate_file {
     our %signal_types = ();
     foreach my $line (@lines) {
         # Input/output ports: input [7:0] foo; or input bar;
-        if ($line =~ /^\s*(?:input|output|inout)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)/) {
+        if ($line =~ /^\s*(?:input|output|inout)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^:\]]+):([^:\]]+)\]\s+)?(\w+)/) {
             my ($msb, $lsb, $name) = ($1, $2, $3);
             if (defined $msb) {
                 $signal_types{$name} = { type => 'vector', width => $msb - $lsb + 1 };
@@ -262,7 +262,7 @@ sub translate_file {
             }
         }
         # Wire/reg declarations
-        if ($line =~ /^\s*(?:wire|reg)\s+(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?([\w\s,]+);/) {
+        if ($line =~ /^\s*(?:wire|reg)\s+(?:signed\s+)?(?:\[([^:\]]+):([^:\]]+)\]\s+)?([\w\s,]+);/) {
             my ($msb, $lsb, $names) = ($1, $2, $3);
             foreach my $name (split /\s*,\s*/, $names) {
                 $name =~ s/^\s+|\s+$//g;
@@ -274,9 +274,13 @@ sub translate_file {
                 }
             }
         }
-        # Integer declarations
-        if ($line =~ /^\s*integer\s+([\w\s,]+);/) {
-            foreach my $name (split /\s*,\s*/, $1) {
+        # Integer / SV-scalar declarations
+        # integer foo;  int unsigned cnt = 0;  bit clk = 0;  byte b;  shortint/longint
+        if ($line =~ /^\s*(?:integer|int(?:\s+unsigned|\s+signed)?|byte|shortint|longint|bit)\s+([\w\s,=\d'hxbXBHZz]+);/) {
+            my $names_blob = $1;
+            # Strip "= initval" tails before splitting on commas at top level
+            $names_blob =~ s/=\s*[^,]+//g;
+            foreach my $name (split /\s*,\s*/, $names_blob) {
                 $name =~ s/^\s+|\s+$//g;
                 next if $name eq '';
                 $signal_types{$name} = { type => 'integer' };
@@ -348,7 +352,7 @@ sub translate_file {
         # Skip module, input, output, inout, parameter lines
         if ($in_entity && !$port_section_done &&
             $line !~ /^\s*(?:module|input|output|inout|parameter)\b/ &&
-            ($line =~ /^\s*(?:wire|reg|always|assign|initial|integer|real|time|task|function|genvar|generate|defparam|specify|localparam)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
+            ($line =~ /^\s*(?:wire|reg|always|assign|initial|integer|real|time|task|function|genvar|generate|defparam|specify|localparam|int|bit|byte|shortint|longint|string|logic)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/)) {
             # Close entity, start architecture
             push @output, "end entity;\n\n";
             push @output, generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
@@ -448,7 +452,32 @@ sub translate_line {
     if ($line =~ /^\s*`include\b/) {
         return "-- " . $line;  # Include files not supported
     }
-    if ($line =~ /^\s*`(?:define|ifdef|ifndef|else|endif|undef)\b/) {
+    # Track `ifdef nesting and skip bodies whose macro isn't defined.
+    # sv2ghdl doesn't evaluate `define, so every `ifdef MACRO is treated as
+    # false (skip until `else/`endif) and every `ifndef MACRO as true (keep).
+    our @ifdef_stack;  # entries: 'skip' or 'keep'
+    if ($line =~ /^\s*`ifdef\s+\w+/) {
+        push @ifdef_stack, 'skip';
+        return "-- " . $line;
+    }
+    if ($line =~ /^\s*`ifndef\s+\w+/) {
+        push @ifdef_stack, 'keep';
+        return "-- " . $line;
+    }
+    if ($line =~ /^\s*`else\b/) {
+        if (@ifdef_stack) {
+            $ifdef_stack[-1] = ($ifdef_stack[-1] eq 'skip') ? 'keep' : 'skip';
+        }
+        return "-- " . $line;
+    }
+    if ($line =~ /^\s*`endif\b/) {
+        pop @ifdef_stack;
+        return "-- " . $line;
+    }
+    if (@ifdef_stack && (grep { $_ eq 'skip' } @ifdef_stack)) {
+        return "-- " . $line;  # inside a false `ifdef branch — drop the body
+    }
+    if ($line =~ /^\s*`(?:define|undef)\b/) {
         return "-- " . $line;
     }
 
@@ -464,17 +493,42 @@ sub translate_line {
         return "-- " . $line;
     }
 
-    # --- Integer/real/time variable declarations (become signals) ---
-    if ($line =~ /^\s*(integer|real|time)\s+([\w\s,]+);/) {
-        my ($type, $names) = ($1, $2);
-        my @var_names = split /\s*,\s*/, $names;
-        foreach my $name (@var_names) {
-            $name =~ s/^\s+|\s+$//g;
-            next if $name eq '';
+    # --- Integer/real/time/SV-scalar variable declarations (become signals) ---
+    # Accepts: integer foo;  int unsigned cnt = 0;  bit clk = 0;  byte b = 8'h00;
+    if ($line =~ /^\s*(integer|real|time|int(?:\s+unsigned|\s+signed)?|byte|shortint|longint|bit)\s+(.+);\s*$/) {
+        my ($sv_type, $rest) = ($1, $2);
+        my $vhdl_type = ($sv_type =~ /^(integer|int|byte|shortint|longint)/) ? 'integer'
+                      : ($sv_type eq 'real') ? 'real'
+                      : ($sv_type eq 'time') ? 'time'
+                      : ($sv_type eq 'bit')  ? 'std_logic'
+                      : 'integer';
+        # Split on commas not inside expressions (simple top-level split is fine here)
+        foreach my $decl (split /\s*,\s*/, $rest) {
+            $decl =~ s/^\s+|\s+$//g;
+            next if $decl eq '';
+            my ($name, $init);
+            if ($decl =~ /^(\w+)\s*=\s*(.+)$/) { ($name, $init) = ($1, $2); }
+            else                                { $name = $decl; }
             our @signal_decls;
-            push @signal_decls, "  signal $name : $type;\n";
+            if (defined $init) {
+                # Coerce SV literal to a VHDL literal for the bit case
+                if ($vhdl_type eq 'std_logic' && $init =~ /^[01]$/) {
+                    $init = "'$init'";
+                }
+                push @signal_decls, "  signal $name : $vhdl_type := $init;\n";
+            } else {
+                push @signal_decls, "  signal $name : $vhdl_type;\n";
+            }
         }
         return "";  # Collected, will be inserted before begin
+    }
+
+    # --- string foo = "bar";  → constant ---
+    if ($line =~ /^\s*string\s+(\w+)\s*=\s*("[^"]*")\s*;/) {
+        my ($name, $val) = ($1, $2);
+        our @signal_decls;
+        push @signal_decls, "  constant $name : string := $val;\n";
+        return "";
     }
 
     # --- Handle pending process (saw 'initial'/'always' alone, waiting for begin/stmt) ---
@@ -680,7 +734,7 @@ sub translate_line {
     }
     
     # Ports
-    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
+    if ($line =~ /^\s*input\s+(?:wire\s+)?(?:signed\s+)?(?:\[([^:\]]+):([^:\]]+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config);
         my $separator = ($term eq ',') ? ';' : '';
@@ -688,7 +742,7 @@ sub translate_line {
                "    $name : in $vhdl_type$separator\n";
     }
 
-    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?(\w+)\s*([,;]?)/) {
+    if ($line =~ /^\s*output\s+(?:reg\s+)?(?:signed\s+)?(?:\[([^:\]]+):([^:\]]+)\]\s+)?(\w+)\s*([,;]?)/) {
         my ($msb, $lsb, $name, $term) = ($1, $2, $3, $4);
         my $vhdl_type = port_type($msb, $lsb, $config);
         my $separator = ($term eq ',') ? ';' : '';
@@ -703,7 +757,7 @@ sub translate_line {
     }
     
     # Wire/reg declarations (internal signals) - multiple signals on one line
-    if ($line =~ /^\s*(?:wire|reg)\s+(?:signed\s+)?(?:\[(\d+):(\d+)\]\s+)?([\w\s,]+);/) {
+    if ($line =~ /^\s*(?:wire|reg)\s+(?:signed\s+)?(?:\[([^:\]]+):([^:\]]+)\]\s+)?([\w\s,]+);/) {
         my ($msb, $lsb, $names) = ($1, $2, $3);
         my $vhdl_type = port_type($msb, $lsb, $config);
 
@@ -825,6 +879,12 @@ sub translate_line {
     # Bare always with single statement (no @ or begin): always stmt;
     if ($line =~ /^\s*always\s+(?!@|begin)(.+;)\s*$/) {
         my $stmt = $1;
+        # Clock-generator idiom: always # N IDENT = ~IDENT;
+        if ($stmt =~ /^#\s*(\d+)\s+(\w+)\s*=\s*~\s*\2\s*;\s*$/) {
+            my ($delay, $sig) = ($1, $2);
+            return line_directive($line_num, $source_file) .
+                   "  $sig <= not $sig after $delay ns;\n";
+        }
         my $translated = translate_statement($stmt, $line_num, $source_file, $config);
         return line_directive($line_num, $source_file) .
                "  process\n  begin\n" .
@@ -841,6 +901,21 @@ sub translate_line {
                "  $lhs <= $translated_rhs;\n";
     }
     
+    # SV ++/-- (prefix or postfix), handled inside processes
+    if ($line =~ /^\s*(?:\+\+|--)(\w+)\s*;/ || $line =~ /^\s*(\w+)(?:\+\+|--)\s*;/) {
+        my $name = $1;
+        my $op   = ($line =~ /--/) ? '-' : '+';
+        return line_directive($line_num, $source_file) .
+               "        $name <= $name $op 1;\n";
+    }
+    # SV compound assignment: x += expr;  -=  *=  /=
+    if ($line =~ /^\s*(\w+)\s*([+\-*\/])=\s*(.+);/) {
+        my ($lhs, $op, $rhs) = ($1, $2, $3);
+        my $tr = translate_expression($rhs);
+        return line_directive($line_num, $source_file) .
+               "        $lhs <= $lhs $op $tr;\n";
+    }
+
     # Non-blocking assignment (already uses <=)
     if ($line =~ /^\s*(\w+)\s*<=\s*(.+);/) {
         my ($lhs, $rhs) = ($1, $2);
@@ -1205,6 +1280,10 @@ sub convert_integer_for_type {
 sub translate_expression {
     my ($expr) = @_;
 
+    # SV modulo operator: % -> mod  (must precede the literal-rewrite step,
+    # which would otherwise turn "100 % 7" tokens into something else)
+    $expr =~ s/\s%\s/ mod /g;
+
     # Numeric literals: 8'h00 -> x"00", 8'hzz -> x"zz", 8'd10 -> std_logic_vector(to_unsigned(10, 8))
     $expr =~ s/(\d+)'h([0-9a-fA-FxXzZ]+)/x"$2"/g;
     $expr =~ s/(\d+)'d(\d+)/std_logic_vector(to_unsigned($2, $1))/g;
@@ -1305,6 +1384,18 @@ sub translate_statement {
     if ($stmt =~ /^\$stop\s*(?:\(\s*\d*\s*\))?\s*;?$/) {
         return "std.env.stop;";
     }
+    # SV increment/decrement: ++x;  x++;  --x;  x--;
+    if ($stmt =~ /^(?:\+\+|--)(\w+)\s*;$/ || $stmt =~ /^(\w+)(?:\+\+|--)\s*;$/) {
+        my $name = $1;
+        my $op   = ($stmt =~ /--/) ? '-' : '+';
+        return "$name <= $name $op 1;";
+    }
+    # SV compound assignment: x += expr;  x -= expr;  x *= expr;  x /= expr;
+    if ($stmt =~ /^(\w+)\s*([+\-*\/])=\s*(.+);$/) {
+        my ($lhs, $op, $rhs) = ($1, $2, $3);
+        my $tr = translate_expression($rhs);
+        return "$lhs <= $lhs $op $tr;";
+    }
     # Blocking assignment
     if ($stmt =~ /^(\w+)\s*=\s*(.+);$/) {
         my ($lhs, $rhs) = ($1, $2);
@@ -1376,6 +1467,13 @@ sub format_arg_vhdl {
         return $expr;
     } else {
         # %d and anything else: decimal via integer'image
+        # If the expression is a bare identifier already known to be integer-typed,
+        # skip the unsigned cast (which would only work for std_logic_vector).
+        our %signal_types;
+        if ($expr =~ /^\w+$/ && exists $signal_types{$expr}
+            && $signal_types{$expr}{type} eq 'integer') {
+            return "integer'image($expr)";
+        }
         return "integer'image(to_integer(unsigned($expr)))";
     }
 }
