@@ -256,7 +256,9 @@ sub translate_file {
         if ($line =~ /^\s*(?:input|output|inout)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^:\]]+):([^:\]]+)\]\s+)?(\w+)/) {
             my ($msb, $lsb, $name) = ($1, $2, $3);
             if (defined $msb) {
-                $signal_types{$name} = { type => 'vector', width => $msb - $lsb + 1 };
+                # Width may be a parameter expression — only compute if numeric
+                my $width = ($msb =~ /^\d+$/ && $lsb =~ /^\d+$/) ? ($msb - $lsb + 1) : undef;
+                $signal_types{$name} = { type => 'vector', width => $width, msb => $msb, lsb => $lsb };
             } else {
                 $signal_types{$name} = { type => 'scalar' };
             }
@@ -268,7 +270,8 @@ sub translate_file {
                 $name =~ s/^\s+|\s+$//g;
                 next if $name eq '';
                 if (defined $msb) {
-                    $signal_types{$name} = { type => 'vector', width => $msb - $lsb + 1 };
+                    my $width = ($msb =~ /^\d+$/ && $lsb =~ /^\d+$/) ? ($msb - $lsb + 1) : undef;
+                    $signal_types{$name} = { type => 'vector', width => $width, msb => $msb, lsb => $lsb };
                 } else {
                     $signal_types{$name} = { type => 'scalar' };
                 }
@@ -288,6 +291,20 @@ sub translate_file {
         }
     }
 
+    # Pre-scan: collect generics and typed ports for proper entity generation.
+    # This handles Verilog-95 style where port names are in the module header
+    # and input/output declarations come later (possibly after parameters).
+    my @prescan_generics;  # {name, value}
+    my @prescan_ports;     # {name, dir, msb, lsb}  (msb/lsb may be expressions)
+    foreach my $line (@lines) {
+        if ($line =~ /^\s*parameter\s+(\w+)\s*=\s*(.+?)\s*;/) {
+            push @prescan_generics, { name => $1, value => $2 };
+        }
+        if ($line =~ /^\s*(input|output|inout)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^:\]]+):([^:\]]+)\]\s+)?(\w+)/) {
+            push @prescan_ports, { name => $4, dir => $1, msb => $2, lsb => $3 };
+        }
+    }
+
     # Build output array instead of printing directly
     my @output;
 
@@ -297,6 +314,41 @@ sub translate_file {
 
     push @output, generate_header($mode, $input, $module_name);
 
+    # If we have pre-scanned ports, generate a complete entity declaration now
+    # and set a flag so the line-by-line pass skips redundant port/entity generation
+    # Build set of port names to avoid duplicate signal declarations
+    our %port_names = ();
+    foreach my $p (@prescan_ports) { $port_names{$p->{name}} = 1; }
+
+    my $entity_prescanned = 0;
+    if (@prescan_ports) {
+        my $entity = "entity $module_name is\n";
+        if (@prescan_generics) {
+            $entity .= "  generic (\n";
+            for my $i (0 .. $#prescan_generics) {
+                my $g = $prescan_generics[$i];
+                my $sep = ($i < $#prescan_generics) ? ';' : '';
+                $entity .= "    $g->{name} : integer := $g->{value}$sep\n";
+            }
+            $entity .= "  );\n";
+        }
+        $entity .= "  port (\n";
+        for my $i (0 .. $#prescan_ports) {
+            my $p = $prescan_ports[$i];
+            my $vhdl_dir = ($p->{dir} eq 'input') ? 'in'
+                         : ($p->{dir} eq 'output') ? 'out'
+                         : 'inout';
+            my $vhdl_type = (defined $p->{msb})
+                ? "std_logic_vector($p->{msb} downto $p->{lsb})"
+                : "std_logic";
+            my $sep = ($i < $#prescan_ports) ? ';' : '';
+            $entity .= "    $p->{name} : $vhdl_dir $vhdl_type$sep\n";
+        }
+        $entity .= "  );\n";
+        push @output, $entity;
+        $entity_prescanned = 1;
+    }
+
     # Translate line by line with state tracking
     my $line_num = 0;
     my $in_entity = 0;
@@ -305,6 +357,7 @@ sub translate_file {
     my $arch_header_idx = -1;  # Index where architecture header ends
 
     my $in_block_comment = 0;
+    my $in_module_header = 0; # inside module NAME(...) port list (V95 bare names)
     my $in_process = 0;       # inside a process-generating block (initial or always)
     my $process_depth = 0;    # begin/end nesting depth within process block
     my $process_pending = 0;  # saw 'initial'/'always' alone, waiting for begin/stmt
@@ -346,6 +399,40 @@ sub translate_file {
         # State machine for entity/architecture boundary
         if ($line =~ /^\s*module\s+\w+/) {
             $in_entity = 1;
+            # Detect Verilog-95 port style: module NAME(bare, names, ...);
+            if ($line =~ /\(/ && $line !~ /\b(?:input|output|inout)\b/) {
+                $in_module_header = 1;
+            }
+            # If entity was pre-scanned, skip the module line (entity already emitted)
+            if ($entity_prescanned) {
+                next;
+            }
+        }
+
+        # Inside V95 module header port list — skip bare port names
+        if ($in_module_header) {
+            if ($line =~ /\)\s*;/) {
+                $in_module_header = 0;
+            }
+            next if $line !~ /^\s*module\b/;
+        }
+
+        # When entity is pre-scanned, skip input/output/parameter lines
+        # (already in the entity declaration) and redirect entity-close
+        if ($entity_prescanned && $in_entity && !$port_section_done) {
+            # Skip lines already handled by pre-scan
+            next if $line =~ /^\s*(?:input|output|inout|parameter)\b/;
+            # When we hit the first non-port line, close entity + start arch
+            if ($line =~ /^\s*(?:wire|reg|always|assign|initial|integer|real|time|task|function|genvar|generate|defparam|specify|localparam|int|bit|byte|shortint|longint|string|logic)\b/ || $line =~ /^\s*\w+\s+\w+\s*\(/) {
+                push @output, "end entity;\n\n";
+                push @output, generate_architecture_header($module_name, $mode, \@signals, \@instantiations);
+                $arch_header_idx = $#output;
+                $in_architecture = 1;
+                $port_section_done = 1;
+                # Fall through to process this line as architecture content
+            } else {
+                next;  # Skip other header content (comments etc.)
+            }
         }
 
         # End of ports section (first non-port declaration)
@@ -774,7 +861,10 @@ sub translate_line {
             }
 
             # Store signal declaration for later insertion
+            # Skip if this name is already a port (avoid duplicate declarations)
             our @signal_decls;
+            our %port_names;
+            next if exists $port_names{$name};
             push @signal_decls, "  signal $name : $vhdl_type;\n";
         }
 
