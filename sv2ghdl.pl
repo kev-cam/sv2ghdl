@@ -568,6 +568,40 @@ sub translate_line {
         return "-- " . $line;
     }
 
+    # --- Generate blocks ---
+    # genvar declarations → skip (VHDL for-generate declares the variable)
+    if ($line =~ /^\s*genvar\b/) {
+        return "";
+    }
+    # generate / endgenerate keywords → skip (VHDL doesn't use these wrappers)
+    if ($line =~ /^\s*generate\s*$/) {
+        return "";
+    }
+    if ($line =~ /^\s*endgenerate\s*$/) {
+        return "";
+    }
+    # for (i = 0; i < N; i = i+1) begin : LABEL
+    # → LABEL: for i in 0 to N-1 generate
+    if ($line =~ /^\s*for\s*\(\s*(\w+)\s*=\s*(\d+)\s*;\s*\1\s*<\s*(.+?)\s*;\s*\1\s*=\s*\1\s*\+\s*1\s*\)\s*$/ ||
+        $line =~ /^\s*for\s*\(\s*(\w+)\s*=\s*(\d+)\s*;\s*\1\s*<\s*(.+?)\s*;\s*\1\s*=\s*\1\s*\+\s*1\s*\)\s*begin\s*:\s*(\w+)\s*$/) {
+        my ($var, $start, $limit, $label) = ($1, $2, $3, $4);
+        $label //= "GEN_$var";
+        $limit =~ s/\s+//g;
+        # Convert i < N to N-1 for VHDL "0 to N-1"
+        return line_directive($line_num, $source_file) .
+               "  $label: for $var in $start to $limit - 1 generate\n";
+    }
+    # begin : LABEL on its own (after a for-generate without begin on same line)
+    if ($line =~ /^\s*begin\s*:\s*(\w+)\s*$/ && !$$in_process_ref) {
+        # Already handled in the for-generate pattern above when on same line;
+        # when separate, emit the label
+        return "";
+    }
+    # end (at architecture level, closing a generate block)
+    if ($line =~ /^\s*end\s*$/ && !$$in_process_ref && $$process_depth_ref == 0) {
+        return "  end generate;\n";
+    }
+
     # --- Task/function block skipping ---
     if ($$in_task_ref) {
         if ($line =~ /^\s*(?:endtask|endfunction)\b/) {

@@ -1,0 +1,136 @@
+#!/usr/bin/perl
+# sv-pkg-to-vhdl — translate a SystemVerilog package (struct/enum typedefs)
+#                   to a VHDL package with record/enum types.
+#
+# Usage: sv-pkg-to-vhdl < preprocessed.v > pkg.vhd
+#        sv-pkg-to-vhdl preprocessed.v -o pkg.vhd
+#
+# Extracts `package NAME ... endpackage` blocks and generates VHDL package(s)
+# containing record types, enum types, and constants.
+
+use strict;
+use warnings;
+
+my $input = '-';
+my $output = '-';
+for (my $i = 0; $i < @ARGV; $i++) {
+    if ($ARGV[$i] eq '-o') { $output = $ARGV[++$i]; }
+    elsif ($ARGV[$i] !~ /^-/) { $input = $ARGV[$i]; }
+}
+
+my %VHDL_RESERVED;
+@VHDL_RESERVED{qw(abs access after alias all and architecture array assert
+    attribute begin block body buffer bus case component configuration
+    constant disconnect downto else elsif end entity exit file for function
+    generate generic group guarded if impure in inertial inout is label
+    library linkage literal loop map mod nand new next nor not null of on
+    open or others out package port postponed procedure process pure range
+    record register reject rem report resize return rol ror select severity
+    shared signal sla sll sra srl subtype then to transport type unaffected
+    units until use variable wait when while with xnor xor)} = ();
+
+open my $in, '<', ($input eq '-' ? '/dev/stdin' : $input) or die "open $input: $!\n";
+my @lines = <$in>;
+close $in;
+
+my $out_fh;
+if ($output eq '-') { $out_fh = \*STDOUT; }
+else { open $out_fh, '>', $output or die "open $output: $!\n"; }
+
+# Find package blocks
+my $i = 0;
+while ($i < @lines) {
+    if ($lines[$i] =~ /^\s*package\s+(\w+)\s*;/) {
+        my $pkg_name = $1;
+        my @pkg_lines;
+        $i++;
+        while ($i < @lines && $lines[$i] !~ /^\s*endpackage/) {
+            push @pkg_lines, $lines[$i];
+            $i++;
+        }
+        translate_package($pkg_name, \@pkg_lines);
+    }
+    $i++;
+}
+
+sub vhdl_id {
+    my ($id) = @_;
+    $id = lc($id);
+    return "v_$id" if exists $VHDL_RESERVED{$id};
+    return $id;
+}
+
+sub translate_package {
+    my ($name, $lines) = @_;
+    my $vhdl_name = lc($name);
+
+    print $out_fh "-- Auto-generated from SV package $name\n";
+    print $out_fh "library ieee;\n";
+    print $out_fh "use ieee.std_logic_1164.all;\n";
+    print $out_fh "use ieee.numeric_std.all;\n\n";
+    print $out_fh "package $vhdl_name is\n\n";
+
+    my $j = 0;
+    while ($j < @$lines) {
+        my $line = $lines->[$j];
+
+        # typedef struct packed { ... } name_t;
+        if ($line =~ /^\s*typedef\s+struct\s+packed\s*\{/) {
+            my @fields;
+            $j++;
+            while ($j < @$lines && $lines->[$j] !~ /^\s*\}\s*(\w+)\s*;/) {
+                my $fl = $lines->[$j];
+                $fl =~ s/^\s+//; $fl =~ s/\s+$//;
+                if ($fl =~ /^logic\s+(?:\[([^:\]]+):([^:\]]+)\]\s+)?(\w+)/) {
+                    my ($msb, $lsb, $fname) = ($1, $2, $3);
+                    my $vtype;
+                    if (defined $msb) {
+                        $vtype = "std_logic_vector($msb downto $lsb)";
+                    } else {
+                        $vtype = "std_logic";
+                    }
+                    push @fields, { name => vhdl_id($fname), type => $vtype };
+                }
+                # Nested struct type reference
+                elsif ($fl =~ /^(\w+)\s+(\w+)/) {
+                    my ($tname, $fname) = ($1, $2);
+                    push @fields, { name => vhdl_id($fname), type => lc($tname) };
+                }
+                $j++;
+            }
+            if ($lines->[$j] =~ /\}\s*(\w+)\s*;/) {
+                my $tname = lc($1);
+                print $out_fh "  type $tname is record\n";
+                for my $f (@fields) {
+                    printf $out_fh "    %-30s : %s;\n", $f->{name}, $f->{type};
+                }
+                print $out_fh "  end record;\n\n";
+            }
+        }
+
+        # typedef enum logic [N:0] { ... } name_t;
+        elsif ($line =~ /^\s*typedef\s+enum/) {
+            my @vals;
+            $j++;
+            while ($j < @$lines && $lines->[$j] !~ /^\s*\}\s*(\w+)\s*;/) {
+                my $el = $lines->[$j];
+                $el =~ s/^\s+//; $el =~ s/\s+$//;
+                # Extract enum value names (ignore = assignments for now)
+                while ($el =~ /(\w+)\s*(?:=\s*\S+)?/g) {
+                    push @vals, $1 unless $1 eq '';
+                }
+                $j++;
+            }
+            if ($lines->[$j] =~ /\}\s*(\w+)\s*;/) {
+                my $tname = lc($1);
+                print $out_fh "  type $tname is (", join(", ", map { lc($_) } @vals), ");\n\n";
+            }
+        }
+
+        $j++;
+    }
+
+    print $out_fh "end package;\n";
+}
+
+close $out_fh if $output ne '-';

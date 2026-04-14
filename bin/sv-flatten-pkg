@@ -1,0 +1,139 @@
+#!/usr/bin/perl
+# sv-flatten-pkg — extract field values from a packed struct parameter
+#                   and replace pt.FIELD references with integer constants.
+#
+# Usage: sv-flatten-pkg --pkg=preprocessed.v --struct=el2_param_t \
+#                       --param=pt input.v > output.v
+#
+# Reads the struct typedef from the package, finds the parameter assignment
+# (a hex literal), decodes each field's value, and replaces all pt.FIELD
+# references with the concrete integer.
+
+use strict;
+use warnings;
+use Math::BigInt;
+
+my ($pkg_file, $struct_name, $param_name) = ('', 'el2_param_t', 'pt');
+my @inputs;
+
+for my $arg (@ARGV) {
+    if ($arg =~ /^--pkg=(.+)/)    { $pkg_file = $1; }
+    elsif ($arg =~ /^--struct=(.+)/) { $struct_name = $1; }
+    elsif ($arg =~ /^--param=(.+)/)  { $param_name = $1; }
+    elsif ($arg !~ /^-/)             { push @inputs, $arg; }
+}
+
+die "Usage: sv-flatten-pkg --pkg=FILE [--struct=NAME] [--param=NAME] input.v\n"
+    unless $pkg_file && @inputs;
+
+# Step 1: Parse struct typedef to get field names + widths (MSB-first order)
+open my $pfh, '<', $pkg_file or die "open $pkg_file: $!\n";
+my @fields;  # [{name, width}] in declaration order (MSB first for packed struct)
+my $in_struct = 0;
+while (<$pfh>) {
+    if (/typedef\s+struct\s+packed\s*\{/ && !$in_struct) { $in_struct = 1; next; }
+    if ($in_struct && /^\s*\}\s*$struct_name\s*;/) { last; }
+    if ($in_struct) {
+        if (/^\s*logic\s+\[(\d+):(\d+)\]\s+(\w+)/) {
+            push @fields, { name => $3, width => $1 - $2 + 1 };
+        } elsif (/^\s*logic\s+(\w+)/ && !/\[/) {
+            push @fields, { name => $1, width => 1 };
+        }
+        # Skip nested struct type refs for now
+        elsif (/^\s*(\w+)\s+(\w+)\s*;/ && $1 ne 'logic') {
+            # Treat as opaque — we'll skip fields we can't decode
+            push @fields, { name => $2, width => 0, opaque => 1 };
+        }
+    }
+}
+close $pfh;
+
+my $total_bits = 0;
+$total_bits += $_->{width} for @fields;
+
+# Step 2: Process each input file
+for my $input (@inputs) {
+    open my $ifh, '<', $input or die "open $input: $!\n";
+    my @lines = <$ifh>;
+    close $ifh;
+
+    # Find the hex parameter value: parameter el2_param_t pt = BITS'hHEX...
+    my $hex_value;
+    for my $line (@lines) {
+        if ($line =~ /parameter\s+$struct_name\s+$param_name\s*=\s*\d+'h([0-9A-Fa-f]+)/) {
+            $hex_value = $1;
+            last;
+        }
+    }
+
+    if ($hex_value) {
+        # Decode: packed struct is MSB-first, hex is MSB-first
+        my $bigval = Math::BigInt->new("0x$hex_value");
+        my %field_values;
+        my $bit_offset = $total_bits;
+        for my $f (@fields) {
+            next if $f->{opaque};
+            $bit_offset -= $f->{width};
+            my $mask = Math::BigInt->new(1)->blsft($f->{width})->bsub(1);
+            my $val = $bigval->copy()->brsft($bit_offset)->band($mask);
+            $field_values{$f->{name}} = $val->numify();
+        }
+
+        # Replace pt.FIELD with integer value, strip parameter block, strip import
+        my $in_param_block = 0;
+        my $paren_depth = 0;
+        for my $line (@lines) {
+            # Remove import lines
+            next if $line =~ /^\s*import\s/;
+
+            # Strip the #( ... ) parameter block entirely
+            if ($line =~ /^\s*#\s*\(/) {
+                $in_param_block = 1;
+                $paren_depth = 1;
+                next;
+            }
+            if ($in_param_block) {
+                # Character-by-character paren tracking to handle ") (" correctly
+                my $rest_of_line = '';
+                for my $ch (split //, $line) {
+                    if ($ch eq '(') { $paren_depth++; }
+                    elsif ($ch eq ')') {
+                        $paren_depth--;
+                        if ($paren_depth <= 0) {
+                            $in_param_block = 0;
+                            # Capture everything after the closing ) as potential port list
+                            (undef, $rest_of_line) = split /\)/, $line, 2;
+                            last;
+                        }
+                    }
+                }
+                if (!$in_param_block && $rest_of_line =~ /\(/) {
+                    # The port list starts on the same line — emit module_name (
+                    print "(\n";
+                }
+                next;
+            }
+
+            # Replace pt.FIELD references
+            $line =~ s/\b$param_name\.(\w+)\b/
+                exists $field_values{$1} ? $field_values{$1} : "${param_name}_$1"
+            /ge;
+            # Replace $clog2(N) with computed value
+            $line =~ s/\$clog2\((\d+)\)/clog2($1)/ge;
+            print $line;
+        }
+    }
+    else {
+        # No parameter found — pass through unchanged
+        print @lines;
+    }
+}
+
+sub clog2 {
+    my ($n) = @_;
+    return 0 if $n <= 1;
+    my $r = 0;
+    $n--;
+    while ($n > 0) { $n >>= 1; $r++; }
+    return $r;
+}
