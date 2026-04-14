@@ -95,6 +95,7 @@ for my $input (@inputs) {
 
     my $in_param_block = 0;
     my $paren_depth = 0;
+    my @outbuf;  # Buffer output for post-processing
 
     for my $line (@lines) {
         # Remove import lines
@@ -114,7 +115,7 @@ for my $input (@inputs) {
                     if ($paren_depth <= 0) {
                         $in_param_block = 0;
                         (undef, my $rest) = split /\)/, $line, 2;
-                        print "(\n" if defined $rest && $rest =~ /\(/;
+                        push @outbuf, "(\n" if defined $rest && $rest =~ /\(/;
                         last;
                     }
                 }
@@ -136,17 +137,17 @@ for my $input (@inputs) {
                     # Array of structs: compute total packed width
                     my $struct_width = 0;
                     $struct_width += $_->{width} for @fields;
-                    print "    $dir logic [$array_range] $port_name$term // $stype array (packed ${struct_width}b each)\n";
+                    push @outbuf, "    $dir logic [$array_range] $port_name$term // $stype array (packed ${struct_width}b each)\n";
                 } else {
                     # Expand each field as a separate port
                     for my $i (0 .. $#fields) {
                         my $f = $fields[$i];
                         my $sep = ($i == $#fields) ? $term : ',';
                         if ($f->{width} == 1) {
-                            print "    $dir logic ${port_name}_$f->{name}$sep\n";
+                            push @outbuf, "    $dir logic ${port_name}_$f->{name}$sep\n";
                         } else {
                             my $msb = $f->{width} - 1;
-                            print "    $dir logic [$msb:0] ${port_name}_$f->{name}$sep\n";
+                            push @outbuf, "    $dir logic [$msb:0] ${port_name}_$f->{name}$sep\n";
                         }
                     }
                 }
@@ -164,7 +165,7 @@ for my $input (@inputs) {
             for my $name (split /\s*,\s*/, $names_str) {
                 $name =~ s/^\s+|\s+$//g;
                 next if $name eq '';
-                print "  logic [${\($width-1)}:0] $name;\n";
+                push @outbuf, "  logic [${\($width-1)}:0] $name;\n";
             }
             next;
         }
@@ -181,10 +182,10 @@ for my $input (@inputs) {
                     next if $sig_name eq '';
                     for my $f (@fields) {
                         if ($f->{width} == 1) {
-                            print "  logic ${sig_name}_$f->{name};\n";
+                            push @outbuf, "  logic ${sig_name}_$f->{name};\n";
                         } else {
                             my $msb = $f->{width} - 1;
-                            print "  logic [$msb:0] ${sig_name}_$f->{name};\n";
+                            push @outbuf, "  logic [$msb:0] ${sig_name}_$f->{name};\n";
                         }
                     }
                 }
@@ -211,8 +212,35 @@ for my $input (@inputs) {
         $line =~ s/(\w+)\.(\w+)\b(?!\s*\()/${1}_${2}/g
             if $line !~ /^\s*module\b/ && $line !~ /^\s*\/\//;
 
-        print $line;
+        push @outbuf, $line;
     }
+
+    # Post-process: fix trailing comma before );
+    for my $i (0 .. $#outbuf) {
+        if ($outbuf[$i] =~ /^\s*\)\s*;/ && $i > 0) {
+            # Remove trailing comma from previous non-blank line
+            for my $j (reverse 0 .. $i-1) {
+                next if $outbuf[$j] =~ /^\s*$/;
+                $outbuf[$j] =~ s/,\s*$/\n/;
+                last;
+            }
+        }
+    }
+
+    # Strip initial begin $fatal/$error ... end blocks (parameter validation)
+    my $in_fatal = 0;
+    for my $line (@outbuf) {
+        if ($line =~ /^\s*initial\s+begin\s*$/ || $line =~ /\$fatal\b|\$error\b/) {
+            $in_fatal = 1 if $line =~ /\$fatal|\$error/;
+        }
+        if ($in_fatal) {
+            $line = "// stripped: $line" if $line !~ /^\s*$/;
+            $in_fatal = 0 if $line =~ /^\s*end\s*$/;
+            next;
+        }
+    }
+
+    print @outbuf;
 }
 
 sub clog2 {
