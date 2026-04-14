@@ -1,13 +1,14 @@
 #!/usr/bin/perl
-# sv-flatten-pkg — extract field values from a packed struct parameter
-#                   and replace pt.FIELD references with integer constants.
+# sv-flatten-pkg — flatten SV struct parameters and struct-typed ports
 #
-# Usage: sv-flatten-pkg --pkg=preprocessed.v --struct=el2_param_t \
-#                       --param=pt input.v > output.v
+# Usage: sv-flatten-pkg --pkg=preprocessed.v [--struct=NAME] [--param=NAME] input.v
 #
-# Reads the struct typedef from the package, finds the parameter assignment
-# (a hex literal), decodes each field's value, and replaces all pt.FIELD
-# references with the concrete integer.
+# 1. Parses ALL typedef struct packed from the package
+# 2. Decodes the packed struct parameter hex literal, replaces pt.FIELD with integers
+# 3. Strips #(...) parameter blocks and import lines
+# 4. Expands struct-typed ports into individual logic ports
+#
+# Output goes to stdout.
 
 use strict;
 use warnings;
@@ -26,30 +27,43 @@ for my $arg (@ARGV) {
 die "Usage: sv-flatten-pkg --pkg=FILE [--struct=NAME] [--param=NAME] input.v\n"
     unless $pkg_file && @inputs;
 
-# Step 1: Parse struct typedef to get field names + widths (MSB-first order)
+# Step 1: Parse ALL struct typedefs from the package
 open my $pfh, '<', $pkg_file or die "open $pkg_file: $!\n";
-my @fields;  # [{name, width}] in declaration order (MSB first for packed struct)
-my $in_struct = 0;
+my %structs;  # type_name => [{name, width, type}]
+my $cur_struct = '';
 while (<$pfh>) {
-    if (/typedef\s+struct\s+packed\s*\{/ && !$in_struct) { $in_struct = 1; next; }
-    if ($in_struct && /^\s*\}\s*$struct_name\s*;/) { last; }
-    if ($in_struct) {
-        if (/^\s*logic\s+\[(\d+):(\d+)\]\s+(\w+)/) {
-            push @fields, { name => $3, width => $1 - $2 + 1 };
-        } elsif (/^\s*logic\s+(\w+)/ && !/\[/) {
-            push @fields, { name => $1, width => 1 };
+    if (/typedef\s+struct\s+packed\s*\{/) {
+        $cur_struct = '_pending';
+        next;
+    }
+    if ($cur_struct && /^\s*\}\s*(\w+)\s*;/) {
+        $structs{$1} = $structs{$cur_struct} if $cur_struct eq '_pending';
+        $cur_struct = '';
+        # Re-key if pending
+        if (exists $structs{'_pending'}) {
+            $structs{$1} = delete $structs{'_pending'};
         }
-        # Skip nested struct type refs for now
-        elsif (/^\s*(\w+)\s+(\w+)\s*;/ && $1 ne 'logic') {
-            # Treat as opaque — we'll skip fields we can't decode
-            push @fields, { name => $2, width => 0, opaque => 1 };
+        next;
+    }
+    if ($cur_struct) {
+        my $s = ($cur_struct eq '_pending') ? '_pending' : $cur_struct;
+        $structs{$s} //= [];
+        if (/^\s*logic\s+\[(\d+):(\d+)\]\s+(\w+)/) {
+            push @{$structs{$s}}, { name => $3, width => $1 - $2 + 1, type => 'logic' };
+        } elsif (/^\s*logic\s+(\w+)/ && !/\[/) {
+            push @{$structs{$s}}, { name => $1, width => 1, type => 'logic' };
+        } elsif (/^\s*(\w+)\s+(\w+)\s*;/ && $1 ne 'logic') {
+            push @{$structs{$s}}, { name => $2, width => 0, type => $1, opaque => 1 };
         }
     }
 }
 close $pfh;
 
+# Compute total width for the param struct
 my $total_bits = 0;
-$total_bits += $_->{width} for @fields;
+if (exists $structs{$struct_name}) {
+    $total_bits += $_->{width} for @{$structs{$struct_name}};
+}
 
 # Step 2: Process each input file
 for my $input (@inputs) {
@@ -57,8 +71,9 @@ for my $input (@inputs) {
     my @lines = <$ifh>;
     close $ifh;
 
-    # Find the hex parameter value: parameter el2_param_t pt = BITS'hHEX...
+    # Find the hex parameter value
     my $hex_value;
+    my %field_values;
     for my $line (@lines) {
         if ($line =~ /parameter\s+$struct_name\s+$param_name\s*=\s*\d+'h([0-9A-Fa-f]+)/) {
             $hex_value = $1;
@@ -66,66 +81,117 @@ for my $input (@inputs) {
         }
     }
 
-    if ($hex_value) {
-        # Decode: packed struct is MSB-first, hex is MSB-first
+    if ($hex_value && exists $structs{$struct_name}) {
         my $bigval = Math::BigInt->new("0x$hex_value");
-        my %field_values;
         my $bit_offset = $total_bits;
-        for my $f (@fields) {
+        for my $f (@{$structs{$struct_name}}) {
             next if $f->{opaque};
             $bit_offset -= $f->{width};
             my $mask = Math::BigInt->new(1)->blsft($f->{width})->bsub(1);
             my $val = $bigval->copy()->brsft($bit_offset)->band($mask);
             $field_values{$f->{name}} = $val->numify();
         }
+    }
 
-        # Replace pt.FIELD with integer value, strip parameter block, strip import
-        my $in_param_block = 0;
-        my $paren_depth = 0;
-        for my $line (@lines) {
-            # Remove import lines
-            next if $line =~ /^\s*import\s/;
+    my $in_param_block = 0;
+    my $paren_depth = 0;
 
-            # Strip the #( ... ) parameter block entirely
-            if ($line =~ /^\s*#\s*\(/) {
-                $in_param_block = 1;
-                $paren_depth = 1;
-                next;
+    for my $line (@lines) {
+        # Remove import lines
+        next if $line =~ /^\s*import\s/;
+
+        # Strip #( ... ) parameter block
+        if ($line =~ /^\s*#\s*\(/) {
+            $in_param_block = 1;
+            $paren_depth = 1;
+            next;
+        }
+        if ($in_param_block) {
+            for my $ch (split //, $line) {
+                if ($ch eq '(') { $paren_depth++; }
+                elsif ($ch eq ')') {
+                    $paren_depth--;
+                    if ($paren_depth <= 0) {
+                        $in_param_block = 0;
+                        (undef, my $rest) = split /\)/, $line, 2;
+                        print "(\n" if defined $rest && $rest =~ /\(/;
+                        last;
+                    }
+                }
             }
-            if ($in_param_block) {
-                # Character-by-character paren tracking to handle ") (" correctly
-                my $rest_of_line = '';
-                for my $ch (split //, $line) {
-                    if ($ch eq '(') { $paren_depth++; }
-                    elsif ($ch eq ')') {
-                        $paren_depth--;
-                        if ($paren_depth <= 0) {
-                            $in_param_block = 0;
-                            # Capture everything after the closing ) as potential port list
-                            (undef, $rest_of_line) = split /\)/, $line, 2;
-                            last;
+            next;
+        }
+
+        # Expand struct-typed ports:
+        # input el2_br_pkt_t name,  →  input logic name_valid, input logic [11:0] name_toffset, ...
+        # Also handles arrays: input el2_trigger_pkt_t [3:0] name
+        if ($line =~ /^\s*(input|output|inout)\s+(el2_\w+_t)\s+(?:\[([^\]]+)\]\s+)?(\w+)\s*([,;)]?)/) {
+            my ($dir, $stype, $array_range, $port_name, $term) = ($1, $2, $3, $4, $5);
+            # Default to comma — the original term may be empty if the struct port
+            # is followed by more ports. Only use ) if it was explicitly there.
+            $term = ',' unless $term eq ')' || $term eq ';';
+            if (exists $structs{$stype}) {
+                my @fields = grep { !$_->{opaque} } @{$structs{$stype}};
+                if (defined $array_range) {
+                    # Array of structs: compute total packed width
+                    my $struct_width = 0;
+                    $struct_width += $_->{width} for @fields;
+                    print "    $dir logic [$array_range] $port_name$term // $stype array (packed ${struct_width}b each)\n";
+                } else {
+                    # Expand each field as a separate port
+                    for my $i (0 .. $#fields) {
+                        my $f = $fields[$i];
+                        my $sep = ($i == $#fields) ? $term : ',';
+                        if ($f->{width} == 1) {
+                            print "    $dir logic ${port_name}_$f->{name}$sep\n";
+                        } else {
+                            my $msb = $f->{width} - 1;
+                            print "    $dir logic [$msb:0] ${port_name}_$f->{name}$sep\n";
                         }
                     }
                 }
-                if (!$in_param_block && $rest_of_line =~ /\(/) {
-                    # The port list starts on the same line — emit module_name (
-                    print "(\n";
+                next;
+            }
+        }
+
+        # Expand struct-typed signal/wire declarations in the body:
+        # el2_br_pkt_t name;  →  logic name_valid; logic [11:0] name_toffset; ...
+        if ($line =~ /^\s*(el2_\w+_t)\s+(\w+)\s*;/) {
+            my ($stype, $sig_name) = ($1, $2);
+            if (exists $structs{$stype}) {
+                my @fields = grep { !$_->{opaque} } @{$structs{$stype}};
+                for my $f (@fields) {
+                    if ($f->{width} == 1) {
+                        print "  logic ${sig_name}_$f->{name};\n";
+                    } else {
+                        my $msb = $f->{width} - 1;
+                        print "  logic [$msb:0] ${sig_name}_$f->{name};\n";
+                    }
                 }
                 next;
             }
+        }
 
-            # Replace pt.FIELD references
+        # Strip #(.pt(pt)) from module instantiations
+        $line =~ s/\s*#\(\s*\.pt\s*\(\s*pt\s*\)\s*\)//g;
+
+        # Replace pt.FIELD with concrete integer values FIRST
+        # (before generic struct.field → struct_field which would mangle them)
+        if (%field_values) {
             $line =~ s/\b$param_name\.(\w+)\b/
                 exists $field_values{$1} ? $field_values{$1} : "${param_name}_$1"
             /ge;
-            # Replace $clog2(N) with computed value
-            $line =~ s/\$clog2\((\d+)\)/clog2($1)/ge;
-            print $line;
         }
-    }
-    else {
-        # No parameter found — pass through unchanged
-        print @lines;
+
+        # Replace $clog2(N) with computed value
+        $line =~ s/\$clog2\((\d+)\)/clog2($1)/ge;
+
+        # Replace remaining struct.field access: signal.field → signal_field
+        # (skip module declarations, comments, and port-map dots .name(expr))
+        $line =~ s/(\w+)\.(\w+)\b(?!\s*\()/${1}_${2}/g
+            if $line !~ /^\s*module\b/ && $line !~ /^\s*\/\//;
+
+        print $line;
     }
 }
 
