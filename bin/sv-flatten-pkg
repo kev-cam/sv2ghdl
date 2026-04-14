@@ -154,18 +154,38 @@ for my $input (@inputs) {
             }
         }
 
+        # Replace enum-typed declarations with logic of appropriate width:
+        # el2_inst_pkt_t name;  →  logic [3:0] name;
+        if ($line =~ /^\s*(el2_\w+_t)\s+([\w,\s]+)\s*;/ && !exists $structs{$1}) {
+            # Check if it's a known enum type — use 4-bit logic as default
+            # (el2_inst_pkt_t is 4-bit, pmp types are 2-3 bit)
+            my ($etype, $names_str) = ($1, $2);
+            my $width = ($etype =~ /inst_pkt/) ? 4 : ($etype =~ /pmp_type/) ? 3 : ($etype =~ /pmp_mode/) ? 2 : 4;
+            for my $name (split /\s*,\s*/, $names_str) {
+                $name =~ s/^\s+|\s+$//g;
+                next if $name eq '';
+                print "  logic [${\($width-1)}:0] $name;\n";
+            }
+            next;
+        }
+
         # Expand struct-typed signal/wire declarations in the body:
         # el2_br_pkt_t name;  →  logic name_valid; logic [11:0] name_toffset; ...
-        if ($line =~ /^\s*(el2_\w+_t)\s+(\w+)\s*;/) {
-            my ($stype, $sig_name) = ($1, $2);
+        # Also handles: el2_br_pkt_t name1, name2;
+        if ($line =~ /^\s*(el2_\w+_t)\s+(.+?)\s*;/) {
+            my ($stype, $names_str) = ($1, $2);
             if (exists $structs{$stype}) {
                 my @fields = grep { !$_->{opaque} } @{$structs{$stype}};
-                for my $f (@fields) {
-                    if ($f->{width} == 1) {
-                        print "  logic ${sig_name}_$f->{name};\n";
-                    } else {
-                        my $msb = $f->{width} - 1;
-                        print "  logic [$msb:0] ${sig_name}_$f->{name};\n";
+                for my $sig_name (split /\s*,\s*/, $names_str) {
+                    $sig_name =~ s/^\s+|\s+$//g;
+                    next if $sig_name eq '';
+                    for my $f (@fields) {
+                        if ($f->{width} == 1) {
+                            print "  logic ${sig_name}_$f->{name};\n";
+                        } else {
+                            my $msb = $f->{width} - 1;
+                            print "  logic [$msb:0] ${sig_name}_$f->{name};\n";
+                        }
                     }
                 }
                 next;
