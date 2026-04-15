@@ -1,0 +1,110 @@
+% sv2ghdl/NVC vs Verilator benchmark results for ICCAD paper
+% Generated from rtlmeter benchmark suite runs, April 2026
+
+\subsection{Compile-and-Run Performance}
+
+Table~\ref{tab:perf} compares end-to-end wall-clock time (compile + simulate)
+for the NVC path (via sv2ghdl translation) against Verilator on the RTLMeter
+\texttt{Example} design across a range of simulation lengths.  Both tools were
+run on the same 8-core host (Intel, 17\,GB RAM) with Verilator~5.047 and
+NVC~1.19-devel.
+
+\begin{table}[h]
+\centering
+\caption{End-to-end wall time: NVC (via sv2ghdl) vs.\ Verilator.
+         RTLMeter \texttt{Example} design, 8-core host.}
+\label{tab:perf}
+\begin{tabular}{r|rrr|rrr|r}
+\hline
+\textbf{Cycles} &
+\multicolumn{3}{c|}{\textbf{NVC (s)}} &
+\multicolumn{3}{c|}{\textbf{Verilator (s)}} &
+\textbf{Speedup} \\
+ & Compile & Sim & Total & Compile & Sim & Total & \\
+\hline
+100\,K   & 0.05 &  0.10 &  \textbf{0.15} & 3.33 &  0.02 &  3.35 & 22.3$\times$ \\
+1\,M     & 0.05 &  0.63 &  \textbf{0.68} & 3.26 &  0.21 &  3.47 &  5.1$\times$ \\
+5\,M     & 0.05 &  2.94 &  \textbf{2.99} & 3.18 &  1.06 &  4.24 &  1.4$\times$ \\
+10\,M    & 0.05 &  5.82 &  5.87           & 3.34 &  2.12 &  \textbf{5.46} &  0.9$\times$ \\
+50\,M    & 0.05 & 30.46 & 30.51           & 3.18 & 10.68 & \textbf{13.86} &  0.5$\times$ \\
+\hline
+\end{tabular}
+\end{table}
+
+NVC's compile step (Verilog preprocessing, VHDL translation via Icarus
+Verilog, NVC analysis and elaboration) completes in under 50\,ms---roughly
+65$\times$ faster than Verilator's C++ code generation and compilation
+(3.2\,s).  Verilator's compiled-code simulation runs approximately
+2.8$\times$ faster per simulated cycle than NVC's event-driven engine.  The
+crossover point---where Verilator's faster simulation amortises its longer
+compile---occurs at approximately 8 million cycles on this host.
+
+For interactive RTL development, where typical debug runs are well below
+5 million cycles, NVC delivers 1.4--22$\times$ faster turnaround.
+
+\subsection{Translation Coverage}
+
+Table~\ref{tab:coverage} shows the fraction of RTLMeter design modules that
+the sv2ghdl pipeline (Icarus Verilog VHDL backend + sv2ghdl.pl fallback)
+successfully translates to VHDL accepted by NVC.  Translation uses a
+preprocess--split--translate--validate pipeline: \texttt{iverilog~-E}
+resolves macros, an AWK splitter isolates individual modules, each module is
+translated by \texttt{iverilog~-tvhdl} with sv2ghdl.pl as fallback, and the
+resulting VHDL is validated by \texttt{nvc~-a}.
+
+\begin{table}[h]
+\centering
+\caption{Module translation coverage on RTLMeter designs.
+         ``Pass'' = VHDL accepted by NVC; ``Elab'' = top entity elaborates.}
+\label{tab:coverage}
+\begin{tabular}{lrrrrl}
+\hline
+\textbf{Design} & \textbf{Lines} & \textbf{Modules} & \textbf{Pass} & \textbf{\%} & \textbf{Elab} \\
+\hline
+Example          &       43 &   1 &   1 & 100 & \checkmark \\
+XuanTie-C910     & 422\,801 & 470 & 420 &  89 & --- \\
+XuanTie-E902     &  47\,371 & 124 & 108 &  87 & --- \\
+VeeR-EL2         &  46\,812 & 219 & 167 &  76 & --- \\
+VeeR-EH2         &  60\,440 & 238 & 170 &  71 & --- \\
+VeeR-EH1         &  27\,564 & 113 &  73 &  65 & --- \\
+OpenPiton        & 192\,244 & 223 & 124 &  56 & --- \\
+\hline
+\end{tabular}
+\end{table}
+
+The remaining untranslated modules fall into three categories:
+(1)~SystemVerilog constructs not yet supported by the Icarus Verilog VHDL
+backend (unpacked arrays, \texttt{unique case}, struct literals),
+(2)~modules using SV package types as port types (partially addressed by the
+\texttt{sv-flatten-pkg} struct-expansion tool), and
+(3)~iverilog codegen timeouts on large wrapper modules.
+None of these are fundamental limitations of the VHDL target; each is an
+incremental improvement to the translation pipeline.
+
+\subsection{Verilator Compile and Simulation Reference}
+
+Table~\ref{tab:verilator} provides Verilator-only reference numbers for larger
+RTLMeter designs, collected on the same 8-core host.  These represent the
+performance ceiling that the sv2ghdl/NVC path aims to match once full design
+translation is achieved.
+
+\begin{table}[h]
+\centering
+\caption{Verilator performance on large RTLMeter designs (8-core host).}
+\label{tab:verilator}
+\begin{tabular}{lrrrr}
+\hline
+\textbf{Design} & \textbf{Verilate (s)} & \textbf{Mem (MB)} & \textbf{Sim (s)} & \textbf{kHz} \\
+\hline
+Example:kind:hello              &    0.11 &     18 &    0.22 & 4545 \\
+VeeR-EL2:default:dhry           &   35.36 &    231 &  301.11 &   20 \\
+Vortex:huge:hello               &  416.46 &  7049  & 1635.23 &  0.1 \\
+XiangShan:chisel3:cmark         &  485.04 &  6703  &  288.65 &  0.7 \\
+\hline
+\end{tabular}
+\end{table}
+
+For the large designs, Verilator's C++ compilation alone takes 0.5--8 minutes
+and consumes up to 7\,GB of memory.  An event-driven simulator with
+sub-second compile time offers a qualitatively different development
+experience, even if per-cycle throughput is lower.
