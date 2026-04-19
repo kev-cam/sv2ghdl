@@ -120,7 +120,7 @@ mkdir -p "$OUTDIR"
 IVERILOG_OK=0
 VHDL_OUT="$OUTDIR/design.vhd"
 
-if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
+if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
     if [[ -s "$VHDL_OUT" ]]; then
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
@@ -176,7 +176,7 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
         [[ "$modname" == "_preamble" ]] && continue
         mod_vhd="$OUTDIR/${modname}.vhd"
 
-        if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 \
+        if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 \
                 -o "$mod_vhd" "$mod_v" 2>/dev/null \
                 && [[ -s "$mod_vhd" ]] \
                 && $NVC --std=2040 -L "$NVC_LIBDIR" -a "$mod_vhd" >/dev/null 2>&1; then
