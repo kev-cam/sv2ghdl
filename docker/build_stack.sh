@@ -160,14 +160,13 @@ if [[ $BUILD_ANALOG = 1 ]]; then
 
         # Tpetra ETI is disabled because smak's interp doesn't yet evaluate
         # TriBITS' tribits_eti_generate_macros (empty TPETRA_ETI_MANGLING
-        # _TYPEDEFS breaks ETI .cpp compiles). Stokhos's Tpetra ETI paths
-        # are gated on TpetraCore_ENABLE_EXPLICIT_INSTANTIATION so they
-        # also skip. Stokhos_ENABLE_Amesos2 is OFF because its ENSEMBLE ETI
-        # path isn't gated on TpetraCore ETI and would still try to build.
-        # Kokkos_ENABLE_SERIAL/Tpetra_INST_SERIAL pinned ON because TriBITS'
-        # KOKKOS_HAS_TRILINOS PARENT_SCOPE propagation isn't fully modeled.
-        # Stokhos PCE+Ensemble headers ship cleanly under this config — Xyce
-        # needs Stokhos_Sacado.hpp from the PCE path.
+        # _TYPEDEFS would break ETI .cpp compiles). Stokhos's Tpetra ETI
+        # paths gate on TpetraCore_ENABLE_EXPLICIT_INSTANTIATION so they
+        # also skip. Stokhos_ENABLE_Amesos2 is OFF because its ENSEMBLE
+        # ETI path isn't gated on TpetraCore ETI and would still try to
+        # build. Kokkos_ENABLE_SERIAL / Tpetra_INST_SERIAL auto-enable via
+        # TriBITS' default heuristic now that CACHE INTERNAL is implicit
+        # FORCE in our interp.
         mkdir -p "$SRC/trilinos-build"
         ( cd "$SRC/trilinos-build" \
           && cmake \
@@ -175,8 +174,6 @@ if [[ $BUILD_ANALOG = 1 ]]; then
                -D CMAKE_INSTALL_PREFIX="$PREFIX" \
                -D BUILD_SHARED_LIBS=ON \
                -D AMD_INCLUDE_DIRS=/usr/include/suitesparse \
-               -D Kokkos_ENABLE_SERIAL=ON \
-               -D Tpetra_INST_SERIAL=ON \
                -D Tpetra_ENABLE_EXPLICIT_INSTANTIATION=OFF \
                -D Stokhos_ENABLE_Amesos2=OFF \
                "$SRC/Trilinos" \
