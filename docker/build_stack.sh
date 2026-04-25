@@ -142,10 +142,9 @@ if [[ $BUILD_DIGITAL = 1 ]]; then
 fi
 
 # Trilinos + Xyce: built when mode is 'full' or 'analog'. Adds ~30-90 min
-# and several GB. Plain make -j (smak doesn't yet handle cmake's Makefile2
-# dispatch pattern).
+# and several GB.
 if [[ $BUILD_ANALOG = 1 ]]; then
-    MAKE_CMD="make -j$JOBS"
+    MAKE_CMD="smak -j$JOBS"
 
     if [[ -d "$PREFIX/lib/cmake/Trilinos" ]]; then
         echo "===== Trilinos (already built, skipping) ====="
@@ -159,6 +158,11 @@ if [[ $BUILD_ANALOG = 1 ]]; then
         # Xyce ships the trilinos-base.cmake config we use to seed the build.
         clone_or_update https://github.com/kev-cam/xyce.git xyce
 
+        # Flags below disable Tpetra/Stokhos ETI paths the smak interp doesn't
+        # generate (tribits_eti_generate_macros + Sacado MP_Vector glue) and
+        # explicitly enable Kokkos Serial (TriBITS' KOKKOS_HAS_TRILINOS PARENT
+        # _SCOPE propagation isn't fully modeled yet). Xyce builds cleanly
+        # without these features.
         mkdir -p "$SRC/trilinos-build"
         ( cd "$SRC/trilinos-build" \
           && cmake \
@@ -166,8 +170,13 @@ if [[ $BUILD_ANALOG = 1 ]]; then
                -D CMAKE_INSTALL_PREFIX="$PREFIX" \
                -D BUILD_SHARED_LIBS=ON \
                -D AMD_INCLUDE_DIRS=/usr/include/suitesparse \
+               -D Kokkos_ENABLE_SERIAL=ON \
+               -D Tpetra_INST_SERIAL=ON \
+               -D Stokhos_ENABLE_Ensemble_Scalar_Type=OFF \
+               -D Stokhos_ENABLE_PCE_Scalar_Type=OFF \
+               -D Tpetra_ENABLE_EXPLICIT_INSTANTIATION=OFF \
                "$SRC/Trilinos" \
-          && $MAKE_CMD install )
+          && $MAKE_CMD && bash install.sh )
     fi
 
     if [[ -x "$PREFIX/bin/Xyce" ]]; then
@@ -184,7 +193,7 @@ if [[ $BUILD_ANALOG = 1 ]]; then
                -D Trilinos_ROOT="$PREFIX" \
                -D BUILD_SHARED_LIBS=ON \
                "$SRC/xyce" \
-          && $MAKE_CMD install )
+          && $MAKE_CMD && bash install.sh )
     fi
 fi
 
