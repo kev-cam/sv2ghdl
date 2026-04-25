@@ -158,15 +158,6 @@ if [[ $BUILD_ANALOG = 1 ]]; then
         # Xyce ships the trilinos-base.cmake config we use to seed the build.
         clone_or_update https://github.com/kev-cam/xyce.git xyce
 
-        # Tpetra ETI is disabled because smak's interp doesn't yet evaluate
-        # TriBITS' tribits_eti_generate_macros (empty TPETRA_ETI_MANGLING
-        # _TYPEDEFS would break ETI .cpp compiles). Stokhos's Tpetra ETI
-        # paths gate on TpetraCore_ENABLE_EXPLICIT_INSTANTIATION so they
-        # also skip. Stokhos_ENABLE_Amesos2 is OFF because its ENSEMBLE
-        # ETI path isn't gated on TpetraCore ETI and would still try to
-        # build. Kokkos_ENABLE_SERIAL / Tpetra_INST_SERIAL auto-enable via
-        # TriBITS' default heuristic now that CACHE INTERNAL is implicit
-        # FORCE in our interp.
         mkdir -p "$SRC/trilinos-build"
         ( cd "$SRC/trilinos-build" \
           && cmake \
@@ -174,8 +165,6 @@ if [[ $BUILD_ANALOG = 1 ]]; then
                -D CMAKE_INSTALL_PREFIX="$PREFIX" \
                -D BUILD_SHARED_LIBS=ON \
                -D AMD_INCLUDE_DIRS=/usr/include/suitesparse \
-               -D Tpetra_ENABLE_EXPLICIT_INSTANTIATION=OFF \
-               -D Stokhos_ENABLE_Amesos2=OFF \
                "$SRC/Trilinos" \
           && $MAKE_CMD && bash install.sh )
     fi
