@@ -1,0 +1,67 @@
+# openSUSE Tumbleweed variant of the sv2ghdl build container.
+# See Dockerfile.ubuntu22 for the canonical layout and usage notes.
+#
+# Tumbleweed's default GCC is 15, which Trilinos 14.4 doesn't compile under
+# (KokkosSparse_spadd_handle.hpp uses class members before declaration; GCC 15
+# enforces this via -Wtemplate-body). We install gcc14 alongside and pin it
+# as the system compiler.
+
+FROM registry.opensuse.org/opensuse/tumbleweed:latest
+
+RUN zypper -n install \
+      gcc14 gcc14-c++ gcc14-fortran gcc14-ada make \
+      automake autoconf libtool pkg-config git ca-certificates \
+      flex bison gperf libfl-devel \
+      llvm-devel clang \
+      readline-devel zlib-devel libzstd-devel libdw-devel libffi-devel libopenssl-devel \
+      check-devel z3-devel z3 \
+      python3 python3-devel python3-pip perl \
+      tcl-devel tk-devel boost-devel \
+      openssh-server rsync nginx \
+      curl tar gzip awk gawk hostname procps which diffutils findutils \
+      patch sed grep \
+      openmpi4-devel openmpi4 \
+      libopenblas_serial-devel openblas-common-devel lapack-devel \
+      suitesparse-devel fftw3-devel yaml-cpp-devel \
+    && zypper clean -a
+
+# Pin the gcc14 toolchain as the default cc/gcc/g++/gfortran/gnatmake. The
+# update-alternatives slave links keep all four in sync.
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
+      --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
+      --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-14 \
+ && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-14 140 \
+ && update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 140 \
+ && update-alternatives --install /usr/bin/gnat gnat /usr/bin/gnat-14 140 \
+      --slave /usr/bin/gnatmake gnatmake /usr/bin/gnatmake-14 \
+ && for t in gnatbind gnatchop gnatclean gnatkr gnatlink gnatls gnatname gnatprep; do \
+        ln -sf /usr/bin/$t-14 /usr/local/bin/$t; \
+    done
+
+ARG SV2GHDL_SRC=git
+ARG SV2GHDL_REPO=https://github.com/kev-cam/sv2ghdl.git
+ARG SV2GHDL_REF=main
+COPY . /tmp/sv2ghdl-ctx
+RUN if [ "$SV2GHDL_SRC" = "local" ]; then \
+        cp -a /tmp/sv2ghdl-ctx /opt/sv2ghdl; \
+    else \
+        git clone --depth=1 --branch "$SV2GHDL_REF" "$SV2GHDL_REPO" /opt/sv2ghdl; \
+    fi \
+ && rm -rf /tmp/sv2ghdl-ctx \
+ && chmod +x /opt/sv2ghdl/docker/build_stack.sh
+
+RUN ssh-keygen -A \
+ && mkdir -p /etc/ssh/sshd_config.d \
+ && printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' \
+    > /etc/ssh/sshd_config.d/00-sv2ghdl.conf \
+ && [ -f /etc/ssh/sshd_config ] || \
+    printf 'Include /etc/ssh/sshd_config.d/*.conf\n' > /etc/ssh/sshd_config \
+ && echo 'root:sv2ghdl' | chpasswd
+
+RUN cp /opt/sv2ghdl/docker/index.html /srv/www/htdocs/index.html 2>/dev/null || true
+
+RUN printf '#!/bin/sh\nset -e\n/usr/sbin/sshd\nexec nginx -g "daemon off;"\n' \
+    > /usr/local/bin/start.sh && chmod +x /usr/local/bin/start.sh
+
+EXPOSE 22 80
+CMD ["/usr/local/bin/start.sh"]
