@@ -119,8 +119,13 @@ if [[ $BUILD_DIGITAL = 1 ]]; then
     else
         echo "===== yosys ====="
         clone_or_update https://github.com/YosysHQ/yosys.git yosys
+        # ENABLE_LIBYOSYS=1 builds libyosys.so so sv2ghdl/yosys/gen_statemachine
+        # can link against it. ENABLE_PYOSYS=0 avoids a Python build dep
+        # not used by the wrappers.
         ( cd "$SRC/yosys" && make config-gcc \
-          && make -j$JOBS PREFIX="$PREFIX" && make install PREFIX="$PREFIX" )
+          && echo 'ENABLE_LIBYOSYS := 1' >> Makefile.conf \
+          && make -j$JOBS PREFIX="$PREFIX" \
+          && make install PREFIX="$PREFIX" )
     fi
 
     # Always re-copy wrappers and helpers (cheap)
