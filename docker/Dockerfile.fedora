@@ -17,12 +17,19 @@ RUN dnf install -y \
       cmake gcc-gfortran \
       openmpi-devel \
       openblas-devel lapack-devel \
-      suitesparse-devel fftw-devel \
+      suitesparse-devel fftw-devel yaml-cpp-devel \
     && dnf clean all
 
+ARG SV2GHDL_SRC=git
 ARG SV2GHDL_REPO=https://github.com/kev-cam/sv2ghdl.git
 ARG SV2GHDL_REF=main
-RUN git clone --depth=1 --branch "$SV2GHDL_REF" "$SV2GHDL_REPO" /opt/sv2ghdl \
+COPY . /tmp/sv2ghdl-ctx
+RUN if [ "$SV2GHDL_SRC" = "local" ]; then \
+        cp -a /tmp/sv2ghdl-ctx /opt/sv2ghdl; \
+    else \
+        git clone --depth=1 --branch "$SV2GHDL_REF" "$SV2GHDL_REPO" /opt/sv2ghdl; \
+    fi \
+ && rm -rf /tmp/sv2ghdl-ctx \
  && chmod +x /opt/sv2ghdl/docker/build_stack.sh
 
 RUN ssh-keygen -A \
