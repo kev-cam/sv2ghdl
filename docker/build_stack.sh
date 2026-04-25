@@ -158,11 +158,16 @@ if [[ $BUILD_ANALOG = 1 ]]; then
         # Xyce ships the trilinos-base.cmake config we use to seed the build.
         clone_or_update https://github.com/kev-cam/xyce.git xyce
 
-        # Flags below disable Tpetra/Stokhos ETI paths the smak interp doesn't
-        # generate (tribits_eti_generate_macros + Sacado MP_Vector glue) and
-        # explicitly enable Kokkos Serial (TriBITS' KOKKOS_HAS_TRILINOS PARENT
-        # _SCOPE propagation isn't fully modeled yet). Xyce builds cleanly
-        # without these features.
+        # Tpetra ETI is disabled because smak's interp doesn't yet evaluate
+        # TriBITS' tribits_eti_generate_macros (empty TPETRA_ETI_MANGLING
+        # _TYPEDEFS breaks ETI .cpp compiles). Stokhos's Tpetra ETI paths
+        # are gated on TpetraCore_ENABLE_EXPLICIT_INSTANTIATION so they
+        # also skip. Stokhos_ENABLE_Amesos2 is OFF because its ENSEMBLE ETI
+        # path isn't gated on TpetraCore ETI and would still try to build.
+        # Kokkos_ENABLE_SERIAL/Tpetra_INST_SERIAL pinned ON because TriBITS'
+        # KOKKOS_HAS_TRILINOS PARENT_SCOPE propagation isn't fully modeled.
+        # Stokhos PCE+Ensemble headers ship cleanly under this config — Xyce
+        # needs Stokhos_Sacado.hpp from the PCE path.
         mkdir -p "$SRC/trilinos-build"
         ( cd "$SRC/trilinos-build" \
           && cmake \
@@ -172,9 +177,8 @@ if [[ $BUILD_ANALOG = 1 ]]; then
                -D AMD_INCLUDE_DIRS=/usr/include/suitesparse \
                -D Kokkos_ENABLE_SERIAL=ON \
                -D Tpetra_INST_SERIAL=ON \
-               -D Stokhos_ENABLE_Ensemble_Scalar_Type=OFF \
-               -D Stokhos_ENABLE_PCE_Scalar_Type=OFF \
                -D Tpetra_ENABLE_EXPLICIT_INSTANTIATION=OFF \
+               -D Stokhos_ENABLE_Amesos2=OFF \
                "$SRC/Trilinos" \
           && $MAKE_CMD && bash install.sh )
     fi
