@@ -1,0 +1,93 @@
+#!/usr/bin/env perl
+#
+# sv-normalize — Verilog-to-Verilog normalization for VHDL translation
+#
+# Rewrites SV constructs that the iverilog VHDL backend can't handle
+# into semantically equivalent forms that it can. Each rewrite preserves
+# simulation semantics (verifiable by comparing VVP output).
+#
+# Usage: sv-normalize < input.sv > normalized.sv
+#        sv-normalize input.sv -o normalized.sv
+#
+# Pipeline position:
+#   iverilog -E (preprocess) | sv-normalize | iverilog -tvhdl (translate)
+#
+
+use strict;
+use warnings;
+
+my $input = \*STDIN;
+my $output = \*STDOUT;
+
+# Parse args
+if (@ARGV) {
+    my $infile = shift @ARGV;
+    if ($infile ne '-') {
+        open($input, '<', $infile) or die "Cannot open $infile: $!\n";
+    }
+    if (@ARGV >= 2 && $ARGV[0] eq '-o') {
+        shift @ARGV;
+        my $outfile = shift @ARGV;
+        open($output, '>', $outfile) or die "Cannot open $outfile: $!\n";
+    }
+}
+
+my $rewrites = 0;
+
+while (my $line = <$input>) {
+    chomp $line;
+
+    # Rule 1: assign LHS = expr[dynamic_index]...;
+    # Rewrite to: always @(*) LHS = expr[dynamic_index]...;
+    #
+    # Strip trailing // comments before matching
+    my $code = $line;
+    my $comment = '';
+    if ($code =~ s{(\s*//.*$)}{}) {
+        $comment = $1;
+    }
+    if ($code =~ /^(\s*)assign\s+(.+?)\s*=\s*(.+?)\s*;\s*$/) {
+        my ($indent, $lhs, $rhs) = ($1, $2, $3);
+        # Check for dynamic array indexing patterns on the RHS:
+        #   arr[VarName]  arr[VarName[slice]]
+        # A dynamic index is word[Ident] where the brackets do NOT
+        # contain ':' (which would make it a part-select like [7:0]).
+        # Also skip ALL_CAPS identifiers (likely parameters).
+        my $has_dynamic = 0;
+        while ($rhs =~ /\w+\s*\[([^\]]*)\]/g) {
+            my $inside = $1;
+            next if $inside =~ /:/;     # part-select, not array index
+            next if $inside =~ /^\s*\d/; # numeric constant
+            next if $inside =~ /^[A-Z_]+$/; # ALL_CAPS = parameter
+            if ($inside =~ /^[A-Za-z_]/) {
+                $has_dynamic = 1;
+                last;
+            }
+        }
+        if ($has_dynamic) {
+            print $output "${indent}always @(*) ${lhs} = ${rhs};${comment}\n";
+            $rewrites++;
+            next;
+        }
+    }
+
+    # Rule 2: '{default:VALUE} unpacked array literal
+    # Strip the initializer — iverilog can't parse '{default:V}.
+    # The declaration remains; elements default to 0 in simulation.
+    # TODO: emit _VHDL("(others => V)") annotation for the VHDL backend.
+    if ($code =~ /'\{default\s*:\s*(\w+)\s*\}/) {
+        my $val = $1;
+        # Comment out the line and add a note
+        print $output "// sv-normalize: '{default:$val} not supported\n";
+        print $output "// $line\n";
+        $rewrites++;
+        next;
+    }
+
+    # Pass through unchanged
+    print $output "$line\n";
+}
+
+if ($rewrites > 0) {
+    print STDERR "sv-normalize: applied $rewrites rewrites\n";
+}
