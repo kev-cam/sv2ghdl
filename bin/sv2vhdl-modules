@@ -77,6 +77,8 @@ for mod in $MODULES; do
         # Extract port declarations from the Verilog source
         # For now, emit a minimal stub — the foreign plugin will
         # do the real compilation at elaboration time
+        # Extract ports from the translated modules that reference this one,
+        # or emit a port-less stub. The deferred plugin will replace it.
         cat > "$MODFILE" << STUBEOF
 -- Deferred compilation stub for module $mod
 -- Source: $INFILE
@@ -86,13 +88,12 @@ library sv2vhdl;
 use sv2vhdl.logic3d_types_pkg.all;
 
 entity ${mod} is
-  -- Ports will be determined at deferred compilation time
+  -- sv2vhdl:deferred source=${INFILE} module=${mod}
 end entity;
 
-architecture deferred of ${mod} is
-  attribute foreign of deferred : architecture is
-    "sv2vhdl compile:${mod} source:${INFILE}";
+architecture stub of ${mod} is
 begin
+  -- Deferred: will be compiled with concrete parameters at elaboration time
 end architecture;
 STUBEOF
         STUB=$((STUB + 1))
