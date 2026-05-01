@@ -1,0 +1,120 @@
+#!/bin/bash
+#
+# sv2vhdl-modules — Per-module Verilog-to-VHDL translation
+#
+# Translates each Verilog module individually, emitting VHDL entity+
+# architecture for modules that succeed and stub entities with
+# foreign architecture attributes for modules that fail.
+#
+# Usage: sv2vhdl-modules [options] input.sv -o output.vhd
+#
+# Options:
+#   -I dir          Include directory (passed to iverilog)
+#   --top module    Top module name (emitted last)
+#
+# Pipeline position:
+#   iverilog -E | sv-normalize | sv2vhdl-modules > design.vhd
+#
+
+set -o pipefail
+
+IVERILOG="${IVERILOG:-iverilog}"
+IVL_FLAGS="-B${IVL_BUILD_LIB:-/usr/local/src/iverilog/build-lib}"
+NVC_FLAGS="-psv2vhdl=1 -g2012"
+OUTFILE=""
+TOPMOD=""
+INFILE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o)     OUTFILE="$2"; shift 2 ;;
+        --top)  TOPMOD="$2"; shift 2 ;;
+        -I*)    IVL_FLAGS="$IVL_FLAGS $1"; shift ;;
+        -*)     shift ;;
+        *)      INFILE="$1"; shift ;;
+    esac
+done
+
+if [[ -z "$INFILE" ]]; then
+    echo "Usage: sv2vhdl-modules input.sv -o output.vhd" >&2
+    exit 1
+fi
+
+WORKDIR=$(mktemp -d)
+trap "rm -rf $WORKDIR" EXIT
+
+# Extract module names
+MODULES=$(grep "^module " "$INFILE" | sed 's/module //; s/[( ;#].*//' | sort -u)
+NMOD=$(echo "$MODULES" | wc -w)
+echo "sv2vhdl-modules: found $NMOD modules" >&2
+
+PASS=0
+FAIL=0
+STUB=0
+
+# Translate each module
+for mod in $MODULES; do
+    [[ "$mod" == "__rtlmeter_utils" ]] && continue
+
+    MODFILE="$WORKDIR/${mod}.vhd"
+
+    if timeout 30 "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
+            -s "$mod" -o "$MODFILE" "$INFILE" >/dev/null 2>&1; then
+        if [[ -s "$MODFILE" ]]; then
+            PASS=$((PASS + 1))
+        else
+            FAIL=$((FAIL + 1))
+            MODFILE=""
+        fi
+    else
+        FAIL=$((FAIL + 1))
+        MODFILE=""
+    fi
+
+    # Generate stub for failed modules
+    if [[ -z "$MODFILE" ]]; then
+        MODFILE="$WORKDIR/${mod}_stub.vhd"
+        # Extract port declarations from the Verilog source
+        # For now, emit a minimal stub — the foreign plugin will
+        # do the real compilation at elaboration time
+        cat > "$MODFILE" << STUBEOF
+-- Deferred compilation stub for module $mod
+-- Source: $INFILE
+library ieee;
+use ieee.std_logic_1164.all;
+library sv2vhdl;
+use sv2vhdl.logic3d_types_pkg.all;
+
+entity ${mod} is
+  -- Ports will be determined at deferred compilation time
+end entity;
+
+architecture deferred of ${mod} is
+  attribute foreign of deferred : architecture is
+    "sv2vhdl compile:${mod} source:${INFILE}";
+begin
+end architecture;
+STUBEOF
+        STUB=$((STUB + 1))
+    fi
+done
+
+echo "sv2vhdl-modules: $PASS translated, $FAIL failed ($STUB stubs)" >&2
+
+# Concatenate all VHDL files (stubs first, then translated, top last)
+{
+    # Stubs first
+    for f in "$WORKDIR"/*_stub.vhd; do
+        [[ -f "$f" ]] && cat "$f" && echo
+    done
+    # Translated modules (not top)
+    for f in "$WORKDIR"/*.vhd; do
+        [[ "$f" == *_stub.vhd ]] && continue
+        [[ -n "$TOPMOD" && "$f" == *"${TOPMOD}.vhd" ]] && continue
+        [[ -f "$f" ]] && cat "$f" && echo
+    done
+    # Top module last
+    if [[ -n "$TOPMOD" && -f "$WORKDIR/${TOPMOD}.vhd" ]]; then
+        cat "$WORKDIR/${TOPMOD}.vhd"
+    fi
+} > "${OUTFILE:-/dev/stdout}"

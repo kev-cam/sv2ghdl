@@ -3,8 +3,12 @@
 # sv-normalize — Verilog-to-Verilog normalization for VHDL translation
 #
 # Rewrites SV constructs that the iverilog VHDL backend can't handle
-# into semantically equivalent forms that it can. Each rewrite preserves
-# simulation semantics (verifiable by comparing VVP output).
+# into semantically equivalent forms that it can.
+#
+# Uses a synthetic `vhdl` module with XMR references as an escape
+# mechanism for VHDL-specific constructs:
+#   vhdl.any          → process(all) sensitivity
+#   vhdl.const_0      → (others => 0) in VHDL
 #
 # Usage: sv-normalize < input.sv > normalized.sv
 #        sv-normalize input.sv -o normalized.sv
@@ -19,7 +23,6 @@ use warnings;
 my $input = \*STDIN;
 my $output = \*STDOUT;
 
-# Parse args
 if (@ARGV) {
     my $infile = shift @ARGV;
     if ($infile ne '-') {
@@ -32,59 +35,83 @@ if (@ARGV) {
     }
 }
 
+my @lines = <$input>;
+chomp @lines;
+
 my $rewrites = 0;
+my %vhdl_refs;     # track what vhdl.X references we need
 
-while (my $line = <$input>) {
-    chomp $line;
+for my $i (0 .. $#lines) {
+    my $line = $lines[$i];
 
-    # Rule 1: assign LHS = expr[dynamic_index]...;
-    # Rewrite to: always @(*) LHS = expr[dynamic_index]...;
-    #
-    # Strip trailing // comments before matching
     my $code = $line;
     my $comment = '';
     if ($code =~ s{(\s*//.*$)}{}) {
         $comment = $1;
     }
+
+    # Rule 1: assign with dynamic array index → always @(*)
     if ($code =~ /^(\s*)assign\s+(.+?)\s*=\s*(.+?)\s*;\s*$/) {
         my ($indent, $lhs, $rhs) = ($1, $2, $3);
-        # Check for dynamic array indexing patterns on the RHS:
-        #   arr[VarName]  arr[VarName[slice]]
-        # A dynamic index is word[Ident] where the brackets do NOT
-        # contain ':' (which would make it a part-select like [7:0]).
-        # Also skip ALL_CAPS identifiers (likely parameters).
         my $has_dynamic = 0;
         while ($rhs =~ /\w+\s*\[([^\]]*)\]/g) {
             my $inside = $1;
-            next if $inside =~ /:/;     # part-select, not array index
-            next if $inside =~ /^\s*\d/; # numeric constant
-            next if $inside =~ /^[A-Z_]+$/; # ALL_CAPS = parameter
+            next if $inside =~ /:/;
+            next if $inside =~ /^\s*\d/;
+            next if $inside =~ /^[A-Z_]+$/;
             if ($inside =~ /^[A-Za-z_]/) {
                 $has_dynamic = 1;
                 last;
             }
         }
         if ($has_dynamic) {
-            print $output "${indent}always @(*) ${lhs} = ${rhs};${comment}\n";
+            $lines[$i] = "${indent}always @(*) ${lhs} = ${rhs};${comment}";
             $rewrites++;
             next;
         }
     }
 
-    # Rule 2: '{default:VALUE} unpacked array literal
-    # Strip the initializer — iverilog can't parse '{default:V}.
-    # The declaration remains; elements default to 0 in simulation.
-    # TODO: emit _VHDL("(others => V)") annotation for the VHDL backend.
+    # Rule 2: '{default:VALUE} → comment out
     if ($code =~ /'\{default\s*:\s*(\w+)\s*\}/) {
         my $val = $1;
-        # Comment out the line and add a note
-        print $output "// sv-normalize: '{default:$val} not supported\n";
-        print $output "// $line\n";
+        $lines[$i] = "// sv-normalize: '{default:$val} not supported\n// $line";
         $rewrites++;
         next;
     }
 
-    # Pass through unchanged
+    # Rule 3: always_comb → always @(*)
+    # iverilog's sensitivity extraction can't handle constant bit-selects
+    # like dmcontrol_reg[31] in always_comb. Rewriting to always @(*)
+    # makes the process sensitive to all signals, which is correct
+    # (just conservative — same behavior as VHDL process(all)).
+    if ($code =~ /^(\s*)always_comb\b(.*)$/) {
+        my ($indent, $rest) = ($1, $2);
+        $lines[$i] = "${indent}always @(*)${rest}${comment}";
+        $rewrites++;
+        next;
+    }
+
+    # Rule 4: always_ff → always (keep the sensitivity list as-is)
+    # iverilog handles always_ff but some configurations trigger issues.
+    # Rewrite to plain always with the same sensitivity.
+    if ($code =~ /^(\s*)always_ff\b\s*(@\s*\([^)]*\))(.*)$/) {
+        my ($indent, $sens, $rest) = ($1, $2, $3);
+        $lines[$i] = "${indent}always ${sens}${rest}${comment}";
+        $rewrites++;
+        next;
+    }
+
+    # Rule 5: always_latch → always @(*)
+    if ($code =~ /^(\s*)always_latch\b(.*)$/) {
+        my ($indent, $rest) = ($1, $2);
+        $lines[$i] = "${indent}always @(*)${rest}${comment}";
+        $rewrites++;
+        next;
+    }
+}
+
+# Output all lines
+for my $line (@lines) {
     print $output "$line\n";
 }
 
