@@ -4,6 +4,8 @@
 # Usage:
 #   fetch-all              # git status for all repos (default)
 #   fetch-all status       # git status for all repos
+#   fetch-all list         # list known repos and whether they are present
+#   fetch-all url <repo>   # print the upstream URL for <repo>
 #   fetch-all build        # build all projects
 #   fetch-all build -j4    # build all projects (parallel via smak)
 #   fetch-all clean        # clean all projects
@@ -28,6 +30,21 @@ my $build_cmd = $jobs > 0 ? "$SMAK -j$jobs" : $SMAK;
 
 # ── repos (git pull targets) ────────────────────────────────────────
 my @repos = qw(smak Trilinos xyce nvc iverilog ghdl yosys Nuitka ltz kestrel sv2ghdl);
+
+# Upstream URLs — single source of truth, also consumed by fetch-repo.
+my %REPO_URL = (
+    smak     => 'https://github.com/kev-cam/smak.git',
+    Trilinos => 'https://github.com/trilinos/Trilinos.git',
+    xyce     => 'https://github.com/kev-cam/xyce.git',
+    nvc      => 'https://github.com/kev-cam/nvc.git',
+    iverilog => 'https://github.com/kev-cam/iverilog.git',
+    ghdl     => 'https://github.com/kev-cam/ghdl.git',
+    yosys    => 'https://github.com/YosysHQ/yosys.git',
+    Nuitka   => 'https://github.com/Nuitka/Nuitka.git',
+    ltz      => 'https://github.com/kev-cam/ltz.git',
+    kestrel  => 'https://github.com/kev-cam/kestrel.git',
+    sv2ghdl  => 'https://github.com/kev-cam/sv2ghdl.git',
+);
 
 # ── buildable projects in dependency order ───────────────────────────
 # build_dir is where 'smak' (or 'smak -jN') runs
@@ -101,6 +118,28 @@ sub do_status {
 
         printf $fmt, $repo, $branch, $mod, $unt, $sync;
     }
+}
+
+# ── list ─────────────────────────────────────────────────────────────
+sub do_list {
+    printf "  %-12s  %-8s  %s\n", 'REPO', 'PRESENT', 'PATH';
+    print  "  ", "-" x 60, "\n";
+    for my $repo (@repos) {
+        my $path = "$SRC/$repo";
+        my $present = -d "$path/.git" ? 'yes'
+                    : -d  $path       ? 'no-git'
+                    :                   'no';
+        printf "  %-12s  %-8s  %s\n", $repo, $present, $path;
+    }
+}
+
+# ── url ──────────────────────────────────────────────────────────────
+sub do_url {
+    my $name = shift;
+    die "Usage: fetch-all url <repo>\n" unless defined $name && length $name;
+    my $url = $REPO_URL{$name}
+        or die "fetch-all: unknown repo '$name' (known: @repos)\n";
+    print "$url\n";
 }
 
 # ── pull ─────────────────────────────────────────────────────────────
@@ -179,9 +218,11 @@ sub do_build {
 
 # ── dispatch ─────────────────────────────────────────────────────────
 if    ($action eq 'status')  { do_status() }
+elsif ($action eq 'list')    { do_list() }
+elsif ($action eq 'url')     { do_url(shift @ARGV) }
 elsif ($action eq 'pull')    { do_pull() }
 elsif ($action eq 'clean')   { do_clean() }
 elsif ($action eq 'build')   { do_build() }
 elsif ($action eq 'rebuild') { do_clean(); do_build() }
 elsif ($action eq 'all')     { do_pull();  do_clean(); do_build() }
-else  { die "Usage: fetch-all [status|pull|build|clean|rebuild|all] [-jN]\n" }
+else  { die "Usage: fetch-all [status|list|url <repo>|pull|build|clean|rebuild|all] [-jN]\n" }

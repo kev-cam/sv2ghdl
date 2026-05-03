@@ -15,23 +15,27 @@ BUILD_GROUP=${BUILD_GROUP:-dev}
 #   full    - everything (digital + analog)   [default]
 #   digital - just the digital simulation tools (iverilog/nvc/ghdl/yosys/sv2ghdl)
 #   analog  - just Xyce (and Trilinos, its dependency)
+#   verify  - optional extra: clone Nuitka source for verification work
 MODE=${1:-full}
 case "$MODE" in
-    full|digital|analog) ;;
+    full|digital|analog|verify) ;;
     -h|--help)
-        echo "Usage: $0 [full|digital|analog]"
+        echo "Usage: $0 [full|digital|analog|verify]"
         echo "  full    everything (default)"
         echo "  digital iverilog, nvc, ghdl, yosys, sv2ghdl wrappers"
         echo "  analog  Xyce (+ Trilinos)"
+        echo "  verify  clone Nuitka source (install step deferred)"
         exit 0 ;;
     *)
-        echo "Usage: $0 [full|digital|analog]" >&2
+        echo "Usage: $0 [full|digital|analog|verify]" >&2
         exit 1 ;;
 esac
 BUILD_DIGITAL=0
 BUILD_ANALOG=0
+BUILD_VERIFY=0
 [[ $MODE = full || $MODE = digital ]] && BUILD_DIGITAL=1
 [[ $MODE = full || $MODE = analog  ]] && BUILD_ANALOG=1
+[[ $MODE = verify ]]                  && BUILD_VERIFY=1
 
 if [[ $EUID -eq 0 ]]; then
     if ! getent group "$BUILD_GROUP" >/dev/null; then
@@ -190,6 +194,13 @@ if [[ $BUILD_ANALOG = 1 ]]; then
                "$SRC/xyce" \
           && $MAKE_CMD && bash install.sh )
     fi
+fi
+
+# Nuitka: optional, used for verification work. Source-only for now —
+# install step is intentionally deferred until the install method is decided.
+if [[ $BUILD_VERIFY = 1 ]]; then
+    echo "===== Nuitka (source only) ====="
+    clone_or_update https://github.com/Nuitka/Nuitka.git Nuitka
 fi
 
 echo "===== done. exported tree: $PREFIX ====="

@@ -1,0 +1,44 @@
+#!/bin/bash
+# fetch-repo — clone a known sv2ghdl repo to /tmp, then sudo-move it into place.
+#
+# The repo URL is looked up via `fetch-all url`, which holds the registry,
+# so the set of known repos is whatever `fetch-all list` shows.
+#
+# Usage:
+#   fetch-repo <path>
+#     <path>  full destination directory; basename(<path>) is the repo name
+#
+# Example:
+#   fetch-repo /usr/local/src/yosys
+
+set -e
+
+if [[ $# -ne 1 || $1 == -h || $1 == --help ]]; then
+    sed -n '2,13p' "$0" >&2
+    exit 1
+fi
+
+dest=${1%/}
+parent=$(dirname  "$dest")
+name=$(basename "$dest")
+
+if [[ -e $dest ]]; then
+    echo "fetch-repo: $dest already exists" >&2
+    exit 1
+fi
+
+SCRIPT_DIR=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
+url=$("$SCRIPT_DIR/fetch-all" url "$name")
+
+tmpdir=$(mktemp -d "/tmp/fetch-repo.$name.XXXXXX")
+trap 'rm -rf "$tmpdir"' EXIT
+
+clone_dir="$tmpdir/$name"
+echo "==> cloning $url -> $clone_dir"
+git clone "$url" "$clone_dir"
+
+echo "==> sudo mv $clone_dir -> $dest"
+sudo mkdir -p "$parent"
+sudo mv "$clone_dir" "$dest"
+
+echo "done."
