@@ -1,44 +1,80 @@
 #!/bin/bash
-# fetch-repo — clone a known sv2ghdl repo to /tmp, then sudo-move it into place.
+# fetch-repo — clone known sv2ghdl repos to /tmp, then sudo-move into place.
 #
 # The repo URL is looked up via `fetch-all url`, which holds the registry,
 # so the set of known repos is whatever `fetch-all list` shows.
 #
 # Usage:
-#   fetch-repo <path>
-#     <path>  full destination directory; basename(<path>) is the repo name
+#   fetch-repo <path> [<path>...]
+#     each <path>  full destination directory; basename(<path>) is the repo name
 #
 # Example:
-#   fetch-repo /usr/local/src/yosys
+#   fetch-repo /usr/local/src/xyce /usr/local/src/Trilinos
+#
+# If `sudo mv` fails (no sudo permission, prompt aborted, ...) the cloned tree
+# is left in /tmp and a copy-pastable "please run" command is printed; the
+# script then continues with the next path.
 
 set -e
 
-if [[ $# -ne 1 || $1 == -h || $1 == --help ]]; then
-    sed -n '2,13p' "$0" >&2
-    exit 1
-fi
-
-dest=${1%/}
-parent=$(dirname  "$dest")
-name=$(basename "$dest")
-
-if [[ -e $dest ]]; then
-    echo "fetch-repo: $dest already exists" >&2
+if [[ $# -lt 1 || $1 == -h || $1 == --help ]]; then
+    sed -n '2,16p' "$0" >&2
     exit 1
 fi
 
 SCRIPT_DIR=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
-url=$("$SCRIPT_DIR/fetch-all" url "$name")
+fail=()
+manual=()
 
-tmpdir=$(mktemp -d "/tmp/fetch-repo.$name.XXXXXX")
-trap 'rm -rf "$tmpdir"' EXIT
+for arg in "$@"; do
+    dest=${arg%/}
+    parent=$(dirname "$dest")
+    name=$(basename "$dest")
 
-clone_dir="$tmpdir/$name"
-echo "==> cloning $url -> $clone_dir"
-git clone "$url" "$clone_dir"
+    echo
+    echo "=== $name -> $dest ==="
 
-echo "==> sudo mv $clone_dir -> $dest"
-sudo mkdir -p "$parent"
-sudo mv "$clone_dir" "$dest"
+    if [[ -e $dest ]]; then
+        echo "fetch-repo: $dest already exists, skipping" >&2
+        fail+=("$dest")
+        continue
+    fi
 
-echo "done."
+    if ! url=$("$SCRIPT_DIR/fetch-all" url "$name" 2>&1); then
+        echo "fetch-repo: $url" >&2
+        fail+=("$dest")
+        continue
+    fi
+
+    tmpdir=$(mktemp -d "/tmp/fetch-repo.$name.XXXXXX")
+    clone_dir="$tmpdir/$name"
+
+    echo "==> cloning $url -> $clone_dir"
+    if ! git clone "$url" "$clone_dir"; then
+        rm -rf "$tmpdir"
+        fail+=("$dest")
+        continue
+    fi
+
+    echo "==> sudo mv $clone_dir -> $dest"
+    if sudo mkdir -p "$parent" && sudo mv "$clone_dir" "$dest"; then
+        rm -rf "$tmpdir"
+    else
+        echo "fetch-repo: sudo move failed; clone left in place" >&2
+        manual+=("sudo mv $clone_dir $dest")
+        fail+=("$dest")
+    fi
+done
+
+if (( ${#manual[@]} )); then
+    echo
+    echo "Please run manually:" >&2
+    printf '    %s\n' "${manual[@]}" >&2
+fi
+
+if (( ${#fail[@]} )); then
+    echo
+    echo "fetch-repo: ${#fail[@]} of $# did not complete:" >&2
+    printf '    %s\n' "${fail[@]}" >&2
+    exit 1
+fi
