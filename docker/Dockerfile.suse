@@ -15,14 +15,14 @@ RUN zypper -n install \
       llvm-devel clang \
       readline-devel zlib-devel libzstd-devel libdw-devel libffi-devel libopenssl-devel \
       check-devel z3-devel z3 \
-      python3 python3-devel python3-pip perl \
+      python3 python3-devel python3-pip python3-sympy perl \
       tcl-devel tk-devel boost-devel \
       openssh-server rsync nginx \
       curl tar gzip awk gawk hostname procps which diffutils findutils \
       patch sed grep \
       openmpi4-devel openmpi4 \
       libopenblas_serial-devel openblas-common-devel lapack-devel \
-      suitesparse-devel fftw3-devel yaml-cpp-devel \
+      suitesparse-devel fftw3-devel yaml-cpp-devel ginac-devel \
     && zypper clean -a
 
 # Pin the gcc14 toolchain as the default cc/gcc/g++/gfortran/gnatmake. The

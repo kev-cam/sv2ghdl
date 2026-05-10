@@ -25,6 +25,10 @@ case "$MODE" in
         echo "  digital iverilog, nvc, ghdl, yosys, sv2ghdl wrappers"
         echo "  analog  Xyce (+ Trilinos)"
         echo "  verify  clone Nuitka source (install step deferred)"
+        echo ""
+        echo "Env:"
+        echo "  RUN_TESTS=1     after analog/full, run a Xyce_Regression subset"
+        echo "  TEST_LABEL=...  ctest label to run (default: vpwl, ~26 tests)"
         exit 0 ;;
     *)
         echo "Usage: $0 [full|digital|analog|verify]" >&2
@@ -201,6 +205,30 @@ fi
 if [[ $BUILD_VERIFY = 1 ]]; then
     echo "===== Nuitka (source only) ====="
     clone_or_update https://github.com/Nuitka/Nuitka.git Nuitka
+fi
+
+# Optional: run a short Xyce regression subset to validate the Xyce build.
+# Off by default (full nightly run is hours); set RUN_TESTS=1 to enable.
+# Override the label with TEST_LABEL (e.g. nightly, vpwl, BREAK).
+if [[ "${RUN_TESTS:-0}" = 1 && $BUILD_ANALOG = 1 ]]; then
+    if [[ -x "$PREFIX/bin/Xyce" ]]; then
+        echo "===== Xyce_Regression (label: ${TEST_LABEL:-vpwl}) ====="
+        if [[ ! -d "$SRC/Xyce_Regression" ]]; then
+            git clone --depth=1 \
+                https://github.com/Xyce/Xyce_Regression.git "$SRC/Xyce_Regression"
+        fi
+        # PyMS plugin compile path needs xyce_device_gen.py + the install
+        # tree's headers/libXyceLib.so.
+        export PYMS_DIR="$SRC/xyce/utils/PyMS"
+        export Xyce_DIR="$PREFIX/bin"
+        mkdir -p "$SRC/xyce-test"
+        ( cd "$SRC/xyce-test" \
+          && cmake "$SRC/Xyce_Regression" \
+          && ctest -L "${TEST_LABEL:-vpwl}" -j "$JOBS" --output-on-failure \
+          || echo "WARN: regression tests reported failures (continuing)" )
+    else
+        echo "===== Xyce_Regression (skipped: $PREFIX/bin/Xyce missing) ====="
+    fi
 fi
 
 echo "===== done. exported tree: $PREFIX ====="

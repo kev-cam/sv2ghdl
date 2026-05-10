@@ -10,13 +10,13 @@ RUN pacman -Syu --noconfirm \
       llvm clang \
       readline zlib zstd libelf libffi openssl \
       check gcc-ada z3 \
-      python python-pip perl \
+      python python-pip python-sympy perl \
       tcl tk boost \
       openssh rsync nginx \
       cmake gcc-fortran \
       openmpi \
       openblas lapack \
-      suitesparse fftw yaml-cpp \
+      suitesparse fftw yaml-cpp ginac \
  && pacman -Scc --noconfirm
 
 ARG SV2GHDL_SRC=git
