@@ -27,8 +27,11 @@ case "$MODE" in
         echo "  verify  clone Nuitka source (install step deferred)"
         echo ""
         echo "Env:"
-        echo "  RUN_TESTS=1     after analog/full, run a Xyce_Regression subset"
-        echo "  TEST_LABEL=...  ctest label to run (default: vpwl, ~26 tests)"
+        echo "  RUN_TESTS=1         after analog/full, run a Xyce_Regression subset"
+        echo "  TEST_LABEL=...      ctest label to run (default: vpwl, ~26 tests)"
+        echo "  XYCE_VARIANT=ours|stock  which Xyce to test (default: ours)"
+        echo "  BUILD_STOCK_XYCE=1  also build upstream Sandia Xyce against our Trilinos"
+        echo "  STOCK_XYCE_PREFIX=  install prefix for stock Xyce (default /opt/xyce-stock)"
         exit 0 ;;
     *)
         echo "Usage: $0 [full|digital|analog|verify]" >&2
@@ -198,6 +201,33 @@ if [[ $BUILD_ANALOG = 1 ]]; then
                "$SRC/xyce" \
           && $MAKE_CMD && bash install.sh )
     fi
+
+    # Optional: also build the upstream Sandia Xyce alongside, sharing
+    # our Trilinos install. Useful for paired regression-test runs to
+    # disambiguate fork-specific failures vs. general Xyce/Trilinos
+    # issues. Off by default; set BUILD_STOCK_XYCE=1 to enable.
+    # Lands under STOCK_XYCE_PREFIX (default /opt/xyce-stock) so it
+    # doesn't collide with our Xyce at $PREFIX/bin/Xyce.
+    if [[ "${BUILD_STOCK_XYCE:-0}" = 1 ]]; then
+        STOCK_XYCE_PREFIX=${STOCK_XYCE_PREFIX:-/opt/xyce-stock}
+        if [[ -x "$STOCK_XYCE_PREFIX/bin/Xyce" ]]; then
+            echo "===== stock Xyce (already built, skipping) ====="
+        else
+            echo "===== stock Xyce (upstream Sandia, prefix $STOCK_XYCE_PREFIX) ====="
+            if [[ ! -d "$SRC/Xyce-stock" ]]; then
+                git clone --depth=1 \
+                    https://github.com/Xyce/Xyce.git "$SRC/Xyce-stock"
+            fi
+            mkdir -p "$SRC/Xyce-stock-build"
+            ( cd "$SRC/Xyce-stock-build" \
+              && cmake \
+                   -D CMAKE_INSTALL_PREFIX="$STOCK_XYCE_PREFIX" \
+                   -D Trilinos_ROOT="$PREFIX" \
+                   -D BUILD_SHARED_LIBS=ON \
+                   "$SRC/Xyce-stock" \
+              && $MAKE_CMD && bash install.sh )
+        fi
+    fi
 fi
 
 # Nuitka: optional, used for verification work. Source-only for now —
@@ -210,24 +240,36 @@ fi
 # Optional: run a short Xyce regression subset to validate the Xyce build.
 # Off by default (full nightly run is hours); set RUN_TESTS=1 to enable.
 # Override the label with TEST_LABEL (e.g. nightly, vpwl, BREAK).
+# Pick which Xyce to test with XYCE_VARIANT=ours|stock (default ours).
 if [[ "${RUN_TESTS:-0}" = 1 && $BUILD_ANALOG = 1 ]]; then
-    if [[ -x "$PREFIX/bin/Xyce" ]]; then
-        echo "===== Xyce_Regression (label: ${TEST_LABEL:-vpwl}) ====="
+    XYCE_VARIANT=${XYCE_VARIANT:-ours}
+    case "$XYCE_VARIANT" in
+        ours)  test_prefix="$PREFIX"; test_dir="$SRC/xyce-test" ;;
+        stock) test_prefix="${STOCK_XYCE_PREFIX:-/opt/xyce-stock}"
+               test_dir="$SRC/xyce-stock-test" ;;
+        *)     echo "Unknown XYCE_VARIANT=$XYCE_VARIANT (use ours|stock)" >&2
+               exit 1 ;;
+    esac
+
+    if [[ -x "$test_prefix/bin/Xyce" ]]; then
+        echo "===== Xyce_Regression: $XYCE_VARIANT (label: ${TEST_LABEL:-vpwl}) ====="
         if [[ ! -d "$SRC/Xyce_Regression" ]]; then
             git clone --depth=1 \
                 https://github.com/Xyce/Xyce_Regression.git "$SRC/Xyce_Regression"
         fi
         # PyMS plugin compile path needs xyce_device_gen.py + the install
-        # tree's headers/libXyceLib.so.
-        export PYMS_DIR="$SRC/xyce/utils/PyMS"
-        export Xyce_DIR="$PREFIX/bin"
-        mkdir -p "$SRC/xyce-test"
-        ( cd "$SRC/xyce-test" \
+        # tree's headers/libXyceLib.so. Only relevant when XYCE_VARIANT=ours.
+        if [[ "$XYCE_VARIANT" = ours ]]; then
+            export PYMS_DIR="$SRC/xyce/utils/PyMS"
+        fi
+        export Xyce_DIR="$test_prefix/bin"
+        mkdir -p "$test_dir"
+        ( cd "$test_dir" \
           && cmake "$SRC/Xyce_Regression" \
           && ctest -L "${TEST_LABEL:-vpwl}" -j "$JOBS" --output-on-failure \
           || echo "WARN: regression tests reported failures (continuing)" )
     else
-        echo "===== Xyce_Regression (skipped: $PREFIX/bin/Xyce missing) ====="
+        echo "===== Xyce_Regression (skipped: $test_prefix/bin/Xyce missing) ====="
     fi
 fi
 
