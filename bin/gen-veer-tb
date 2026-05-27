@@ -45,10 +45,16 @@ architecture sim of veer_eh1_tb is
   signal cycle_cnt : natural := 0;
   signal done      : boolean := false;
 
+  -- VHDL `natural` is 31-bit, so a raw 32-bit address (e.g. mtvec at
+  -- 0xee000000) would overflow r := r*2 once we shift past bit 30.
+  -- Consume only the low 30 bits — sufficient for our 256KB memory.
+  -- The high bits are surfaced via separate `addrhi` reports.
   function l3d_to_nat(v : logic3d_vector) return natural is
     variable r : natural := 0;
+    variable top : natural := v'high;
   begin
-    for i in v'high downto v'low loop
+    if top - v'low > 29 then top := v'low + 29; end if;
+    for i in top downto v'low loop
       r := r * 2;
       if is_one(v(i)) then r := r + 1; end if;
     end loop;
