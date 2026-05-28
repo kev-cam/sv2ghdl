@@ -336,29 +336,50 @@ print <<'CLK';
     end if;
   end process;
 
-  -- LSU read + write
-  lsu_resp: process(s_clk)
+  -- LSU read response: drive rvalid/rdata COMBINATIONALLY from arvalid.
+  -- The bus_buffer's lsu_axi_rdata_ff is gated by a TEC_RV_ICG cell whose
+  -- enable latches on the falling edge — so rvalid must already be high
+  -- *before* the next rising edge for rdata_q to capture this cycle.  If
+  -- we drive rvalid in a clocked process, the `<=` delta delay slips the
+  -- enable past the rising edge and rdata_q lands one cycle too late;
+  -- by then buf_state has already advanced RESP→DONE and the load result
+  -- never makes it into buf_data.  Pure combinational drive matches the
+  -- typical zero-latency-AXI testbench behaviour and lets the data
+  -- propagate during the bus_buffer's RESP cycle.
+  lsu_rd_resp: process(all)
     variable a : natural;
     variable d : logic3d_vector(63 downto 0);
+  begin
+    s_lsu_axi_rdata  <= (others => L3D_0);
+    s_lsu_axi_rid    <= (others => L3D_0);
+    s_lsu_axi_rvalid <= L3D_0;
+    s_lsu_axi_rlast  <= L3D_0;
+    if is_one(s_rst_l) and is_one(s_lsu_axi_arvalid) then
+      a := l3d_to_nat(s_lsu_axi_araddr);
+      d := (others => L3D_0);
+      if a + 7 < MEM_BYTES then
+        for i in 0 to 7 loop
+          d(i*8+7 downto i*8) := nat_to_l3dv(mem(a+i), 8);
+        end loop;
+      end if;
+      s_lsu_axi_rdata  <= d;
+      s_lsu_axi_rid    <= s_lsu_axi_arid;
+      s_lsu_axi_rvalid <= L3D_1;
+      s_lsu_axi_rlast  <= L3D_1;
+    end if;
+  end process;
+
+  -- LSU writes + AR-report (clocked for the write side; the read response
+  -- above runs combinationally so it can satisfy the rdata_ff timing).
+  lsu_resp: process(s_clk)
+    variable a : natural;
     variable wb : natural;
   begin
     if rising_edge(s_clk) and is_one(s_rst_l) then
-      -- Read
       if is_one(s_lsu_axi_arvalid) then
-        a := l3d_to_nat(s_lsu_axi_araddr);
-        d := (others => L3D_0);
-        if a + 7 < MEM_BYTES then
-          for i in 0 to 7 loop
-            d(i*8+7 downto i*8) := nat_to_l3dv(mem(a+i), 8);
-          end loop;
-        end if;
-        s_lsu_axi_rdata  <= d;
-        s_lsu_axi_rid    <= s_lsu_axi_arid;
-        s_lsu_axi_rvalid <= L3D_1;
-        s_lsu_axi_rlast  <= L3D_1;
-      elsif is_one(s_lsu_axi_rready) then
-        s_lsu_axi_rvalid <= L3D_0;
-        s_lsu_axi_rlast  <= L3D_0;
+        report "LSU AR cyc=" & integer'image(cycle_cnt)
+             & " addrlo=" & integer'image(l3d_to_nat(s_lsu_axi_araddr(23 downto 0)))
+             & " addrhi=" & integer'image(l3d_to_nat(s_lsu_axi_araddr(31 downto 24)));
       end if;
 
       -- Write (handshake on awvalid)
