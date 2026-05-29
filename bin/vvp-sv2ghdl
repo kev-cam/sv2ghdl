@@ -97,7 +97,11 @@ if [[ -f "$RESOLVER" ]]; then
     export SV2VHDL_QUIET=1
 fi
 
-timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r "$TOP_ENTITY" 2>&1 | awk '
+nvc_log=$(mktemp)
+trap 'rm -f "$nvc_log"' EXIT
+timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r "$TOP_ENTITY" > "$nvc_log" 2>&1
+nvc_exit=$?
+awk '
     /^\*\* Note: loading VHPI/  { next }
     /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
     /^   Process /    { next }
@@ -119,5 +123,13 @@ timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r "$TOP_ENTITY" 2>
     /^Root:/          { next }
     /^Initial /       { next }
     { print }
-'
-exit ${PIPESTATUS[0]}
+' "$nvc_log"
+
+# iverilog's VHDL backend ends simulation with a deliberate
+# `report "SIMULATION FINISHED" severity failure;` so NVC exits non-zero
+# even on success.  Match what vhdl_nvc_reg.pl does: treat that marker
+# as a clean simulation end.
+if [[ $nvc_exit -ne 0 ]] && grep -q "SIMULATION FINISHED" "$nvc_log"; then
+    exit 0
+fi
+exit $nvc_exit
