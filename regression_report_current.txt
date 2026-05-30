@@ -21,7 +21,7 @@ Running compiler/VVP tests for Icarus Verilog version: 13.
                     bitsel5: Passed.
                     bitsel6: ==> Failed - running vvp.
                     bitsel7: ==> Failed - running vvp.
-                    bitsel8: ==> Failed - running iverilog.
+                    bitsel8: ==> Failed - running vvp.
                     bitsel9: ==> Failed - running vvp.
                   bitwidth3: Passed.
                       clog2: ==> Failed - running iverilog.
@@ -50,7 +50,7 @@ Running compiler/VVP tests for Icarus Verilog version: 13.
                  specparam2: Passed.
                       tern3: ==> Failed - running iverilog.
                  v2005_math: ==> Failed - running iverilog.
-                    deposit: ==> Failed - running iverilog.
+                    deposit: ==> Failed - running vvp.
                deposit_wire: ==> Failed - output does not match gold file.
                     sysargs: Passed.
                 fatal_et_al: ==> Failed - output does not match gold file.
@@ -532,7 +532,7 @@ Running compiler/VVP tests for Icarus Verilog version: 13.
                  constfunc5: Passed.
                  constfunc6: ==> Failed - running iverilog.
                  constfunc7: ==> Failed - running iverilog.
-                 constfunc9: ==> Failed - running iverilog.
+                 constfunc9: Passed.
                 constfunc10: Passed.
                 constfunc11: Passed.
                 constfunc12: ==> Failed - running iverilog.
@@ -579,7 +579,7 @@ Running compiler/VVP tests for Icarus Verilog version: 13.
                 disable3.6B: ==> Failed - running iverilog.
             disable_cleanup: ==> Failed - output does not match gold file.
                disable_fork: ==> Failed - running iverilog.
-                   disblock: ==> Failed - running iverilog.
+                   disblock: ==> Failed - output does not match gold file.
                   disblock2: ==> Failed - running iverilog.
                    disp_dec: ==> Failed - output does not match gold file.
                   disp_dec2: ==> Failed - output does not match gold file.
@@ -716,8 +716,8 @@ Running compiler/VVP tests for Icarus Verilog version: 13.
                     ldelay1: ==> Failed - output does not match gold file.
                     ldelay2: ==> Failed - output does not match gold file.
                     ldelay3: ==> Failed - output does not match gold file.
-                    ldelay4: ==> Failed - running iverilog.
-                    ldelay5: ==> Failed - running iverilog.
+                    ldelay4: ==> Failed - output does not match gold file.
+                    ldelay5: Passed.
                   lh_catadd: Passed.
                   lh_memcat: ==> Failed - running iverilog.
                  lh_memcat2: Passed.
@@ -883,7 +883,7 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                       pr245: ==> Failed - running iverilog.
                   pr245_std: ==> Failed - running iverilog.
                       pr273: Passed.
-                      pr298: ==> Failed - running iverilog.
+                      pr298: ==> Failed - output does not match gold file.
                       pr304: Passed.
                       pr307: Passed.
                      pr307a: Passed.
@@ -925,7 +925,7 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                       pr544: ==> Failed - running vvp.
                       pr547: ==> Failed - output does not match gold file.
                       pr556: ==> Failed - running iverilog.
-                      pr564: ==> Failed - running iverilog.
+                      pr564: ==> Failed - output does not match gold file.
                       pr569: ==> Failed - output does not match gold file.
                       pr572: ==> Failed - running iverilog.
                      pr572b: ==> Failed - running iverilog.
@@ -935,7 +935,7 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                       pr587: ==> Failed - running vvp.
                       pr590: ==> Failed - output does not match gold file.
                       pr594: ==> Failed - running iverilog.
-                      pr596: ==> Failed - running iverilog.
+                      pr596: ==> Failed - running vvp.
                       pr602: Passed.
                       pr617: ==> Failed - running vvp.
                       pr632: ==> Failed - output does not match gold file.
@@ -975,9 +975,9 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                       pr910: ==> Failed - running iverilog.
                       pr913: Passed.
                       pr923: ==> Failed - output does not match gold file.
-                      pr938: ==> Failed - running iverilog.
-                     pr938b: ==> Failed - running iverilog.
-                 pr938b_std: ==> Failed - running iverilog.
+                      pr938: ==> Failed - output does not match gold file.
+                     pr938b: ==> Failed - output does not match gold file.
+                 pr938b_std: ==> Failed - output does not match gold file.
                       pr941: Passed.
                       pr973: ==> Failed - running iverilog.
                       pr978: ==> Failed - running iverilog.
@@ -995,7 +995,7 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                      pr1024: Passed.
                      pr1026: ==> Failed - output does not match gold file.
                      pr1029: ==> Failed - output does not match gold file.
-                     pr1032: ==> Failed - running iverilog.
+                     pr1032: ==> Failed - output does not match gold file.
                      pr1033: ==> Failed - output does not match gold file.
                      pr1065: ==> Failed - running iverilog.
                      pr1072: Passed.
@@ -1130,7 +1130,7 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                   pr1752353: Passed.
                  pr1752823a: ==> Failed - running iverilog.
                  pr1752823b: ==> Failed - running iverilog.
-                  pr1755593: ==> Failed - running iverilog.
+                  pr1755593: ==> Failed - output does not match gold file.
                   pr1755629: ==> Failed - output does not match gold file.
                   pr1758122: ==> Failed - running vvp.
                   pr1758135: ==> Failed - running vvp.
@@ -1159,7 +1159,7 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                   pr1819452: ==> Failed - running iverilog.
                   pr1820472: ==> Failed - output does not match gold file.
                   pr1822658: Passed.
-                  pr1823732: ==> Failed - running iverilog.
+                  pr1823732: ==> Failed - output does not match gold file.
                   pr1828642: ==> Failed - output does not match gold file.
                   pr1830834: ==> Failed - output does not match gold file.
                   pr1831724: ==> Failed - output does not match gold file.
@@ -1214,7 +1214,7 @@ parameter_override_invalid6: ==> Failed - CE (no error reported).
                  pr1913918c: Passed.
                   pr1913937: ==> Failed - running iverilog.
                   pr1916261: Passed.
-                  pr1921332: ==> Failed - running iverilog.
+                  pr1921332: Passed - CO.
                   pr1924845: Passed.
                   pr1925356: Passed.
                  pr1925363a: Passed - CE.
@@ -1828,18 +1828,18 @@ test_mos_strength_reduction: ==> Failed - running vvp.
                      triand: ==> Failed - output does not match gold file.
                       trior: ==> Failed - output does not match gold file.
                      types1: Passed.
-                   udp_bufg: ==> Failed - running iverilog.
-                  udp_bufg2: ==> Failed - running iverilog.
-                     udp_bx: ==> Failed - running iverilog.
+                   udp_bufg: Passed.
+                  udp_bufg2: Passed.
+                     udp_bx: ==> Failed - running vvp.
              udp_delay_fail: Passed - CE.
-                    udp_dff: ==> Failed - running iverilog.
-                udp_dff_std: ==> Failed - running iverilog.
-               udp_eval_arg: ==> Failed - running iverilog.
-                   udp_jkff: ==> Failed - running iverilog.
+                    udp_dff: ==> Failed - running vvp.
+                udp_dff_std: ==> Failed - running vvp.
+               udp_eval_arg: Passed.
+                   udp_jkff: ==> Failed - running vvp.
              udp_output_reg: ==> Failed - running iverilog.
-             udp_real_delay: ==> Failed - running iverilog.
+             udp_real_delay: Passed.
                   udp_sched: ==> Failed - running iverilog.
-                      udp_x: ==> Failed - running iverilog.
+                      udp_x: ==> Failed - output does not match gold file.
                   unary_and: Passed.
                 unary_lnot1: ==> Failed - output does not match gold file.
                 unary_lnot2: ==> Failed - output does not match gold file.
@@ -3020,4 +3020,4 @@ parameter_override_invalid8: ==> Failed - CE (no error reported).
                 ufuncsynth1: ==> Failed - output does not match gold file.
 ============================================================================
 Test results:
-  Total=3018, Passed=964, Failed=2052, Not Implemented=2, Expected Fail=0
+  Total=3018, Passed=971, Failed=2045, Not Implemented=2, Expected Fail=0
