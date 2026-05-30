@@ -39,17 +39,21 @@ static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
     if (mapped.is_fully_const()) {
         auto val = mapped.as_const();
         uint64_t v = 0;
-        for (int i = val.bits().size()-1; i >= 0; i--)
+        for (int i = val.size()-1; i >= 0; i--)
             v = (v << 1) | (val[i] == RTLIL::S1 ? 1 : 0);
         std::ostringstream oss;
         oss << "UINT64_C(0x" << std::hex << v << ")";
         return oss.str();
     }
 
-    // Single wire reference
-    if (mapped.chunks().size() == 1) {
-        auto &chunk = (*mapped.chunks().begin());
-        if (chunk.wire) {
+    // Single wire reference. NB: hold chunks() in a NAMED local. SigSpec::chunks()
+    // returns a temporary vector; binding `auto &chunk = *chunks().begin()` makes a
+    // reference into a temporary destroyed at end-of-statement -> stack-use-after-
+    // scope, which only crashes once -O2 reuses the stack slot (ASan-confirmed).
+    auto chunks = mapped.chunks();
+    if (chunks.size() == 1) {
+        RTLIL::SigChunk chunk = *chunks.begin();   // COPY by value: *iterator returns a ref into the
+        if (chunk.wire) {                          // temporary iterator's own member -> would dangle if bound by ref
             std::string wn = cname(chunk.wire->name.str());
             if (chunk.offset == 0 && chunk.width == chunk.wire->width)
                 return wn;
@@ -67,7 +71,7 @@ static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
     // Multi-chunk: build by concatenation
     std::string expr = "0";
     int pos = 0;
-    for (auto &chunk : mapped.chunks()) {
+    for (auto &chunk : chunks) {
         std::string part;
         if (chunk.wire) {
             std::string wn = cname(chunk.wire->name.str());
@@ -716,6 +720,34 @@ int main(int argc, char **argv)
         else
             fprintf(out, "    if (%s) s->%s = %s;\n",
                     reg.en_expr.c_str(), reg.name.c_str(), reg.d_expr.c_str());
+    }
+
+    // Memory WRITE ports ($memwr). These were previously dropped entirely (only
+    // $meminit/$memrd were handled), so any design with a writable memory/FIFO got
+    // correct pointers but never-written data -> garbage reads. Emit writes here,
+    // AFTER the combinational $memrd reads above, so a same-cycle read sees the OLD
+    // word (FIFO read-before-write / NBA semantics). ADDR/DATA/EN use the current-
+    // state register aliases, so placement after the pointer updates is fine.
+    {
+        bool hdr = false;
+        for (auto &c : mod->cells_) {
+            auto *cell = c.second;
+            auto wtype = cell->type.str();
+            if (wtype != "$memwr" && wtype != "$memwr_v2") continue;
+            if (!hdr) { fprintf(out, "    // Memory write ports\n"); hdr = true; }
+            std::string mn = cname(cell->getParam(ID(MEMID)).decode_string());
+            int abits = cell->getParam(ID(ABITS)).as_int();
+            uint64_t amask = (abits >= 64) ? ~0ULL : ((1ULL << abits) - 1);
+            std::string addr = sig_expr(cell->getPort(ID(ADDR)), sigmap);
+            std::string data = sig_expr(cell->getPort(ID(DATA)), sigmap);
+            std::string en   = sig_expr(cell->getPort(ID(EN)), sigmap);
+            // Masked write: bits where EN=1 take DATA, EN=0 keep old word. Handles
+            // uniform full-word enables (FIFOs) and partial/byte enables alike.
+            fprintf(out, "    if (%s) { uint64_t _wa = (%s) & UINT64_C(0x%llx); "
+                         "s->%s[_wa] = (s->%s[_wa] & ~(uint64_t)(%s)) | ((%s) & (%s)); }\n",
+                    en.c_str(), addr.c_str(), (unsigned long long)amask,
+                    mn.c_str(), mn.c_str(), en.c_str(), data.c_str(), en.c_str());
+        }
     }
     fprintf(out, "\n");
 

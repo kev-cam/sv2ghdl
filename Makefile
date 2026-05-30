@@ -18,7 +18,7 @@ all: test_misc tests_atpg
 
 # Yosys cycle-based state machine generator
 YOSYS_DIR ?= /usr/local/src/yosys
-YOSYS_CXXFLAGS = -std=c++17 -O2 -I$(YOSYS_DIR) -D_YOSYS_ -DYOSYS_ENABLE_READLINE=0 -DYOSYS_ENABLE_TCL=0
+YOSYS_CXXFLAGS = -std=c++20 -O2 -I$(YOSYS_DIR) -D_YOSYS_ -DYOSYS_ENABLE_READLINE=0 -DYOSYS_ENABLE_TCL=0 -DYOSYS_ENABLE_ABC -DYOSYS_ENABLE_GLOB -DYOSYS_ENABLE_ZLIB -DYOSYS_ENABLE_PLUGINS -fPIC
 YOSYS_LDFLAGS = -L$(YOSYS_DIR) -lyosys -Wl,-rpath,$(YOSYS_DIR)
 
 yosys/gen_statemachine: yosys/gen_statemachine.cpp
