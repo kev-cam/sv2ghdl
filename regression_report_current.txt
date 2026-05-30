@@ -570,8 +570,8 @@ Running compiler/VVP tests for Icarus Verilog version: 13.
                      delay3: ==> Failed - output does not match gold file.
                      delay4: ==> Failed - running iverilog.
                      delay5: ==> Failed - running iverilog.
-            delay_assign_nb: ==> Failed - output does not match gold file.
-           delay_assign_nb2: ==> Failed - output does not match gold file.
+            delay_assign_nb: Passed.
+           delay_assign_nb2: Passed.
                   delay_var: ==> Failed - running vvp.
         delayed_comp_reduct: Passed.
                        dff1: Passed.
@@ -1810,7 +1810,7 @@ test_mos_strength_reduction: ==> Failed - running vvp.
                       time4: ==> Failed - running iverilog.
                       time5: ==> Failed - running iverilog.
                       time7: ==> Failed - output does not match gold file.
-                      time8: ==> Failed - output does not match gold file.
+                      time8: Passed.
                   timeform1: ==> Failed - output does not match gold file.
                   timeform2: ==> Failed - output does not match gold file.
                  timescale1: ==> Failed - output does not match gold file.
@@ -3020,4 +3020,4 @@ parameter_override_invalid8: ==> Failed - CE (no error reported).
                 ufuncsynth1: ==> Failed - output does not match gold file.
 ============================================================================
 Test results:
-  Total=3018, Passed=952, Failed=2064, Not Implemented=2, Expected Fail=0
+  Total=3018, Passed=955, Failed=2061, Not Implemented=2, Expected Fail=0
