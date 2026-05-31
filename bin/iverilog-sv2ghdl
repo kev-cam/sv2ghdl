@@ -52,6 +52,8 @@ OUTPUT="a.out"
 TOP_MODULE=""
 TARGET="vvp"
 SOURCES=()
+IVL_INC=()      # -I include dirs, forwarded to iverilog
+IVL_DEF=()      # -D defines, forwarded to iverilog
 ORIG_DIR="$(pwd)"
 
 # Parse arguments (iverilog-compatible)
@@ -67,8 +69,10 @@ while [[ $# -gt 0 ]]; do
             echo "Icarus Verilog version 13.0 (sv2ghdl/nvc)"
             exit 0 ;;
         -g*)    shift ;;   # Generation flags - ignored
-        -D*)    shift ;;   # Defines - ignored
-        -I*)    shift ;;   # Include paths - ignored
+        -D)     IVL_DEF+=("-D$2"); shift 2 ;;  # Define (separate arg)
+        -D*)    IVL_DEF+=("$1");   shift ;;    # Define - forward to iverilog
+        -I)     IVL_INC+=("-I$2"); shift 2 ;;  # Include dir (separate arg)
+        -I*)    IVL_INC+=("$1");   shift ;;    # Include path - forward to iverilog
         -P*)    shift ;;   # Parameter overrides - ignored
         -W*)    shift ;;   # Warnings - ignored
         -S)     shift ;;   # Synthesize - ignored
@@ -104,6 +108,17 @@ for src in "${SOURCES[@]}"; do
     esac
 done
 
+# Convert -I include dirs to absolute too — the iverilog calls below run after
+# a cd into the output dir, so relative include paths would otherwise break.
+ABS_INC=()
+for inc in "${IVL_INC[@]}"; do
+    dir="${inc#-I}"
+    case "$dir" in
+        /*) ABS_INC+=("-I$dir") ;;
+        *)  ABS_INC+=("-I$ORIG_DIR/$dir") ;;
+    esac
+done
+
 # Output directory (replaces the normal output file)
 # The test runner's "rm -rf ./vsim" cleans this up between tests.
 case "$OUTPUT" in
@@ -120,7 +135,7 @@ mkdir -p "$OUTDIR"
 IVERILOG_OK=0
 VHDL_OUT="$OUTDIR/design.vhd"
 
-if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
+if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
     if [[ -s "$VHDL_OUT" ]]; then
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
@@ -176,7 +191,7 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
         [[ "$modname" == "_preamble" ]] && continue
         mod_vhd="$OUTDIR/${modname}.vhd"
 
-        if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 \
+        if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
                 -o "$mod_vhd" "$mod_v" 2>/dev/null \
                 && [[ -s "$mod_vhd" ]] \
                 && $NVC --std=2040 -L "$NVC_LIBDIR" -a "$mod_vhd" >/dev/null 2>&1; then

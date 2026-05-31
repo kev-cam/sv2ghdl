@@ -3,15 +3,25 @@
 # verilator-sv2ghdl - verilator-compatible wrapper for sv2ghdl + NVC
 #
 # Translates a subset of verilator's CLI into the sv2ghdl/NVC pipeline:
-#   verilator --binary -o sim top.sv      → svx pipeline
-#   verilator --cc ...                    → falls through to real verilator
+#   verilator --binary -o sim top.sv          → svx pipeline (single binary)
+#   verilator --cc --main --exe ... -f files  → RTLMeter-style compile flow
 #
-# On any unsupported flag, or if translation/compilation fails, this script
-# exec's the real verilator (set VERILATOR=/path/to/verilator to override
-# discovery).
+# RTLMeter compile flow (--cc): RTLMeter shells out to
+#   verilator --cc --main --exe --timing --quiet-stats -Wno-fatal \
+#             --prefix Vsim --top-module TOP +incdir+DIR +define+K=V -f filelist
+# then `make -C obj_dir -f Vsim.mk`, then runs `obj_dir/Vsim +plusargs`.
+# We translate the filelist to VHDL (via nvc -a, which invokes
+# iverilog-sv2ghdl internally), elaborate with nvc -e, and drop an
+# `obj_dir/Vsim` script that runs `nvc -r` plus a no-op `Vsim.mk` so the
+# downstream `make` step is satisfied.  The cycle-count / TEST_PASSED
+# contract is met by the design's own $fopen("_rtlmeter_cycles.txt") and
+# $display, which nvc -r executes in the (execute) cwd.
 #
-# Output of --binary mode is a small shell script at -o NAME (or
-# obj_dir/V<top>) that re-runs nvc -r against the elaborated work library.
+# On unsupported input the script exec's the real verilator (set
+# VERILATOR=/path/to/verilator to override discovery).  In --cc mode a
+# translation/analyse/elaborate FAILURE is reported (non-zero exit) rather
+# than silently falling through, so sv2ghdl/nvc gaps surface — set
+# SVX_CC_FALLTHROUGH=1 to fall through to real verilator on failure instead.
 #
 
 set -o pipefail
@@ -22,6 +32,7 @@ SV2GHDL="$SCRIPT_DIR/sv2ghdl.pl"
 
 NVC="${NVC:-nvc}"
 VERILATOR="${VERILATOR:-verilator}"
+SVX_STD="${SVX_STD:-2040}"
 
 # Resolve NVC libdir the same way iverilog-sv2ghdl does
 if [[ -z "$NVC_LIBDIR" ]]; then
@@ -41,54 +52,175 @@ if [[ -z "$NVC_LIBDIR" ]]; then
     fi
 fi
 
+ORIG_ARGS=("$@")
+
 fallthrough() {
     local reason="$1"
     [[ -n "$SVX_VERBOSE" ]] && echo "verilator-sv2ghdl: falling through to $VERILATOR ($reason)" >&2
     exec "$VERILATOR" "${ORIG_ARGS[@]}"
 }
 
-ORIG_ARGS=("$@")
-
 BINARY=0
+CC=0
 OUTPUT=""
 TOP_MODULE=""
+PREFIX="Vsim"
+MDIR=""
 SOURCES=()
+INCDIRS=()
+DEFINES=()
+FILELISTS=()
 ORIG_DIR="$(pwd)"
+
+abspath() {
+    case "$1" in
+        /*) printf '%s' "$1" ;;
+        *)  printf '%s/%s' "$ORIG_DIR" "$1" ;;
+    esac
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --binary)             BINARY=1;        shift ;;
+        --cc|--exe|--main)    CC=1;            shift ;;
+        --build)              shift ;;          # build implied; ignore
         -o)                   OUTPUT="$2";     shift 2 ;;
         --top|--top-module)   TOP_MODULE="$2"; shift 2 ;;
+        --prefix)             PREFIX="$2";     shift 2 ;;
+        --Mdir)               MDIR="$2";       shift 2 ;;
+        -f)                   FILELISTS+=("$2"); shift 2 ;;
         -j)                   shift 2 ;;        # parallelism — ignored
         -j*)                  shift ;;
-        -Wall|-Wno-*|-Wpedantic|--quiet|--quiet-exit) shift ;;
+        -Wall|-Wno-*|-Wpedantic|--quiet|--quiet-stats|--quiet-exit) shift ;;
         -sv|--sv)             shift ;;          # SV mode default
         --timing|--no-timing) shift ;;
-        -CFLAGS|-LDFLAGS)     shift 2 ;;
-        -D*|+define+*)        shift ;;          # passed-through unsupported
-        -I*|+incdir+*)        shift ;;
-        --cc|--exe|--lint-only|--Mdir|--build|--main)
-            fallthrough "unsupported flag $1" ;;
+        --autoflush|--trace|--trace-vcd|--trace-fst) shift ;;
+        --trace-structs|--trace-params) shift ;;
+        -CFLAGS|-LDFLAGS|-MAKEFLAGS) shift 2 ;;
+        +define+*)            DEFINES+=("${1#+define+}"); shift ;;
+        -D*)                  DEFINES+=("${1#-D}");       shift ;;
+        +incdir+*)            INCDIRS+=("${1#+incdir+}"); shift ;;
+        -I*)                  INCDIRS+=("${1#-I}");       shift ;;
+        --lint-only)
+            CC=1; shift ;;                       # treat as compile/analyse only
         -V|--version)
             echo "Verilator 5.0.0 (sv2ghdl/nvc)"; exit 0 ;;
+        +*)                   shift ;;           # other +plusargs — ignored
         -*)
-            fallthrough "unknown flag $1" ;;
+            if [[ $CC -eq 1 || $BINARY -eq 1 ]]; then
+                shift                            # tolerate unknown flags in our modes
+            else
+                fallthrough "unknown flag $1"
+            fi ;;
         *)
             SOURCES+=("$1"); shift ;;
     esac
 done
 
+# ---------------------------------------------------------------------------
+# RTLMeter / --cc compile flow
+# ---------------------------------------------------------------------------
+if [[ $CC -eq 1 ]]; then
+    cc_fail() {
+        local reason="$1"
+        if [[ -n "$SVX_CC_FALLTHROUGH" ]]; then
+            fallthrough "cc: $reason"
+        fi
+        echo "verilator-sv2ghdl: --cc flow failed: $reason" >&2
+        exit 1
+    }
+
+    # Expand any -f filelists (one path per line, '#' comments ignored).
+    FILES=()
+    for fl in "${FILELISTS[@]}"; do
+        fl_abs="$(abspath "$fl")"
+        [[ -r "$fl_abs" ]] || cc_fail "cannot read filelist $fl"
+        while IFS= read -r line; do
+            line="${line%%#*}"
+            line="${line#"${line%%[![:space:]]*}"}"   # ltrim
+            line="${line%"${line##*[![:space:]]}"}"   # rtrim
+            [[ -z "$line" ]] && continue
+            FILES+=("$line")
+        done < "$fl_abs"
+    done
+    FILES+=("${SOURCES[@]}")
+
+    # Keep only Verilog source files (.v/.sv); include files (.vh/.svh/.h/.svi)
+    # are found via -I, not compiled directly.
+    SRCV=()
+    for f in "${FILES[@]}"; do
+        case "$f" in
+            *.v|*.sv) SRCV+=("$(abspath "$f")") ;;
+            *) ;;
+        esac
+    done
+    [[ ${#SRCV[@]} -gt 0 ]] || cc_fail "no Verilog source files"
+
+    # Top module
+    [[ -n "$TOP_MODULE" ]] || cc_fail "no --top-module"
+
+    # Output dir for the verilator-style artefacts (obj_dir by default)
+    [[ -n "$MDIR" ]] || MDIR="obj_dir"
+    MDIR_ABS="$(abspath "$MDIR")"
+    mkdir -p "$MDIR_ABS"
+
+    # NVC work library (persists for -e and -r). With --std=2040 NVC requires
+    # the library directory name to end in '.40', so name it accordingly.
+    if [[ "$SVX_STD" == "2040" ]]; then
+        WORK="$MDIR_ABS/${PREFIX}.40"
+    else
+        WORK="$MDIR_ABS/${PREFIX}.nvcwork"
+    fi
+    rm -rf "$WORK"
+
+    # Include-dir and define args (analyse-stage options, after -a). nvc
+    # forwards these to the batch sv2ghdl/iverilog translation.
+    IARGS=()
+    for d in "${INCDIRS[@]}"; do IARGS+=("-I" "$(abspath "$d")"); done
+    DARGS=()
+    for kv in "${DEFINES[@]}"; do DARGS+=("-D" "$kv"); done
+
+    echo "verilator-sv2ghdl: analysing ${#SRCV[@]} Verilog files via nvc (top=$TOP_MODULE)" >&2
+    "$NVC" --std="$SVX_STD" --work="$WORK" -L "$NVC_LIBDIR" \
+        -a "${IARGS[@]}" "${DARGS[@]}" "${SRCV[@]}" \
+        || cc_fail "nvc -a failed"
+
+    echo "verilator-sv2ghdl: elaborating $TOP_MODULE" >&2
+    "$NVC" --std="$SVX_STD" --work="$WORK" -L "$NVC_LIBDIR" -e "$TOP_MODULE" \
+        || cc_fail "nvc -e failed"
+
+    # Emit obj_dir/<PREFIX> as the "simulator binary": runs nvc -r in the
+    # caller's cwd (the execute dir), forwarding any +plusargs.
+    SIMBIN="$MDIR_ABS/$PREFIX"
+    cat > "$SIMBIN" <<EOF
+#!/bin/bash
+# Generated by verilator-sv2ghdl (--cc) — runs nvc against the elaborated lib.
+exec "$NVC" --std=$SVX_STD --work="$WORK" -L "$NVC_LIBDIR" -r "$TOP_MODULE" "\$@"
+EOF
+    chmod +x "$SIMBIN"
+
+    # No-op makefile so RTLMeter's `make -C obj_dir -f <PREFIX>.mk` succeeds
+    # (the "binary" is already built above).
+    cat > "$MDIR_ABS/${PREFIX}.mk" <<EOF
+# Generated by verilator-sv2ghdl (--cc): the simulator is prebuilt.
+.PHONY: all default
+all default:
+	@true
+EOF
+
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# --binary flow (single self-contained run)
+# ---------------------------------------------------------------------------
 [[ $BINARY -eq 1 ]]                || fallthrough "no --binary"
 [[ ${#SOURCES[@]} -gt 0 ]]          || fallthrough "no sources"
 
 # Absolute source paths
 ABS_SOURCES=()
 for src in "${SOURCES[@]}"; do
-    case "$src" in
-        /*) ABS_SOURCES+=("$src") ;;
-        *)  ABS_SOURCES+=("$ORIG_DIR/$src") ;;
-    esac
+    ABS_SOURCES+=("$(abspath "$src")")
 done
 
 # Top module — derive from last source if not given
@@ -103,10 +235,7 @@ if [[ -z "$OUTPUT" ]]; then
     mkdir -p "$ORIG_DIR/obj_dir"
     OUTPUT="$ORIG_DIR/obj_dir/V$TOP_MODULE"
 fi
-case "$OUTPUT" in
-    /*) OUTBIN="$OUTPUT" ;;
-    *)  OUTBIN="$ORIG_DIR/$OUTPUT" ;;
-esac
+OUTBIN="$(abspath "$OUTPUT")"
 
 WORKDIR="${OUTBIN}.svx"
 rm -rf "$WORKDIR"
@@ -126,24 +255,15 @@ done
 # Analyse + elaborate with NVC
 cd "$WORKDIR"
 for vhd in "${VHDL_FILES[@]}"; do
-    "$NVC" --std=${SVX_STD:-2008} -L "$NVC_LIBDIR" -a "$vhd" || fallthrough "nvc -a failed"
+    "$NVC" --std=${SVX_STD} -L "$NVC_LIBDIR" -a "$vhd" || fallthrough "nvc -a failed"
 done
-"$NVC" --std=${SVX_STD:-2008} -L "$NVC_LIBDIR" -e "$TOP_MODULE" || fallthrough "nvc -e failed"
+"$NVC" --std=${SVX_STD} -L "$NVC_LIBDIR" -e "$TOP_MODULE" || fallthrough "nvc -e failed"
 
 # Emit a runner script as the "binary"
 cat > "$OUTBIN" <<EOF
 #!/bin/bash
-# Generated by verilator-sv2ghdl — runs nvc against pre-elaborated work lib
-exec "${NVC}" --std=${SVX_STD:-2008} -L "${NVC_LIBDIR}" -r "${TOP_MODULE}" "\$@"
-EOF
-# The work library lives in $WORKDIR; cd there before running.
-# Wrap with a stub that cds first.
-mv "$OUTBIN" "${OUTBIN}.run"
-cat > "$OUTBIN" <<EOF
-#!/bin/bash
-cd "${WORKDIR}" && exec "${NVC}" --std=${SVX_STD:-2008} -L "${NVC_LIBDIR}" -r "${TOP_MODULE}" "\$@"
+cd "${WORKDIR}" && exec "${NVC}" --std=${SVX_STD} -L "${NVC_LIBDIR}" -r "${TOP_MODULE}" "\$@"
 EOF
 chmod +x "$OUTBIN"
-rm -f "${OUTBIN}.run"
 
 exit 0
