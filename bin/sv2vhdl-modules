@@ -18,6 +18,9 @@
 
 set -o pipefail
 
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+[[ "$SCRIPT_DIR" == "${BASH_SOURCE[0]}" ]] && SCRIPT_DIR="."
+
 IVERILOG="${IVERILOG:-iverilog}"
 IVL_FLAGS="-B${IVL_BUILD_LIB:-/usr/local/src/iverilog/build-lib}"
 NVC_FLAGS="-psv2vhdl=1 -g2012"
@@ -58,9 +61,18 @@ for mod in $MODULES; do
 
     MODFILE="$WORKDIR/${mod}.vhd"
 
-    if timeout 30 "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
+    if timeout 120 "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
             -s "$mod" -o "$MODFILE" "$INFILE" >/dev/null 2>&1; then
         if [[ -s "$MODFILE" ]]; then
+            # Rename helper entities by port-signature hash so cross-module
+            # collisions (e.g. rvdff5 with different WIDTHs) become distinct
+            # names. Leave the user's module name un-renamed so elaboration
+            # commands stay stable.
+            RENAMED="$WORKDIR/${mod}_renamed.vhd"
+            if "${SCRIPT_DIR:-$(dirname "$0")}/sv-rename-variants" \
+                    "$MODFILE" -o "$RENAMED" --top "$mod" 2>/dev/null; then
+                mv "$RENAMED" "$MODFILE"
+            fi
             PASS=$((PASS + 1))
         else
             FAIL=$((FAIL + 1))

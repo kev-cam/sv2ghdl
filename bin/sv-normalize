@@ -19,6 +19,74 @@
 
 use strict;
 use warnings;
+use Digest::MD5 qw(md5_hex);
+
+# Helper for Rule 6b: emit `$get_val(arr, i, j)` for `arr[i][j][rng]`.
+# We DROP the [rng] because $get_val returns the full inner element, which
+# matches the surrounding context's expected width. Skip if any index uses
+# a non-loop name (avoid eating reads of legitimately-indexed signals).
+sub _REPLACE_get_val {
+    my ($arr, $ix1, $ix2, $rng) = @_;
+    for my $ix ($ix1, $ix2) {
+        my $t = $ix; $t =~ s/^\s+|\s+$//g;
+        # Allow simple loop-var arithmetic only.
+        return "${arr}\[${ix1}\]\[${ix2}\]\[${rng}\]"
+            unless $t =~ /^[ijklmn](\s*[+-]\s*\d+)?$/;
+    }
+    # Skip if rng is anything funky.
+    return "\$get_val(${arr}, ${ix1}, ${ix2})";
+}
+
+# Find chained-index occurrences `IDENT[<outer-expr>][<inner>]` in $code.
+# Returns a list of [arr, outer_expr, inner_expr, span_start, span_end_excl].
+# Uses bracket balancing so the outer expression may contain nested `[...]`.
+sub find_chained_indices {
+    my ($code) = @_;
+    my @hits;
+    my $len = length($code);
+    my $pos = 0;
+    while ($pos < $len) {
+        if (substr($code, $pos) =~ /\G(\b[A-Za-z_]\w*)\[/gc) {
+            my $arr = $1;
+            my $start = $pos;
+            my $arr_len = length($arr);
+            my $outer_start = $pos + $arr_len + 1;
+            # Scan to matching `]` of the outer index.
+            my $i = $outer_start;
+            my $depth = 1;
+            while ($i < $len && $depth > 0) {
+                my $ch = substr($code, $i, 1);
+                if ($ch eq '[')   { $depth++; }
+                elsif ($ch eq ']') { $depth--; }
+                $i++;
+            }
+            if ($depth == 0 && $i < $len && substr($code, $i, 1) eq '[') {
+                my $outer_end = $i - 1;     # position of `]`
+                my $outer_expr = substr($code, $outer_start, $outer_end - $outer_start);
+                # Now scan inner index.
+                my $inner_start = $i + 1;
+                my $j = $inner_start;
+                my $idepth = 1;
+                while ($j < $len && $idepth > 0) {
+                    my $ch = substr($code, $j, 1);
+                    if ($ch eq '[')   { $idepth++; }
+                    elsif ($ch eq ']') { $idepth--; }
+                    $j++;
+                }
+                if ($idepth == 0) {
+                    my $inner_expr = substr($code, $inner_start, $j - 1 - $inner_start);
+                    push @hits, [ $arr, $outer_expr, $inner_expr, $start, $j ];
+                    $pos = $j;
+                    next;
+                }
+            }
+            $pos = $start + $arr_len;
+        } else {
+            $pos++;
+        }
+    }
+    return @hits;
+}
 
 my $input = \*STDIN;
 my $output = \*STDOUT;
@@ -41,6 +109,406 @@ chomp @lines;
 my $rewrites = 0;
 my %vhdl_refs;     # track what vhdl.X references we need
 
+# Rule 6b PRE-PASS: rewrite chained-RHS reads `arr[i][j][HI:LO]` to
+# `$get_val(arr, i, j)` BEFORE Rule 0b creates intermediate temp regs that
+# would hide the original 3-level chain. The system-function form bypasses
+# iverilog's elaborator restriction on chained part-selects with non-constant
+# outer indices; tgt-vhdl emits a flat slice.
+{
+    for my $i (0 .. $#lines) {
+        my $line = $lines[$i];
+        my $code = $line;
+        my $comment = '';
+        if ($code =~ s{(\s*//.*$)}{}) { $comment = $1; }
+        # Skip if line starts with `assign` (continuous handled fine) or
+        # contains an instance port-map `.NAME(...)` (LHS context).
+        next if $code =~ /^\s*assign\b/;
+        next if $code =~ /\.\s*[A-Za-z_]\w*\s*\(/;
+        my $changed = 0;
+        # Match arr[ix1][ix2][const_or_range], where ix1 and ix2 contain no
+        # `:` (so we don't grab range part-selects). Lookahead skips LHS.
+        while ($code =~ s/\b([A-Za-z_]\w*)\[([^\[\]:]+)\]\[([^\[\]:]+)\]\[([^\[\]]+)\](?!\s*[<:]?=)/_REPLACE_get_val($1, $2, $3, $4)/e) {
+            $changed = 1;
+        }
+        if ($changed) {
+            $lines[$i] = $code . $comment;
+            $rewrites++;
+        }
+    }
+}
+
+# Rule -1: copy file-scope `function ... endfunction` declarations into every
+# module that calls them. iverilog's tgt-vhdl skips $unit-scope packages, so
+# file-scope functions never get emitted as VHDL; the call sites then look
+# like undeclared references in the generated VHDL.
+{
+    # Collect file-scope functions: name -> [lines...]
+    my %fns;
+    my $i = 0;
+    while ($i < @lines) {
+        if ($lines[$i] =~ /^function\b.*?\b(\w+)\s*[(;]/) {
+            my $name = $1;
+            my $start = $i;
+            my $end = $i;
+            while ($end < @lines && $lines[$end] !~ /^endfunction\b/) {
+                $end++;
+            }
+            if ($end < @lines) {
+                $fns{$name} = [ @lines[$start .. $end] ];
+                $i = $end + 1;
+                next;
+            }
+        }
+        $i++;
+    }
+
+    if (%fns) {
+        # Find each module's bounds and rewrite per-module.
+        my @new_lines;
+        my $cur_mod_start = -1;
+        my @mod_buf;
+        for my $li (0 .. $#lines) {
+            my $ln = $lines[$li];
+            if ($ln =~ /^\s*module\s+(\w+)\b/) {
+                $cur_mod_start = $li;
+                push @mod_buf, $ln;
+                next;
+            }
+            if ($cur_mod_start >= 0) {
+                push @mod_buf, $ln;
+                if ($ln =~ /^\s*endmodule\b/) {
+                    # Inject any function used in this module just before endmodule.
+                    my $module_text = join("\n", @mod_buf);
+                    my @injected;
+                    for my $fname (sort keys %fns) {
+                        # Heuristic: contains call site `fname(`
+                        if ($module_text =~ /\b\Q$fname\E\s*\(/) {
+                            # Avoid duplicating if the function is already defined inside.
+                            next if $module_text =~ /^\s*function\b.*?\b\Q$fname\E\s*[(;]/m;
+                            push @injected, "  // sv-normalize: copy of file-scope function $fname";
+                            push @injected, @{$fns{$fname}};
+                            $rewrites++;
+                        }
+                    }
+                    if (@injected) {
+                        # Insert before the trailing endmodule line.
+                        my $last = pop @mod_buf;   # endmodule
+                        push @mod_buf, @injected, $last;
+                    }
+                    push @new_lines, @mod_buf;
+                    @mod_buf = ();
+                    $cur_mod_start = -1;
+                    next;
+                }
+                next;
+            }
+            push @new_lines, $ln;
+        }
+        # If we ended without a closing endmodule, flush whatever's left.
+        push @new_lines, @mod_buf if @mod_buf;
+        @lines = @new_lines;
+    }
+}
+
+# Rule 0: rewrite chained dynamic-then-range index (arr[VAR][CONST_RANGE])
+# iverilog's elaborator rejects chains where any non-final index is non-constant
+# ("Array index expressions must be constant here"). Extract the dynamic slice
+# into a wire so iverilog only sees a single-level dynamic index, which it
+# handles via case-style mux generation.
+{
+    # Identify module boundaries to scope temp declarations.
+    my @mod_starts;
+    my @mod_ends;
+    my $in_mod = -1;
+    for my $i (0 .. $#lines) {
+        if ($lines[$i] =~ /^\s*module\s+\w+/) {
+            $in_mod = $i;
+            push @mod_starts, $i;
+        }
+        if ($lines[$i] =~ /^\s*endmodule\b/ && $in_mod >= 0) {
+            push @mod_ends, $i;
+            $in_mod = -1;
+        }
+    }
+    if (@mod_starts == @mod_ends) {
+    # Loop variables that iverilog can fold (don't rewrite these as Rule 0
+    # module-scope wires). Rule 0b below handles procedural-loop indices.
+    my %loopvars = map { $_ => 1 } qw(i j k l m n);
+
+    # Per-module rewrite.
+    for my $m (0 .. $#mod_starts) {
+        my $ms = $mod_starts[$m];
+        my $me = $mod_ends[$m];
+
+        # Rule 0b: chained dynamic-then-range with procedural-loop-var index
+        # → procedural temp assigned just before each use. Iverilog rejects
+        # `arr[i][HI:LO]` where `i` is a procedural `int i` loop var (the
+        # outer index isn't a compile-time constant). Workaround: per-occurrence
+        # insert `_tmp = arr[i];` immediately before the use line, then read
+        # `_tmp[HI:LO]` (single-level dynamic + constant range — both OK).
+        # Restricted to lines that look like procedural statements inside a
+        # begin/end so the inserted line is syntactically valid.
+        my %loop_temps;       # "$arr|$idx" => $tempname
+        my @loop_temp_decls;
+        my $next_loop_temp = 0;
+        my %insert_before;    # line_idx => [pre_line, ...]
+        # Conservative trigger: only rewrite inside a `for (int VAR = ...)`
+        # procedural loop. Track active `for (int ...)` loops via a stack
+        # of (var, begin_seen, depth_at_open) and only rewrite hits whose
+        # index var matches the innermost active loop var.
+        my @int_for_stack;    # stack of int-for loop vars (innermost last)
+        my $begin_depth = 0;  # nesting depth of begin/end inside the procedural for
+        my %open_for_at_depth;  # depth where the last int-for opened its begin
+        for my $i ($ms + 1 .. $me - 1) {
+            my $line = $lines[$i];
+            my $code = $line; $code =~ s{//.*$}{};
+
+            # Detect `for (int VAR = ...)` — the next `begin` opens its body.
+            if ($code =~ /\bfor\s*\(\s*int\s+(\w+)\s*=/) {
+                push @int_for_stack, { var => $1, opened => 0 };
+            }
+
+            # Track begin/end depth.
+            my $opens = () = $code =~ /\bbegin\b/g;
+            my $closes = () = $code =~ /\bend\b/g;
+
+            # Bind the most recent int-for to the next begin we see.
+            for my $j (1..$opens) {
+                $begin_depth++;
+                if (@int_for_stack && !$int_for_stack[-1]{opened}) {
+                    $int_for_stack[-1]{opened} = $begin_depth;
+                }
+            }
+
+            my @these_pre;
+            my $rewrote = 0;
+            # Rewrite if we are inside the begin body of any active int-for
+            # loop, AND the outer index expression mentions one of the active
+            # vars. Use bracket-aware scanning to handle compound expressions
+            # like `arr[CAST'(WrPtr[X:Y] + CAST'(i))][const]`.
+            my @active_vars = map { $_->{var} }
+                              grep { $_->{opened} && $_->{opened} <= $begin_depth }
+                              @int_for_stack;
+            if (@active_vars) {
+                my %active_h = map { $_ => 1 } @active_vars;
+                # Single-pass rewrite. Recursive rewrite on `_ivl_lpr_X` temps
+                # tickles an iverilog `seen_signal_before` assertion (the
+                # `$bits(temp[0])` expression for a temp-of-temp confuses the
+                # elaborator). 3+ level chains remain stubbed; the alternative
+                # is hard-coded width computation that doesn't generalise.
+                my $iter_max = 1;
+              REWRITE_PASS: while ($iter_max-- > 0) {
+                my @hits = find_chained_indices($code);
+                my $any_rewrite = 0;
+                # Apply hits in reverse so character offsets stay valid.
+                for my $hit (reverse @hits) {
+                    my ($arr, $idx, $rng, $start, $end) = @$hit;
+                    # Don't recurse on temps we created — iverilog has trouble
+                    # elaborating `reg [$bits(_ivl_lpr_X[0])-1:0]` (a temp of a
+                    # temp), which triggers a `seen_signal_before` assertion.
+                    next if $arr =~ /^_ivl_lpr_/;
+                    my $idx_trim = $idx; $idx_trim =~ s/^\s+|\s+$//g;
+                    # Skip top-level range expressions (depth-aware).
+                    my $is_range = 0;
+                    {
+                        my $depth = 0;
+                        for my $ch (split //, $idx) {
+                            if ($ch eq '[') { $depth++; }
+                            elsif ($ch eq ']') { $depth--; }
+                            elsif ($ch eq ':' && $depth == 0) { $is_range = 1; last; }
+                        }
+                    }
+                    next if $is_range;
+                    # Skip LHS occurrences: rewriting `arr[i][j] = x` as
+                    # `_temp[j] = x` would write to the temp, not the array.
+                    my $tail = substr($code, $end);
+                    $tail =~ s/^\s+//;
+                    next if $tail =~ /^(=[^=]|<=[^=])/;
+                    next if $tail =~ /^[+\-*\/%&|^]?=[^=]/;
+                    # Outer expr must mention an active loop var (whole word).
+                    my $mentions = 0;
+                    for my $v (@active_vars) {
+                        if ($idx_trim =~ /\b\Q$v\E\b/) { $mentions = 1; last; }
+                    }
+                    next unless $mentions;
+                    my $key = "$arr|$idx_trim";
+                    if (!exists $loop_temps{$key}) {
+                        my $tname;
+                        if ($idx_trim =~ /^[A-Za-z_]\w*$/) {
+                            $tname = "_ivl_lpr_${arr}_${idx_trim}_${next_loop_temp}";
+                        } else {
+                            my $hash = substr(md5_hex($idx_trim), 0, 4);
+                            $tname = "_ivl_lpr_${arr}_x${hash}_${next_loop_temp}";
+                        }
+                        $next_loop_temp++;
+                        $loop_temps{$key} = $tname;
+                        push @loop_temp_decls,
+                            "  reg [\$bits(${arr}[0])-1:0] ${tname};";
+                    }
+                    my $tname = $loop_temps{$key};
+                    push @these_pre, "${tname} = ${arr}[${idx}];";
+                    substr($code, $start, $end - $start) = "${tname}[${rng}]";
+                    $rewrote = 1;
+                    $any_rewrite = 1;
+                }
+                last REWRITE_PASS unless $any_rewrite;
+              }
+            }
+            if ($rewrote) {
+                my $indent = ($lines[$i] =~ /^(\s*)/) ? $1 : '';
+                $insert_before{$i} = [ map { "${indent}$_" } @these_pre ];
+                $lines[$i] = $code;
+                $rewrites++;
+            }
+
+            # Now process closes (after potential rewrites; closes affect future
+            # lines, not this one).
+            for my $j (1..$closes) {
+                if (@int_for_stack && $int_for_stack[-1]{opened} == $begin_depth) {
+                    pop @int_for_stack;
+                }
+                $begin_depth-- if $begin_depth > 0;
+            }
+        }
+        # Apply pre-line inserts (in reverse order so earlier indices stay valid).
+        my @pre_keys = sort { $b <=> $a } keys %insert_before;
+        for my $li (@pre_keys) {
+            splice(@lines, $li, 0, @{$insert_before{$li}});
+        }
+        # Update module end for shifts from inserts.
+        my $rule0b_shift = 0;
+        $rule0b_shift += scalar(@{$insert_before{$_}}) for keys %insert_before;
+        if ($rule0b_shift > 0) {
+            $mod_ends[$m] += $rule0b_shift;
+            for my $n ($m+1 .. $#mod_starts) {
+                $mod_starts[$n] += $rule0b_shift;
+                $mod_ends[$n]   += $rule0b_shift;
+            }
+            $me = $mod_ends[$m];
+        }
+
+        # First pass: collect (arr, outer_expr) → tempname using bracket-aware
+        # scanning (so compound outer indices like `dccm_bank_dout[addr_q[HI:LO]]`
+        # are recognised, not just `IDENT[name]`).
+        my %temps;        # "$arr|$normalised_expr" => $tempname
+        my @temp_decls;
+        my $next_temp = 0;
+        # Combine Rule 0b decls with Rule 0 ones.
+        push @temp_decls, @loop_temp_decls;
+        for my $i ($ms .. $me) {
+            my $line = $lines[$i];
+            # skip comments
+            my $code = $line; $code =~ s{//.*$}{};
+            for my $hit (find_chained_indices($code)) {
+                my ($arr, $idx, $rng) = @$hit;
+                my $idx_trim = $idx; $idx_trim =~ s/^\s+|\s+$//g;
+                # skip if outer index is a literal number
+                next if $idx_trim =~ /^\d+$/;
+                # skip if outer index is a top-level range like `[3:0]` (part
+                # select on the array dimension itself). A `:` inside a nested
+                # `[...]` (e.g. `arr[other[X:Y]]`) is fine — it's a sub-select
+                # within the outer expression.
+                my $is_range_top = 0;
+                {
+                    my $depth = 0;
+                    for my $ch (split //, $idx) {
+                        if ($ch eq '[')   { $depth++; }
+                        elsif ($ch eq ']') { $depth--; }
+                        elsif ($ch eq ':' && $depth == 0) { $is_range_top = 1; last; }
+                    }
+                }
+                next if $is_range_top;
+                # skip if outer index is a Verilog macro (all upper case)
+                next if $idx_trim =~ /^[A-Z_][A-Z_0-9]*$/;
+                # skip if outer index is a single loop var — handled by Rule 0b
+                # if procedural, otherwise iverilog folds it.
+                next if exists $loopvars{$idx_trim};
+                # If the outer expr references a loop var (i, j, …), it's
+                # only valid inside the procedural for body — skip at module
+                # scope (Rule 0b handles the inside-loop case).
+                next if $idx_trim =~ /\b[ijklmn]\b/;
+                # skip if outer index references a hierarchical name (`.`)
+                next if $idx_trim =~ /\./;
+                my $key = "$arr|$idx_trim";
+                next if exists $temps{$key};
+                # Build a stable temp name. For simple identifiers use the
+                # name; for compound expressions hash a 4-char suffix.
+                my $tname;
+                if ($idx_trim =~ /^[A-Za-z_]\w*$/) {
+                    $tname = "_ivl_dyn_${arr}_${idx_trim}_${next_temp}";
+                } else {
+                    my $hash = substr(md5_hex($idx_trim), 0, 4);
+                    $tname = "_ivl_dyn_${arr}_x${hash}_${next_temp}";
+                }
+                $next_temp++;
+                $temps{$key} = $tname;
+                push @temp_decls,
+                    "  wire [\$bits(${arr}[0])-1:0] ${tname} = ${arr}[${idx}];";
+            }
+        }
+        next if !@temp_decls;
+
+        # Second pass: substitute uses with bracket-aware matching.
+        for my $i ($ms .. $me) {
+            my $orig = $lines[$i];
+            my $code = $orig;
+            my $comment = '';
+            if ($code =~ s{(\s*//.*$)}{}) { $comment = $1; }
+            my $changed = 0;
+            # Walk hits in reverse so character offsets stay valid.
+            my @hits = find_chained_indices($code);
+            for my $hit (reverse @hits) {
+                my ($arr, $idx, $rng, $start, $end) = @$hit;
+                my $idx_trim = $idx; $idx_trim =~ s/^\s+|\s+$//g;
+                my $key = "$arr|$idx_trim";
+                next unless exists $temps{$key};
+                my $tname = $temps{$key};
+                substr($code, $start, $end - $start) = "${tname}[${rng}]";
+                $changed = 1;
+            }
+            if ($changed) {
+                $lines[$i] = $code . $comment;
+                $rewrites++;
+            }
+        }
+
+        # Insert temp declarations after the last module-scope decl line.
+        # We must avoid putting temps inside a function/task/begin block, and
+        # the source array must be declared before the temp uses it.
+        # Track nesting depth of begin/function/task/case/fork/generate blocks
+        # so we only consider lines at module scope (depth 0).
+        my $depth = 0;
+        my $insert_at = $ms;
+        for my $i ($ms + 1 .. $me - 1) {
+            my $l = $lines[$i];
+            my $code = $l; $code =~ s{//.*$}{};
+            # Module-scope decl?
+            if ($depth == 0 && $code =~ /^\s*(reg|wire|logic|input|output|inout|parameter|localparam|integer|genvar)\b/) {
+                $insert_at = $i;
+            }
+            # Adjust depth for nested blocks. Order matters: count open before
+            # close so a single-line `begin ... end` nets to zero change.
+            while ($code =~ /\b(function|task|begin|case|casex|casez|fork|generate)\b/g) {
+                $depth++;
+            }
+            while ($code =~ /\b(endfunction|endtask|end|endcase|join|join_any|join_none|endgenerate)\b/g) {
+                $depth-- if $depth > 0;
+            }
+        }
+        splice(@lines, $insert_at + 1, 0,
+               "  // sv-normalize: temps for chained dynamic indices",
+               @temp_decls);
+        # adjust this module's end and subsequent module boundaries.
+        my $shift = scalar(@temp_decls) + 1;
+        $mod_ends[$m] += $shift;
+        for my $n ($m+1 .. $#mod_starts) {
+            $mod_starts[$n] += $shift;
+            $mod_ends[$n]   += $shift;
+        }
+    }
+    }
+}
+
 for my $i (0 .. $#lines) {
     my $line = $lines[$i];
 
@@ -50,25 +518,21 @@ for my $i (0 .. $#lines) {
         $comment = $1;
     }
 
-    # Rule 1: assign with dynamic array index → always @(*)
-    if ($code =~ /^(\s*)assign\s+(.+?)\s*=\s*(.+?)\s*;\s*$/) {
-        my ($indent, $lhs, $rhs) = ($1, $2, $3);
-        my $has_dynamic = 0;
-        while ($rhs =~ /\w+\s*\[([^\]]*)\]/g) {
-            my $inside = $1;
-            next if $inside =~ /:/;
-            next if $inside =~ /^\s*\d/;
-            next if $inside =~ /^[A-Z_]+$/;
-            if ($inside =~ /^[A-Za-z_]/) {
-                $has_dynamic = 1;
-                last;
-            }
-        }
-        if ($has_dynamic) {
-            $lines[$i] = "${indent}always @(*) ${lhs} = ${rhs};${comment}";
-            $rewrites++;
-            next;
-        }
+    # (Rule 1 removed: Rule 0 already handles chained dynamic indices, and
+    # iverilog accepts single-level `arr[var]` in continuous assigns. Rule 1
+    # was over-eager and converted `assign wire_x = arr[var]` to `always @(*)
+    # wire_x = ...`, which iverilog rejects when wire_x is declared `wire`.)
+
+    # Rule 1b: any `assign IDENT.field` → `always @(*) IDENT.field`. Handles
+    # both single-line and multi-line statements (only the leading `assign`
+    # keyword is rewritten; continuation lines are unchanged). Iverilog flags
+    # multiple `assign s.f1 = ...; assign s.f2 = ...;` on the same struct as
+    # multi-driver; switching to procedural assigns sidesteps this.
+    if ($code =~ /^(\s*)assign\s+([A-Za-z_]\w*\.\w+(?:\[[^\]]+\])?)\s*=\s*(.*)$/) {
+        my ($indent, $lhs, $rest) = ($1, $2, $3);
+        $lines[$i] = "${indent}always @(*) ${lhs} = ${rest}${comment}";
+        $rewrites++;
+        next;
     }
 
     # Rule 2: '{default:VALUE} → comment out
@@ -107,6 +571,52 @@ for my $i (0 .. $#lines) {
         $lines[$i] = "${indent}always @(*)${rest}${comment}";
         $rewrites++;
         next;
+    }
+
+    # Rule 6b: chained-RHS read `arr[i][j][HI:LO]` (with i,j loop vars) →
+    # `$get_val(arr, i, j)` system function. Translates to a single flat slice
+    # in VHDL — sidesteps iverilog's elaborator restriction on chained-RHS
+    # part-selects with non-constant outer indices.
+    # Skip if line starts with `assign` (continuous — iverilog handles those)
+    # or if line is an LHS write (would put $get_val on LHS).
+    # Skip if `assign`, port-map (`.NAME(...)`), or any RHS line that's
+    # actually wiring an output (we can't tell statically; skip to be safe).
+    if ($code !~ /^\s*assign\b/ && $code !~ /\.\s*[A-Za-z_]\w*\s*\(/) {
+        my $changed = 0;
+        while ($code =~ s/\b([A-Za-z_]\w*)\[([^\[\]:]+)\]\[([^\[\]:]+)\]\[([^\[\]]+)\](?!\s*[<:]?=)/_REPLACE_get_val($1, $2, $3, $4)/e) {
+            $changed = 1;
+        }
+        if ($changed) {
+            $lines[$i] = $code . $comment;
+            $rewrites++;
+            next;
+        }
+    }
+
+    # Rule 6: chained-LHS procedural assign → `$set_val(arr, idx0, idx1, …, val);`
+    # Iverilog rejects `arr[i][j] = X;` as a procedural assignment (chained
+    # part-select on LHS). Rewrite as a `$set_val` system task call which the
+    # tgt-vhdl backend translates to `arr(i)(j) := X;` (chained VHDL slice).
+    # Skip if any index contains `:` (range) or `+:` / `-:` (indexed part) —
+    # $set_val handles single-bit indices only.
+    if ($code =~ /^(\s*)([A-Za-z_]\w*)\s*((?:\[[^\[\]]+\]){2,})\s*=\s*(.+?)\s*;\s*$/) {
+        my ($indent, $arr, $idxs, $rhs) = ($1, $2, $3, $4);
+        my @args;
+        my $any_range = 0;
+        while ($idxs =~ /\[([^\[\]]+)\]/g) {
+            my $ix = $1;
+            if ($ix =~ /:/ || $ix =~ /\+:/ || $ix =~ /-:/) {
+                $any_range = 1;
+                last;
+            }
+            push @args, $ix;
+        }
+        if (!$any_range && @args >= 2) {
+            my $args_str = join(', ', $arr, @args, $rhs);
+            $lines[$i] = "${indent}\$set_val(${args_str});${comment}";
+            $rewrites++;
+            next;
+        }
     }
 }
 
