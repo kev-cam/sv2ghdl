@@ -128,14 +128,72 @@ esac
 rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR"
 
-# --- Stage 1: Try iverilog -tvhdl -psv2vhdl=1 ---
-# Produces a single VHDL file with entity instantiations for sv2vhdl
-# primitives.  Uses --std=2040 for NVC compilation.
+# --- Stage 0: preprocess + normalize ---
+# The iverilog tgt-vhdl elaborator rejects some SystemVerilog the VeeR-class
+# RTL uses (notably chained dynamic-then-range indexing `arr[VAR][HI:LO]`).
+# sv-normalize rewrites those into translatable equivalents. The intended
+# pipeline is `iverilog -E | sv-normalize | (translate)`, so do that here and
+# feed the single normalized file to both stage 1 and the stage-2 split.
+SV_NORMALIZE="${BASH_SOURCE[0]%/*}/sv-normalize"
+NORM_SRC=""
+if [[ -x "$SV_NORMALIZE" ]]; then
+    _pp="$OUTDIR/_pp.v"
+    _norm="$OUTDIR/_norm.sv"
+    if "$IVERILOG" -E -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
+            -o "$_pp" "${ABS_SOURCES[@]}" 2>/dev/null \
+       && [[ -s "$_pp" ]] \
+       && "$SV_NORMALIZE" < "$_pp" > "$_norm" 2>/dev/null \
+       && [[ -s "$_norm" ]]; then
+        NORM_SRC="$_norm"
+    fi
+fi
+# If normalization succeeded, translate the normalized file; otherwise fall
+# back to the raw sources (preserves previous behaviour for simple inputs).
+if [[ -n "$NORM_SRC" ]]; then
+    XLAT_SOURCES=("$NORM_SRC")
+else
+    XLAT_SOURCES=("${ABS_SOURCES[@]}")
+fi
 
 IVERILOG_OK=0
 VHDL_OUT="$OUTDIR/design.vhd"
 
-if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${ABS_SOURCES[@]}" 2>/dev/null; then
+# --- Stage 1a: sv2vhdl-modules on the normalized source ---
+# sv2vhdl-modules does robust per-module translation (keeping each module's
+# context) and emits a single combined design.vhd. This is the pipeline that
+# translates whole VeeR-class designs; prefer it when we have a normalized
+# source and the tool is available.
+SV2VHDL_MODULES="${BASH_SOURCE[0]%/*}/sv2vhdl-modules"
+SV_DEDUP="${BASH_SOURCE[0]%/*}/sv-dedup-vhdl"
+if [[ -n "$NORM_SRC" && -x "$SV2VHDL_MODULES" ]]; then
+    _mods="$OUTDIR/_mods.vhd"
+    if IVERILOG="$IVERILOG" "$SV2VHDL_MODULES" "$NORM_SRC" -o "$_mods" 2>/dev/null \
+            && [[ -s "$_mods" ]]; then
+        # sv2vhdl-modules emits each parameterised helper (rvdff, rvdffe, ...)
+        # once per referencing module; the same __hash variant therefore
+        # appears many times. Deduplicate identical entity/architecture
+        # definitions so NVC sees each variant once.
+        if [[ -x "$SV_DEDUP" ]] && "$SV_DEDUP" < "$_mods" > "$VHDL_OUT" 2>/dev/null \
+                && [[ -s "$VHDL_OUT" ]]; then
+            :
+        else
+            cp "$_mods" "$VHDL_OUT"
+        fi
+        cd "$OUTDIR"
+        if $NVC --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
+            IVERILOG_OK=1
+            echo "SV2VHDL_MODULES=1" >> "$OUTDIR/_metadata.tmp"
+        fi
+        cd "$ORIG_DIR"
+    fi
+fi
+
+# --- Stage 1: Try iverilog -tvhdl -psv2vhdl=1 ---
+# Produces a single VHDL file with entity instantiations for sv2vhdl
+# primitives.  Uses --std=2040 for NVC compilation.
+
+if [[ $IVERILOG_OK -eq 0 ]] && \
+   timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}" 2>/dev/null; then
     if [[ -s "$VHDL_OUT" ]]; then
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
@@ -166,7 +224,7 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
     PREAMBLE_FILE="$SPLIT_DIR/_preamble.v"
     : > "$PREAMBLE_FILE"
 
-    for src in "${ABS_SOURCES[@]}"; do
+    for src in "${XLAT_SOURCES[@]}"; do
         awk '
             /^\s*`timescale/ { print >> "'"$PREAMBLE_FILE"'"; next }
             /^\s*`define/    { print >> "'"$PREAMBLE_FILE"'"; next }
