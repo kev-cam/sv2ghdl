@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# delegate-regressions — from a (laptop) simulator-repo clone, hand the
+# regression run off to the build box via the regress web server.
+#
+# Flow: push the current HEAD to the shared GitHub fork as a gate branch, then
+# POST to the web server, which fetches the branch, builds it in its build
+# area, runs that repo's regressions, and (with --push) fast-forwards
+# origin/main if there are no regressions. Prints a URL to watch on the dashboard.
+#
+# Usage (run from inside your iverilog/ or nvc/ clone):
+#   delegate-regressions [--push] [--repo iverilog|nvc] [--server URL]
+#                        [--branch NAME] [--no-build] [--filter STR] [--dry-run]
+#
+# Config via env: REGRESS_SERVER (default http://clevo-lx:8088), REGRESS_REMOTE
+# (default origin).
+set -euo pipefail
+
+SERVER="${REGRESS_SERVER:-http://clevo-lx:8088}"
+REMOTE="${REGRESS_REMOTE:-origin}"
+REPO=""; PUSH=0; BRANCH=""; NOBUILD=0; FILTER=""; DRY=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --push)     PUSH=1 ;;
+    --no-build) NOBUILD=1 ;;
+    --dry-run)  DRY=1 ;;
+    --repo)     REPO="$2"; shift ;;
+    --server)   SERVER="$2"; shift ;;
+    --branch)   BRANCH="$2"; shift ;;
+    --filter)   FILTER="$2"; shift ;;
+    -h|--help)  sed -n '2,18p' "$0"; exit 0 ;;
+    *) echo "delegate-regressions: unknown arg '$1'" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+# must be in a git repo
+top=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "not in a git repo" >&2; exit 1; }
+# infer repo (iverilog|nvc) from the clone dir name if not given
+[[ -z "$REPO" ]] && REPO=$(basename "$top")
+case "$REPO" in
+  iverilog|nvc) ;;
+  *) echo "delegate-regressions: --repo must be iverilog|nvc (got '$REPO')" >&2; exit 2 ;;
+esac
+
+# gate branch name: stable-ish per user; override with --branch
+if [[ -z "$BRANCH" ]]; then
+  cur=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo work)
+  [[ "$cur" == HEAD ]] && cur=detached
+  BRANCH="gate/$(id -un)/$cur"
+fi
+SHA=$(git rev-parse --short HEAD)
+
+echo "repo=$REPO  branch=$BRANCH  head=$SHA  push-if-clean=$([[ $PUSH = 1 ]] && echo yes || echo no)"
+push_cmd=(git push --force-with-lease "$REMOTE" "HEAD:refs/heads/$BRANCH")
+
+# build the POST form
+form=(--data-urlencode "repo=$REPO" --data-urlencode "ref=$REMOTE/$BRANCH")
+[[ $PUSH = 1 ]]    && form+=(--data-urlencode "push=1")
+[[ $NOBUILD = 1 ]] && form+=(--data-urlencode "no_build=1")
+[[ -n "$FILTER" ]] && form+=(--data-urlencode "filter=$FILTER")
+
+if [[ $DRY = 1 ]]; then
+  echo "[dry-run] ${push_cmd[*]}"
+  echo "[dry-run] curl -s -i -X POST ${form[*]} $SERVER/gate"
+  exit 0
+fi
+
+echo "==> pushing candidate to $REMOTE/$BRANCH"
+"${push_cmd[@]}"
+
+echo "==> triggering gate on $SERVER"
+loc=$(curl -s -i -X POST "${form[@]}" "$SERVER/gate" \
+        | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}')
+if [[ -n "$loc" ]]; then
+  echo "Gate launched. Watch: $SERVER$loc"
+else
+  echo "Gate POST sent (no redirect captured); see $SERVER/gates"
+fi

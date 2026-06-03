@@ -1,0 +1,12 @@
+# results database (per-machine) and its WAL sidecars
+results.db
+results.db-wal
+results.db-shm
+
+# run output: per-run logs, gate logs, timing, sv-tests OUT_DIR, dispatch makefiles
+out/
+
+# python / smak scratch
+__pycache__/
+*.pyc
+.smak.connect

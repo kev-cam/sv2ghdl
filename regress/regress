@@ -1,0 +1,462 @@
+#!/usr/bin/perl
+#
+# regress - multi-simulator regression harness with a SQLite results tracker.
+#
+# Subcommands:
+#   regress list                       show blocks (the suite x engine matrix) + readiness
+#   regress run [block...]             run blocks (default: all ready), record results
+#   regress run-one <block> --run ID   run one block into an existing run (used by dispatch)
+#   regress report [--run N]           per-block summary + regressions vs the previous run
+#   regress diff <runA> <runB>         compare two runs test-by-test
+#
+# Common options: --db PATH (default <dir>/results.db or $REGRESS_DB),
+#   --filter STR (restrict to matching tests/cases), --jobs N.
+#
+# `regress run` dispatches blocks in parallel via smak (a make replacement);
+# pass --seq to run them in-process, or --make to force GNU make. Using smak
+# here doubles as a test of smak as a general parallel dispatcher.
+#
+use strict;
+use warnings;
+use FindBin;
+use lib "$FindBin::Bin/lib";
+use Getopt::Long qw(GetOptionsFromArray);
+use File::Path qw(make_path);
+use Cwd qw(abs_path);
+
+use Regress::DB;
+use Regress::Block;
+use Regress::Run qw(repo_shas);
+use Regress::Util qw(now_ms);
+
+my $SELF        = abs_path($0);
+my $REGRESS_DIR = $FindBin::Bin;
+my $DEFAULT_DB  = $ENV{REGRESS_DB} || "$REGRESS_DIR/results.db";
+
+my $cmd = shift @ARGV // 'list';
+my %D = (
+    list     => \&cmd_list,
+    run      => \&cmd_run,
+    'run-one'=> \&cmd_run_one,
+    report   => \&cmd_report,
+    diff     => \&cmd_diff,
+    compare  => \&cmd_compare,
+    backfill => \&cmd_backfill,
+    gate     => \&cmd_gate,
+    baseline => \&cmd_baseline,
+    serve    => \&cmd_serve,
+    help     => \&cmd_help,
+);
+my $fn = $D{$cmd} or die "regress: unknown command '$cmd' (try: regress help)\n";
+$fn->(@ARGV);
+
+# ---- list ----------------------------------------------------------------
+sub cmd_list {
+    printf "%-26s %-10s %-13s %-6s\n", 'BLOCK', 'SUITE', 'ENGINE', 'READY';
+    print  '-' x 60, "\n";
+    for my $b (Regress::Block::all_blocks()) {
+        printf "%-26s %-10s %-13s %-6s\n",
+            $b->{name}, $b->{suite}, $b->{engine},
+            Regress::Block::is_ready($b) ? 'yes' : 'NO';
+    }
+}
+
+# ---- run -----------------------------------------------------------------
+sub cmd_run {
+    my @argv = @_;
+    my ($db, $filter, $jobs, $seq, $use_make, $notes, $all, $timeout);
+    GetOptionsFromArray(\@argv,
+        'db=s' => \$db, 'filter=s' => \$filter, 'jobs=i' => \$jobs,
+        'seq' => \$seq, 'make' => \$use_make, 'notes=s' => \$notes,
+        'all' => \$all, 'timeout=i' => \$timeout,
+    ) or die "regress run: bad options\n";
+    $db   //= $DEFAULT_DB;
+    $jobs //= 8;
+
+    my @want = @argv ? @argv : Regress::Block::names();
+    my @blocks;
+    for my $name (@want) {
+        my $b = Regress::Block::get($name) or do {
+            warn "regress run: no such block '$name'\n"; next;
+        };
+        if (!$all && !Regress::Block::is_ready($b)) {
+            warn "regress run: skipping not-ready block '$name'\n"; next;
+        }
+        push @blocks, $b;
+    }
+    die "regress run: no runnable blocks\n" unless @blocks;
+
+    my $D = Regress::DB->new(path => $db);
+    my $run_id = $D->start_run(notes => $notes);
+    my $shas = repo_shas();
+    $D->record_repo($run_id, $_, $shas->{$_}{sha}, $shas->{$_}{version})
+        for sort keys %$shas;
+    print "Run #$run_id  ($db)\n";
+    print "  blocks: ", join(', ', map { $_->{name} } @blocks), "\n";
+
+    my $workdir = "$REGRESS_DIR/out/run-$run_id";
+    make_path("$workdir/logs");
+
+    if ($seq) {
+        print "  dispatch: sequential (in-process)\n";
+        run_one_inproc($D, $run_id, $_, $filter, $jobs, $workdir, $timeout) for @blocks;
+    } else {
+        dispatch_parallel($D, $run_id, \@blocks, $filter, $jobs, $workdir,
+                          $use_make ? 'make' : 'smak', $db, $timeout);
+    }
+
+    $D->finish_run($run_id);
+    print "\n";
+    report_run($D, $run_id);
+}
+
+# in-process execution of one block (also the body of `run-one`)
+sub run_one_inproc {
+    my ($D, $run_id, $b, $filter, $jobs, $workdir, $timeout) = @_;
+    (my $safe = $b->{name}) =~ s{[/ ]}{_}g;
+    my $log = "$workdir/logs/$safe.log";
+
+    # human-readable run options recorded with the block + each passing test
+    my $eff_to = $timeout // $b->{params}{timeout};
+    my @o = ("engine=$b->{engine}");
+    push @o, "runner=$b->{params}{runner}" if $b->{params}{runner};
+    push @o, "suffix=$b->{params}{suffix}" if defined $b->{params}{suffix} && length $b->{params}{suffix};
+    push @o, "timeout=${eff_to}s" if $eff_to;
+    push @o, "filter=$filter" if defined $filter && length $filter;
+    my $options = join(' ', @o);
+
+    my $brid = $D->start_block_run(
+        run_id => $run_id, block => $b->{name},
+        suite => $b->{suite}, engine => $b->{engine}, options => $options);
+
+    my $t0 = now_ms();
+    my $res = eval {
+        Regress::Block::dispatch($b, filter => $filter, jobs => $jobs,
+                                 log => $log, workdir => $workdir, timeout => $timeout);
+    };
+    if (!$res) {
+        $res = { exit_code => 99, results => [
+            { test_name => $b->{name}, status => 'error',
+              message => "dispatch died: $@", log_path => $log } ] };
+    }
+    my $sum = $D->record_results($brid, $res->{results},
+        exit_code => $res->{exit_code}, run_id => $run_id,
+        block => $b->{name}, options => $options);
+    my $dt = int((now_ms() - $t0) / 1000);
+    printf "  %-26s %4d tests  %4dP %4dF %3dS %3dNI %3dXF %3dE  (%ds)\n",
+        $b->{name}, $sum->{total}, $sum->{pass}, $sum->{fail}, $sum->{skip},
+        $sum->{notimpl}, $sum->{xfail}, $sum->{error}, $dt;
+    return $sum;
+}
+
+# parallel dispatch: emit a makefile of per-block targets, run via smak (or
+# make). Falls back to make if smak fails structurally.
+sub dispatch_parallel {
+    my ($D, $run_id, $blocks, $filter, $jobs, $workdir, $tool, $db, $timeout) = @_;
+    my $mk = "$workdir/run.mk";
+    open my $w, '>', $mk or die "open $mk: $!\n";
+    my @targets = map { "blk$_" } 0 .. $#$blocks;
+    print $w ".PHONY: all @targets\n";
+    print $w "all: @targets\n\n";
+
+    # Suites whose blocks share a working dir (iverilog/ivtest, nvc-build,
+    # rtlmeter) must not run concurrently with each other — vvp_reg.pl's ./vsim,
+    # run_regr's ./logs, etc. would clobber. Serialize within such a suite by
+    # chaining each block on the previous one of the same suite (a make
+    # prerequisite); cross-suite and the isolated sv-tests stay parallel.
+    my %SHARED_DIR = (ivtest => 1, nvc => 1, rtlmeter => 1);
+    my %last_in_suite;
+    for my $i (0 .. $#$blocks) {
+        my $name = $blocks->[$i]{name};
+        my $suite = $blocks->[$i]{suite} // '';
+        my @a = ($SELF, 'run-one', "'$name'", '--run', $run_id, '--db', "'$db'",
+                 '--workdir', "'$workdir'", '--jobs', $jobs);
+        push @a, '--filter', "'$filter'" if defined $filter && length $filter;
+        push @a, '--timeout', $timeout if $timeout;
+        my $dep = ($SHARED_DIR{$suite} && defined $last_in_suite{$suite})
+                ? " $last_in_suite{$suite}" : '';
+        print $w "blk$i:$dep\n\t\@", join(' ', @a), "\n\n";
+        $last_in_suite{$suite} = "blk$i" if $SHARED_DIR{$suite};
+    }
+    close $w;
+
+    my $jobflag = "-j$jobs";
+    my $ran = $tool;
+    my $rc;
+    if ($tool eq 'smak' && _have('smak')) {
+        print "  dispatch: smak $jobflag -f run.mk  (exercising smak as dispatcher)\n";
+        $rc = system('smak', $jobflag, '-f', $mk, 'all');
+        if ($rc != 0) {
+            warn "regress run: smak dispatcher exited rc=$rc; clearing partials and falling back to make\n";
+            $D->dbh->do("DELETE FROM result WHERE block_run_id IN (SELECT block_run_id FROM block_run WHERE run_id=?)", undef, $run_id);
+            $D->dbh->do("DELETE FROM block_run WHERE run_id=?", undef, $run_id);
+            $ran = 'make';
+        }
+    } else {
+        $ran = 'make';
+    }
+    if ($ran eq 'make') {
+        print "  dispatch: make $jobflag -f run.mk\n";
+        $rc = system('make', $jobflag, '-f', $mk, 'all');
+        warn "regress run: make dispatcher rc=$rc\n" if $rc != 0;
+    }
+}
+
+# ---- run-one (called by the dispatch makefile) ---------------------------
+sub cmd_run_one {
+    my @argv = @_;
+    my $name = shift @argv;
+    my ($db, $run_id, $filter, $jobs, $workdir, $timeout);
+    GetOptionsFromArray(\@argv,
+        'db=s' => \$db, 'run=i' => \$run_id, 'filter=s' => \$filter,
+        'jobs=i' => \$jobs, 'workdir=s' => \$workdir, 'timeout=i' => \$timeout,
+    ) or die "regress run-one: bad options\n";
+    $db //= $DEFAULT_DB;
+    defined $run_id or die "regress run-one: --run required\n";
+    my $b = Regress::Block::get($name) or die "regress run-one: no such block '$name'\n";
+    $workdir //= "$REGRESS_DIR/out/run-$run_id";
+    make_path("$workdir/logs");
+
+    # never let a single block failure abort the dispatch
+    eval {
+        my $D = Regress::DB->new(path => $db);
+        run_one_inproc($D, $run_id, $b, $filter, $jobs // 8, $workdir, $timeout);
+        1;
+    } or warn "regress run-one '$name': $@";
+    exit 0;
+}
+
+# ---- report --------------------------------------------------------------
+sub cmd_report {
+    my @argv = @_;
+    my ($db, $run_id);
+    GetOptionsFromArray(\@argv, 'db=s' => \$db, 'run=i' => \$run_id)
+        or die "regress report: bad options\n";
+    $db //= $DEFAULT_DB;
+    my $D = Regress::DB->new(path => $db);
+    $run_id //= $D->latest_run_id() // die "regress report: no runs in $db\n";
+    report_run($D, $run_id);
+}
+
+sub report_run {
+    my ($D, $run_id) = @_;
+    my $rows = $D->block_summaries($run_id);
+    print "=== Run #$run_id ===\n";
+    printf "%-26s %6s %6s %6s %5s %5s %5s %5s\n",
+        'BLOCK','TOTAL','PASS','FAIL','SKIP','NI','XF','ERR';
+    print '-' x 72, "\n";
+    my %tot;
+    for my $r (@$rows) {
+        printf "%-26s %6d %6d %6d %5d %5d %5d %5d\n",
+            $r->{block}, $r->{total}, $r->{passed}, $r->{failed},
+            $r->{skipped}, $r->{notimpl}, $r->{xfail}, $r->{errored};
+        $tot{$_} += $r->{$_} for qw(total passed failed skipped notimpl xfail errored);
+    }
+    print '-' x 72, "\n";
+    printf "%-26s %6d %6d %6d %5d %5d %5d %5d\n", 'TOTAL',
+        map { $tot{$_} // 0 } qw(total passed failed skipped notimpl xfail errored);
+
+    # regressions vs previous run containing each block
+    my (@regr, @fixes);
+    for my $r (@$rows) {
+        my $prev = $D->prev_run_with_block($run_id, $r->{block}) or next;
+        my $now  = $D->block_results_map($run_id, $r->{block});
+        my $old  = $D->block_results_map($prev,  $r->{block});
+        for my $t (keys %$now) {
+            next unless exists $old->{$t};
+            my ($o, $n) = ($old->{$t}, $now->{$t});
+            push @regr,  "$r->{block}:$t ($o->$n)"
+                if _good($o) && !_good($n);
+            push @fixes, "$r->{block}:$t ($o->$n)"
+                if !_good($o) && _good($n);
+        }
+    }
+    if (@regr) {
+        print "\n!! REGRESSIONS (", scalar @regr, "):\n";
+        print "   $_\n" for sort @regr[0 .. ($#regr < 30 ? $#regr : 30)];
+        print "   ...\n" if @regr > 31;
+    }
+    printf "\n   (%d fixed since previous run)\n", scalar @fixes if @fixes;
+}
+
+sub _good { my $s = shift; $s eq 'pass' || $s eq 'xfail' }
+
+# ---- diff ----------------------------------------------------------------
+sub cmd_diff {
+    my @argv = @_;
+    my $db;
+    GetOptionsFromArray(\@argv, 'db=s' => \$db) or die;
+    $db //= $DEFAULT_DB;
+    my ($a, $b) = @argv;
+    die "usage: regress diff <runA> <runB>\n" unless $a && $b;
+    my $D = Regress::DB->new(path => $db);
+    my %blocks;
+    $blocks{$_->{block}}++ for @{ $D->block_summaries($a) }, @{ $D->block_summaries($b) };
+    for my $blk (sort keys %blocks) {
+        my $ma = $D->block_results_map($a, $blk);
+        my $mb = $D->block_results_map($b, $blk);
+        my @ch;
+        for my $t (sort keys %{{ %$ma, %$mb }}) {
+            my $x = $ma->{$t} // '-'; my $y = $mb->{$t} // '-';
+            push @ch, "    $t: $x -> $y" if $x ne $y;
+        }
+        next unless @ch;
+        print "$blk:\n", join("\n", @ch), "\n";
+    }
+}
+
+# compare two blocks (engines) within one run, test-by-test
+sub cmd_compare {
+    my @argv = @_;
+    my ($db, $run_id);
+    GetOptionsFromArray(\@argv, 'db=s' => \$db, 'run=i' => \$run_id)
+        or die "regress compare: bad options\n";
+    $db //= $DEFAULT_DB;
+    my ($ba, $bb) = @argv;
+    die "usage: regress compare <blockA> <blockB> [--run N]\n" unless $ba && $bb;
+    my $D = Regress::DB->new(path => $db);
+    $run_id //= $D->latest_run_id() // die "no runs in $db\n";
+
+    my $ma = $D->block_results_map($run_id, $ba);
+    my $mb = $D->block_results_map($run_id, $bb);
+    my %all = map { $_ => 1 } keys %$ma, keys %$mb;
+
+    my (@a_only_good, @b_only_good, @both_bad_diff, $agree, $a_total, $b_total);
+    my %ca = (pass=>0,fail=>0); my %cb = (pass=>0,fail=>0);
+    for my $t (sort keys %all) {
+        my $sa = $ma->{$t}; my $sb = $mb->{$t};
+        $a_total++ if defined $sa; $b_total++ if defined $sb;
+        $ca{_good($sa//'')?'pass':'fail'}++ if defined $sa;
+        $cb{_good($sb//'')?'pass':'fail'}++ if defined $sb;
+        next unless defined $sa && defined $sb;
+        my ($ga, $gb) = (_good($sa), _good($sb));
+        if    ($ga && !$gb) { push @a_only_good, "$t ($sa | $sb)" }
+        elsif (!$ga && $gb) { push @b_only_good, "$t ($sa | $sb)" }
+        elsif (!$ga && !$gb && $sa ne $sb) { push @both_bad_diff, "$t ($sa | $sb)" }
+        else  { $agree++ }
+    }
+
+    print "=== Run #$run_id: $ba  vs  $bb ===\n";
+    printf "  %-28s pass=%-5d fail=%-5d total=%d\n", $ba, $ca{pass}, $ca{fail}, $a_total//0;
+    printf "  %-28s pass=%-5d fail=%-5d total=%d\n", $bb, $cb{pass}, $cb{fail}, $b_total//0;
+    printf "  agree on %d tests\n", $agree//0;
+    _section("PASS in $ba but NOT in $bb", \@a_only_good);
+    _section("PASS in $bb but NOT in $ba", \@b_only_good);
+    _section("fail in both, different status", \@both_bad_diff);
+}
+
+sub _section {
+    my ($title, $list) = @_;
+    return unless @$list;
+    print "\n  $title (", scalar @$list, "):\n";
+    my $n = @$list < 40 ? $#$list : 39;
+    print "    $_\n" for @$list[0 .. $n];
+    print "    ...\n" if @$list > 40;
+}
+
+# rebuild per-test history (last-pass + fail-since) from all recorded runs
+sub cmd_backfill {
+    my @argv = @_;
+    my $db;
+    GetOptionsFromArray(\@argv, 'db=s' => \$db) or die "regress backfill: bad options\n";
+    $db //= $DEFAULT_DB;
+    my $D = Regress::DB->new(path => $db);
+    print "Backfilling test history from recorded runs...\n";
+    my $n = $D->backfill;
+    my ($tests) = $D->dbh->selectrow_array("SELECT COUNT(*) FROM test_status");
+    print "Replayed $n result rows; test_status now holds $tests tests.\n";
+}
+
+# set/show the main baseline run a gate compares against (per repo)
+sub cmd_baseline {
+    my @argv = @_;
+    my ($db, $repo, $run, $note, $list);
+    GetOptionsFromArray(\@argv, 'db=s' => \$db, 'repo=s' => \$repo, 'run=i' => \$run,
+        'note=s' => \$note, 'list' => \$list) or die "regress baseline: bad options\n";
+    $db //= $DEFAULT_DB;
+    my $D = Regress::DB->new(path => $db);
+    if ($list || !$repo) {
+        my $bs = $D->all_baselines;
+        print "repo        baseline-run  sha          set_at               note\n";
+        printf "%-11s %-13s %-12s %-20s %s\n", $_->{repo}, ("run #".$_->{run_id}),
+            substr($_->{sha}//'',0,12), $_->{set_at}//'', $_->{note}//'' for @$bs;
+        print "(none set)\n" unless @$bs;
+        return;
+    }
+    $run //= $D->latest_run_id() // die "no runs to baseline\n";
+    # capture the iverilog/nvc sha recorded for that run, if any
+    my ($sha) = map { $_->{sha} } grep { $_->{repo} eq $repo } @{ $D->repo_shas_for($run) };
+    $D->set_baseline($repo, $run, $sha, $note // 'manual');
+    print "baseline[$repo] = run #$run", ($sha ? " (".substr($sha,0,12).")" : ""), "\n";
+}
+
+# CI gate: validate a candidate ref of a repo, FF origin/main if clean.
+sub cmd_gate {
+    my @argv = @_;
+    my ($db, $repo, $ref, $target, $push, $jobs, $no_build, $no_fetch, $filter, $gate_id);
+    GetOptionsFromArray(\@argv,
+        'db=s' => \$db, 'repo=s' => \$repo, 'ref=s' => \$ref, 'target=s' => \$target,
+        'push' => \$push, 'jobs=i' => \$jobs, 'no-build' => \$no_build,
+        'no-fetch' => \$no_fetch, 'filter=s' => \$filter, 'gate-id=i' => \$gate_id,
+    ) or die "regress gate: bad options\n";
+    $db //= $DEFAULT_DB;
+    $repo or die "regress gate: --repo required (iverilog|nvc)\n";
+    $ref //= 'HEAD';
+    require Regress::Gate;
+
+    my $D = Regress::DB->new(path => $db);
+    $gate_id //= $D->create_gate(repo => $repo, ref => $ref, target => ($target // $repo), push => $push);
+    my $logdir = "$REGRESS_DIR/out/gate-$gate_id";
+    make_path($logdir);
+    print "Gate #$gate_id: $repo\@$ref target=", ($target // $repo),
+          $push ? " (push if clean)" : " (no push)", "\n  logs: $logdir\n";
+
+    my $res = Regress::Gate::run(
+        db => $db, gate_id => $gate_id, repo => $repo, ref => $ref,
+        target => $target, push => $push, jobs => $jobs, no_build => $no_build,
+        no_fetch => $no_fetch, filter => $filter,
+        regress_bin => $SELF, logdir => $logdir);
+
+    if ($res->{error}) { print "FAILED: $res->{error}\n"; exit 1 }
+    printf "Gate #%d: run #%s — %s%s\n", $gate_id, ($res->{run_id} // '?'),
+        ($res->{clean} ? "CLEAN" : "REGRESSIONS"),
+        ($res->{pushed} ? ", pushed" : "");
+    print "  $res->{message}\n";
+    exit($res->{clean} ? 0 : 2);
+}
+
+sub cmd_serve {
+    my @argv = @_;
+    my ($db, $port, $host);
+    GetOptionsFromArray(\@argv, 'db=s' => \$db, 'port=i' => \$port, 'host=s' => \$host)
+        or die "regress serve: bad options\n";
+    require Regress::Web;
+    Regress::Web::serve(
+        db          => ($db // $DEFAULT_DB),
+        regress_dir => $REGRESS_DIR,
+        port        => $port,
+        host        => $host,
+    );
+}
+
+sub cmd_help {
+    print <<'USAGE';
+regress - multi-simulator regression harness (SQLite-tracked)
+
+  regress list
+  regress run [block...] [--seq|--make] [--filter STR] [--jobs N] [--notes T] [--all]
+  regress run-one <block> --run ID [--db PATH] [--filter STR]
+  regress report [--run N] [--db PATH]
+  regress diff <runA> <runB> [--db PATH]
+  regress compare <blockA> <blockB> [--run N]       # A/B two engines in one run
+  regress backfill                                  # rebuild per-test history from all runs
+  regress gate --repo R [--ref REF] [--push]        # CI gate: build+test a candidate, FF main if clean
+  regress baseline --repo R [--run N] | --list      # set/show the main baseline a gate compares to
+  regress serve [--port N] [--host H] [--db PATH]   # live web dashboard
+
+Blocks (suite x engine) come from `regress list`. Default `run` dispatches
+blocks in parallel via smak; --seq runs in-process; --make forces GNU make.
+USAGE
+}
+
+sub _have { my $x = shift; for (split /:/, $ENV{PATH}//'') { return 1 if -x "$_/$x" } 0 }
