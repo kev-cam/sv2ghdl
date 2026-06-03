@@ -86,6 +86,7 @@ sub _handle {
                                        page_test($db, $q{run}, $q{block}, $q{test})) }
     elsif ($path eq '/gates') { _send($conn, '200 OK', 'text/html', page_gates($db)) }
     elsif ($path eq '/gate')  { _send($conn, '200 OK', 'text/html', page_gate($db, $q{id})) }
+    elsif ($path eq '/help')  { _send($conn, '200 OK', 'text/html', page_help()) }
     elsif ($path eq '/log')   { _send($conn, '200 OK', 'text/plain',
                                        tail_log($q{run}, $q{block})) }
     elsif ($path eq '/file')  { _send($conn, '200 OK', 'text/plain',
@@ -221,8 +222,96 @@ sub _layout {
     return "<!doctype html><html><head><meta charset=utf-8>$meta"
          . "<title>" . h($title) . "</title><style>$CSS</style></head><body>"
          . "<header><h1>🧪 regress dashboard</h1> "
-         . "<span class=muted>&nbsp; <a href='/'>runs</a> · <a href='/gates'>gates</a></span></header>"
+         . "<span class=muted>&nbsp; <a href='/'>runs</a> · <a href='/gates'>gates</a> · <a href='/help'>help</a></span></header>"
          . "<div class=wrap>$body</div></body></html>";
+}
+
+sub page_help {
+    my $b = <<'HTML';
+<h2>regress — help &amp; documentation</h2>
+<p class=muted>A multi-simulator regression harness with a SQLite results
+tracker, a CI gate, and a cherry-picker. Built to vet other workers' changes to
+the simulators; everything runs against <b>build-area</b> tool binaries
+(<code>nvc-build/</code>, <code>iverilog/_install</code>), not system installs.</p>
+
+<h3>Dashboard pages</h3>
+<table>
+<tr><th>page</th><th class=l>shows</th></tr>
+<tr><td><a href='/'>/ (runs)</a></td><td class=l>All runs newest-first; an in-progress run is pinned on top with live per-block status and a tail of each running block's log. Each row links to the run; the pass/fail bar summarizes it. Auto-refreshes while a run is active.</td></tr>
+<tr><td>/run?id=N</td><td class=l>One run: the simulator/tool SHAs + versions captured for it, and a per-block table (status, exit code, pass/fail/skip/ni/xf/err, bar). Every count links to the matching per-test list.</td></tr>
+<tr><td>/block?run=N&amp;block=B</td><td class=l>Per-test results for a block, filterable by status. Each test links to its detail page; the <i>triage</i> column shows any disposition.</td></tr>
+<tr><td>/test?run=N&amp;block=B&amp;test=T</td><td class=l>One test: verdict + message, <b>history</b> (last pass with sim SHAs/options/runtime, and failing-since), a <b>triage</b> form, the relevant <b>log</b> slice, and the <b>test source</b>.</td></tr>
+<tr><td><a href='/gates'>/gates</a></td><td class=l>CI gate jobs (laptop-delegated candidate runs) with state, repo/ref/sha, result, and a link to the run.</td></tr>
+</table>
+
+<h3>The test matrix (blocks = suite &times; engine)</h3>
+<table>
+<tr><th>block</th><th class=l>what it runs</th></tr>
+<tr><td>ivtest/iverilog</td><td class=l>Icarus ivtest (vvp) under native iverilog</td></tr>
+<tr><td>ivtest/iverilog-nvc</td><td class=l>ivtest via the iverilog-sv2ghdl shim &rarr; nvc (per-test timeout)</td></tr>
+<tr><td>ivtest/nvc-vhdl</td><td class=l>ivtest VHDL path via vhdl_nvc_reg.pl &rarr; nvc</td></tr>
+<tr><td>ivtest/iverilog-steve</td><td class=l>ivtest under upstream Icarus (A/B reference)</td></tr>
+<tr><td>nvc/regr, nvc/unit</td><td class=l>nvc's own functional regression + C unit tests</td></tr>
+<tr><td>sv-tests/verilator, sv-tests/iverilog</td><td class=l>the CHIPS-Alliance sv-tests corpus under verilator / Icarus</td></tr>
+<tr><td>rtlmeter/verilator, rtlmeter/verilator-nvc</td><td class=l>RTLMeter designs under verilator / the verilator-sv2ghdl shim (heavy; run scoped)</td></tr>
+</table>
+
+<h3>Statuses &amp; indicators</h3>
+<p><span class=pass>pass</span> · <span class=fail>fail</span> · skip · ni (not implemented) ·
+xf (expected-fail = good) · <span class=err>err</span> (harness/dispatch error).
+On the test detail page, triage shows
+<span class='d d-waive'>waive</span> <span class='d d-investigate'>investigate</span>
+<span class='d d-bug'>bug</span> <span class='d d-wontfix'>wontfix</span>
+<span class='d d-flaky'>flaky</span>.</p>
+
+<h3>History, baseline &amp; triage</h3>
+<p>Every run updates a per-test history row: the <b>last time it passed</b> (with the
+simulator build SHAs, run options, and its run time) and, if currently failing,
+<b>when the failing streak began</b>. Regressions are judged as
+<b>pass&rarr;fail vs the repo's main baseline</b> (set with
+<code>regress baseline --repo R --run N</code>; auto-advanced when a clean gate
+fast-forwards main) &mdash; pre-existing failures don't count. <code>regress backfill</code>
+rebuilds history from all recorded runs. <b>Triage</b> opinions (waive/investigate/…
++ note) persist per (block,test) across runs.</p>
+
+<h3>Running tests</h3>
+<pre class=log>./regress run [block...]            # default: all ready blocks; smak-parallel dispatch
+./regress run ivtest/iverilog --seq # in-process, no dispatcher
+./run_my_regressions.py iverilog    # friendly groups: everything|iverilog|nvc|verilator|vhdl|ivtest|svtests|steve</pre>
+<p class=muted>The dispatcher runs blocks via smak (or GNU make with <code>--make</code>);
+blocks that share a working dir (ivtest, nvc, sv-tests, rtlmeter) are serialized,
+others run in parallel.</p>
+
+<h3>Reports &amp; comparison</h3>
+<pre class=log>./regress report [--run N]                 # per-block summary + regressions vs baseline
+./regress compare ivtest/iverilog ivtest/iverilog-steve   # A/B two engines in one run
+./regress diff RUNA RUNB                    # test-by-test between two runs</pre>
+
+<h3>CI gate &mdash; delegate from a laptop</h3>
+<p>Push a branch to the GitHub fork, then trigger the gate via this web server
+(no SSH). It fetches the branch, builds it in the build area, runs that repo's
+regressions, and <b>fast-forwards <code>origin/main</code> if there are no
+regressions vs the baseline</b> (refuses a non-fast-forward).</p>
+<pre class=log># on the laptop, from your iverilog/ or nvc/ clone:
+delegate-regressions --push
+# or locally on this box:
+./regress gate --repo iverilog [--ref REF] [--push]</pre>
+
+<h3>Cherry-picker</h3>
+<p>Bring in commits from upstream/contributor repos, gated by the harness.
+<code>cherry_picker.py --repo nvc --gui</code> lists candidates (upstream, a
+remote branch, <code>--from URL#ref</code>, or a PR), opens diffs in meld,
+accepts/rejects per file, and merges accepted commits. <code>--gate</code>
+routes through the gate.</p>
+
+<h3>Notes</h3>
+<ul>
+<li>Tools resolve build-area-first; <code>results.db</code> and <code>out/</code> are per-machine (gitignored).</li>
+<li>Start this server with <code>./regress serve [--port N] [--host H]</code>.</li>
+<li><code>./regress --help</code> (and <code>--help</code> on the Python tools) lists every command.</li>
+</ul>
+HTML
+    return _layout('help', 0, $b);
 }
 
 sub _is_running { !defined $_[0] || $_[0] eq '' }

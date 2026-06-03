@@ -13,6 +13,7 @@ package Regress::Adapter::SvTests;
 #
 use strict;
 use warnings;
+use File::Path qw(remove_tree);
 use Regress::Tools qw(src_root);
 use Regress::Util  qw(run_capture);
 
@@ -29,9 +30,14 @@ sub run {
     my $jobs  = $opt{jobs} || 8;
     (my $safe = $block->{name}) =~ s{[/ ]}{_}g;
     my $outdir = ($opt{workdir} || "$dir/out") . "/svtests-$safe";
+    # always start from an empty OUT_DIR, else make sees prior per-test logs as
+    # up-to-date and emits no PASS/FAIL verdicts (0 tests).
+    remove_tree($outdir) if -d $outdir;
 
     # RUNNER_PARAM= drops the Makefile's default --quiet so tools/runner logs
     # at DEBUG and emits the "PASS:/FAIL:/Skipping" verdict lines we parse.
+    # The two sv-tests blocks must not run concurrently (shared make state in
+    # the sv-tests tree) — the dispatcher serializes the 'sv-tests' suite.
     my @cmd = ('make', 'tests', "RUNNERS=$runner", "OUT_DIR=$outdir",
                'RUNNER_PARAM=', "-j$jobs");
     if (defined $opt{filter} && length $opt{filter}) {

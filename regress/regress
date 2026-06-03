@@ -159,12 +159,12 @@ sub dispatch_parallel {
     print $w ".PHONY: all @targets\n";
     print $w "all: @targets\n\n";
 
-    # Suites whose blocks share a working dir (iverilog/ivtest, nvc-build,
-    # rtlmeter) must not run concurrently with each other — vvp_reg.pl's ./vsim,
-    # run_regr's ./logs, etc. would clobber. Serialize within such a suite by
-    # chaining each block on the previous one of the same suite (a make
-    # prerequisite); cross-suite and the isolated sv-tests stay parallel.
-    my %SHARED_DIR = (ivtest => 1, nvc => 1, rtlmeter => 1);
+    # Suites whose blocks share a working dir must not run concurrently —
+    # vvp_reg.pl's ./vsim, run_regr's ./logs, and sv-tests' make state (it
+    # regenerates tests/ + check-runners in the shared tree despite per-block
+    # OUT_DIR) would clobber, yielding 0 tests / corruption. Serialize within
+    # such a suite by chaining each block on the previous one of the same suite.
+    my %SHARED_DIR = (ivtest => 1, nvc => 1, rtlmeter => 1, 'sv-tests' => 1);
     my %last_in_suite;
     for my $i (0 .. $#$blocks) {
         my $name = $blocks->[$i]{name};
