@@ -36,12 +36,15 @@ RESOLVER="${NVC_LIBDIR}/sv2vhdl/libresolver.so"
 
 # Parse arguments (vvp-compatible)
 SIMDIR=""
+ACCEL_REQ=""
 for arg in "$@"; do
     case "$arg" in
         -n|-N|-compatible|-i|-v|-q|-s) ;;  # Silently accepted
         -V)
             echo "Icarus Verilog version 13.0 (sv2ghdl/nvc)"
             exit 0 ;;
+        --accel)     ACCEL_REQ="auto" ;;            # accelerate (auto-pick leaves)
+        --accel=*)   ACCEL_REQ="${arg#--accel=}" ;; # accelerate a named module
         -l*|-m*|-M*) ;;  # Silently ignored
         +*)          ;;  # Plusargs - ignored
         *)
@@ -74,6 +77,22 @@ fi
 # 2008 for sv2ghdl.pl fallback)
 STD="${NVC_STD:-2008}"
 
+# --accel trigger. Either pass --accel[=<module>] to this wrapper, or set
+# NVC_ACCEL in the environment (e.g. `export NVC_ACCEL=auto`) so unmodified
+# build scripts get acceleration for free. nvc background-compiles the hot
+# RTL via yosys and hot-patches it in mid-run; the sim never waits.
+[[ -z "$ACCEL_REQ" && -n "$NVC_ACCEL" ]] && ACCEL_REQ="$NVC_ACCEL"
+ACCEL_FLAG=""
+RUN_TIMEOUT=30
+if [[ -n "$ACCEL_REQ" ]]; then
+    ACCEL_FLAG="--accel"
+    RUN_TIMEOUT=0   # accel runs are real workloads; disable the test-suite timeout
+    case "$ACCEL_REQ" in
+        auto|1|yes|true|on) ;;                    # auto: nvc picks leaf instances
+        *) export NVC_ACCEL_TOP="$ACCEL_REQ" ;;   # hint a specific DUT module
+    esac
+fi
+
 # Run NVC from the simulation directory (where work/ library lives)
 cd "$SIMDIR"
 
@@ -99,7 +118,7 @@ fi
 
 nvc_log=$(mktemp)
 trap 'rm -f "$nvc_log"' EXIT
-timeout 30 $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r "$TOP_ENTITY" > "$nvc_log" 2>&1
+timeout "$RUN_TIMEOUT" $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r $ACCEL_FLAG "$TOP_ENTITY" > "$nvc_log" 2>&1
 nvc_exit=$?
 awk '
     /^\*\* Note: loading VHPI/  { next }

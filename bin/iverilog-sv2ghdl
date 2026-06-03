@@ -281,7 +281,22 @@ if [[ "$TARGET" == "null" ]]; then
     exit 0
 fi
 
-# Determine top entity
+# Determine top entity. Auto-detect the RTL root: the top module is the one
+# nothing else instantiates, so (with comments stripped) its name occurs only
+# in its own `module <name>` declaration, while instantiated modules occur >=2
+# times. Pick the unique minimum-occurrence module; fall back to the first
+# module of the last source file if that's ambiguous.
+if [[ -z "$TOP_MODULE" ]]; then
+    _src=$(cat "${ABS_SOURCES[@]}" 2>/dev/null | sed -e 's://.*$::' -e 's:/\*.*\*/::g')
+    _decl=$(printf '%s\n' "$_src" | grep -oP '^\s*(?:\(\*.*?\*\)\s*)*module\s+\K\w+' | sort -u)
+    _best=""; _min=2147483647; _ties=0
+    for _m in $_decl; do
+        _c=$(printf '%s\n' "$_src" | grep -owE "$_m" | wc -l)
+        if   (( _c < _min ));  then _min=$_c; _best="$_m"; _ties=1
+        elif (( _c == _min )); then _ties=$((_ties + 1)); fi
+    done
+    (( _ties == 1 )) && TOP_MODULE="$_best"
+fi
 if [[ -z "$TOP_MODULE" ]]; then
     LAST_SOURCE="${ABS_SOURCES[${#ABS_SOURCES[@]}-1]}"
     TOP_MODULE=$(grep -m1 -oP '^\s*(?:\(\*.*?\*\)\s*)*module\s+\K\w+' "$LAST_SOURCE" 2>/dev/null)
