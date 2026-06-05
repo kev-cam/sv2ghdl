@@ -93,7 +93,9 @@ sub run {
     } elsif ($o{push}) {
         $db->update_gate($gid, state => 'pushing');
         my $remote = $o{push_remote} || 'origin';
-        my $branch = $o{push_branch} || 'main';
+        # Default branch is the repo's own (nvc uses master, not main): resolve
+        # from origin/HEAD, else fall back to whichever of master|main exists.
+        my $branch = $o{push_branch} || default_branch($dir, $remote);
         my ($prc, $pout) = run_capture(
             ['git', '-C', $dir, 'push', $remote, "$sha:refs/heads/$branch"],
             log => "$logdir/gate-push.log");
@@ -154,6 +156,27 @@ sub build_nvc {
         ['sh', '-c', "cd '$bdir' && BUILD_DIR=\$PWD NVC_LIBPATH=\$PWD/lib bin/run_regr wait1"],
         log => "$logdir/build-nvc-smoke.log");
     return ($rrc == 0, $rrc == 0 ? 'ok' : "nvc build smoke rc=$rrc make=$mrc");
+}
+
+# Resolve a repo's default branch: prefer origin/HEAD's target, else the first
+# of master|main that exists on the remote, else 'main'.
+sub default_branch {
+    my ($dir, $remote) = @_;
+    $remote ||= 'origin';
+    my ($rc, $out) = run_capture(
+        ['git', '-C', $dir, 'symbolic-ref', '--short', "refs/remotes/$remote/HEAD"]);
+    if ($rc == 0 && defined $out) {
+        chomp $out;
+        $out =~ s{^\Q$remote\E/}{};
+        return $out if length $out;
+    }
+    for my $b (qw(master main)) {
+        my ($brc) = run_capture(
+            ['git', '-C', $dir, 'show-ref', '--verify', '--quiet',
+             "refs/remotes/$remote/$b"]);
+        return $b if $brc == 0;
+    }
+    return 'main';
 }
 
 sub _fail {
