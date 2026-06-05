@@ -130,7 +130,9 @@ sub build_iverilog {
     my $dir = repo_dir('iverilog');
     my $pfx = "$dir/_install";
     for my $step (
-        [['sh', '-c', "cd '$dir' && ./configure --prefix='$pfx'"], 'configure'],
+        # invoke via sh: the generated ./configure may lack +x after a fresh
+        # checkout (it's untracked), which made `./configure` fail rc=126.
+        [['sh', '-c', "cd '$dir' && sh ./configure --prefix='$pfx'"], 'configure'],
         [['sh', '-c', "cd '$dir' && rm -f version_tag.h"],         'verstamp'],
         [['sh', '-c', "cd '$dir' && smak -j$jobs"],                'smak'],
         [['sh', '-c', "cd '$dir' && make -j$jobs"],                'make'],
