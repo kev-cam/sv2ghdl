@@ -175,9 +175,27 @@ int main(int argc, char **argv)
     }
     // Apply generic/parameter overrides on the top module so hierarchy
     // elaborates with the SAME values the nvc instance used (e.g. width/depth).
+    // nvc recovers ALL module generics from the elaborated tree, which includes
+    // derived localparams (counter_width, max_ptr, pointer_width, ...). Those are
+    // not settable parameters — yosys chparam aborts on them — and they recompute
+    // from the real parameters anyway, so skip any name the module doesn't declare
+    // as an available parameter.
+    // Snapshot the settable parameter names BEFORE any chparam — chparam mutates
+    // (and may replace) the module, so re-reading avail_parameters mid-loop is
+    // stale. Copy the names, not the pointer.
+    std::set<std::string> settable;
+    if (RTLIL::Module *topmod0 =
+            yosys_get_design()->module(RTLIL::escape_id(top_name)))
+        for (auto id : topmod0->avail_parameters)
+            settable.insert(id.str());
     for (const std::string &p : params) {
         size_t eq = p.find('=');
         std::string k = p.substr(0, eq), v = p.substr(eq + 1);
+        if (!settable.empty() && !settable.count(RTLIL::escape_id(k))) {
+            fprintf(stderr, "  skip %s=%s (not a settable parameter of %s)\n",
+                    k.c_str(), v.c_str(), top_name);
+            continue;
+        }
         fprintf(stderr, "  chparam %s = %s on %s\n", k.c_str(), v.c_str(), top_name);
         Yosys::run_pass("chparam -set " + k + " " + v + " " + top_name);
     }
