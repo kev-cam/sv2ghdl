@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""
+sv-rename-variants — Rename per-module helper entities by port-signature hash.
+
+When iverilog translates each module independently, helper entities like
+`rvdff`, `rvdff1`, `rvdff5` are emitted with parameter-instance names that
+collide across module files (different modules' `rvdff5` may have different
+WIDTHs).
+
+This pass renames every entity in a single per-module file to `name__HASH`
+where HASH is derived from the port signature.  Both the entity declaration,
+its architecture, and all `entity work.NAME` instantiations within the file
+are rewritten in lockstep, so the file remains internally consistent.
+
+After concatenating all per-module files, entities with identical hashed
+names are exact duplicates (same ports) and can be safely deduped.
+
+The "top" entity (the one passed via --top) is left un-renamed so the
+elaboration command line stays stable.
+
+Usage: sv-rename-variants input.vhd -o output.vhd [--top NAME] [--skip NAME]...
+"""
+
+import re, sys, hashlib, argparse
+
+def shorthash(s):
+    return hashlib.md5(s.encode()).hexdigest()[:4]
+
+def parse_entities(content):
+    """Return list of (name, port_sig, start, end) for each entity block."""
+    entities = []
+    # Match entity decl up to matching `end entity;` or `end NAME;`
+    for m in re.finditer(
+            r'entity\s+(\w+)\s+is\s*(.*?)end\s+(?:entity|\1)\s*;',
+            content, re.DOTALL | re.IGNORECASE):
+        name = m.group(1)
+        body = m.group(2)
+        # Exclude tool-emitted attribute lines (nvc_verilog_src/params carry the
+        # batch-specific source path) from the port-signature hash, so variant
+        # names stay stable across translations and depend only on the ports.
+        sig_body = re.sub(r'^\s*attribute\b.*$', '', body,
+                          flags=re.MULTILINE | re.IGNORECASE)
+        sig = re.sub(r'\s+', ' ', sig_body.strip())
+        entities.append((name, sig, m.start(), m.end()))
+    return entities
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('input', nargs='?', default='-')
+    ap.add_argument('-o', '--output', default='-')
+    ap.add_argument('--top', action='append', default=[],
+                    help='Entity name to leave un-renamed (may repeat)')
+    ap.add_argument('--skip', action='append', default=[],
+                    help='Entity name pattern to skip renaming (may repeat)')
+    args = ap.parse_args()
+
+    skip = set(args.top) | set(args.skip)
+
+    with (open(args.input) if args.input != '-' else sys.stdin) as f:
+        content = f.read()
+
+    entities = parse_entities(content)
+
+    # Build rename map: original name -> hashed name
+    rename = {}
+    for name, sig, _, _ in entities:
+        if name in skip:
+            continue
+        if name in rename:
+            # Same name appears twice in this file with possibly different
+            # signature — that's a different problem; skip it.
+            continue
+        rename[name] = f"{name}__{shorthash(sig)}"
+
+    if not rename:
+        out_text = content
+    else:
+        # Apply renames using a single pass with combined regex.
+        # Match either `entity NAME is`, `architecture X of NAME`, or
+        # `entity work.NAME` with a word boundary on NAME.
+        pattern = re.compile(
+            r'\b(?:entity|architecture\s+\w+\s+of|entity\s+work\.)\s*(\w+)\b',
+            re.IGNORECASE)
+
+        def replace(m):
+            name = m.group(1)
+            if name in rename:
+                return m.group(0).replace(name, rename[name])
+            return m.group(0)
+
+        # Above pattern has issue with `entity NAME is` — `entity` followed by name.
+        # Use simpler approach: target each context separately.
+        out_text = content
+
+        # 1. entity NAME is
+        out_text = re.sub(
+            r'(\bentity\s+)(\w+)(\s+is\b)',
+            lambda m: m.group(1) + rename.get(m.group(2), m.group(2)) + m.group(3),
+            out_text, flags=re.IGNORECASE)
+
+        # 2. architecture ARCH of NAME
+        out_text = re.sub(
+            r'(\barchitecture\s+\w+\s+of\s+)(\w+)\b',
+            lambda m: m.group(1) + rename.get(m.group(2), m.group(2)),
+            out_text, flags=re.IGNORECASE)
+
+        # 3. end entity NAME; (optional name on end)
+        out_text = re.sub(
+            r'(\bend\s+entity\s+)(\w+)(\s*;)',
+            lambda m: m.group(1) + rename.get(m.group(2), m.group(2)) + m.group(3),
+            out_text, flags=re.IGNORECASE)
+
+        # 4. end NAME;  (after entity or architecture)
+        # Hard to disambiguate from any `end FOO;` — leave alone, since
+        # iverilog uses `end entity;` / `end architecture;` (not named).
+
+        # 5. entity work.NAME
+        out_text = re.sub(
+            r'(\bentity\s+work\.)(\w+)\b',
+            lambda m: m.group(1) + rename.get(m.group(2), m.group(2)),
+            out_text, flags=re.IGNORECASE)
+
+        # 6. attribute ATTR of NAME : entity ...  (e.g. the nvc_verilog_src /
+        #    nvc_verilog_params source-location attributes the tgt-vhdl backend
+        #    emits on each entity).  The target must track the entity rename,
+        #    else it refers to a now-nonexistent name -> nvc "no visible
+        #    declaration for NAME".
+        out_text = re.sub(
+            r'(\battribute\s+\w+\s+of\s+)(\w+)(\s*:\s*entity\b)',
+            lambda m: m.group(1) + rename.get(m.group(2), m.group(2)) + m.group(3),
+            out_text, flags=re.IGNORECASE)
+
+    print(f"sv-rename-variants: renamed {len(rename)}/{len(entities)} entities",
+          file=sys.stderr)
+
+    if args.output == '-':
+        sys.stdout.write(out_text)
+    else:
+        with open(args.output, 'w') as f:
+            f.write(out_text)
+
+if __name__ == '__main__':
+    main()
