@@ -61,7 +61,11 @@ for mod in $MODULES; do
 
     MODFILE="$WORKDIR/${mod}.vhd"
 
-    if timeout 120 "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
+    # Per-module translate timeout. Large modules like VeeR's veer_wrapper
+    # take ~130s; 120s was too tight and silently deferred them to a
+    # port-less stub (which a VHDL testbench then can't port-map). Allow
+    # override via SV2VHDL_MOD_TIMEOUT; default raised to 600s.
+    if timeout "${SV2VHDL_MOD_TIMEOUT:-600}" "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
             -s "$mod" -o "$MODFILE" "$INFILE" >/dev/null 2>&1; then
         if [[ -s "$MODFILE" ]]; then
             # Rename helper entities by port-signature hash so cross-module
