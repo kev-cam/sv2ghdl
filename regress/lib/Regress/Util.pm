@@ -27,6 +27,7 @@ sub run_capture {
             open STDERR, '>&', \*STDOUT or _child_die("dup stderr: $!");
         }
         if ($o{dir}) { chdir $o{dir} or _child_die("chdir $o{dir}: $!"); }
+        if ($o{unset}) { delete $ENV{$_} for @{$o{unset}}; }
         if ($o{env}) { $ENV{$_} = $o{env}{$_} for keys %{$o{env}}; }
         if ($o{path_prepend}) {
             $ENV{PATH} = join(':', $o{path_prepend}, ($ENV{PATH} // ''));

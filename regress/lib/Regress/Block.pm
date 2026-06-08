@@ -54,6 +54,9 @@ my %ENGINES = (
     # native nvc (VHDL) — needs nvc + iverilog (the vhdl_nvc runner compiles
     # the Verilog stage with iverilog).
     nvc => sub { { env => _nvc_env(), path_prepend => _base_path() } },
+    # native nvc with --accel: same env profile as nvc; the accel toggle is
+    # applied per-run by NvcNative via NVC_ACCEL (not the engine env).
+    'nvc-accel' => sub { { env => _nvc_env(), path_prepend => _base_path() } },
     # nvc via the iverilog shim (vvp_reg.pl --suffix=-sv2ghdl).
     'nvc-iv-shim' => sub { { env => _nvc_env(), path_prepend => _base_path() } },
     # upstream "Steve" iverilog from its private prefix — put its bin first on
@@ -102,6 +105,13 @@ my @BLOCKS = (
 
     { name => 'nvc/regr',            suite => 'nvc', engine => 'nvc',
       params => { mode => 'regr' },
+      ready  => sub { run_regr_bin() ? 1 : 0 } },
+
+    # Same VHDL suite, but every test that passes normal simulation is retried
+    # with nvc --accel (via NVC_ACCEL in the env); accel results land here,
+    # separate from nvc/regr, so accel-only regressions are visible.
+    { name => 'nvc/regr-accel',      suite => 'nvc', engine => 'nvc-accel',
+      params => { mode => 'regr', accel => 1 },
       ready  => sub { run_regr_bin() ? 1 : 0 } },
 
     { name => 'nvc/unit',            suite => 'nvc', engine => 'nvc',
