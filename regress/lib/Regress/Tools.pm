@@ -14,6 +14,8 @@ our @EXPORT_OK = qw(
     src_root nvc_bin nvc_libdir iverilog_bin vvp_bin verilator_bin
     run_regr_bin unit_test_bin shim_bin tool_versions
     iverilog_steve_bin vvp_steve_bin
+    xyce_bin xyce_regr_dir xyce_regr_runner
+    gnucap_bin ihp_pdk_dir
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -126,6 +128,39 @@ sub _run_ver {
     ($out) = split /\n/, $out;       # first line
     $out =~ s/^\s+|\s+$//g;
     return $out;
+}
+
+# Xyce: $XYCE override -> build tree (xyce-build/src/Xyce) -> PATH
+sub xyce_bin {
+    my $r = src_root();
+    return _first_exe($ENV{XYCE}, "$r/xyce-build/src/Xyce", _which('Xyce'));
+}
+
+# Xyce_Regression checkout (TestScripts/run_xyce_regression + Netlists + OutputData)
+sub xyce_regr_dir {
+    my $r = src_root();
+    for my $d ($ENV{XYCE_REGRESSION}, "$r/Xyce_Regression") {
+        return $d if defined $d && length $d && -d "$d/TestScripts";
+    }
+    return undef;
+}
+
+sub xyce_regr_runner {
+    my $d = xyce_regr_dir() or return undef;
+    my $p = "$d/TestScripts/run_xyce_regression";
+    return -f $p ? $p : undef;
+}
+
+# gnucap (Verilog-A capable build): $GNUCAP override -> PATH
+sub gnucap_bin { return _first_exe($ENV{GNUCAP}, _which('gnucap')); }
+
+# IHP-Open-PDK checkout (Verilog-A device models + their gnucap test decks)
+sub ihp_pdk_dir {
+    my $r = src_root();
+    for my $d ($ENV{IHP_PDK}, "$r/IHP-Open-PDK") {
+        return $d if defined $d && length $d && -d $d;
+    }
+    return undef;
 }
 
 1;

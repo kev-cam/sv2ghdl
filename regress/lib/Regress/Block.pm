@@ -11,18 +11,23 @@ use strict;
 use warnings;
 use Regress::Tools qw(
     src_root nvc_bin nvc_libdir iverilog_bin vvp_bin verilator_bin
-    run_regr_bin unit_test_bin shim_bin iverilog_steve_bin vvp_steve_bin);
+    run_regr_bin unit_test_bin shim_bin iverilog_steve_bin vvp_steve_bin
+    xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir);
 
 use Regress::Adapter::Ivtest;
 use Regress::Adapter::NvcNative;
 use Regress::Adapter::SvTests;
 use Regress::Adapter::Rtlmeter;
+use Regress::Adapter::Xyce;
+use Regress::Adapter::IHPGnucap;
 
 my %ADAPTER = (
-    ivtest    => 'Regress::Adapter::Ivtest',
-    nvc       => 'Regress::Adapter::NvcNative',
-    'sv-tests'=> 'Regress::Adapter::SvTests',
-    rtlmeter  => 'Regress::Adapter::Rtlmeter',
+    ivtest      => 'Regress::Adapter::Ivtest',
+    nvc         => 'Regress::Adapter::NvcNative',
+    'sv-tests'  => 'Regress::Adapter::SvTests',
+    rtlmeter    => 'Regress::Adapter::Rtlmeter',
+    xyce        => 'Regress::Adapter::Xyce',
+    'ihp-gnucap'=> 'Regress::Adapter::IHPGnucap',
 );
 
 # ---- engines -------------------------------------------------------------
@@ -81,6 +86,18 @@ my %ENGINES = (
         $e->{VERILATOR} = $shim if $shim;
         return { env => $e, path_prepend => _base_path() };
     },
+    # native Xyce (analog / SPICE) — point XYCE at the build-area binary.
+    xyce => sub {
+        my %e; my $x = xyce_bin(); $e{XYCE} = $x if $x;
+        return { env => \%e, path_prepend => _base_path() };
+    },
+    # gnucap for the IHP Verilog-A device tests. GNUCAP overrides the test
+    # Makefile's simulator; it may be a real gnucap or an xyce-backed gnucap
+    # wrapper ($GNUCAP env wins, then PATH).
+    gnucap => sub {
+        my %e; my $g = gnucap_bin(); $e{GNUCAP} = $g if $g;
+        return { env => \%e, path_prepend => _base_path() };
+    },
 );
 
 # ---- block registry ------------------------------------------------------
@@ -134,6 +151,17 @@ my @BLOCKS = (
       params => { sim => 'verilator', shim => 1 },
       ready  => sub { Regress::Adapter::Rtlmeter::ready() && nvc_bin()
                        && shim_bin('verilator-sv2ghdl') ? 1 : 0 } },
+
+    # Xyce_Regression via its native run_xyce_regression (no cmake/ctest).
+    { name => 'xyce/regr',           suite => 'xyce', engine => 'xyce',
+      params => { tags => '+serial+nightly' },
+      ready  => sub { xyce_bin() && xyce_regr_runner() ? 1 : 0 } },
+
+    # IHP-Open-PDK gnucap Verilog-A device tests (make check; GNUCAP may be a
+    # real gnucap or an xyce-backed wrapper).
+    { name => 'ihp/gnucap',          suite => 'ihp-gnucap', engine => 'gnucap',
+      params => {},
+      ready  => sub { gnucap_bin() && ihp_pdk_dir() ? 1 : 0 } },
 );
 
 sub all_blocks { @BLOCKS }
