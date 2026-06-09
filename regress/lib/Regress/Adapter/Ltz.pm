@@ -1,26 +1,33 @@
 package Regress::Adapter::Ltz;
 #
-# ltz LTspice-circuit tests: run each tests/ltspice_circuits/<dir>/*.cir through
-# `ltz -b` (the build-area ltz wrapping the build-area Xyce). --filter selects
-# test-dir names (e.g. 00_RC_LOW_PASS_FILTER,05_MEAS).
+# ltz LTspice-circuit tests: run circuits through `ltz -b` (the build-area ltz
+# wrapping the build-area Xyce; .asc schematics are converted to Xyce netlists,
+# .cir are simulated directly). PASS = ltz/Xyce simulates the circuit cleanly
+# (exit 0).
 #
-# PASS criterion: ltz/Xyce simulates the circuit cleanly (exit 0). The golden
-# reference for these is LTspice's own output -- LTspice runs on Linux under
-# Wine but is not installed on this machine, so there's no gold here yet. When
-# LTspice (Wine) is available, add an analog comparison like xyce/ihp-pdk
-# (clean run stays the pass; the LTspice delta becomes a reported metric). For
-# now this is a "does the LTspice->Xyce flow handle these circuits" regression.
+# Two corpora (params{corpus}):
+#   bundled  (default) = ltz/tests/ltspice_circuits, <dir>/*.cir, one level
+#   community          = ../ltz-tests, several cloned repos walked recursively
+#                        for *.asc + *.cir
+# --filter selects the top-level dir/repo name (e.g. circuits-ltspice,ecircuit).
+#
+# The golden reference for these is LTspice's own output (runs under Wine; not
+# installed here yet) -- so for now this is a handling regression (clean run =
+# pass); add the LTspice comparison like xyce/ihp-pdk once LTspice is available.
 #
 use strict;
 use warnings;
-use Regress::Tools qw(ltz_bin ltz_tests_dir xyce_bin xyce_libdir);
+use File::Find ();
+use Regress::Tools qw(ltz_bin ltz_tests_dir ltz_community_dir xyce_bin xyce_libdir);
 use Regress::Util  qw(run_capture);
 
 sub run {
     my ($class, $block, %opt) = @_;
 
-    my $ltz  = ltz_bin()       or return _err('ltz not found');
-    my $tdir = ltz_tests_dir() or return _err('ltz test corpus not found');
+    my $ltz = ltz_bin() or return _err('ltz not found');
+    my $community = (($block->{params}{corpus} // '') eq 'community');
+    my $root = $community ? ltz_community_dir() : ltz_tests_dir();
+    return _err('ltz ' . ($community ? 'community ' : '') . 'corpus not found') unless $root;
 
     # Validate the build-area Xyce (per project rule).
     my %env;
@@ -30,32 +37,58 @@ sub run {
     my %want = map { $_ => 1 }
         (defined $opt{filter} && length $opt{filter}) ? split(/,/, $opt{filter}) : ();
 
-    opendir(my $dh, $tdir) or return _err("cannot read $tdir");
-    my @dirs = sort grep { -d "$tdir/$_" && !/^\./ } readdir $dh;
-    closedir $dh;
+    my @tests = $community ? _collect_recursive($root) : _collect_bundled($root);
 
     my @r;
-    for my $d (@dirs) {
-        next if %want && !$want{$d};
-        my $ddir = "$tdir/$d";
-        opendir(my $cd, $ddir) or next;
-        my @cirs = sort grep { /\.cir$/i && -f "$ddir/$_" } readdir $cd;
-        closedir $cd;
-        for my $cir (@cirs) {
-            my $name = "$d/$cir";
-            my ($rc, $out) = run_capture([$ltz, '-b', $cir],
-                dir => $ddir, env => \%env, log => $opt{log});
-            my $status = ($rc == 0) ? 'pass' : 'fail';
-            my $msg = ($rc == 0) ? 'ltz/Xyce ok'
-                    : "ltz -b rc=$rc"
-                      . (($out // '') =~ /Xyce Abort|MSG_FATAL|MSG_ERROR/ ? ' (sim error)' : '');
-            push @r, { test_name => $name, status => $status,
-                       message => $msg, log_path => $opt{log} };
-        }
+    for my $t (@tests) {
+        my ($top) = split m{/}, $t->{name}, 2;
+        next if %want && !$want{$top};
+        my ($rc, $out) = run_capture([$ltz, '-b', $t->{file}],
+            dir => $t->{dir}, env => \%env, log => $opt{log});
+        my $status = ($rc == 0) ? 'pass' : 'fail';
+        my $msg = ($rc == 0) ? 'ltz/Xyce ok'
+                : "ltz -b rc=$rc"
+                  . (($out // '') =~ /Xyce Abort|MSG_FATAL|MSG_ERROR/ ? ' (sim error)' : '');
+        push @r, { test_name => $t->{name}, status => $status,
+                   message => $msg, log_path => $opt{log} };
     }
 
     return _err('no ltz circuits found') unless @r;
     return { exit_code => 0, results => \@r };
+}
+
+# Bundled corpus: <dir>/*.cir, one level deep.
+sub _collect_bundled {
+    my ($root) = @_;
+    opendir(my $dh, $root) or return ();
+    my @dirs = sort grep { -d "$root/$_" && !/^\./ } readdir $dh;
+    closedir $dh;
+    my @t;
+    for my $d (@dirs) {
+        my $ddir = "$root/$d";
+        opendir(my $cd, $ddir) or next;
+        for my $cir (sort grep { /\.cir$/i && -f "$ddir/$_" } readdir $cd) {
+            push @t, { name => "$d/$cir", dir => $ddir, file => $cir };
+        }
+        closedir $cd;
+    }
+    return @t;
+}
+
+# Community corpus: walk recursively for *.asc + *.cir (skip VCS metadata).
+sub _collect_recursive {
+    my ($root) = @_;
+    my @t;
+    File::Find::find({ no_chdir => 1, wanted => sub {
+        my $p = $File::Find::name;
+        return if $p =~ m{/\.git(/|$)};
+        return unless -f $p && $p =~ /\.(?:asc|cir)$/i;
+        (my $rel = $p) =~ s{^\Q$root\E/?}{};
+        (my $dir = $p) =~ s{/[^/]+$}{};
+        (my $file = $p) =~ s{.*/}{};
+        push @t, { name => $rel, dir => $dir, file => $file };
+    } }, $root);
+    return sort { $a->{name} cmp $b->{name} } @t;
 }
 
 sub _err {

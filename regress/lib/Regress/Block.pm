@@ -13,7 +13,7 @@ use Regress::Tools qw(
     src_root nvc_bin nvc_libdir iverilog_bin vvp_bin verilator_bin
     run_regr_bin unit_test_bin shim_bin iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir gnucap2xyce_bin
-    ltz_bin ltz_tests_dir);
+    ltz_bin ltz_tests_dir ltz_community_dir);
 
 use Regress::Adapter::Ivtest;
 use Regress::Adapter::NvcNative;
@@ -172,6 +172,12 @@ my @BLOCKS = (
     { name => 'ltz/circuits',        suite => 'ltz', engine => 'ltz',
       params => {},
       ready  => sub { ltz_bin() && ltz_tests_dir() && xyce_bin() ? 1 : 0 } },
+
+    # Larger community LTspice corpus (../ltz-tests): .asc + .cir across several
+    # cloned repos, walked recursively. --filter selects a repo name.
+    { name => 'ltz/community',       suite => 'ltz', engine => 'ltz',
+      params => { corpus => 'community' },
+      ready  => sub { ltz_bin() && ltz_community_dir() && xyce_bin() ? 1 : 0 } },
 );
 
 sub all_blocks { @BLOCKS }

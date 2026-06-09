@@ -16,7 +16,7 @@ our @EXPORT_OK = qw(
     iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_dir xyce_regr_runner
     gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir pyms_dir
-    ltz_bin ltz_tests_dir
+    ltz_bin ltz_tests_dir ltz_community_dir
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -204,6 +204,16 @@ sub ltz_bin {
 sub ltz_tests_dir {
     my $r = src_root();
     for my $d ($ENV{LTZ_TESTS}, "$r/ltz/tests/ltspice_circuits") {
+        return $d if defined $d && length $d && -d $d;
+    }
+    return undef;
+}
+
+# Larger community LTspice corpus (fetch_tests.sh -> ../ltz-tests): several
+# cloned repos of .asc schematics + .cir netlists.
+sub ltz_community_dir {
+    my $r = src_root();
+    for my $d ($ENV{LTZ_TESTS_DIR}, "$r/ltz-tests") {
         return $d if defined $d && length $d && -d $d;
     }
     return undef;
