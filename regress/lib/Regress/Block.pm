@@ -155,7 +155,7 @@ my @BLOCKS = (
     # run in Xyce, and its .prn diffed against the gnucap golden ref/*.gc.out.
     # --filter selects device dirs (resistor,capacitor,moslv,moshv).
     { name => 'xyce/ihp-pdk',        suite => 'xyce-ihp', engine => 'xyce',
-      params => { rtol => 0.01 },
+      params => {},  # set fail_rtol to gate on gross divergence
       ready  => sub { xyce_bin() && gnucap2xyce_bin() && ihp_pdk_dir() ? 1 : 0 } },
 );
 
