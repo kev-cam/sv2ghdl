@@ -12,13 +12,14 @@ use warnings;
 use Regress::Tools qw(
     src_root nvc_bin nvc_libdir iverilog_bin vvp_bin verilator_bin
     run_regr_bin unit_test_bin shim_bin iverilog_steve_bin vvp_steve_bin
-    xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir);
+    xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir gnucap2xyce_bin);
 
 use Regress::Adapter::Ivtest;
 use Regress::Adapter::NvcNative;
 use Regress::Adapter::SvTests;
 use Regress::Adapter::Rtlmeter;
 use Regress::Adapter::Xyce;
+use Regress::Adapter::XyceIHP;
 
 my %ADAPTER = (
     ivtest      => 'Regress::Adapter::Ivtest',
@@ -26,6 +27,7 @@ my %ADAPTER = (
     'sv-tests'  => 'Regress::Adapter::SvTests',
     rtlmeter    => 'Regress::Adapter::Rtlmeter',
     xyce        => 'Regress::Adapter::Xyce',
+    'xyce-ihp'  => 'Regress::Adapter::XyceIHP',
 );
 
 # ---- engines -------------------------------------------------------------
@@ -148,10 +150,13 @@ my @BLOCKS = (
       params => { tags => '+serial+nightly' },
       ready  => sub { xyce_bin() && xyce_regr_runner() ? 1 : 0 } },
 
-    # NOTE: IHP-Open-PDK device tests run their gnucap-stats .gc decks THROUGH
-    # XYCE (gnucap2xyce.pl -> .cir -> Xyce/PyMS, compared to a gold) -- we are
-    # testing Xyce, not gnucap. Block pending the PyMS/Xyce runner + gold set
-    # (the converted .cir/.prn and ref dirs are untracked in this checkout).
+    # IHP-Open-PDK device tests run THROUGH Xyce (testing Xyce/PyMS, not
+    # gnucap): each gnucap-stats .gc deck is converted with gnucap2xyce.pl,
+    # run in Xyce, and its .prn diffed against the gnucap golden ref/*.gc.out.
+    # --filter selects device dirs (resistor,capacitor,moslv,moshv).
+    { name => 'xyce/ihp-pdk',        suite => 'xyce-ihp', engine => 'xyce',
+      params => { rtol => 0.01 },
+      ready  => sub { xyce_bin() && gnucap2xyce_bin() && ihp_pdk_dir() ? 1 : 0 } },
 );
 
 sub all_blocks { @BLOCKS }

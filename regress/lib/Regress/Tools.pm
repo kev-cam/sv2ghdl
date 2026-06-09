@@ -15,7 +15,7 @@ our @EXPORT_OK = qw(
     run_regr_bin unit_test_bin shim_bin tool_versions
     iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_dir xyce_regr_runner
-    gnucap_bin ihp_pdk_dir
+    gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -153,6 +153,25 @@ sub xyce_regr_runner {
 
 # gnucap (Verilog-A capable build): $GNUCAP override -> PATH
 sub gnucap_bin { return _first_exe($ENV{GNUCAP}, _which('gnucap')); }
+
+# Dir holding Xyce's shared library, for LD_LIBRARY_PATH when running the
+# build-area Xyce (libxyce.so lives next to the build-area binary).
+sub xyce_libdir {
+    my $r = src_root();
+    for my $d ($ENV{XYCE_LIBDIR}, "$r/xyce-build/src") {
+        return $d if defined $d && length $d && -d $d;
+    }
+    return undef;
+}
+
+# gnucap2xyce.pl converter ($GNUCAP2XYCE override -> xyce/utils).
+sub gnucap2xyce_bin {
+    my $r = src_root();
+    for my $p ($ENV{GNUCAP2XYCE}, "$r/xyce/utils/gnucap2xyce.pl") {
+        return $p if defined $p && length $p && -f $p;
+    }
+    return undef;
+}
 
 # IHP-Open-PDK checkout (Verilog-A device models + their gnucap test decks)
 sub ihp_pdk_dir {
