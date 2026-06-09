@@ -19,7 +19,6 @@ use Regress::Adapter::NvcNative;
 use Regress::Adapter::SvTests;
 use Regress::Adapter::Rtlmeter;
 use Regress::Adapter::Xyce;
-use Regress::Adapter::IHPGnucap;
 
 my %ADAPTER = (
     ivtest      => 'Regress::Adapter::Ivtest',
@@ -27,7 +26,6 @@ my %ADAPTER = (
     'sv-tests'  => 'Regress::Adapter::SvTests',
     rtlmeter    => 'Regress::Adapter::Rtlmeter',
     xyce        => 'Regress::Adapter::Xyce',
-    'ihp-gnucap'=> 'Regress::Adapter::IHPGnucap',
 );
 
 # ---- engines -------------------------------------------------------------
@@ -91,13 +89,6 @@ my %ENGINES = (
         my %e; my $x = xyce_bin(); $e{XYCE} = $x if $x;
         return { env => \%e, path_prepend => _base_path() };
     },
-    # gnucap for the IHP Verilog-A device tests. GNUCAP overrides the test
-    # Makefile's simulator; it may be a real gnucap or an xyce-backed gnucap
-    # wrapper ($GNUCAP env wins, then PATH).
-    gnucap => sub {
-        my %e; my $g = gnucap_bin(); $e{GNUCAP} = $g if $g;
-        return { env => \%e, path_prepend => _base_path() };
-    },
 );
 
 # ---- block registry ------------------------------------------------------
@@ -157,11 +148,10 @@ my @BLOCKS = (
       params => { tags => '+serial+nightly' },
       ready  => sub { xyce_bin() && xyce_regr_runner() ? 1 : 0 } },
 
-    # IHP-Open-PDK gnucap Verilog-A device tests (make check; GNUCAP may be a
-    # real gnucap or an xyce-backed wrapper).
-    { name => 'ihp/gnucap',          suite => 'ihp-gnucap', engine => 'gnucap',
-      params => {},
-      ready  => sub { gnucap_bin() && ihp_pdk_dir() ? 1 : 0 } },
+    # NOTE: IHP-Open-PDK device tests run their gnucap-stats .gc decks THROUGH
+    # XYCE (gnucap2xyce.pl -> .cir -> Xyce/PyMS, compared to a gold) -- we are
+    # testing Xyce, not gnucap. Block pending the PyMS/Xyce runner + gold set
+    # (the converted .cir/.prn and ref dirs are untracked in this checkout).
 );
 
 sub all_blocks { @BLOCKS }
