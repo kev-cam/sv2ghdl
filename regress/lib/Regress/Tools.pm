@@ -16,6 +16,7 @@ our @EXPORT_OK = qw(
     iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_dir xyce_regr_runner
     gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir pyms_dir
+    ltz_bin ltz_tests_dir
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -188,6 +189,21 @@ sub pyms_dir {
 sub ihp_pdk_dir {
     my $r = src_root();
     for my $d ($ENV{IHP_PDK}, "$r/IHP-Open-PDK") {
+        return $d if defined $d && length $d && -d $d;
+    }
+    return undef;
+}
+
+# ltz: LTspice-compatible Xyce wrapper (the build-area tool under test).
+sub ltz_bin {
+    my $r = src_root();
+    return _first_exe($ENV{LTZ}, "$r/ltz/bin/ltz", _which('ltz'));
+}
+
+# ltz's bundled LTspice circuit test corpus.
+sub ltz_tests_dir {
+    my $r = src_root();
+    for my $d ($ENV{LTZ_TESTS}, "$r/ltz/tests/ltspice_circuits") {
         return $d if defined $d && length $d && -d $d;
     }
     return undef;

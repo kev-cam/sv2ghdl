@@ -12,7 +12,8 @@ use warnings;
 use Regress::Tools qw(
     src_root nvc_bin nvc_libdir iverilog_bin vvp_bin verilator_bin
     run_regr_bin unit_test_bin shim_bin iverilog_steve_bin vvp_steve_bin
-    xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir gnucap2xyce_bin);
+    xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir gnucap2xyce_bin
+    ltz_bin ltz_tests_dir);
 
 use Regress::Adapter::Ivtest;
 use Regress::Adapter::NvcNative;
@@ -20,6 +21,7 @@ use Regress::Adapter::SvTests;
 use Regress::Adapter::Rtlmeter;
 use Regress::Adapter::Xyce;
 use Regress::Adapter::XyceIHP;
+use Regress::Adapter::Ltz;
 
 my %ADAPTER = (
     ivtest      => 'Regress::Adapter::Ivtest',
@@ -28,6 +30,7 @@ my %ADAPTER = (
     rtlmeter    => 'Regress::Adapter::Rtlmeter',
     xyce        => 'Regress::Adapter::Xyce',
     'xyce-ihp'  => 'Regress::Adapter::XyceIHP',
+    ltz         => 'Regress::Adapter::Ltz',
 );
 
 # ---- engines -------------------------------------------------------------
@@ -88,6 +91,12 @@ my %ENGINES = (
     },
     # native Xyce (analog / SPICE) — point XYCE at the build-area binary.
     xyce => sub {
+        my %e; my $x = xyce_bin(); $e{XYCE} = $x if $x;
+        return { env => \%e, path_prepend => _base_path() };
+    },
+    # ltz (LTspice->Xyce wrapper) — XYCE at the build-area binary; the adapter
+    # also pins LD_LIBRARY_PATH for libxyce.so.
+    ltz => sub {
         my %e; my $x = xyce_bin(); $e{XYCE} = $x if $x;
         return { env => \%e, path_prepend => _base_path() };
     },
@@ -157,6 +166,12 @@ my @BLOCKS = (
     { name => 'xyce/ihp-pdk',        suite => 'xyce-ihp', engine => 'xyce',
       params => {},  # set fail_rtol to gate on gross divergence
       ready  => sub { xyce_bin() && gnucap2xyce_bin() && ihp_pdk_dir() ? 1 : 0 } },
+
+    # ltz LTspice circuits run through ltz -> Xyce. Pass = clean sim (no LTspice
+    # gold here; LTspice runs under Wine but isn't installed). Build-area Xyce.
+    { name => 'ltz/circuits',        suite => 'ltz', engine => 'ltz',
+      params => {},
+      ready  => sub { ltz_bin() && ltz_tests_dir() && xyce_bin() ? 1 : 0 } },
 );
 
 sub all_blocks { @BLOCKS }
