@@ -16,7 +16,7 @@ our @EXPORT_OK = qw(
     iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_dir xyce_regr_runner
     gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir pyms_dir
-    ltz_bin ltz_tests_dir ltz_community_dir
+    ltz_bin ltz_tests_dir ltz_community_dir ltspice_bin
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -216,6 +216,16 @@ sub ltz_community_dir {
     for my $d ($ENV{LTZ_TESTS_DIR}, "$r/ltz-tests") {
         return $d if defined $d && length $d && -d $d;
     }
+    return undef;
+}
+
+# LTspice.exe under Wine — the golden reference for ltz circuit tests. Runs
+# headless via xvfb-run (see ltspice_wine_gold memory / Adapter::Ltz). $LTSPICE
+# overrides; default is the standard MSI install location in $HOME/ltwine.
+sub ltspice_bin {
+    my @c = ($ENV{LTSPICE},
+             "$ENV{HOME}/ltwine/drive_c/Program Files/ADI/LTspice/LTspice.exe");
+    for my $p (@c) { return $p if defined $p && length $p && -f $p; }
     return undef;
 }
 
