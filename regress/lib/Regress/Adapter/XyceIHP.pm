@@ -14,7 +14,7 @@ package Regress::Adapter::XyceIHP;
 #
 use strict;
 use warnings;
-use Regress::Tools qw(xyce_bin xyce_libdir gnucap2xyce_bin ihp_pdk_dir);
+use Regress::Tools qw(xyce_bin xyce_libdir gnucap2xyce_bin ihp_pdk_dir pyms_dir);
 use Regress::Util  qw(run_capture);
 
 my @DEVDIRS = qw(resistor capacitor moslv moshv);
@@ -35,7 +35,13 @@ sub run {
 
     my %want = map { $_ => 1 }
         (defined $opt{filter} && length $opt{filter}) ? split(/,/, $opt{filter}) : @DEVDIRS;
-    my $env = $libdir ? { LD_LIBRARY_PATH => $libdir } : {};
+    # Validate the BUILD-AREA Xyce/PyMS (per project rule: test build-area
+    # before install). xyce_bin/gnucap2xyce_bin are already build-area; pin the
+    # build-area PyMS + libxyce.so here too.
+    my %env;
+    $env{LD_LIBRARY_PATH} = $libdir if $libdir;
+    if (my $pd = pyms_dir()) { $env{PYMS_DIR} = $pd; }
+    my $env = \%env;
     my $rtol = $block->{params}{rtol} // 0.01;
 
     my @r;

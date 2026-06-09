@@ -15,7 +15,7 @@ our @EXPORT_OK = qw(
     run_regr_bin unit_test_bin shim_bin tool_versions
     iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_dir xyce_regr_runner
-    gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir
+    gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir pyms_dir
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -169,6 +169,17 @@ sub gnucap2xyce_bin {
     my $r = src_root();
     for my $p ($ENV{GNUCAP2XYCE}, "$r/xyce/utils/gnucap2xyce.pl") {
         return $p if defined $p && length $p && -f $p;
+    }
+    return undef;
+}
+
+# Build-area PyMS tree (xyce/utils/PyMS). We pin Xyce's PYMS_DIR to this so the
+# regression validates the BUILD-AREA PyMS, not whatever is installed under
+# share/xyce/PyMS. $PYMS_DIR override wins.
+sub pyms_dir {
+    my $r = src_root();
+    for my $d ($ENV{PYMS_DIR}, "$r/xyce/utils/PyMS") {
+        return $d if defined $d && length $d && -d "$d/vae";
     }
     return undef;
 }
