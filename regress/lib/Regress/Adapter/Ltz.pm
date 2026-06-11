@@ -47,6 +47,16 @@ sub run {
         my ($top) = split m{/}, $t->{name}, 2;
         next if %want && !$want{$top};
 
+        # Schematic-only sources (no simulation directive anywhere) are not
+        # runnable tests: LTspice users add .tran/.ac interactively. Skip,
+        # matching the bundled-corpus policy for directive-less library decks.
+        if (!_has_analysis_directive("$t->{dir}/$t->{file}")) {
+            push @r, { test_name => $t->{name}, status => 'skip',
+                       message => 'no analysis directive in source (schematic-only)',
+                       log_path => $opt{log} };
+            next;
+        }
+
         (my $base = $t->{file}) =~ s/\.[^.]+$//;
         my $xraw = "$t->{dir}/$base.raw";
         unlink $xraw;
@@ -73,6 +83,17 @@ sub run {
 
     return _err('no ltz circuits found') unless @r;
     return { exit_code => 0, results => \@r };
+}
+
+# Does the source carry a simulation directive? .cir/.net: a dot-analysis
+# line. .asc: a TEXT record whose payload is a !-prefixed analysis directive.
+sub _has_analysis_directive {
+    my ($path) = @_;
+    open my $fh, '<:raw', $path or return 1;   # unreadable: let the run report it
+    local $/; my $s = <$fh>; close $fh;
+    return 1 if $s =~ /^\s*\.(?:tran|ac|dc|op|noise|four|tf|step)\b/im;
+    return 1 if $path =~ /\.asc$/i && $s =~ /!\s*\.?(?:tran|ac|dc|op|noise|four|tf)\b/i;
+    return 0;
 }
 
 # Run the circuit through LTspice headless and compare its .raw to Xyce's.
