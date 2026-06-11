@@ -112,11 +112,19 @@ sub _vs_ltspice {
       print $o $c; close $o; }
     my $gold = "$ddir/${base}_ltref.raw";
     unlink $gold;
-    my %wenv = ( WINEPREFIX     => "$ENV{HOME}/ltwine",
-                 XDG_RUNTIME_DIR=> "$ENV{HOME}/.xdg",
-                 WINEDEBUG      => '-all' );
-    my ($wrc) = run_capture(['xvfb-run', '-a', 'wine', $exe, '-b', '-ascii', $refin],
-        dir => $ddir, env => \%wenv, log => $log);
+    my $wrc;
+    if ($exe =~ m{/ltwine/}) {
+        # Wine-prefixed LTspice (Linux host)
+        my %wenv = ( WINEPREFIX     => "$ENV{HOME}/ltwine",
+                     XDG_RUNTIME_DIR=> "$ENV{HOME}/.xdg",
+                     WINEDEBUG      => '-all' );
+        ($wrc) = run_capture(['xvfb-run', '-a', 'wine', $exe, '-b', '-ascii', $refin],
+            dir => $ddir, env => \%wenv, log => $log);
+    } else {
+        # native Windows LTspice, reached from WSL via interop
+        ($wrc) = run_capture([$exe, '-b', '-ascii', $refin],
+            dir => $ddir, log => $log);
+    }
     my @res = (-f $gold) ? _compare_raw($gold, $xraw)
                          : (undef, "LTspice produced no .raw (rc=$wrc)");
     # tidy up the reference inputs/outputs

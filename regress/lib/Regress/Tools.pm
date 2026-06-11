@@ -225,6 +225,7 @@ sub ltz_community_dir {
 # overrides; default is the standard MSI install location in $HOME/ltwine.
 sub ltspice_bin {
     my @c = ($ENV{LTSPICE},
+             '/mnt/c/Program Files/ADI/LTspice/LTspice.exe',   # native, via WSL interop
              "$ENV{HOME}/ltwine/drive_c/Program Files/ADI/LTspice/LTspice.exe");
     for my $p (@c) { return $p if defined $p && length $p && -f $p; }
     return undef;
