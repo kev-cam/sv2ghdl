@@ -17,6 +17,7 @@ our @EXPORT_OK = qw(
     xyce_bin xyce_regr_dir xyce_regr_runner
     gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir pyms_dir
     ltz_bin ltz_tests_dir ltz_community_dir ltspice_bin
+    qspice_dir qspice_sim_bin qspice_qux_bin qspice2xyce_bin qspice_tests_dir
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -226,6 +227,47 @@ sub ltspice_bin {
     my @c = ($ENV{LTSPICE},
              "$ENV{HOME}/ltwine/drive_c/Program Files/ADI/LTspice/LTspice.exe");
     for my $p (@c) { return $p if defined $p && length $p && -f $p; }
+    return undef;
+}
+
+# QSPICE: Windows-native install, reached from WSL via interop ($QSPICE_DIR
+# override -> the standard install path through /mnt/c). -f not -x: the /mnt/c
+# mount options decide the execute bit; interop runs .exe regardless.
+sub qspice_dir {
+    for my $d ($ENV{QSPICE_DIR}, '/mnt/c/Program Files/QSPICE') {
+        return $d if defined $d && length $d && -d $d;
+    }
+    return undef;
+}
+
+sub qspice_sim_bin {
+    my $d = qspice_dir() or return undef;
+    return -f "$d/QSPICE64.exe" ? "$d/QSPICE64.exe" : undef;
+}
+
+# QUX.exe is the schematic tool; `QUX -Netlist x.qsch` netlists headlessly.
+sub qspice_qux_bin {
+    my $d = qspice_dir() or return undef;
+    return -f "$d/QUX.exe" ? "$d/QUX.exe" : undef;
+}
+
+# qspice2xyce.pl converter ($QSPICE2XYCE override -> xyce/utils).
+sub qspice2xyce_bin {
+    my $r = src_root();
+    for my $p ($ENV{QSPICE2XYCE}, "$r/xyce/utils/qspice2xyce.pl") {
+        return $p if defined $p && length $p && -f $p;
+    }
+    return undef;
+}
+
+# QSPICE example-schematic corpus ($QSPICE_TESTS override).
+sub qspice_tests_dir {
+    for my $d ($ENV{QSPICE_TESTS},
+               "$ENV{HOME}/CygHome/qspice-tests/circuits",
+               "$ENV{HOME}/qspice-tests/circuits",
+               src_root() . '/qspice-tests/circuits') {
+        return $d if defined $d && length $d && -d $d;
+    }
     return undef;
 }
 

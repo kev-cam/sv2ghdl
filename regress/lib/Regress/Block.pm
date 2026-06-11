@@ -13,7 +13,8 @@ use Regress::Tools qw(
     src_root nvc_bin nvc_libdir iverilog_bin vvp_bin verilator_bin
     run_regr_bin unit_test_bin shim_bin iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir gnucap2xyce_bin
-    ltz_bin ltz_tests_dir ltz_community_dir);
+    ltz_bin ltz_tests_dir ltz_community_dir
+    qspice_qux_bin qspice2xyce_bin qspice_tests_dir);
 
 use Regress::Adapter::Ivtest;
 use Regress::Adapter::NvcNative;
@@ -22,6 +23,7 @@ use Regress::Adapter::Rtlmeter;
 use Regress::Adapter::Xyce;
 use Regress::Adapter::XyceIHP;
 use Regress::Adapter::Ltz;
+use Regress::Adapter::Qspice;
 
 my %ADAPTER = (
     ivtest      => 'Regress::Adapter::Ivtest',
@@ -31,6 +33,7 @@ my %ADAPTER = (
     xyce        => 'Regress::Adapter::Xyce',
     'xyce-ihp'  => 'Regress::Adapter::XyceIHP',
     ltz         => 'Regress::Adapter::Ltz',
+    qspice      => 'Regress::Adapter::Qspice',
 );
 
 # ---- engines -------------------------------------------------------------
@@ -97,6 +100,12 @@ my %ENGINES = (
     # ltz (LTspice->Xyce wrapper) — XYCE at the build-area binary; the adapter
     # also pins LD_LIBRARY_PATH for libxyce.so.
     ltz => sub {
+        my %e; my $x = xyce_bin(); $e{XYCE} = $x if $x;
+        return { env => \%e, path_prepend => _base_path() };
+    },
+    # qspice (QSPICE->Xyce clone) — Xyce at the build-area binary; the adapter
+    # pins LD_LIBRARY_PATH itself and reaches the Windows QSPICE via interop.
+    qspice => sub {
         my %e; my $x = xyce_bin(); $e{XYCE} = $x if $x;
         return { env => \%e, path_prepend => _base_path() };
     },
@@ -178,6 +187,14 @@ my @BLOCKS = (
     { name => 'ltz/community',       suite => 'ltz', engine => 'ltz',
       params => { corpus => 'community' },
       ready  => sub { ltz_bin() && ltz_community_dir() && xyce_bin() ? 1 : 0 } },
+
+    # QSPICE schematics: QUX -Netlist -> qspice2xyce.pl -> Xyce, compared
+    # against QSPICE64's own rawfile. Needs the Windows QSPICE install
+    # (reached via WSL interop) and the qspice-tests corpus.
+    { name => 'qspice/circuits',     suite => 'qspice', engine => 'qspice',
+      params => {},
+      ready  => sub { qspice_qux_bin() && qspice2xyce_bin()
+                      && qspice_tests_dir() && xyce_bin() ? 1 : 0 } },
 );
 
 sub all_blocks { @BLOCKS }
