@@ -92,7 +92,10 @@ sub _has_analysis_directive {
     open my $fh, '<:raw', $path or return 1;   # unreadable: let the run report it
     local $/; my $s = <$fh>; close $fh;
     return 1 if $s =~ /^\s*\.(?:tran|ac|dc|op|noise|four|tf|step)\b/im;
-    return 1 if $path =~ /\.asc$/i && $s =~ /!\s*\.?(?:tran|ac|dc|op|noise|four|tf)\b/i;
+    # .asc: a TEXT !-block holds the whole directive text on one record with
+    # literal \n escapes; the analysis line can sit anywhere inside the block
+    # (after params/measures), so accept '!' or an escaped newline before it.
+    return 1 if $path =~ /\.asc$/i && $s =~ /(?:!|\\n)\s*\.(?:tran|ac|dc|op|noise|four|tf)\b/i;
     return 0;
 }
 
