@@ -85,6 +85,25 @@ sub run {
     return { exit_code => 0, results => \@r };
 }
 
+# ltz's bundled model library, spelled so the gold LTspice can open it: a
+# native Windows LTspice (interop) needs a Windows path (resolve symlinks,
+# /mnt/<d>/ -> <D>:\); a Wine LTspice opens POSIX paths via the Z: drive.
+sub _ltz_lib_for {
+    my ($exe) = @_;
+    my $ltz = ltz_bin() or return undef;
+    (my $lib = $ltz) =~ s{/bin/ltz$}{/lib/standard.lib};
+    return undef unless -f $lib;
+    return $lib if $exe =~ m{/ltwine/};
+    require Cwd;
+    my $real = Cwd::realpath($lib) // $lib;
+    if ($real =~ m{^/mnt/([a-z])/(.*)$}i) {
+        my ($drv, $rest) = (uc $1, $2);
+        $rest =~ s{/}{\\}g;
+        return "$drv:\\$rest";
+    }
+    return $real;
+}
+
 # Does the source carry a simulation directive? .cir/.net: a dot-analysis
 # line. .asc: a TEXT record whose payload is a !-prefixed analysis directive.
 sub _has_analysis_directive {
@@ -108,6 +127,12 @@ sub _vs_ltspice {
     # copy the circuit to a distinct name so LTspice's .raw doesn't clobber Xyce's
     { local $/; open my $i, '<', "$ddir/$cir" or return (undef, 'gold: read fail');
       my $c = <$i>; close $i;
+      # Parity with the Xyce side: ltz injects its bundled standard.lib, so
+      # decks may reference models (1N4148 etc.) they don't define. Give the
+      # gold run the same models. Netlists only -- .asc text is a schematic.
+      if ($ext eq 'net' && (my $lib = _ltz_lib_for($exe))) {
+          $c =~ s/\n/\n.lib "$lib"\n/;     # after the title line
+      }
       open my $o, '>', "$ddir/$refin" or return (undef, 'gold: write fail');
       print $o $c; close $o; }
     my $gold = "$ddir/${base}_ltref.raw";
