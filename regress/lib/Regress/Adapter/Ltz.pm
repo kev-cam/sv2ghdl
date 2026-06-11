@@ -20,6 +20,7 @@ use warnings;
 use File::Find ();
 use Regress::Tools qw(ltz_bin ltz_tests_dir ltz_community_dir xyce_bin xyce_libdir ltspice_bin);
 use Regress::Util  qw(run_capture);
+use Regress::RawCompare qw(compare_raw);
 
 sub run {
     my ($class, $block, %opt) = @_;
@@ -150,82 +151,11 @@ sub _vs_ltspice {
         ($wrc) = run_capture([$exe, '-b', '-ascii', $refin],
             dir => $ddir, log => $log);
     }
-    my @res = (-f $gold) ? _compare_raw($gold, $xraw)
+    my @res = (-f $gold) ? compare_raw($gold, $xraw)
                          : (undef, "LTspice produced no .raw (rc=$wrc)");
     # tidy up the reference inputs/outputs
     unlink glob("$ddir/${base}_ltref.*");
     return @res;
-}
-
-# --- SPICE rawfile compare (LTspice ascii / Xyce binary; real or complex) ----
-sub _read_raw {
-    my ($file) = @_;
-    open my $fh, '<:raw', $file or return undef;
-    local $/; my $blob = <$fh>; close $fh;
-    my ($mode, $hdr, $body);
-    if    ($blob =~ /\A(.*?\n)(Binary:\s*\n)(.*)\z/s) { $mode = 'bin';   $hdr = $1; $body = $3; }
-    elsif ($blob =~ /\A(.*?\n)(Values:\s*\n)(.*)\z/s) { $mode = 'ascii'; $hdr = $1; $body = $3; }
-    else { return undef; }
-    my ($nv) = $hdr =~ /No\.\s*Variables:\s*(\d+)/i;  return undef unless $nv;
-    my ($np) = $hdr =~ /No\.\s*Points:\s*(\d+)/i;     return undef unless $np;
-    my $cplx = $hdr =~ /Flags:[^\n]*\bcomplex\b/i ? 1 : 0;
-    my @names;
-    if ($hdr =~ /\nVariables:\s*\n(.*)\z/s) {
-        for my $ln (split /\n/, $1) { push @names, $1 if $ln =~ /^\s*\d+\s+(\S+)/; }
-    }
-    return undef unless @names == $nv;
-    my %col; $col{$names[$_]} = $_ for 0 .. $#names;
-    my @rows;
-    if ($mode eq 'bin') {
-        my $per = $cplx ? 2 : 1;
-        my @d = unpack('d<*', $body);
-        for my $p (0 .. $np - 1) {
-            my @row;
-            for my $v (0 .. $nv - 1) {
-                my $i = ($p * $nv + $v) * $per;
-                push @row, $cplx ? sqrt(($d[$i] // 0)**2 + ($d[$i+1] // 0)**2) : ($d[$i] // 0);
-            }
-            push @rows, \@row;
-        }
-    } else {
-        my @toks = grep { /\S/ } split /\n/, $body;
-        my $i = 0;
-        for my $p (0 .. $np - 1) {
-            my @row;
-            for my $v (0 .. $nv - 1) {
-                my $ln = $toks[$i++] // '';
-                $ln =~ s/^\s*\d+\s+// if $v == 0;
-                $ln =~ s/^\s+//;
-                push @row, ($ln =~ /,/)
-                    ? do { my ($re, $im) = split /,/, $ln; sqrt($re**2 + $im**2) }
-                    : $ln + 0;
-            }
-            push @rows, \@row;
-        }
-    }
-    return { names => \@names, col => \%col, rows => \@rows };
-}
-
-sub _compare_raw {
-    my ($gold, $xraw) = @_;
-    my $g = _read_raw($gold);  return (undef, 'unparsable LTspice .raw') unless $g;
-    my $x = _read_raw($xraw);  return (undef, 'unparsable Xyce .raw')    unless $x;
-    my @common = grep { exists $x->{col}{$_} && $_ ne $g->{names}[0] } @{ $g->{names} };
-    return (undef, 'no common variables') unless @common;
-    my $n = (@{$g->{rows}} < @{$x->{rows}}) ? scalar @{$g->{rows}} : scalar @{$x->{rows}};
-    return (undef, 'no points') unless $n;
-    my ($maxrel, $worst) = (0, '');
-    for my $var (@common) {
-        for my $p (0 .. $n - 1) {
-            my $a = $g->{rows}[$p][$g->{col}{$var}];
-            my $b = $x->{rows}[$p][$x->{col}{$var}];
-            my $rel = abs($a - $b) / (abs($a) + 1e-12);
-            ($maxrel, $worst) = ($rel, sprintf("%s LT=%.4g Xy=%.4g", $var, $a, $b))
-                if $rel > $maxrel;
-        }
-    }
-    return ($maxrel, sprintf("max rel err %.2f%% over %d vars x %d pts (%s)",
-                             100 * $maxrel, scalar @common, $n, $worst));
 }
 
 # --- corpus collection -------------------------------------------------------
