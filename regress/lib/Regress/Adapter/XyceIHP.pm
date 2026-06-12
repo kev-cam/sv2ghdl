@@ -60,7 +60,8 @@ sub run {
         for my $gc (@gc) {
             (my $base = $gc) =~ s/\.gc$//;
             my $cir  = "$base.cir";
-            my $prn  = "$ddir/$base.cir.prn";
+            # .PRINT TRAN/DC -> .cir.prn; .PRINT AC -> .cir.FD.prn
+            my @prns = ("$ddir/$base.cir.prn", "$ddir/$base.cir.FD.prn");
             my $gold = "$ddir/ref/$base.gc.out";
             my $name = "$dev/$gc";
 
@@ -72,11 +73,12 @@ sub run {
                 next;
             }
             # 2. run Xyce -- not simulating the converted deck is a real failure
-            unlink $prn;
+            unlink @prns;
             my ($xrc) = run_capture([$xyce, $cir], dir => $ddir, env => $env, log => $opt{log});
-            if ($xrc != 0 || !-f $prn) {
+            my ($prn) = grep { -f } @prns;
+            if ($xrc != 0 || !defined $prn) {
                 push @r, { test_name => $name, status => 'fail',
-                           message => "Xyce rc=$xrc" . (-f $prn ? '' : ' (no .prn)'),
+                           message => "Xyce rc=$xrc" . (defined $prn ? '' : ' (no .prn)'),
                            log_path => $opt{log} };
                 next;
             }
@@ -94,17 +96,40 @@ sub run {
     return { exit_code => 0, results => \@r };
 }
 
-# Read numeric data rows, dropping the leading sweep/Index column.
+# Read numeric data rows, dropping the leading sweep/Index column. AC
+# output (.FD.prn) carries Re(X)/Im(X) column pairs; fold each pair to a
+# magnitude so the rows align with gnucap's magnitude-only gold.
 sub _read_data {
     my ($f) = @_;
     open my $h, '<', $f or return undef;
-    my @rows;
+    my (@rows, @hdr);
     while (my $line = <$h>) {
         $line =~ s/^\s+//;
+        if ($line =~ /^Index\s/i) {                        # Xyce column header
+            @hdr = split ' ', $line;
+            shift @hdr;                                    # drop Index
+            next;
+        }
         next if $line !~ /\S/ || $line =~ /^[#A-Za-z]/;   # header/comment/blank
         my @c = grep { /^[-+]?(?:\d|\.\d)/ } split ' ', $line;
         next unless @c >= 2;
         shift @c;                                          # drop leading column
+        if (@hdr) {
+            my @fold;
+            for (my $j = 0; $j < @c; $j++) {
+                if (defined $hdr[$j] && $hdr[$j] =~ /^Re\(/
+                    && defined $hdr[$j+1] && $hdr[$j+1] =~ /^Im\(/) {
+                    push @fold, sqrt($c[$j]**2 + $c[$j+1]**2);
+                    $j++;
+                } else {
+                    push @fold, $c[$j] + 0;
+                }
+            }
+            @c = @fold;
+            # Xyce auto-prepends the sweep variable (FREQ/TIME) after
+            # Index; the gold's sweep column was already dropped above.
+            shift @c if $hdr[0] && $hdr[0] =~ /^(FREQ|TIME)$/i;
+        }
         push @rows, [ map { $_ + 0 } @c ];
     }
     close $h;
