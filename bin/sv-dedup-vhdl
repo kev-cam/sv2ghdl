@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""
+sv-dedup-vhdl — Deduplicate parameterized VHDL entities.
+
+When per-module translation produces multiple entities with the same
+name but different port signatures, emit ALL variants with __XXXX hash
+suffixes. NVC's elaboration resolves entity work.X references to the
+matching variant by port signature.
+
+Usage: sv-dedup-vhdl input.vhd -o output.vhd
+"""
+
+import re, sys, hashlib
+from collections import defaultdict
+
+def port_sig(block):
+    """Port declaration text for signature comparison."""
+    m = re.search(r'entity\s+\w+\s+is\s*\n(.*?)end\s+entity', block, re.DOTALL)
+    if not m: return ""
+    # Exclude tool-emitted attribute lines (nvc_verilog_src/params carry a
+    # per-instance source path:line) from the signature, exactly as
+    # sv-rename-variants does.  Otherwise identical helper entities that
+    # differ only in their nvc_verilog_src attribute look like distinct port
+    # signatures, get spuriously re-hashed into double-hashed variants, and
+    # the single-hashed `entity work.X` instantiations no longer resolve.
+    body = re.sub(r'^\s*attribute\b.*$', '', m.group(1),
+                  flags=re.MULTILINE | re.IGNORECASE)
+    return re.sub(r'\s+', ' ', body.strip())
+
+def shorthash(s):
+    return hashlib.md5(s.encode()).hexdigest()[:4]
+
+def main():
+    infile = sys.argv[1] if len(sys.argv) > 1 else '-'
+    outfile = None
+    if '-o' in sys.argv:
+        idx = sys.argv.index('-o')
+        outfile = sys.argv[idx + 1]
+
+    with (open(infile) if infile != '-' else sys.stdin) as f:
+        content = f.read()
+
+    blocks = re.split(r'\n(?=(?:library ieee;|-- Deferred))', content)
+
+    # Collect unique (name, signature) pairs
+    variants = defaultdict(dict)  # name -> {sig: block}
+    for b in blocks:
+        m = re.search(r'entity\s+(\w+)\s+is', b)
+        if not m: continue
+        name = m.group(1)
+        sig = port_sig(b)
+        if sig not in variants[name]:
+            variants[name][sig] = b
+
+    # Build output: for names with one variant, keep as-is.
+    # For names with multiple variants, emit all with __hash suffixes.
+    # Also keep one as the base name (longest port list = most generic).
+    entity_blocks = {}
+    for name, sigs in variants.items():
+        if len(sigs) == 1:
+            sig, block = next(iter(sigs.items()))
+            entity_blocks[name] = block
+        else:
+            # Emit each variant with __hash suffix
+            for sig, block in sigs.items():
+                h = shorthash(sig)
+                vname = f"{name}__{h}"
+                renamed = re.sub(
+                    rf'entity\s+{re.escape(name)}\s+is',
+                    f'entity {vname} is', block, count=1)
+                renamed = re.sub(
+                    rf'architecture\s+(\w+)\s+of\s+{re.escape(name)}\b',
+                    lambda m: f'architecture {m.group(1)} of {vname}',
+                    renamed, count=1)
+                entity_blocks[vname] = (
+                    f"-- Parameterized variant: {name} -> {vname}\n" + renamed)
+
+            # Also keep the longest variant as the base name
+            # (NVC will try base name first, then search variants)
+            longest = max(sigs.items(), key=lambda x: len(x[0]))
+            entity_blocks[name] = longest[1]
+
+    # Topo sort
+    deps = {}
+    for n, b in entity_blocks.items():
+        deps[n] = set(re.findall(r'entity\s+work\.(\w+)', b))
+
+    visited = set()
+    result = []
+    def visit(n):
+        if n in visited: return
+        visited.add(n)
+        for dep in deps.get(n, set()):
+            if dep in entity_blocks: visit(dep)
+        result.append(n)
+    for n in entity_blocks: visit(n)
+
+    n_multi = sum(1 for v in variants.values() if len(v) > 1)
+    n_total_variants = sum(len(v) for v in variants.values() if len(v) > 1)
+    print(f"sv-dedup-vhdl: {len(result)} entities, "
+          f"{n_multi} parameterized names ({n_total_variants} total variants)",
+          file=sys.stderr)
+
+    out = open(outfile, 'w') if outfile else sys.stdout
+    for n in result:
+        out.write(entity_blocks[n])
+        out.write('\n')
+    if outfile: out.close()
+
+if __name__ == '__main__':
+    main()
