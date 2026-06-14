@@ -21,8 +21,29 @@ set -o pipefail
 SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
 [[ "$SCRIPT_DIR" == "${BASH_SOURCE[0]}" ]] && SCRIPT_DIR="."
 
-IVERILOG="${IVERILOG:-iverilog}"
-IVL_FLAGS="-B${IVL_BUILD_LIB:-/usr/local/src/iverilog/build-lib}"
+# Default to the BUILD-AREA iverilog + its plugin dir, so we validate what we
+# build before installing. Falling back to a system `iverilog` with a stale
+# -B silently fails every module's SV->VHDL translation -> port-less deferred
+# stubs (a whole design that elaborates hollow). $IVERILOG / $IVL_BUILD_LIB
+# still override.
+if [[ -z "$IVERILOG" ]]; then
+    if [[ -x /usr/local/src/iverilog/_install/bin/iverilog ]]; then
+        IVERILOG=/usr/local/src/iverilog/_install/bin/iverilog
+    else
+        IVERILOG=iverilog
+    fi
+fi
+if [[ -z "$IVL_BUILD_LIB" ]]; then
+    _ivl_pfx="${IVERILOG%/bin/iverilog}"
+    if [[ -d "$_ivl_pfx/lib/ivl" ]]; then
+        IVL_BUILD_LIB="$_ivl_pfx/lib/ivl"
+    elif [[ -d /usr/local/src/iverilog/_install/lib/ivl ]]; then
+        IVL_BUILD_LIB=/usr/local/src/iverilog/_install/lib/ivl
+    else
+        IVL_BUILD_LIB=/usr/local/src/iverilog/build-lib
+    fi
+fi
+IVL_FLAGS="-B$IVL_BUILD_LIB"
 NVC_FLAGS="-psv2vhdl=1 -g2012"
 OUTFILE=""
 TOPMOD=""

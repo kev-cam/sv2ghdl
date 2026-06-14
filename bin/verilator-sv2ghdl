@@ -30,7 +30,9 @@ export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
 SCRIPT_DIR="${BASH_SOURCE[0]%/*}/.."
 SV2GHDL="$SCRIPT_DIR/sv2ghdl.pl"
 
-NVC="${NVC:-nvc}"
+if [[ -z "$NVC" ]]; then
+    if [[ -x /usr/local/src/nvc-build/bin/nvc ]]; then NVC=/usr/local/src/nvc-build/bin/nvc; else NVC=nvc; fi
+fi
 VERILATOR="${VERILATOR:-verilator}"
 SVX_STD="${SVX_STD:-2040}"
 
