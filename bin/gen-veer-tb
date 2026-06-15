@@ -418,6 +418,26 @@ print <<'CLK';
     end if;
   end process;
 
+  -- RTLMeter contract: emit the simulated cycle count to
+  -- _rtlmeter_cycles.txt when the run completes (TEST_PASSED/FAILED set
+  -- `done`). RTLMeter reads this file for its cycle metric; without it a
+  -- correct run is still scored as failed ("no .prn"/no cycles).
+  cycles_out: process(done)
+    file fcyc : text;
+    variable lcyc : line;
+    variable st : file_open_status;
+  begin
+    if done then
+      file_open(st, fcyc, "_rtlmeter_cycles.txt", write_mode);
+      if st = open_ok then
+        write(lcyc, cycle_cnt);
+        writeline(fcyc, lcyc);
+        file_close(fcyc);
+        report "wrote _rtlmeter_cycles.txt = " & integer'image(cycle_cnt);
+      end if;
+    end if;
+  end process;
+
   -- Watchdog
   wd: process
   begin
