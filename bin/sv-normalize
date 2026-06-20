@@ -109,6 +109,47 @@ chomp @lines;
 my $rewrites = 0;
 my %vhdl_refs;     # track what vhdl.X references we need
 
+# Rule -1 PRE-PASS: drop specify...endspecify timing-check blocks. They are
+# non-synthesizable timing annotations ($setuphold/$setup/$hold/$width, path
+# delays); the iverilog VHDL backend mis-translates their bit-select operand
+# references into bogus behavioral assignments (e.g. `BL <= BL(0)`, a
+# vector<-scalar type error that fails nvc -a). Stripping them is the standard
+# synthesis treatment and leaves the design's actual behaviour untouched.
+# (regress: ivtest pr1520314)
+{
+    my @kept;
+    my $in_specify   = 0;
+    my $in_specparam = 0;   # carrying a specparam decl across lines to its `;`
+    for my $line (@lines) {
+        if (!$in_specify && $line =~ /^\s*specify\b/) {
+            $in_specify = 1;
+            $rewrites++;
+            next;                          # drop the `specify` line
+        }
+        if ($in_specify) {
+            if ($line =~ /\bendspecify\b/) { $in_specify = $in_specparam = 0; next; }
+            # specparams are compile-time constants that may be referenced
+            # outside the specify block (pr3309391: `initial if (Tdelay...)`),
+            # so hoist them as localparams instead of dropping. The decl may
+            # span lines (pr1873146: `specparam\n th = 0.9;`), so carry it to ';'.
+            if ($line =~ /\bspecparam\b/) {
+                (my $lp = $line) =~ s/\bspecparam\b/localparam/;
+                push @kept, $lp;
+                $in_specparam = ($line !~ /;/);
+                next;
+            }
+            if ($in_specparam) {
+                push @kept, $line;
+                $in_specparam = 0 if $line =~ /;/;
+                next;
+            }
+            next;                          # drop timing checks / path delays
+        }
+        push @kept, $line;
+    }
+    @lines = @kept;
+}
+
 # Rule 6b PRE-PASS: rewrite chained-RHS reads `arr[i][j][HI:LO]` to
 # `$get_val(arr, i, j)` BEFORE Rule 0b creates intermediate temp regs that
 # would hide the original 3-level chain. The system-function form bypasses
