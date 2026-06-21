@@ -16,27 +16,38 @@ BUILD_GROUP=${BUILD_GROUP:-dev}
 #   digital - just the digital simulation tools (iverilog/nvc/ghdl/yosys/sv2ghdl)
 #   analog  - just Xyce (and Trilinos, its dependency)
 #   verify  - optional extra: clone Nuitka source for verification work
-MODE=${1:-full}
-case "$MODE" in
-    full|digital|analog|verify) ;;
-    -h|--help)
-        echo "Usage: $0 [full|digital|analog|verify]"
-        echo "  full    everything (default)"
-        echo "  digital iverilog, nvc, ghdl, yosys, sv2ghdl wrappers"
-        echo "  analog  Xyce (+ Trilinos)"
-        echo "  verify  clone Nuitka source (install step deferred)"
-        echo ""
-        echo "Env:"
-        echo "  RUN_TESTS=1         after analog/full, run a Xyce_Regression subset"
-        echo "  TEST_LABEL=...      ctest label to run (default: vpwl, ~26 tests)"
-        echo "  XYCE_VARIANT=ours|stock  which Xyce to test (default: ours)"
-        echo "  BUILD_STOCK_XYCE=1  also build upstream Sandia Xyce against our Trilinos"
-        echo "  STOCK_XYCE_PREFIX=  install prefix for stock Xyce (default /opt/xyce-stock)"
-        exit 0 ;;
-    *)
-        echo "Usage: $0 [full|digital|analog|verify]" >&2
-        exit 1 ;;
-esac
+# -mpi (anywhere on the line) builds the distributed-parallel Trilinos + Xyce
+# instead of the serial stack; the mode (full/digital/analog/verify) is the
+# positional arg.
+MPI=0
+MODE=
+for arg in "$@"; do
+    case "$arg" in
+        -mpi) MPI=1 ;;
+        full|digital|analog|verify) MODE="$arg" ;;
+        -h|--help)
+            echo "Usage: $0 [full|digital|analog|verify] [-mpi]"
+            echo "  full    everything (default)"
+            echo "  digital iverilog, nvc, ghdl, yosys, sv2ghdl wrappers"
+            echo "  analog  Xyce (+ Trilinos)"
+            echo "  verify  clone Nuitka source (install step deferred)"
+            echo "  -mpi    build distributed-parallel (MPI) Trilinos + Xyce"
+            echo "          (Xyce_PARALLEL_MPI: large-circuit / cloud scale-out)."
+            echo "          Needs an MPI toolchain (mpicc/mpicxx)."
+            echo ""
+            echo "Env:"
+            echo "  RUN_TESTS=1         after analog/full, run a Xyce_Regression subset"
+            echo "  TEST_LABEL=...      ctest label to run (default: vpwl, ~26 tests)"
+            echo "  XYCE_VARIANT=ours|stock  which Xyce to test (default: ours)"
+            echo "  BUILD_STOCK_XYCE=1  also build upstream Sandia Xyce against our Trilinos"
+            echo "  STOCK_XYCE_PREFIX=  install prefix for stock Xyce (default /opt/xyce-stock)"
+            exit 0 ;;
+        *)
+            echo "Usage: $0 [full|digital|analog|verify] [-mpi]" >&2
+            exit 1 ;;
+    esac
+done
+MODE=${MODE:-full}
 BUILD_DIGITAL=0
 BUILD_ANALOG=0
 BUILD_VERIFY=0
@@ -162,6 +173,36 @@ fi
 if [[ $BUILD_ANALOG = 1 ]]; then
     MAKE_CMD="smak -j$JOBS"
 
+    # -mpi: build the distributed-parallel stack. We pass the deltas from
+    # xyce/cmake/trilinos/trilinos-MPI-base.cmake (which is just trilinos-base
+    # + these) as -D flags on top of the base cache file, so we don't rely on a
+    # cache-file include(). mpicc/mpicxx make the Xyce link pull -lmpi in
+    # automatically; build-stats is off because smak's cmake interpreter doesn't
+    # emit the build_stat_*_wrapper.sh that feature points the compiler at.
+    TRI_MPI_ARGS=()
+    XYCE_MPI_ARGS=()
+    if [[ $MPI = 1 ]]; then
+        echo "===== MPI build: distributed Trilinos + Xyce (Xyce_PARALLEL_MPI) ====="
+        TRI_MPI_ARGS=(
+            -D TPL_ENABLE_MPI=ON
+            -D Trilinos_ENABLE_Zoltan=ON
+            -D Trilinos_ENABLE_Isorropia=ON
+            -D Trilinos_ENABLE_BUILD_STATS=OFF
+            -D CMAKE_C_COMPILER=mpicc
+            -D CMAKE_CXX_COMPILER=mpicxx
+        )
+        XYCE_MPI_ARGS=(
+            -D CMAKE_C_COMPILER=mpicc
+            -D CMAKE_CXX_COMPILER=mpicxx
+        )
+        # GCC 15+ tightened -Wtemplate-body vs Trilinos 14.4's KokkosKernels ETI;
+        # soften it on newer hosts. The AMS image base (Debian Trixie / GCC 14)
+        # needs nothing.
+        case "$(g++ -dumpversion)" in 1[5-9]*|[2-9][0-9]*)
+            TRI_MPI_ARGS+=(-D CMAKE_CXX_FLAGS=-Wno-template-body) ;;
+        esac
+    fi
+
     if [[ -d "$PREFIX/lib/cmake/Trilinos" ]]; then
         echo "===== Trilinos (already built, skipping) ====="
     else
@@ -178,6 +219,7 @@ if [[ $BUILD_ANALOG = 1 ]]; then
         ( cd "$SRC/trilinos-build" \
           && cmake \
                -C "$SRC/xyce/cmake/trilinos/trilinos-base.cmake" \
+               "${TRI_MPI_ARGS[@]}" \
                -D CMAKE_INSTALL_PREFIX="$PREFIX" \
                -D BUILD_SHARED_LIBS=ON \
                -D AMD_INCLUDE_DIRS=/usr/include/suitesparse \
@@ -195,6 +237,7 @@ if [[ $BUILD_ANALOG = 1 ]]; then
         mkdir -p "$SRC/xyce-build"
         ( cd "$SRC/xyce-build" \
           && cmake \
+               "${XYCE_MPI_ARGS[@]}" \
                -D CMAKE_INSTALL_PREFIX="$PREFIX" \
                -D Trilinos_ROOT="$PREFIX" \
                -D BUILD_SHARED_LIBS=ON \

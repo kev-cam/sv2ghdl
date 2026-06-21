@@ -64,17 +64,42 @@ curl -fL https://raw.githubusercontent.com/kev-cam/sv2ghdl/main/docker/build_sta
     | bash
 ```
 
-`build_stack.sh` takes an optional mode argument to pick a slice of the stack:
+`build_stack.sh` takes an optional mode argument to pick a slice of the stack,
+plus a `-mpi` flag:
 
 | Mode      | Builds                                                         |
 |-----------|----------------------------------------------------------------|
 | `full`    | everything — digital tools + Xyce (default)                    |
 | `digital` | just iverilog, nvc, ghdl, yosys and the sv2ghdl wrappers       |
 | `analog`  | just Xyce (and Trilinos, its dependency)                       |
+| `-mpi`    | (flag) build distributed-parallel Trilinos + Xyce (`Xyce_PARALLEL_MPI`) instead of serial — for large-circuit partitioning / cloud (e.g. Azure) scale-out. Needs an MPI toolchain. |
 
 `full` is the default and includes Trilinos + Xyce, which adds roughly
 30–90 minutes and several GB. Pass a mode via `bash -s --`, e.g.
-`… | bash -s -- digital` to skip the analog build.
+`… | bash -s -- digital` to skip the analog build, or `… | bash -s -- analog -mpi`
+for the distributed Xyce.
+
+### Which build do I need — digital or analog/AMS?
+
+- **Digital only** (RTL simulation: iverilog/nvc/ghdl/yosys + sv2ghdl) — use the
+  base image (`Dockerfile`, `Dockerfile.debian`, …) or `build_stack.sh digital`.
+  Lean, fast, no Trilinos.
+- **Analog / mixed-signal (AMS), i.e. you need Xyce** — use the prebuilt AMS
+  image, which bakes the distributed-parallel (MPI) Trilinos + Xyce into the
+  image so it's ready to run (no Trilinos compile on first use):
+
+  ```sh
+  docker build -t sv2ghdl-ams -f docker/Dockerfile.ams .            # nvc + Xyce-MPI (cosim-capable)
+  docker build -t sv2ghdl-ams --build-arg BUILD_MODE=analog \
+               -f docker/Dockerfile.ams .                           # Xyce-MPI only
+  docker run -d --name sv2ghdl-ams -p 2222:22 -p 8080:80 sv2ghdl-ams
+  docker/export.sh /tmp/sv2ghdl-export   # then rsync onto the host /usr/local
+  ```
+
+  `Dockerfile.ams` is Debian-Trixie based (GCC 14 — the toolchain Trilinos 14.4
+  builds cleanly with) and runs `build_stack.sh <mode> -mpi` at image-build time.
+  Note: a serial single-node Xyce is faster on small circuits — MPI pays off on
+  large designs / distributed (laptop → cloud) runs, not small-circuit speed.
 
 The build runs directly in WSL and installs into `/home/claude/sv2ghdl-stack/usr`;
 copy onto the WSL `/usr/local` with `sudo rsync -a /home/claude/sv2ghdl-stack/usr/ /usr/local/`.
