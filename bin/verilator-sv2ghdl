@@ -192,17 +192,26 @@ if [[ $CC -eq 1 ]]; then
     # Instead, translate the synthesizable RTL and drive veer_wrapper with a
     # generated VHDL testbench (gen-veer-tb): clock/reset + AXI memory model +
     # program.hex load + magic-mailbox TEST_PASSED and _rtlmeter_cycles.txt.
-    if grep -qsE 'module[[:space:]]+veer_wrapper\b' "${SRCV[@]}"; then
-        echo "verilator-sv2ghdl: VeeR design -- driving veer_wrapper via gen-veer-tb" >&2
+    # Detect the VeeR top wrapper. EH1 names it `veer_wrapper`; EH2/EL2 use a
+    # family prefix (`eh2_veer_wrapper` / `el2_veer_wrapper`). Prefer the
+    # prefixed name when present (EL2 also ships a thin `veer_wrapper` shim).
+    VEER_WRAPPER=""
+    for _cand in veer_wrapper eh2_veer_wrapper el2_veer_wrapper; do
+        if grep -qsE "module[[:space:]]+${_cand}\b" "${SRCV[@]}"; then
+            VEER_WRAPPER="$_cand"
+        fi
+    done
+    if [[ -n "$VEER_WRAPPER" ]]; then
+        echo "verilator-sv2ghdl: VeeR design -- driving $VEER_WRAPPER via gen-veer-tb" >&2
         XLAT="$MDIR_ABS/${PREFIX}_xlat"
         rm -rf "$XLAT"
         # Explicit translation so we get design.vhd (gen-veer-tb reads the
-        # veer_wrapper entity ports from it) + an analysed work library.
+        # wrapper entity ports from it) + an analysed work library.
         "$BINDIR/iverilog-sv2ghdl" -o "$XLAT" "${IARGS[@]}" "${DARGS[@]}" "${SRCV[@]}" >&2 \
             || cc_fail "iverilog-sv2ghdl translation failed"
         [[ -s "$XLAT/design.vhd" ]] || cc_fail "no design.vhd from translation"
-        "$BINDIR/gen-veer-tb" "$XLAT/design.vhd" veer_wrapper > "$XLAT/veer_eh1_tb.vhd" \
-            || cc_fail "gen-veer-tb failed (veer_wrapper not translated with ports? check build-area iverilog)"
+        "$BINDIR/gen-veer-tb" "$XLAT/design.vhd" "$VEER_WRAPPER" > "$XLAT/veer_eh1_tb.vhd" \
+            || cc_fail "gen-veer-tb failed ($VEER_WRAPPER not translated with ports? check build-area iverilog)"
         WORK="$XLAT/work"
         "$NVC" --std="$SVX_STD" --work="$WORK" -L "$NVC_LIBDIR" -a "$XLAT/veer_eh1_tb.vhd" \
             || cc_fail "nvc -a (veer tb) failed"
