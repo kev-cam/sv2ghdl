@@ -195,13 +195,30 @@ if [[ $BUILD_ANALOG = 1 ]]; then
             -D CMAKE_C_COMPILER=mpicc
             -D CMAKE_CXX_COMPILER=mpicxx
         )
-        # GCC 15+ tightened -Wtemplate-body vs Trilinos 14.4's KokkosKernels ETI;
-        # soften it on newer hosts. The AMS image base (Debian Trixie / GCC 14)
-        # needs nothing.
-        case "$(g++ -dumpversion)" in 1[5-9]*|[2-9][0-9]*)
-            TRI_MPI_ARGS+=(-D CMAKE_CXX_FLAGS=-Wno-template-body) ;;
-        esac
     fi
+
+    # --- Optimization for the SHIPPED binaries -------------------------------
+    # Big perf miss fixed here: SMAK built Trilinos+Xyce at -O0/debug (no build
+    # type, no -O) -> ~3x slower than -O3 on a SPICE workload (gap to QSPICE
+    # 21x vs 6.5x). Build Release => -O3 -DNDEBUG (smak now honors the build
+    # type). Portable arch x86-64-v3 (AVX2 baseline, ~every x86-64 CPU since
+    # ~2015) so the deliverable runs on ANY host -- NOT -march=native, which
+    # SIGILLs off the build machine. Tuned local self-build: CXX_ARCH=-march=native.
+    # Passed as CMAKE_<LANG>_FLAGS_RELEASE so they APPEND to (don't clobber)
+    # trilinos-base.cmake's own CMAKE_CXX_FLAGS. Applies to BOTH serial and MPI.
+    CXX_ARCH=${CXX_ARCH:--march=x86-64-v3}
+    REL_FLAGS="-O3 -DNDEBUG $CXX_ARCH"
+    REL_FLAGS_CXX="$REL_FLAGS"
+    # GCC 15+ tightened -Wtemplate-body vs Trilinos 14.4's KokkosKernels ETI;
+    # soften on newer hosts (serial AND mpi). Debian Trixie / GCC 14 needs none.
+    case "$(g++ -dumpversion)" in 1[5-9]*|[2-9][0-9]*)
+        REL_FLAGS_CXX="$REL_FLAGS -Wno-template-body" ;;
+    esac
+    OPT_ARGS=(
+        -D CMAKE_BUILD_TYPE=Release
+        -D CMAKE_CXX_FLAGS_RELEASE="$REL_FLAGS_CXX"
+        -D CMAKE_C_FLAGS_RELEASE="$REL_FLAGS"
+    )
 
     if [[ -d "$PREFIX/lib/cmake/Trilinos" ]]; then
         echo "===== Trilinos (already built, skipping) ====="
@@ -219,6 +236,7 @@ if [[ $BUILD_ANALOG = 1 ]]; then
         ( cd "$SRC/trilinos-build" \
           && cmake \
                -C "$SRC/xyce/cmake/trilinos/trilinos-base.cmake" \
+               "${OPT_ARGS[@]}" \
                "${TRI_MPI_ARGS[@]}" \
                -D CMAKE_INSTALL_PREFIX="$PREFIX" \
                -D BUILD_SHARED_LIBS=ON \
@@ -237,6 +255,7 @@ if [[ $BUILD_ANALOG = 1 ]]; then
         mkdir -p "$SRC/xyce-build"
         ( cd "$SRC/xyce-build" \
           && cmake \
+               "${OPT_ARGS[@]}" \
                "${XYCE_MPI_ARGS[@]}" \
                -D CMAKE_INSTALL_PREFIX="$PREFIX" \
                -D Trilinos_ROOT="$PREFIX" \
@@ -264,6 +283,7 @@ if [[ $BUILD_ANALOG = 1 ]]; then
             mkdir -p "$SRC/Xyce-stock-build"
             ( cd "$SRC/Xyce-stock-build" \
               && cmake \
+                   "${OPT_ARGS[@]}" \
                    -D CMAKE_INSTALL_PREFIX="$STOCK_XYCE_PREFIX" \
                    -D Trilinos_ROOT="$PREFIX" \
                    -D BUILD_SHARED_LIBS=ON \
