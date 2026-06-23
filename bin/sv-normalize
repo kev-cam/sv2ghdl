@@ -168,9 +168,16 @@ my %vhdl_refs;     # track what vhdl.X references we need
         my $changed = 0;
         # Match arr[ix1][ix2][const_or_range], where ix1 and ix2 contain no
         # `:` (so we don't grab range part-selects). Lookahead skips LHS.
-        while ($code =~ s/\b([A-Za-z_]\w*)\[([^\[\]:]+)\]\[([^\[\]:]+)\]\[([^\[\]]+)\](?!\s*[<:]?=)/_REPLACE_get_val($1, $2, $3, $4)/e) {
-            $changed = 1;
-        }
+        # Use a single /g pass, NOT `while ($code =~ s///)`: _REPLACE_get_val
+        # returns the ORIGINAL text unchanged for non-loop-var indices, and
+        # s///e counts replacing text with identical text as a successful
+        # substitution — so a while-loop re-matches the same spot forever
+        # (infinite hang; hit on VeeR-EH2's `foo[addr][sel][HI:LO]` reads). /g
+        # advances past each match and handles every occurrence in one pass;
+        # _REPLACE_get_val never emits a new chained index, so no re-scan needed.
+        my $before_code = $code;
+        $code =~ s/\b([A-Za-z_]\w*)\[([^\[\]:]+)\]\[([^\[\]:]+)\]\[([^\[\]]+)\](?!\s*[<:]?=)/_REPLACE_get_val($1, $2, $3, $4)/ge;
+        $changed = 1 if $code ne $before_code;
         if ($changed) {
             $lines[$i] = $code . $comment;
             $rewrites++;
@@ -624,10 +631,14 @@ for my $i (0 .. $#lines) {
     # actually wiring an output (we can't tell statically; skip to be safe).
     if ($code !~ /^\s*assign\b/ && $code !~ /\.\s*[A-Za-z_]\w*\s*\(/) {
         my $changed = 0;
-        while ($code =~ s/\b([A-Za-z_]\w*)\[([^\[\]:]+)\]\[([^\[\]:]+)\]\[([^\[\]]+)\](?!\s*[<:]?=)/_REPLACE_get_val($1, $2, $3, $4)/e) {
-            $changed = 1;
-        }
-        if ($changed) {
+        # Single /g pass, NOT a while-loop: _REPLACE_get_val returns the input
+        # unchanged for non-loop-var indices, which s///e counts as a successful
+        # substitution — a while-loop would then spin forever on the same match
+        # (infinite hang on VeeR-EH2). See the matching note in the Rule 6b
+        # PRE-PASS above.
+        my $before_code = $code;
+        $code =~ s/\b([A-Za-z_]\w*)\[([^\[\]:]+)\]\[([^\[\]:]+)\]\[([^\[\]]+)\](?!\s*[<:]?=)/_REPLACE_get_val($1, $2, $3, $4)/ge;
+        if ($code ne $before_code) {
             $lines[$i] = $code . $comment;
             $rewrites++;
             next;
