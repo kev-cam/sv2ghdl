@@ -109,6 +109,47 @@ chomp @lines;
 my $rewrites = 0;
 my %vhdl_refs;     # track what vhdl.X references we need
 
+# Rule -2 PRE-PASS: specialize the struct-typed config parameter `pt`.
+# VeeR-EH2/EL2 declare `parameter <pkg>_param_t pt = '{ FIELD: literal, ... }`
+# in every module header, thread it down via `.pt(pt)`, and read config
+# constants as `pt.FIELD` (e.g. `logic [pt.ICACHE_NUM_WAYS-1:0]`). iverilog's
+# -tvhdl frontend can't parse the named assignment-pattern `'{FIELD: val}`
+# default, so the whole file fails to parse and every module stubs. (EH1 uses
+# package localparams / `define`s instead, so it has no such parameter and this
+# pass is a no-op there.)
+#
+# RTLMeter compiles one config at a time and the preprocessor has already baked
+# the chosen config into the aggregate (identical across every module, all
+# values are sized literals), so we SPECIALIZE: parse the aggregate into a
+# FIELD->value map, replace every `pt.FIELD` read with its literal value, and
+# neutralize the struct parameter to a plain `parameter pt = 0` dummy. We keep
+# the dummy (and the `.pt(pt)` connections) so there's no parameter-list comma
+# surgery and nothing dangles — after substitution nothing reads `pt` as a
+# struct any more.
+{
+    my $text = join("\n", @lines);
+    # First complete `'{ ... }` aggregate of a `<pkg>_param_t pt = ` default.
+    # Values are sized literals with no nested braces, so `.*?\}` to the first
+    # `}` captures exactly the aggregate.
+    if ($text =~ /\b\w*_param_t\s+pt\s*=\s*'\{(.*?)\}/s) {
+        my $body = $1;
+        my %val;
+        # FIELD : sized-literal   (commas/newlines separate pairs)
+        while ($body =~ /([A-Za-z_]\w*)\s*:\s*([^,\s}]+)/g) {
+            $val{$1} = $2;
+        }
+        if (%val) {
+            # 1. pt.FIELD -> (literal), only for fields present in the aggregate
+            #    (leave anything unknown untouched so it surfaces as an error).
+            $text =~ s/\bpt\.([A-Za-z_]\w*)\b/exists $val{$1} ? "($val{$1})" : "pt.$1"/ge;
+            # 2. neutralize every struct-typed `pt` default to a dummy int param.
+            my $n = ($text =~ s/\b\w*_param_t\s+pt\s*=\s*'\{.*?\}/pt = 0/gs);
+            $rewrites += $n;
+            @lines = split /\n/, $text, -1;
+        }
+    }
+}
+
 # Rule -1 PRE-PASS: drop specify...endspecify timing-check blocks. They are
 # non-synthesizable timing annotations ($setuphold/$setup/$hold/$width, path
 # delays); the iverilog VHDL backend mis-translates their bit-select operand
