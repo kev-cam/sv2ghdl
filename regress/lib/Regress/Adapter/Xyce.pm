@@ -17,7 +17,7 @@ package Regress::Adapter::Xyce;
 use strict;
 use warnings;
 use File::Path ();
-use Regress::Tools qw(xyce_bin xyce_regr_dir xyce_regr_runner);
+use Regress::Tools qw(xyce_bin xyce_regr_dir xyce_regr_runner xyce_libdir pyms_dir adms_examples_dir);
 use Regress::Util  qw(run_capture);
 
 sub run {
@@ -50,7 +50,21 @@ sub run {
     }
     push @cmd, $xyce;
 
-    my ($exit, $out) = run_capture(\@cmd, dir => $work, log => $opt{log});
+    # Pin the build-area PyMS so the Verilog-A compact-model tests JIT-compile
+    # their model at runtime (the env propagates through run_xyce_regression to
+    # each test's Xyce invocation). PyMS is the ADMS replacement: with PYMS_DIR
+    # + XYCE_VA_PATH set, a `.model ... level=N` whose level is declared (via
+    # xyceLevelNumber) by a .va under XYCE_VA_PATH AUTO-LOADS through PyMS -- no
+    # .hdl directive, no compiled-in ADMS device. This is how the otherwise-
+    # aborting adms/mextram-tagged tests (PSP103 level=103, MEXTRAM level=504)
+    # resolve. (Requires the DeviceMgr type_index fix to instantiate; before it,
+    # auto-loaded devices SIGSEGV'd at "Setting up topology".)
+    my %env;
+    if (my $ld = xyce_libdir())       { $env{LD_LIBRARY_PATH} = $ld; }
+    if (my $pd = pyms_dir())          { $env{PYMS_DIR} = $pd; }
+    if (my $va = adms_examples_dir()) { $env{XYCE_VA_PATH} = $va; }
+
+    my ($exit, $out) = run_capture(\@cmd, dir => $work, env => \%env, log => $opt{log});
 
     my @r = (_parse_list($pass, 'pass', $opt{log}),
              _parse_list($fail, 'fail', $opt{log}));

@@ -13,6 +13,7 @@ use Regress::Tools qw(
     src_root nvc_bin nvc_libdir iverilog_bin vvp_bin verilator_bin
     run_regr_bin unit_test_bin shim_bin iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir gnucap2xyce_bin
+    cadence2xyce_bin adms_examples_dir
     ltz_bin ltz_tests_dir ltz_community_dir
     qspice_qux_bin qspice2xyce_bin qspice_tests_dir);
 
@@ -22,6 +23,7 @@ use Regress::Adapter::SvTests;
 use Regress::Adapter::Rtlmeter;
 use Regress::Adapter::Xyce;
 use Regress::Adapter::XyceIHP;
+use Regress::Adapter::XycePyMS;
 use Regress::Adapter::Ltz;
 use Regress::Adapter::Qspice;
 
@@ -32,6 +34,7 @@ my %ADAPTER = (
     rtlmeter    => 'Regress::Adapter::Rtlmeter',
     xyce        => 'Regress::Adapter::Xyce',
     'xyce-ihp'  => 'Regress::Adapter::XyceIHP',
+    'xyce-pyms' => 'Regress::Adapter::XycePyMS',
     ltz         => 'Regress::Adapter::Ltz',
     qspice      => 'Regress::Adapter::Qspice',
 );
@@ -175,6 +178,15 @@ my @BLOCKS = (
     { name => 'xyce/ihp-pdk',        suite => 'xyce-ihp', engine => 'xyce',
       params => {},  # set fail_rtol to gate on gross divergence
       ready  => sub { xyce_bin() && gnucap2xyce_bin() && ihp_pdk_dir() ? 1 : 0 } },
+
+    # ADMS-example Verilog-A decks run through Xyce via PyMS (the ADMS
+    # replacement): each .sp deck (carrying a .hdl directive) is preprocessed
+    # with cadence2xyce.pl and run with PYMS_DIR set, so PyMS JIT-compiles the
+    # Verilog-A at runtime. PASS = clean convert + run (device registers and
+    # instantiates). --filter selects model-family dirs (e.g. psp103,BSIM6.1.1).
+    { name => 'xyce/pyms',           suite => 'xyce-pyms', engine => 'xyce',
+      params => {},
+      ready  => sub { xyce_bin() && cadence2xyce_bin() && adms_examples_dir() ? 1 : 0 } },
 
     # ltz LTspice circuits run through ltz -> Xyce. Pass = clean sim (no LTspice
     # gold here; LTspice runs under Wine but isn't installed). Build-area Xyce.

@@ -16,6 +16,7 @@ our @EXPORT_OK = qw(
     iverilog_steve_bin vvp_steve_bin
     xyce_bin xyce_regr_dir xyce_regr_runner
     gnucap_bin ihp_pdk_dir gnucap2xyce_bin xyce_libdir pyms_dir
+    cadence2xyce_bin adms_examples_dir
     ltz_bin ltz_tests_dir ltz_community_dir ltspice_bin
     qspice_dir qspice_sim_bin qspice_qux_bin qspice2xyce_bin qspice_tests_dir
 );
@@ -182,6 +183,27 @@ sub pyms_dir {
     my $r = src_root();
     for my $d ($ENV{PYMS_DIR}, "$r/xyce/utils/PyMS") {
         return $d if defined $d && length $d && -d "$d/vae";
+    }
+    return undef;
+}
+
+# cadence2xyce.pl preprocessor (ADMS-example .sp -> Xyce .cir; the deck's .hdl
+# directive then auto-compiles the Verilog-A via PyMS at runtime, no -adms).
+# $CADENCE2XYCE override -> xyce/utils.
+sub cadence2xyce_bin {
+    my $r = src_root();
+    for my $p ($ENV{CADENCE2XYCE}, "$r/xyce/utils/cadence2xyce.pl") {
+        return $p if defined $p && length $p && -f $p;
+    }
+    return undef;
+}
+
+# ADMS-example Verilog-A benchmark decks. Despite the legacy "ADMS" path, these
+# .sp decks carry .hdl directives and are run through PyMS (the ADMS replacement).
+sub adms_examples_dir {
+    my $r = src_root();
+    for my $d ($ENV{ADMS_EXAMPLES}, "$r/xyce/utils/ADMS/examples") {
+        return $d if defined $d && length $d && -d $d;
     }
     return undef;
 }
