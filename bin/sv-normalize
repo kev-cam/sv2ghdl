@@ -566,9 +566,26 @@ my %vhdl_refs;     # track what vhdl.X references we need
         # the source array must be declared before the temp uses it.
         # Track nesting depth of begin/function/task/case/fork/generate blocks
         # so we only consider lines at module scope (depth 0).
+        #
+        # The temps must also precede EVERY use: iverilog can't forward-
+        # reference a module-scope net from inside a generate block (VeeR-EH2's
+        # fghr reads in `eh2_ifu_bp_ctl`'s genblk6 bind to the temp "declared
+        # after use"). The uses were already substituted in above, so stop the
+        # decl scan at the first line that references one of our temps —
+        # $insert_at then lands on the last module-scope decl before the first
+        # use, and the source array (used at that same point) is declared at or
+        # before it.
+        my $first_use = $me;
+        if (%temps) {
+            my $use_re = join('|', map { quotemeta } values %temps);
+            for my $i ($ms + 1 .. $me - 1) {
+                if ($lines[$i] =~ /(?:$use_re)/) { $first_use = $i; last; }
+            }
+        }
         my $depth = 0;
         my $insert_at = $ms;
         for my $i ($ms + 1 .. $me - 1) {
+            last if $i >= $first_use;
             my $l = $lines[$i];
             my $code = $l; $code =~ s{//.*$}{};
             # Module-scope decl?
