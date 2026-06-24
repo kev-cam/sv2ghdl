@@ -1,0 +1,26 @@
+// ce_stage.vams -- portable Verilog-AMS (Accellera LRM) behavioral macromodel
+// for a common-emitter gain stage. Signal-flow only: 2 programmable resistors
+// set the DC operating point/output impedance; an AC transconductance with a
+// tanh rail clamp gives the large-signal voltage transfer (gain + clipping).
+// No device physics, no current/power balance -> cheap, and smooth so the
+// integrator can take large adaptive timesteps. Runs on any VAMS engine
+// (OpenVAF/ngspice, Spectre, AMS-Designer, Xyce/PyMS).
+`include "disciplines.vams"
+
+module ce_stage(in, out);
+  inout in, out;
+  electrical in, out;
+  parameter real gain = 9.5    from (0:inf);   // large-signal stage gain
+  parameter real Vlo  = 1.0;                    // bottom rail clamp
+  parameter real Vhi  = 9.0;                    // top rail clamp
+  parameter real Rout = 600    from (0:inf);    // output impedance
+  parameter real Rin  = 100000 from (0:inf);    // input DC reference
+  real ctr, span, vc;
+  analog begin
+    ctr  = 0.5*(Vhi + Vlo);
+    span = 0.5*(Vhi - Vlo);
+    I(in)  <+ V(in) / Rin;                       // input bias
+    vc = ctr - span * tanh( gain * V(in) / span );  // programmable clamp
+    I(out) <+ (V(out) - vc) / Rout;              // out = clamped target behind Rout
+  end
+endmodule
