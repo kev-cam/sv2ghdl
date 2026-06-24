@@ -17,7 +17,7 @@ import os, sys, json, tempfile, subprocess, argparse, math
 # ----------------------------------------------------------------------------
 class SimDriver:
     name = "base"
-    def run(self, netlist_text):           # -> dict[str, list[float]]
+    def run(self, netlist_text, signals=None):   # -> dict[str, list[float]]
         raise NotImplementedError
 
 class XyceDriver(SimDriver):
@@ -30,10 +30,14 @@ class XyceDriver(SimDriver):
         b = "/usr/local/src/xyce-build/src"
         self.env.setdefault("LD_LIBRARY_PATH",
             f"{os.path.expanduser('~')}/xyce-libs:{b}:/usr/local/lib:{b}/../utils/XyceCInterface")
-    def run(self, netlist_text):
+    def run(self, netlist_text, signals=None):
+        deck = strip_output(netlist_text)
+        if signals:
+            deck += ".print tran format=gnuplot " + " ".join("v(%s)" % s for s in signals) + "\n"
+        deck += ".end\n"
         d = tempfile.mkdtemp(prefix="bfit_")
         cir = os.path.join(d, "c.cir")
-        open(cir, "w").write(netlist_text)
+        open(cir, "w").write(deck)
         r = subprocess.run([self.binary, cir], cwd=d, env=self.env,
                            capture_output=True, text=True, timeout=300)
         prn = cir + ".prn"
@@ -60,6 +64,22 @@ def _parse_prn(p):
         out[k] = v
         if k.startswith("v(") and k.endswith(")"): out[k[2:-1]] = v   # v(c1)->c1
     return out
+
+def strip_output(netlist):
+    """Remove engine-specific output directives so each driver injects its own.
+    Lets one portable netlist (devices + .tran + .model + .subckt) run on any
+    engine -- the driver owns the I/O dialect (.print vs .control/write)."""
+    out, in_ctrl = [], False
+    for ln in netlist.splitlines():
+        s = ln.strip().lower()
+        if s.startswith(".control"): in_ctrl = True; continue
+        if in_ctrl:
+            if s.startswith(".endc"): in_ctrl = False
+            continue
+        if s.startswith((".print", ".plot", ".probe", ".save")): continue
+        if s == ".end": continue
+        out.append(ln)
+    return "\n".join(out) + "\n"
 
 DRIVERS = {"xyce": XyceDriver}
 try:
@@ -131,15 +151,16 @@ def tune(reference_netlist, template_text, spec, driver, t0=1.5e-3, verbose=True
     x0 = [spec["x0"][k] for k in names]
     step = [max(abs(v)*0.4, (b[1]-b[0])*0.1) for v, b in zip(x0, bounds)]
     fit = spec["features"]
-    tgt = features(driver.run(reference_netlist), fit, t0)
-    if verbose: print("target features (device-level reference):",
+    sigs = sorted({n for n, _ in fit})
+    tgt = features(driver.run(reference_netlist, sigs), fit, t0)
+    if verbose: print(f"[{driver.name}] target features (device-level reference):",
                       {k: round(v,4) for k,v in tgt.items()})
     evals = [0]
     def obj(x):
         evals[0] += 1
         net = template_text
         for k, v in zip(names, x): net = net.replace("__%s__" % k, repr(v))
-        try: fv = features(driver.run(net), fit, t0)
+        try: fv = features(driver.run(net, sigs), fit, t0)
         except Exception:
             return 1e6
         return sum(((fv[k]-tgt[k])/(abs(tgt[k])+1e-9))**2 for k in tgt)
@@ -149,7 +170,7 @@ def tune(reference_netlist, template_text, spec, driver, t0=1.5e-3, verbose=True
         print(f"converged: residual={fbest:.4e} in {evals[0]} sim evals")
         net = template_text
         for k, v in params.items(): net = net.replace("__%s__" % k, repr(v))
-        fv = features(driver.run(net), fit, t0)
+        fv = features(driver.run(net, sigs), fit, t0)
         for k in tgt:
             print(f"  {k:10s} target {tgt[k]:+11.4g}  fitted {fv[k]:+11.4g}  "
                   f"({100*(fv[k]-tgt[k])/(abs(tgt[k])+1e-9):+.1f}%)")

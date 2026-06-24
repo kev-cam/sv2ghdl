@@ -25,18 +25,31 @@ class NgspiceDriver:
                        capture_output=True, text=True)
         return osdi
 
-    def run(self, netlist_text):
+    def run(self, netlist_text, signals=None):
+        try:
+            from bfit import strip_output
+            deck = strip_output(netlist_text)
+        except Exception:
+            deck = netlist_text.replace(".end", "")
         d = tempfile.mkdtemp(prefix="bfit_ng_")
         cir = os.path.join(d, "c.cir")
         raw = os.path.join(d, "c.raw")
-        # ngspice control block: batch tran already in the deck; write rawfile.
-        deck = netlist_text + f"\n.control\nset filetype=binary\nrun\nwrite {raw}\nquit\n.endc\n"
-        open(cir, "w").write(deck)
-        subprocess.run([self.ngspice, "-b", cir], cwd=d,
+        # Productized portable-model path: a `.hdl "x.vams"` in the deck is
+        # OpenVAF-compiled to OSDI and loaded (pre_osdi). Behavioral realisations
+        # in the deck run natively -- no OpenVAF needed.
+        pre = ""
+        for ln in deck.splitlines():
+            s = ln.strip().lower()
+            if s.startswith(".hdl") or s.startswith(".va "):
+                va = ln.split()[1].strip('"')
+                pre += "pre_osdi %s\n" % self.compile_va(va, d)
+        ctrl = ".control\n" + pre + "set filetype=binary\nrun\nwrite c.raw\nquit\n.endc\n.end\n"
+        open(cir, "w").write(deck + ctrl)
+        subprocess.run([self.ngspice, "-b", "c.cir"], cwd=d,
                        capture_output=True, text=True, timeout=300)
         if not os.path.exists(raw):
-            raise RuntimeError("ngspice: no rawfile (is ngspice+OpenVAF installed? "
-                               "set BFIT_NGSPICE / BFIT_OPENVAF)")
+            raise RuntimeError("ngspice: no rawfile (set BFIT_NGSPICE; for the "
+                               ".vams/OSDI path set BFIT_OPENVAF)")
         return _parse_ngspice_raw(raw)
 
 def _parse_ngspice_raw(p):
