@@ -176,6 +176,100 @@ def tune(reference_netlist, template_text, spec, driver, t0=1.5e-3, verbose=True
                   f"({100*(fv[k]-tgt[k])/(abs(tgt[k])+1e-9):+.1f}%)")
     return params, fbest
 
+# ----------------------------------------------------------------------------
+# Front end: recognize circuit patterns, substitute auto-tuned macromodels.
+# Gated per-engine by <SIM>_USE_BFIT  (e.g. XYCE_USE_BFIT):
+#   off            -> passthrough (no substitution)            [default]
+#   auto           -> substitute every recognized pattern
+#   models:a,b,c   -> substitute only the listed macromodels
+# Params come from the cache (hit) or the library best-guess (miss -> the block
+# is substituted AND flagged so the background tuner refines it next).
+# ----------------------------------------------------------------------------
+def env_mode(sim):
+    v = os.environ.get("%s_USE_BFIT" % sim.upper(), "off").strip().lower()
+    if v in ("", "off"):        return ("off", [])
+    if v == "auto":             return ("auto", [])
+    if v.startswith("models:"): return ("models", [m.strip() for m in v[7:].split(",") if m.strip()])
+    return ("off", [])          # unknown value -> safe default
+
+def recognize_ce(netlist):
+    """Rule-based recognizer for a common-emitter gain stage:
+       BJT Q(c,b,e) with Rc[c<->vcc] + Rb[b<->vcc] (sharing the supply node)
+       + Re[e<->gnd] (+ optional Ce bypass). in=base, out=collector."""
+    R, C, Q = [], [], []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        if not s or s[0] in "*.;": continue
+        t = s.split(); u = t[0][0].upper()
+        if   u == "R" and len(t) >= 4: R.append((t[0], t[1], t[2], ln))
+        elif u == "C" and len(t) >= 4: C.append((t[0], t[1], t[2], ln))
+        elif u == "Q" and len(t) >= 5: Q.append((t[0], t[1], t[2], t[3], ln))  # c b e
+    other = lambda r, n: r[2] if r[1] == n else r[1]
+    matches = []
+    for (qn, c, b, e, qraw) in Q:
+        rc = [r for r in R if c in (r[1], r[2])]
+        rb = [r for r in R if b in (r[1], r[2])]
+        re = [r for r in R if e in (r[1], r[2]) and "0" in (r[1], r[2])]
+        vcc = rcsel = rbsel = None
+        for r1 in rc:
+            for r2 in rb:
+                if other(r1, c) == other(r2, b) and other(r1, c) != "0":
+                    vcc, rcsel, rbsel = other(r1, c), r1, r2; break
+            if vcc: break
+        if not vcc: continue
+        ce = [x for x in C if e in (x[1], x[2]) and "0" in (x[1], x[2])]
+        matches.append(dict(model="ce_stage", qn=qn, base=b, coll=c,
+                            drop=[qraw, rcsel[3], rbsel[3]] +
+                                 ([re[0][3]] if re else []) + ([ce[0][3]] if ce else [])))
+    return matches
+
+def _subckt_block(template, params):
+    L = template.splitlines()
+    a = next(i for i, l in enumerate(L) if l.strip().lower().startswith(".subckt"))
+    z = next(i for i, l in enumerate(L) if l.strip().lower().startswith(".ends"))
+    blk = "\n".join(L[a:z+1])
+    for k, v in params.items(): blk = blk.replace("__%s__" % k, repr(v))
+    return blk
+
+def front(netlist, sim, libroot, cache):
+    """Transform a netlist for `sim`, honoring <SIM>_USE_BFIT. Returns
+    (transformed_netlist, substituted_count, to_tune_list)."""
+    mode, models = env_mode(sim)
+    if mode == "off":
+        return netlist, 0, []
+    matches = recognize_ce(netlist)
+    drop, insert, to_tune, used_params = set(), {}, [], None
+    for m in matches:
+        if mode == "auto" or m["model"] in models:
+            p = (cache.get(m["model"]) or {}).get("params")
+            if not p:
+                p = json.load(open(os.path.join(libroot, m["model"], "fit.json")))["x0"]
+                if m["model"] not in to_tune: to_tune.append(m["model"])
+            used_params = (m["model"], p)
+            for d in m["drop"]: drop.add(d)
+            insert[m["drop"][0]] = "X%s %s %s %s" % (m["qn"], m["base"], m["coll"], m["model"])
+    if not used_params:
+        return netlist, 0, []
+    out, n = [], 0
+    for ln in netlist.splitlines():
+        if ln in insert: out.append(insert[ln]); n += 1; continue
+        if ln in drop: continue
+        out.append(ln)
+    # append the macromodel realisation (subckt) just before .end
+    mdl, params = used_params
+    tmpl = open(os.path.join(libroot, mdl, "template.cir")).read()
+    blk = _subckt_block(tmpl, params)
+    res = []
+    placed = False
+    for ln in out:
+        if ln.strip().lower() == ".end" and not placed:
+            res.append("* --- bfit: %s (params %s) ---" %
+                       (mdl, "cached" if cache.get(mdl) else "best-guess (queued for tuning)"))
+            res.append(blk); placed = True
+        res.append(ln)
+    if not placed: res.append(blk)
+    return "\n".join(res) + "\n", n, to_tune
+
 def main():
     ap = argparse.ArgumentParser(prog="bfit")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -184,7 +278,23 @@ def main():
     t.add_argument("--lib", required=True, help="library entry dir (template.cir + fit.json)")
     t.add_argument("--sim", default="xyce", choices=list(DRIVERS))
     t.add_argument("--cache", help="param cache json (read/write)")
+    f = sub.add_parser("front", help="recognize patterns + substitute macromodels "
+                                     "(gated by <SIM>_USE_BFIT)")
+    f.add_argument("netlist")
+    f.add_argument("--libroot", default="library")
+    f.add_argument("--sim", default="xyce")
+    f.add_argument("--cache", default="cache.json")
+    f.add_argument("-o", "--out")
     a = ap.parse_args()
+    if a.cmd == "front":
+        cache = json.load(open(a.cache)) if os.path.exists(a.cache) else {}
+        mode, models = env_mode(a.sim)
+        net, n, totune = front(open(a.netlist).read(), a.sim, a.libroot, cache)
+        sys.stderr.write("[bfit] %s_USE_BFIT=%s%s -> substituted %d block(s)%s\n" % (
+            a.sim.upper(), mode, (":" + ",".join(models)) if models else "", n,
+            ("; queued for tuning: " + ",".join(totune)) if totune else ""))
+        (open(a.out, "w") if a.out else sys.stdout).write(net)
+        return
     if a.cmd == "tune":
         spec = json.load(open(os.path.join(a.lib, "fit.json")))
         template = open(os.path.join(a.lib, "template.cir")).read()
