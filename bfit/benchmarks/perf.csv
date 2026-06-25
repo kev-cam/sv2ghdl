@@ -1,0 +1,8 @@
+table,stages,transistors,qspice,ltspice,ngspice,ngspice_bfit,xyce,xyce_bfit,xyce_np2
+speed,3,3,0.48,0.55,1.55,0.25,3.26,0.45,19.77
+speed,30,30,5.12,4.04,9.36,0.45,13.26,2.15,56.50
+speed,100,100,25.83,16.26,36.28,8.46,45.69,12.66,180.90
+speed,300,300,163.02,81.74,158.79,82.83,185.31,87.43,t/o
+capacity,300,300,8,5,3,,4,3,
+capacity,1000,1000,brk,53,brk,,18,17,
+capacity,3000,3000,brk,brk,brk,,235,236,
