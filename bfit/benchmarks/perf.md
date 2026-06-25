@@ -67,8 +67,12 @@ reaches 3000** — the robustness its framework cost buys.
   Linux engines (ngspice, Xyce) are inner wall-clock inside WSL, min of runs.
   Threadripper PRO 5955WX (16C/32T); Xyce serial `-O3`. Generators: `gen_models.py`
   (suite), `gen_amp.py` (cascade). Sub-0.1 s cells are startup-dominated.
-- **SIMetrix = N/A.** The installed edition is the free **SIMPLIS/Elements**,
-  which has no headless simulator. The mixed-signal row, however, *is* a SIMetrix
+- **SIMetrix = N/A.** SIMetrix *does* have a non-GUI mode, but it runs through a
+  standalone `SIM` console binary and requires **network** licensing. The free
+  **SIMPLIS/Elements 9.2** install here ships only the GUI `SIMetrix.exe` (engine
+  in `SIMCore.dll`, no `SIM.exe`) under a node-locked Intro license, so headless
+  runs are doubly unavailable — it would take a licensed SIMetrix Pro with
+  network licensing. The mixed-signal row, however, *is* a SIMetrix
   design: `simetrix_cosim.pl` translates a SIMetrix `.net` (digital A-devices →
   VHDL, analog → Xyce) and runs it on the Xyce+nvc runtime. The real
   **SIMetrix flyback (`fly.net`, UC3844, 18 digital A-devices)** binds 7/7
