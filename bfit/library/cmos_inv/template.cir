@@ -1,0 +1,12 @@
+* bfit candidate -- CMOS logic inverter behavioral macromodel (tuner harness).
+* front() emits this inline (Cin + one B-source) in place of the NMOS+PMOS pair;
+* this .subckt is the reference the tuner fits cin/ron/rleak/h against.
+* No tanh: the (hysteretic) input programs the pull-up / pull-down conductances;
+* the leakage floor 1/rleak stays on (off-path static current -> power match);
+* output is the divider into the load C -- linear between input changes.
+.subckt cmos_inv in out vhi PARAMS: cin=__cin__ ron=__ron__ rleak=__rleak__ h=__h__
+Cin in 0 {cin}
+Bo 0 out I={ ((V(vhi)-V(in)+h*(V(out)-0.5*V(vhi)))/(V(vhi)*ron)+1/rleak)*(V(vhi)-V(out))
+           - ((V(in)-h*(V(out)-0.5*V(vhi)))/(V(vhi)*ron)+1/rleak)*V(out) }
+.ends
+.end

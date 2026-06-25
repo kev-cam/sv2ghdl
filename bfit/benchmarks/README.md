@@ -98,6 +98,14 @@ Each new pattern the recognizer learns widens what bfit can accelerate.
   (`size·overdrive`, going resistive near the rail). Both polarities (NMOS/PMOS);
   one reference fans out to many outputs (op-amp mirror banks). On a 2-stage
   Miller op-amp it cuts ngspice 1.09→0.11 s (~10×) accurate to ~0.01%; OTA ~1%.
+- **CMOS logic gate (inverter)** — done (`library/cmos_inv`): no `tanh`. The input
+  presents an R-C load and simply *programs* the pull-up/pull-down conductances
+  (each with a leakage floor for the static-power match); the output is the
+  resulting divider into the load C — linear-algebraic, cheap per step, linear
+  between input changes. Cuts ngspice on the inverter chain 2.2× and the ring
+  oscillator **17×** (it still oscillates). NAND/NOR = series/parallel pull
+  networks; light hysteresis is a tunable `h` (default 0 — positive feedback
+  destabilises the smooth form unless leakage is large, which collapses swing).
 - differential pair — next; partially stubbed in the cache schema.
 - parameter cache read in the production flow (skip re-tuning known stages).
 - real `.vams` → OSDI path via an OpenVAF binary, replacing the B-source

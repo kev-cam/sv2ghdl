@@ -294,6 +294,51 @@ def recognize_mirror(netlist):
                             insert="\n".join(L), drop=drop))  # drop[0]=ref line (anchor)
     return matches
 
+def recognize_inverter(netlist):
+    """CMOS logic inverter: a complementary NMOS+PMOS pair sharing gate (in) and
+    drain (out), PMOS to a high rail, NMOS to gnd. Replaced by a smooth
+    rail-to-rail inverting transfer through Rout, so the kept load cap sets the
+    propagation delay -- a behavioral logic gate the solver can stride across.
+    (NAND/NOR generalize this with series/parallel pull networks.)"""
+    pol = {}
+    for ln in netlist.splitlines():
+        s = ln.strip().lower()
+        if s.startswith(".model") and len(s.split()) >= 3:
+            nm = s.split()[1]
+            if   "pmos" in s: pol[nm] = "p"
+            elif "nmos" in s: pol[nm] = "n"
+    M = []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        if not s or s[0] in "*.;": continue
+        t = s.split()
+        if t[0][0].upper() == "M" and len(t) >= 6:
+            M.append((t[0], t[1], t[2], t[3], t[5], ln))   # name d g s model line
+    matches, claimed = [], set()
+    for nn, dn, gn, sn, mn, ln_ in M:                       # candidate pull-down (NMOS to gnd)
+        if pol.get(mn.lower()) != "n" or sn != "0" or nn in claimed: continue
+        for npc, dp, gp, sp, mp, lp in M:                   # matching pull-up (PMOS to a rail)
+            if pol.get(mp.lower()) != "p" or npc in claimed: continue
+            if gp == gn and dp == dn and sp != "0":         # shared gate+drain, PMOS to high rail
+                claimed.add(nn); claimed.add(npc)
+                # Decoupled logic gate, no tanh: the (hysteretic) input programs the
+                # pull-up / pull-down conductances. Each has a leakage floor 1/rleak that
+                # stays on, so the off-path carries the static current (power match). The
+                # output is the resulting divider into the load C -- linear-algebraic,
+                # cheap per step, and linear between input changes so the solver strides.
+                # No kink/clamp: the leakage floor 1/rleak is sized (>= 0.5*h/ron) to keep
+                # both conductances >= 0 through the hysteresis excursion, so the network
+                # stays passive and smooth -> stable AND large adaptive steps.
+                L = ["* --- bfit: cmos_inv (in %s, out %s, vhi %s) ---" % (gn, dn, sp),
+                     "Cin_%s %s 0 __cin__" % (nn, gn),                       # decouple input (R-C load)
+                     "Bo_%s 0 %s I={ ((V(%s)-V(%s)+__h__*(V(%s)-0.5*V(%s)))/(V(%s)*__ron__)+1/__rleak__)"
+                     "*(V(%s)-V(%s)) - ((V(%s)-__h__*(V(%s)-0.5*V(%s)))/(V(%s)*__ron__)+1/__rleak__)*V(%s) }"
+                     % (nn, dn, sp, gn, dn, sp, sp, sp, dn, gn, dn, sp, sp, dn)]
+                matches.append(dict(model="cmos_inv", inline=True,
+                                    insert="\n".join(L), drop=[ln_, lp]))  # drop[0]=NMOS (anchor)
+                break
+    return matches
+
 def _subckt_block(template, params):
     L = template.splitlines()
     a = next(i for i, l in enumerate(L) if l.strip().lower().startswith(".subckt"))
@@ -324,7 +369,7 @@ def front(netlist, sim, libroot, cache):
     mode, models = env_mode(sim)
     if mode == "off":
         return netlist, 0, []
-    matches = recognize_ce(netlist) + recognize_mirror(netlist)
+    matches = recognize_ce(netlist) + recognize_mirror(netlist) + recognize_inverter(netlist)
     drop, insert, to_tune, used, hit = set(), {}, [], {}, False
     for m in matches:
         if mode == "auto" or m["model"] in models:
