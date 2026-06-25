@@ -1,9 +1,9 @@
 {
   "module": "current_mirror",
-  "pattern": "MOSFET current mirror (diode-connected ref + output FET sharing gate and source rail)",
-  "ports": ["rail", "ref", "out"],
-  "params": { "gain": [0.1, 10], "vdrop": [0.3, 2.0], "rout": [1000, 1000000] },
-  "x0":     { "gain": 1.0,       "vdrop": 1.0,         "rout": 50000 },
+  "pattern": "MOSFET current-mirror group: diode-connected reference + output FETs sharing gate and source rail (one reference fans out to many outputs, as in op-amps)",
+  "ports": ["rail", "ref", "out..."],
+  "params": { "vt": [0.3, 1.5], "vsat": [0.05, 1.0] },
+  "x0":     { "vt": 0.6,        "vsat": 0.3 },
   "features": [ ["out", "amp"] ],
-  "note": "signal-flow mirror: Iout = gain*Iref with finite output resistance rout; vdrop sets the reference clamp below the rail."
+  "note": "two-part model. I->V: vt off the rail + a sense resistor (1 ohm when the reference is the smallest device) turn the reference current into an overdrive voltage. V->I: each output sources (size_i/size_min)*overdrive, going resistive near the rail via tanh so it cannot pass the supply. size ratios come from the netlist W/L; vt, vsat are tuned."
 }

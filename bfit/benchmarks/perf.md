@@ -21,12 +21,12 @@ run that model (see notes). All same netlist, no per-engine edits.
 | BJT 3-stage amp | 3 | 0.46 ×7.3 | N/A | 0.53 ×6.3 | 1.56 ×2.2 | 🟢 0.25 ×13.4 | 3.36 ×1.0 | 0.45 ×7.5 | N/A |
 | SIMetrix mixed-signal A↔D cosim | digital | N/A | N/A | N/A | N/A | N/A | 🟢 0.87 ×1.0 | N/A | N/A |
 
-bfit substitutes the **CE stages** in the BJT amp (tuned/cached macromodel:
-ngspice 1.56→0.25, Xyce 3.36→0.45 — making it the fastest cell in its row) and
-the **current mirror** in the OTA (newly-added pattern, best-guess params:
-ngspice 0.25→0.15 — it substitutes and runs, with the background tuner still to
-refine accuracy). On the other models it has no pattern yet and passes the
-netlist through unchanged, so it never costs anything. ngspice wins the two
+bfit substitutes the **CE stages** in the BJT amp (tuned macromodel: ngspice
+1.56→0.25, Xyce 3.36→0.45 — making it the fastest cell in its row) and the
+**current mirror** in the OTA (a two-part I→V / V→I model with rail compliance:
+ngspice 0.25→0.15, and it tracks the real OTA output to ~1% even before tuning).
+On the other models it has no pattern yet and passes the netlist through
+unchanged, so it never costs anything. ngspice wins the two
 digital/oscillator circuits outright, the commercial engines win the tiny analog
 ones (sub-0.1 s = process startup, not solve), and the **SIMetrix mixed-signal
 model runs only in the Xyce+nvc stack**.
@@ -57,8 +57,11 @@ reaches 3000** — the robustness its framework cost buys.
   portable Verilog-AMS macromodel and — because those models are smooth — drops
   the forced max timestep and coarsens output, letting the solver stride. On a
   deeper CE cascade the +bfit lead grows to ~21× on ngspice and ~7× on Xyce at
-  30 stages, then erodes as the cascade stiffens. Patterns today: CE stage,
-  current mirror; next: differential pair.
+  30 stages, then erodes as the cascade stiffens. Patterns today: CE stage and
+  the MOSFET current mirror — a two-part I→V (reference current → overdrive
+  voltage across a sense resistor, normalized on the smallest device) / V→I
+  (each output = size·overdrive, going resistive near the rail) model, so one
+  reference fans out to many outputs as in op-amp mirror banks. Next: diff pair.
 - **Methodology.** Each cell is engine simulation time, cross-environment launch
   excluded — Windows engines (QSPICE, LTspice) self-report "Total elapsed time";
   Linux engines (ngspice, Xyce) are inner wall-clock inside WSL, min of runs.

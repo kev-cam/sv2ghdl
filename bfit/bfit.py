@@ -224,32 +224,55 @@ def recognize_ce(netlist):
                                  ([re[0][3]] if re else []) + ([ce[0][3]] if ce else [])))
     return matches
 
+def _wl(tokens):
+    w = l = None
+    for t in tokens:
+        tl = t.lower()
+        if   tl.startswith("w="): w = _spice_num(tl[2:])
+        elif tl.startswith("l="): l = _spice_num(tl[2:])
+    return (w if w else 1.0) / (l if l else 1.0)
+
 def recognize_mirror(netlist):
-    """Rule-based recognizer for a MOSFET current mirror: a diode-connected
-       reference (drain==gate) and an output FET sharing the reference's gate
-       node and source rail. Works for NMOS (source=gnd) or PMOS (source=rail).
-       Ports of the macromodel: rail (shared source), ref (gate=ref drain), out."""
+    """MOSFET current-mirror groups: a diode-connected reference (drain==gate)
+    and EVERY output FET sharing its gate node, source rail and model -- one
+    reference fans out to many outputs (op-amp mirror banks). Emits a two-part
+    signal-flow model:
+      I->V at the reference -- a `vt` source off the rail feeds a sense resistor,
+        so the reference current develops an overdrive VOLTAGE on the gate node;
+        the resistor is 1 ohm when the reference is the smallest device (sizes
+        are normalized on the smallest in the group).
+      V->I at each output -- current = (size ratio) x overdrive, GOING RESISTIVE
+        near the rail (tanh) so the output can never run past the supply.
+    Works for NMOS (rail=gnd) or PMOS (rail=vdd); params vt, vsat are tuned."""
     M = []
     for ln in netlist.splitlines():
         s = ln.strip()
         if not s or s[0] in "*.;": continue
         t = s.split()
         if t[0][0].upper() == "M" and len(t) >= 6:
-            M.append((t[0], t[1], t[2], t[3], t[5], ln))   # name drain gate source model
-    matches, used = [], set()
-    for i in range(len(M)):
-        for j in range(len(M)):
-            if i == j: continue
-            nr, dr, gr, sr, mr, lr = M[i]      # candidate reference
-            no, do, go, so, mo, lo = M[j]      # candidate output
-            if mr != mo or gr != go or sr != so: continue   # same model, gate, rail
-            if dr != gr or do == go: continue   # ref diode-connected, out not
-            if nr in used or no in used: continue
-            used.add(nr); used.add(no)
-            matches.append(dict(model="current_mirror",
-                                insert="Xmir_%s %s %s %s current_mirror" % (no, sr, gr, do),
-                                drop=[lo, lr]))   # drop[0]=output line (anchor), lr=ref line
-            break
+            M.append((t[0], t[1], t[2], t[3], t[5], _wl(t[6:]), ln))  # name d g s model wl line
+    matches, claimed = [], set()
+    for nr, dr, gr, sr, mr, wlr, lr in M:
+        if dr != gr or nr in claimed:                 # reference must be diode-connected
+            continue
+        outs = [(no, do, wlo, lo) for (no, do, go, so, mo, wlo, lo) in M
+                if go == gr and so == sr and mo == mr and do != go and no not in claimed]
+        if not outs:
+            continue
+        smin = min([wlr] + [w for _, _, w, _ in outs])   # normalize on the smallest device
+        claimed.add(nr)
+        tag = re.sub(r"\W", "", gr)
+        L = ["* --- bfit: current_mirror (ref %s, %d output%s) ---"
+             % (gr, len(outs), "s" if len(outs) > 1 else ""),
+             "Vt_%s %s cmv_%s __vt__" % (nr, sr, tag),          # vt off the rail
+             "R1_%s cmv_%s %s %.4g" % (nr, tag, gr, smin / wlr)]  # = 1 ohm when ref is smallest
+        drop = [lr]
+        for no, do, wlo, lo in outs:                  # V->I: one source per mirror output
+            claimed.add(no); drop.append(lo)
+            L.append("Bcm_%s %s %s I={ %.4g*(V(%s)-V(%s)-__vt__)*tanh((V(%s)-V(%s))/__vsat__) }"
+                     % (no, sr, do, wlo / smin, sr, gr, sr, do))
+        matches.append(dict(model="current_mirror", inline=True,
+                            insert="\n".join(L), drop=drop))  # drop[0]=ref line (anchor)
     return matches
 
 def _subckt_block(template, params):
@@ -283,17 +306,22 @@ def front(netlist, sim, libroot, cache):
     if mode == "off":
         return netlist, 0, []
     matches = recognize_ce(netlist) + recognize_mirror(netlist)
-    drop, insert, to_tune, used = set(), {}, [], {}
+    drop, insert, to_tune, used, hit = set(), {}, [], {}, False
     for m in matches:
         if mode == "auto" or m["model"] in models:
             p = (cache.get(m["model"]) or {}).get("params")
             if not p:
                 p = json.load(open(os.path.join(libroot, m["model"], "fit.json")))["x0"]
                 if m["model"] not in to_tune: to_tune.append(m["model"])
-            used[m["model"]] = p
+            hit = True
+            blk = m["insert"]
+            if m.get("inline"):          # macromodel emitted as raw elements (e.g. mirror groups)
+                for k, v in p.items(): blk = blk.replace("__%s__" % k, repr(v))
+            else:                        # macromodel realized as an appended .subckt (e.g. ce_stage)
+                used[m["model"]] = p
+            insert[m["drop"][0]] = blk
             for d in m["drop"]: drop.add(d)
-            insert[m["drop"][0]] = m["insert"]
-    if not used:
+    if not hit:
         return netlist, 0, []
     out, n = [], 0
     for ln in netlist.splitlines():
