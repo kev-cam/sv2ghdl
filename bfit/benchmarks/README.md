@@ -17,11 +17,18 @@ with no model changes. This harness measures all of that side by side.
 
 | file            | what it does |
 |-----------------|--------------|
-| `gen_amp.py`    | generates an N-stage common-emitter BJT amplifier cascade (linear device-count scaling; every stage is the exact pattern bfit's recognizer substitutes) |
-| `run_bench.sh`  | **the orchestrator** — run from Cygwin; drives Windows-native engines + (via `wsl.exe`) the Linux engines, assembles `perf.md`/`perf.csv` |
+| `gen_models.py` | generates the **model suite** — a varied, portable set (passive RLC, bridge rectifier, CMOS inverter chain, CMOS ring oscillator, 5T OTA, BJT amp) that runs unmodified on every engine |
+| `win_models.sh` / `run_lin_models.sh` / `xrun_model.sh` | time the model suite on the Windows engines (QSPICE/LTspice) and Linux engines (ngspice/Xyce) |
+| `gen_amp.py`    | generates an N-stage common-emitter BJT amplifier cascade (the scaling/bfit study; every stage is the exact pattern bfit's recognizer substitutes) |
+| `run_bench.sh`  | cascade orchestrator — run from Cygwin; drives Windows-native + (via `wsl.exe`) Linux engines |
 | `xrun.sh`       | WSL-side helper — runs one Linux engine on one circuit, prints min inner wall-clock |
-| `mpisweep.sh`   | finds the optimum Xyce-MPI rank count (np=2..16 sweep) per size and the speedup vs serial — source of the `Xyce-MPI` column |
-| `perf.md` / `perf.csv` | the generated table |
+| `mpisweep.sh`   | finds the optimum Xyce-MPI rank count (np=2..16 sweep) per size and the speedup vs serial |
+| `perf.md` / `perf.csv` | the tables |
+
+The **mixed-signal cosim** row in `perf.md` comes from
+`xyce/utils/test_simetrix_cosim` — a SIMetrix `.net` translated by
+`simetrix_cosim.pl` (digital A-devices → VHDL, analog → Xyce) and run on the
+Xyce+nvc runtime; no other engine here can simulate it.
 
 ## Running it
 
