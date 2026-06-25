@@ -20,6 +20,7 @@ with no model changes. This harness measures all of that side by side.
 | `gen_amp.py`    | generates an N-stage common-emitter BJT amplifier cascade (linear device-count scaling; every stage is the exact pattern bfit's recognizer substitutes) |
 | `run_bench.sh`  | **the orchestrator** — run from Cygwin; drives Windows-native engines + (via `wsl.exe`) the Linux engines, assembles `perf.md`/`perf.csv` |
 | `xrun.sh`       | WSL-side helper — runs one Linux engine on one circuit, prints min inner wall-clock |
+| `mpisweep.sh`   | finds the optimum Xyce-MPI rank count (np=2..16 sweep) per size and the speedup vs serial — source of the `Xyce-MPI` column |
 | `perf.md` / `perf.csv` | the generated table |
 
 ## Running it
@@ -75,8 +76,9 @@ probe out to 3000 stages:
   Verilog-AMS netlist just runs on ngspice — portability is the escape hatch.
 - **At scale, robustness flips the ranking.** By N=1000 QSPICE and ngspice abort
   (timestep → ~1e-19); LTspice dies by N=3000; **only Xyce reaches 3000 stages.**
-- **MPI is for scale-out, not these sizes** — `Xyce -np2` is 4–6× *slower* than
-  serial here and times out by N=300.
+- **MPI is for scale-out, not these sizes** — sweeping np=2..16, the optimum rank
+  count grows with size (np2→4→6) but is still ×0.2–0.3 (3–5× *slower*) than
+  serial, and times out by N=300. See `mpisweep.sh`.
 
 ## Roadmap — pattern library
 

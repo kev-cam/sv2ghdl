@@ -9,18 +9,20 @@ Each cell is engine **simulation time in seconds**, cross-environment process
 launch excluded — Windows engines (QSPICE, LTspice) self-report their "Total
 elapsed time"; Linux engines (ngspice, Xyce) are timed by inner wall-clock inside
 WSL. The **+bfit** columns swap in the portable `ce_stage` Verilog-AMS macromodel
-and take adaptive timesteps. Measured on a Threadripper PRO 5955WX (16C/32T);
-Xyce serial `-O3`, `Xyce -np2` is the MPI build. `brk` = engine aborted (timestep
-collapse on the stiff deep cascade); `t/o` = exceeded 300 s.
+and take adaptive timesteps. The **Xyce-MPI** column is the fastest of an
+np = 2..16 sweep (`mpisweep.sh`), shown as `time ×speedup (optimum np)`, where
+speedup is relative to serial Xyce. Measured on a Threadripper PRO 5955WX
+(16C/32T); Xyce serial `-O3`. `brk` = engine aborted (timestep collapse on the
+stiff deep cascade); `t/o` = exceeded the time cap.
 
 ## Speed — `.tran 20n 2m` (100k forced steps)
 
-| Stages | Transistors | QSPICE | LTspice | ngspice | ngspice+bfit |   Xyce | Xyce+bfit | Xyce -np2 |
-| -----: | ----------: | -----: | ------: | ------: | -----------: | -----: | --------: | --------: |
-|      3 |           3 |   0.48 |    0.55 |    1.55 |     **0.25** |   3.26 |  **0.45** |     19.77 |
-|     30 |          30 |   5.12 |    4.04 |    9.36 |     **0.45** |  13.26 |  **2.15** |     56.50 |
-|    100 |         100 |  25.83 |   16.26 |   36.28 |     **8.46** |  45.69 | **12.66** |    180.90 |
-|    300 |         300 | 163.02 |   81.74 |  158.79 |    **82.83** | 185.31 | **87.43** |       t/o |
+| Stages | Transistors | QSPICE | LTspice | ngspice | ngspice+bfit |   Xyce | Xyce+bfit | Xyce-MPI (best np) |
+| -----: | ----------: | -----: | ------: | ------: | -----------: | -----: | --------: | -----------------: |
+|      3 |           3 |   0.48 |    0.55 |    1.55 |     **0.25** |   3.26 |  **0.45** |    19.33 ×0.2 (np2) |
+|     30 |          30 |   5.12 |    4.04 |    9.36 |     **0.45** |  13.26 |  **2.15** |    51.65 ×0.3 (np4) |
+|    100 |         100 |  25.83 |   16.26 |   36.28 |     **8.46** |  45.69 | **12.66** |   150.24 ×0.3 (np6) |
+|    300 |         300 | 163.02 |   81.74 |  158.79 |    **82.83** | 185.31 | **87.43** |                t/o |
 
 ## Scaling wall — capacity probe (short transient, does it finish?)
 
@@ -48,12 +50,16 @@ seconds if it completed, `brk` if it aborted:
   (timestep → ~1e-19); LTspice hangs on but dies by N=3000. **Only Xyce reaches
   3000 stages** — the last engine standing. That robustness is what Xyce's
   framework cost buys.
-- **MPI is for scale-out, not these sizes.** `Xyce -np2` is 4–6× *slower* than
-  serial on these small 1-D cascades and times out by N=300; domain-decomposition
-  overhead dominates until the design is large and meshed.
+- **MPI is for scale-out, not these sizes.** Sweeping np = 2..16, the optimum rank
+  count *grows* with the problem (np2 → np4 → np6 for N=3 → 100), but MPI never
+  beats serial here: best case is ×0.2–0.3 (3–5× *slower*), and by N=300 it can't
+  finish a step inside the cap. A fixed ~15 s solver-init plus inter-rank
+  communication dominates until the design is large and meshed; the serial/MPI
+  crossover is well beyond a 1-D 300-device chain.
 
 SIMetrix is installed but GUI-bound here (no headless netlist entry point), so it
 is not in the timed set.
 
-_Speed table from `benchmarks/run_bench.sh` (`SIZES="3 30 100 300"`); capacity
-probe is the same harness with a short transient. See `README.md`._
+_Speed table from `benchmarks/run_bench.sh` (`SIZES="3 30 100 300"`) with the
+Xyce-MPI column from `mpisweep.sh`; capacity probe is the same harness with a
+short transient. See `README.md`._

@@ -35,10 +35,12 @@ cp -f "$HERE/xrun.sh" "$WORK/xrun.sh" 2>/dev/null
 $WSL -- bash -lc "cp -f /mnt/c/cygwin64/tmp/perfbench/xrun.sh $XRUN_WSL; chmod +x $XRUN_WSL" 2>/dev/null
 
 detect() {
+  # NB: Xyce-MPI is characterized separately by mpisweep.sh (optimum np sweep),
+  # so it is not a default column here. Add xyce_mpi to ENGINES to force it.
   local e=()
   [ -f "$QSPICE" ] && e+=(qspice)
   [ -f "$SIMETRIX" ] && e+=(simetrix)
-  e+=(ngspice ngspice_bfit xyce xyce_bfit xyce_mpi)
+  e+=(ngspice ngspice_bfit xyce xyce_bfit)
   [ -f "$LTSPICE" ] && e+=(ltspice)
   echo "${e[@]}"
 }
@@ -78,7 +80,7 @@ for n in $SIZES; do
 done
 
 # --- emit table ---
-order="qspice ltspice ngspice ngspice_bfit xyce xyce_bfit xyce_mpi"
+order="qspice ltspice ngspice ngspice_bfit xyce xyce_bfit xyce_mpi"  # mpi only if forced into ENGINES
 hdr() { case $1 in qspice)echo QSPICE;; ltspice)echo LTspice;; simetrix)echo SIMetrix;;
   ngspice)echo ngspice;; ngspice_bfit)echo "ngspice+bfit";; xyce)echo Xyce;;
   xyce_bfit)echo "Xyce+bfit";; xyce_mpi)echo "Xyce -np$MPINP";; esac; }
