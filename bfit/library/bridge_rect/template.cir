@@ -1,0 +1,9 @@
+* bfit candidate -- full-bridge rectifier behavioral macromodel (tuner harness).
+* front() emits this inline (one B-source) in place of the four diodes; this
+* .subckt is the reference the tuner fits vdrop/rs/rleak against. No tanh:
+* full-wave rectified drive charges the output one way through rs (diode
+* conduction), with a small reverse-leakage path; the kept load R+C set ripple.
+.subckt bridge_rect a b out PARAMS: vdrop=__vdrop__ rs=__rs__ rleak=__rleak__
+Brect 0 out I={ max(0, (max(0, abs(V(a)-V(b)) - 2*vdrop) - V(out))/rs) - V(out)/rleak }
+.ends
+.end

@@ -5,7 +5,8 @@ engine on this box. Each cell is `time ×speedup`, where speedup = (serial Xyce
 time) / (engine time) — so **×>1 is faster than our Xyce**, and Xyce is ×1.0 by
 definition. The **+bfit** columns swap in portable Verilog-AMS macromodels where
 bfit recognizes a pattern (today: the BJT CE stage, the MOSFET current mirror,
-and the CMOS logic inverter), and pass the netlist through untouched otherwise. 🟢 marks an open
+the CMOS logic inverter, and the full-bridge rectifier), and pass the netlist
+through untouched otherwise. 🟢 marks an open
 engine (ngspice or Xyce, including +bfit) that is the **fastest** in its row;
 🔵 marks one that **beats both commercial engines** (QSPICE/LTspice) but isn't
 the outright fastest. `N/A` = the engine can't run that model (see notes). All

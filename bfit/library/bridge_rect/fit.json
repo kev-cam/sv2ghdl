@@ -1,0 +1,9 @@
+{
+  "module": "bridge_rect",
+  "pattern": "full-bridge rectifier: four diodes, AC across two nodes (a,b), DC out at the shared cathode, return to gnd",
+  "ports": ["a", "b", "out"],
+  "params": { "vdrop": [0.2, 1.5], "rs": [0.01, 100], "rleak": [1e4, 1e9] },
+  "x0":     { "vdrop": 0.6,         "rs": 1.0,         "rleak": 1e7 },
+  "features": [ ["out", "max"], ["out", "min"] ],
+  "note": "no tanh: full-wave rectified drive Vrect = max(0, |V(a)-V(b)| - 2*vdrop) charges the output through rs ONE WAY (max(0,..) = diode conduction only), with a reverse-leakage path 1/rleak. The kept load R+C set the ripple. abs/max are the natural rectifier ops -- cheap, and one B-source replaces four exp() diodes."
+}

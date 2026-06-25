@@ -339,6 +339,43 @@ def recognize_inverter(netlist):
                 break
     return matches
 
+def recognize_bridge(netlist):
+    """Full-bridge rectifier: four diodes with the AC across two nodes (a,b), two
+    diodes conducting into the shared DC output, two returning to gnd. Replaced by
+    a behavioral full-wave rectifier (no tanh): Vrect = max(0,|V(a)-V(b)|-2*vdrop)
+    charges the output one way through rs (diode conduction), with a reverse-leakage
+    path; the kept load R+C set the ripple. One B-source for four exp() diodes."""
+    D = []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        if not s or s[0] in "*.;": continue
+        t = s.split()
+        if t[0][0].upper() == "D" and len(t) >= 4:
+            D.append((t[0], t[1], t[2], ln))      # name anode cathode line
+    into = {}                                     # cathode -> [(anode, line)]
+    for nm, an, ca, ln in D:
+        into.setdefault(ca, []).append((an, ln))
+    matches, claimed = [], set()
+    for out, tops in into.items():
+        if len(tops) < 2 or out == "0": continue
+        for i in range(len(tops)):
+            for j in range(i + 1, len(tops)):
+                a, la = tops[i]; b, lb = tops[j]
+                if a == b or la in claimed or lb in claimed: continue
+                # bottom: a diode 0->a and a diode 0->b (anode gnd, cathode the AC nodes)
+                ga = next((l for an, l in into.get(a, []) if an == "0" and l not in claimed), None)
+                gb = next((l for an, l in into.get(b, []) if an == "0" and l not in claimed), None)
+                if not ga or not gb: continue
+                for l in (la, lb, ga, gb): claimed.add(l)
+                tag = re.sub(r"\W", "", out)
+                L = ["* --- bfit: bridge_rect (ac %s,%s -> %s) ---" % (a, b, out),
+                     "Brect_%s 0 %s I={ max(0, (max(0, abs(V(%s)-V(%s)) - 2*__vdrop__)"
+                     "-V(%s))/__rs__) - V(%s)/__rleak__ }" % (tag, out, a, b, out, out)]
+                matches.append(dict(model="bridge_rect", inline=True,
+                                    insert="\n".join(L), drop=[la, lb, ga, gb]))  # drop[0]=anchor
+                break
+    return matches
+
 def _subckt_block(template, params):
     L = template.splitlines()
     a = next(i for i, l in enumerate(L) if l.strip().lower().startswith(".subckt"))
@@ -369,7 +406,8 @@ def front(netlist, sim, libroot, cache):
     mode, models = env_mode(sim)
     if mode == "off":
         return netlist, 0, []
-    matches = recognize_ce(netlist) + recognize_mirror(netlist) + recognize_inverter(netlist)
+    matches = (recognize_ce(netlist) + recognize_mirror(netlist)
+               + recognize_inverter(netlist) + recognize_bridge(netlist))
     drop, insert, to_tune, used, hit = set(), {}, [], {}, False
     for m in matches:
         if mode == "auto" or m["model"] in models:

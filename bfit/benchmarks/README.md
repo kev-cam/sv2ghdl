@@ -106,6 +106,11 @@ Each new pattern the recognizer learns widens what bfit can accelerate.
   oscillator **17×** (it still oscillates). NAND/NOR = series/parallel pull
   networks; light hysteresis is a tunable `h` (default 0 — positive feedback
   destabilises the smooth form unless leakage is large, which collapses swing).
+- **full-bridge rectifier** — done (`library/bridge_rect`, power electronics): no
+  `tanh`; the four diodes collapse to one B-source — `Vrect = max(0, |V(a)-V(b)|
+  - 2·vdrop)` charges the output one way through `rs` (diode conduction) with a
+  reverse-leakage path, the kept load R+C set the ripple. Output within ~5% on
+  the suite rectifier (startup-bound there; the win shows in a larger SMPS).
 - differential pair — next; partially stubbed in the cache schema.
 - parameter cache read in the production flow (skip re-tuning known stages).
 - real `.vams` → OSDI path via an OpenVAF binary, replacing the B-source
