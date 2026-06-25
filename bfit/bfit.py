@@ -243,7 +243,16 @@ def recognize_mirror(netlist):
         are normalized on the smallest in the group).
       V->I at each output -- current = (size ratio) x overdrive, GOING RESISTIVE
         near the rail (tanh) so the output can never run past the supply.
-    Works for NMOS (rail=gnd) or PMOS (rail=vdd); params vt, vsat are tuned."""
+    Handles both polarities: PMOS (rail above the gate, sources current) and
+    NMOS (rail below the gate, e.g. gnd, sinks current) -- the overdrive sign and
+    the resistive-rail term flip accordingly. Params vt, vsat are tuned."""
+    pol = {}                                          # MOS model -> 'n'/'p' from .model
+    for ln in netlist.splitlines():
+        s = ln.strip().lower()
+        if s.startswith(".model") and len(s.split()) >= 3:
+            nm = s.split()[1]
+            if   "pmos" in s: pol[nm] = "p"
+            elif "nmos" in s: pol[nm] = "n"
     M = []
     for ln in netlist.splitlines():
         s = ln.strip()
@@ -261,16 +270,26 @@ def recognize_mirror(netlist):
             continue
         smin = min([wlr] + [w for _, _, w, _ in outs])   # normalize on the smallest device
         claimed.add(nr)
-        tag = re.sub(r"\W", "", gr)
-        L = ["* --- bfit: current_mirror (ref %s, %d output%s) ---"
-             % (gr, len(outs), "s" if len(outs) > 1 else ""),
-             "Vt_%s %s cmv_%s __vt__" % (nr, sr, tag),          # vt off the rail
-             "R1_%s cmv_%s %s %.4g" % (nr, tag, gr, smin / wlr)]  # = 1 ohm when ref is smallest
-        drop = [lr]
+        p = pol.get(mr.lower(), "n" if sr == "0" else "p")   # .model, else rail-is-gnd heuristic
+        tag = re.sub(r"\W", "", gr); R = "%.4g" % (smin / wlr)   # = 1 when ref is smallest
+        L = ["* --- bfit: current_mirror (%s, ref %s, %d output%s) ---"
+             % ("NMOS" if p == "n" else "PMOS", gr, len(outs), "s" if len(outs) > 1 else "")]
+        if p == "p":          # rail above gate: vt drops below rail; outputs SOURCE rail->out
+            L += ["Vt_%s %s cmv_%s __vt__" % (nr, sr, tag),
+                  "R1_%s cmv_%s %s %s" % (nr, tag, gr, R)]
+            ov = "(V(%s)-V(%s)-__vt__)" % (sr, gr)
+            mk = lambda no, do, g: "Bcm_%s %s %s I={ %.4g*%s*tanh((V(%s)-V(%s))/__vsat__) }" \
+                 % (no, sr, do, g, ov, sr, do)
+        else:                 # rail below gate (gnd): vt rises above rail; outputs SINK out->rail
+            L += ["Vt_%s cmv_%s %s __vt__" % (nr, tag, sr),
+                  "R1_%s %s cmv_%s %s" % (nr, gr, tag, R)]
+            ov = "(V(%s)-V(%s)-__vt__)" % (gr, sr)
+            mk = lambda no, do, g: "Bcm_%s %s %s I={ %.4g*%s*tanh((V(%s)-V(%s))/__vsat__) }" \
+                 % (no, do, sr, g, ov, do, sr)
         for no, do, wlo, lo in outs:                  # V->I: one source per mirror output
-            claimed.add(no); drop.append(lo)
-            L.append("Bcm_%s %s %s I={ %.4g*(V(%s)-V(%s)-__vt__)*tanh((V(%s)-V(%s))/__vsat__) }"
-                     % (no, sr, do, wlo / smin, sr, gr, sr, do))
+            claimed.add(no)
+            L.append(mk(no, do, wlo / smin))
+        drop = [lr] + [lo for _, _, _, lo in outs]
         matches.append(dict(model="current_mirror", inline=True,
                             insert="\n".join(L), drop=drop))  # drop[0]=ref line (anchor)
     return matches

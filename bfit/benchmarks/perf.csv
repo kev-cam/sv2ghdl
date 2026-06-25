@@ -4,6 +4,7 @@ suite,rectifier,0,0.03,na,0.04,0.25,0.25,0.56,0.56,na
 suite,inv_chain_x100,200,2.07,na,2.47,2.05,2.05,3.86,3.86,na
 suite,ring_osc_x51,102,na,na,5.63,4.86,4.86,19.78,19.78,na
 suite,ota_5t,5,0.03,na,0.05,0.25,0.15,0.46,0.45,na
+suite,opamp_2stage_miller,7,0.02,na,0.06,1.09,0.11,0.34,0.31,na
 suite,bjt_amp_3stage,3,0.46,na,0.53,1.56,0.25,3.36,0.45,na
 suite,simetrix_cosim_a2d,digital,na,na,na,na,na,0.87,na,na
 bfit_cascade,bjt_x3,3,na,na,na,1.55,0.25,3.26,0.45,19.33

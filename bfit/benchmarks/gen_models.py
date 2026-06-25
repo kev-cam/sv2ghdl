@@ -126,6 +126,31 @@ Rload out 0 10k
 .end
 """
 
+# ---- 6. 2-stage Miller CMOS op-amp, unity-gain follower ---------------------
+# Several current mirrors of both polarities: an NMOS bias bank (one reference
+# fans out to the tail + 2nd-stage sink) and a PMOS load mirror. The forced fine
+# .tran step is what bfit's smooth mirror macromodels let the solver relax.
+MODELS["opamp"] = """\
+* 2-stage Miller CMOS op-amp, unity-gain follower (NMOS bias bank + PMOS load mirror)
+.model NM NMOS (LEVEL=1 VTO=0.6 KP=150u LAMBDA=0.02)
+.model PM PMOS (LEVEL=1 VTO=-0.6 KP=50u LAMBDA=0.02)
+Vdd vdd 0 3.3
+Iref vdd nbias 30u
+Mbias nbias nbias 0 0 NM W=10u L=1u
+M5 tail nbias 0 0 NM W=20u L=1u
+M7 no nbias 0 0 NM W=40u L=1u
+M1 n1 no  tail 0 NM W=20u L=1u
+M2 n2 inp tail 0 NM W=20u L=1u
+M3 n1 n1 vdd vdd PM W=20u L=1u
+M4 n2 n1 vdd vdd PM W=20u L=1u
+M6 no n2 vdd vdd PM W=80u L=1u
+Cc n2 no 2p
+Cl no 0 1p
+Vin inp 0 SIN(1.35 0.15 100k)
+.tran 0.2n 40u
+.end
+"""
+
 for name, txt in MODELS.items():
     with open(os.path.join(OUT, name + ".cir"), "w") as f:
         f.write(txt)

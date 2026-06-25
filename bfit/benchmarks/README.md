@@ -95,8 +95,9 @@ Each new pattern the recognizer learns widens what bfit can accelerate.
 - **current mirror** — done (`library/current_mirror`): a two-part model — I→V
   at the reference (a `vt` source off the rail + a 1 Ω-normalized sense resistor
   turning the reference current into an overdrive voltage) and V→I at each output
-  (`size·overdrive`, going resistive near the rail). One reference fans out to
-  many outputs (op-amp mirror banks); tracks the 5T OTA output to ~1% untuned.
+  (`size·overdrive`, going resistive near the rail). Both polarities (NMOS/PMOS);
+  one reference fans out to many outputs (op-amp mirror banks). On a 2-stage
+  Miller op-amp it cuts ngspice 1.09→0.11 s (~10×) accurate to ~0.01%; OTA ~1%.
 - differential pair — next; partially stubbed in the cache schema.
 - parameter cache read in the production flow (skip re-tuning known stages).
 - real `.vams` → OSDI path via an OpenVAF binary, replacing the B-source
