@@ -5,9 +5,11 @@ engine on this box. Each cell is `time ×speedup`, where speedup = (serial Xyce
 time) / (engine time) — so **×>1 is faster than our Xyce**, and Xyce is ×1.0 by
 definition. The **+bfit** columns swap in portable Verilog-AMS macromodels where
 bfit recognizes a pattern (today: the BJT CE stage and the MOSFET current
-mirror), and pass the netlist through untouched otherwise. 🟢 marks the model
-whose fastest engine is open-source (ngspice or Xyce). `N/A` = the engine can't
-run that model (see notes). All same netlist, no per-engine edits.
+mirror), and pass the netlist through untouched otherwise. 🟢 marks an open
+engine (ngspice or Xyce, including +bfit) that is the **fastest** in its row;
+🔵 marks one that **beats both commercial engines** (QSPICE/LTspice) but isn't
+the outright fastest. `N/A` = the engine can't run that model (see notes). All
+same netlist, no per-engine edits.
 
 ## Model suite
 
@@ -15,11 +17,11 @@ run that model (see notes). All same netlist, no per-engine edits.
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Passive RLC band-pass | 0 | 0.02 ×27.5 | N/A | 0.03 ×18.3 | 1.45 ×0.4 | 1.45 ×0.4 | 0.55 ×1.0 | 0.55 ×1.0 | N/A |
 | Bridge rectifier (RC load) | 0 | 0.03 ×18.7 | N/A | 0.04 ×14.0 | 0.25 ×2.2 | 0.25 ×2.2 | 0.56 ×1.0 | 0.56 ×1.0 | N/A |
-| CMOS inverter chain ×100 | 200 | 2.07 ×1.9 | N/A | 2.47 ×1.6 | 🟢 2.05 ×1.9 | 2.05 ×1.9 | 3.86 ×1.0 | 3.86 ×1.0 | N/A |
-| CMOS ring oscillator ×51 | 102 | N/A | N/A | 5.63 ×3.5 | 🟢 4.86 ×4.1 | 4.86 ×4.1 | 19.78 ×1.0 | 19.78 ×1.0 | N/A |
+| CMOS inverter chain ×100 | 200 | 2.07 ×1.9 | N/A | 2.47 ×1.6 | 🟢 2.05 ×1.9 | 🟢 2.05 ×1.9 | 3.86 ×1.0 | 3.86 ×1.0 | N/A |
+| CMOS ring oscillator ×51 | 102 | N/A | N/A | 5.63 ×3.5 | 🟢 4.86 ×4.1 | 🟢 4.86 ×4.1 | 19.78 ×1.0 | 19.78 ×1.0 | N/A |
 | 5T OTA (diff pair + mirror) | 5 | 0.03 ×15.3 | N/A | 0.05 ×9.2 | 0.25 ×1.8 | 0.15 ×3.1 | 0.46 ×1.0 | 0.45 ×1.0 | N/A |
 | 2-stage Miller op-amp (CMOS) | 7 | 0.02 ×17.0 | N/A | 0.06 ×5.7 | 1.09 ×0.3 | 0.11 ×3.1 | 0.34 ×1.0 | 0.31 ×1.1 | N/A |
-| BJT 3-stage amp | 3 | 0.46 ×7.3 | N/A | 0.53 ×6.3 | 1.56 ×2.2 | 🟢 0.25 ×13.4 | 3.36 ×1.0 | 0.45 ×7.5 | N/A |
+| BJT 3-stage amp | 3 | 0.46 ×7.3 | N/A | 0.53 ×6.3 | 1.56 ×2.2 | 🟢 0.25 ×13.4 | 3.36 ×1.0 | 🔵 0.45 ×7.5 | N/A |
 | SIMetrix mixed-signal A↔D cosim | digital | N/A | N/A | N/A | N/A | N/A | 🟢 0.87 ×1.0 | N/A | N/A |
 
 bfit substitutes the **CE stages** in the BJT amp (tuned macromodel: ngspice
