@@ -1,0 +1,1 @@
+MERGED to main 2026-06-24: rtlmeter-eh2-support (RTLMeter/VeeR-EH2 sv-normalize work) rebased onto main 57bf136 and FF-landed at origin/main 8b1fdb0. Gate: build-area ivtest/iverilog-nvc, baseline #77 (807P) vs candidate #78 (809P) = 0 pass->fail, +2 fixes (pr2038048, sv_foreach7). Branch ref now == main; PR hand-off superseded.
