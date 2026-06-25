@@ -1,0 +1,9 @@
+{
+  "module": "current_mirror",
+  "pattern": "MOSFET current mirror (diode-connected ref + output FET sharing gate and source rail)",
+  "ports": ["rail", "ref", "out"],
+  "params": { "gain": [0.1, 10], "vdrop": [0.3, 2.0], "rout": [1000, 1000000] },
+  "x0":     { "gain": 1.0,       "vdrop": 1.0,         "rout": 50000 },
+  "features": [ ["out", "amp"] ],
+  "note": "signal-flow mirror: Iout = gain*Iref with finite output resistance rout; vdrop sets the reference clamp below the rail."
+}

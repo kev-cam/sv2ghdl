@@ -1,0 +1,24 @@
+* bfit candidate -- current-mirror behavioral macromodel. __param__ tokens are
+* filled by the tuner. A 2-transistor mirror is replaced by a signal-flow model:
+* the reference branch clamps ~vdrop below the rail, and the output sources
+* gain x the reference current with finite output resistance rout. Smooth ->
+* the adaptive timestep can take big strides.
+* (test harness below = a 5T-OTA-like single-ended stage, for the tuner)
+Vdd vdd 0 3.3
+Vcm cm 0 1.65
+Vsig inp cm SIN(0 0.05 1meg)
+Vbias gb 0 0.95
+Mtail tail gb 0 0 NM W=20u L=0.5u
+M1 d1 inp tail 0 NM W=10u L=0.5u
+M2 out cm  tail 0 NM W=10u L=0.5u
+Xmir vdd d1 out current_mirror
+Cl out 0 0.5p
+.model NM NMOS (LEVEL=1 VTO=0.6 KP=150u LAMBDA=0.02)
+.subckt current_mirror rail ref out PARAMS: gain=__gain__ vdrop=__vdrop__ rout=__rout__
+Vd rail refx {vdrop}
+Vsense refx ref 0
+Bout rail out I={ gain*I(Vsense) + (V(rail)-V(out))/rout }
+.ends
+.tran 5n 5u
+.print tran format=gnuplot v(out) v(d1)
+.end

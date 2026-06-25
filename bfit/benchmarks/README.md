@@ -89,11 +89,13 @@ probe out to 3000 stages:
 
 ## Roadmap — pattern library
 
-Each new pattern the recognizer learns widens what bfit can accelerate. Next up:
+Each new pattern the recognizer learns widens what bfit can accelerate.
 
-- **current mirror** — a very common bias/load pattern; substitute with a
-  programmable-gain controlled-source macromodel (signal-flow, not I–V physics).
-- differential pair (`diff_pair`) — partially stubbed in the cache schema.
+- **CE stage** — done (`library/ce_stage`, tuned).
+- **current mirror** — done (`library/current_mirror`): diode-connected ref +
+  output FET → a `gain·Iref` controlled source with finite output resistance;
+  recognized in the 5T OTA, best-guess params queued for tuning.
+- differential pair — next; partially stubbed in the cache schema.
 - parameter cache read in the production flow (skip re-tuning known stages).
 - real `.vams` → OSDI path via an OpenVAF binary, replacing the B-source
   template stand-in.

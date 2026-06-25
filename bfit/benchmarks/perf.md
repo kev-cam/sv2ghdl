@@ -3,28 +3,33 @@
 Simulation time in **seconds** for a spread of real circuit styles, run on every
 engine on this box. Each cell is `time ×speedup`, where speedup = (serial Xyce
 time) / (engine time) — so **×>1 is faster than our Xyce**, and Xyce is ×1.0 by
-definition. The **+bfit** columns swap in a portable `ce_stage` Verilog-AMS
-macromodel where bfit recognizes the pattern (today: the BJT CE stage). 🟢 marks
-the model whose fastest engine is open-source (ngspice or Xyce). `N/A` = the
-engine can't run that model (see notes). All same netlist, no per-engine edits.
+definition. The **+bfit** columns swap in portable Verilog-AMS macromodels where
+bfit recognizes a pattern (today: the BJT CE stage and the MOSFET current
+mirror), and pass the netlist through untouched otherwise. 🟢 marks the model
+whose fastest engine is open-source (ngspice or Xyce). `N/A` = the engine can't
+run that model (see notes). All same netlist, no per-engine edits.
 
 ## Model suite
 
 | Model | # Tx | QSPICE | SIMetrix | LTspice | ngspice | ngspice+bfit | Xyce | Xyce+bfit | Xyce-MPI |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Passive RLC band-pass | 0 | 0.02 ×27.5 | N/A | 0.03 ×18.3 | 1.45 ×0.4 | N/A | 0.55 ×1.0 | N/A | N/A |
-| Bridge rectifier (RC load) | 0 | 0.03 ×18.7 | N/A | 0.04 ×14.0 | 0.25 ×2.2 | N/A | 0.56 ×1.0 | N/A | N/A |
-| CMOS inverter chain ×100 | 200 | 2.07 ×1.9 | N/A | 2.47 ×1.6 | 🟢 2.05 ×1.9 | N/A | 3.86 ×1.0 | N/A | N/A |
-| CMOS ring oscillator ×51 | 102 | N/A | N/A | 5.63 ×3.5 | 🟢 4.86 ×4.1 | N/A | 19.78 ×1.0 | N/A | N/A |
-| 5T OTA (diff pair + mirror) | 5 | 0.03 ×15.3 | N/A | 0.05 ×9.2 | 0.25 ×1.8 | N/A | 0.46 ×1.0 | N/A | N/A |
+| Passive RLC band-pass | 0 | 0.02 ×27.5 | N/A | 0.03 ×18.3 | 1.45 ×0.4 | 1.45 ×0.4 | 0.55 ×1.0 | 0.55 ×1.0 | N/A |
+| Bridge rectifier (RC load) | 0 | 0.03 ×18.7 | N/A | 0.04 ×14.0 | 0.25 ×2.2 | 0.25 ×2.2 | 0.56 ×1.0 | 0.56 ×1.0 | N/A |
+| CMOS inverter chain ×100 | 200 | 2.07 ×1.9 | N/A | 2.47 ×1.6 | 🟢 2.05 ×1.9 | 2.05 ×1.9 | 3.86 ×1.0 | 3.86 ×1.0 | N/A |
+| CMOS ring oscillator ×51 | 102 | N/A | N/A | 5.63 ×3.5 | 🟢 4.86 ×4.1 | 4.86 ×4.1 | 19.78 ×1.0 | 19.78 ×1.0 | N/A |
+| 5T OTA (diff pair + mirror) | 5 | 0.03 ×15.3 | N/A | 0.05 ×9.2 | 0.25 ×1.8 | 0.15 ×3.1 | 0.46 ×1.0 | 0.45 ×1.0 | N/A |
 | BJT 3-stage amp | 3 | 0.46 ×7.3 | N/A | 0.53 ×6.3 | 1.56 ×2.2 | 🟢 0.25 ×13.4 | 3.36 ×1.0 | 0.45 ×7.5 | N/A |
 | SIMetrix mixed-signal A↔D cosim | digital | N/A | N/A | N/A | N/A | N/A | 🟢 0.87 ×1.0 | N/A | N/A |
 
-ngspice wins the two digital/oscillator circuits outright; the commercial engines
-win the tiny analog ones (where sub-0.1 s times are dominated by process startup,
-not solve); **bfit makes the BJT amp the fastest cell in its row on either open
-engine**; and the **SIMetrix mixed-signal model runs only in the Xyce+nvc stack**
-— no other engine here does the analog↔digital cosim.
+bfit substitutes the **CE stages** in the BJT amp (tuned/cached macromodel:
+ngspice 1.56→0.25, Xyce 3.36→0.45 — making it the fastest cell in its row) and
+the **current mirror** in the OTA (newly-added pattern, best-guess params:
+ngspice 0.25→0.15 — it substitutes and runs, with the background tuner still to
+refine accuracy). On the other models it has no pattern yet and passes the
+netlist through unchanged, so it never costs anything. ngspice wins the two
+digital/oscillator circuits outright, the commercial engines win the tiny analog
+ones (sub-0.1 s = process startup, not solve), and the **SIMetrix mixed-signal
+model runs only in the Xyce+nvc stack**.
 
 ## Scaling wall — who survives?
 
@@ -48,10 +53,12 @@ reaches 3000** — the robustness its framework cost buys.
 - **Speedup baseline.** `×N.M` = (serial Xyce time) / (this engine's time);
   Xyce = ×1.0. The +bfit columns use the same baseline, so they read directly
   against every other engine.
-- **bfit scales further than one row shows.** On a deeper CE cascade the +bfit
-  lead grows to ~21× on ngspice and ~7× on Xyce at 30 stages, then erodes as the
-  cascade stiffens (~2× by 300 stages). bfit recognizes only the CE stage today;
-  next patterns: current mirror, differential pair.
+- **How bfit accelerates.** Where it recognizes a pattern it substitutes a
+  portable Verilog-AMS macromodel and — because those models are smooth — drops
+  the forced max timestep and coarsens output, letting the solver stride. On a
+  deeper CE cascade the +bfit lead grows to ~21× on ngspice and ~7× on Xyce at
+  30 stages, then erodes as the cascade stiffens. Patterns today: CE stage,
+  current mirror; next: differential pair.
 - **Methodology.** Each cell is engine simulation time, cross-environment launch
   excluded — Windows engines (QSPICE, LTspice) self-report "Total elapsed time";
   Linux engines (ngspice, Xyce) are inner wall-clock inside WSL, min of runs.

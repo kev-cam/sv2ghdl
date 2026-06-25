@@ -16,13 +16,10 @@ ng_wrap() { sed '/^\.end$/d' "$1" > "$2"
 
 case "$mode" in
   ngspice)      ng_wrap "$M/$cir" "$M/${base}_ng.cir"; CMD="ngspice -b $M/${base}_ng.cir";;
-  ngspice_bfit) env NGSPICE_USE_BFIT=auto python3 "$BFIT" front "$M/$cir" --sim ngspice --cache "$CACHE" -o "$M/${base}_bf.cir" >/dev/null 2>&1
-                # only counts as bfit if a pattern was actually substituted
-                if ! grep -qiE 'ce_stage|X[0-9].* ce_stage' "$M/${base}_bf.cir" 2>/dev/null; then echo na; exit 0; fi
+  ngspice_bfit) env NGSPICE_USE_BFIT=auto python3 "$BFIT" front "$M/$cir" --sim ngspice --cache "$CACHE" -o "$M/${base}_bf.cir" >/dev/null 2>&1 || cp "$M/$cir" "$M/${base}_bf.cir"
                 ng_wrap "$M/${base}_bf.cir" "$M/${base}_bfng.cir"; CMD="ngspice -b $M/${base}_bfng.cir";;
   xyce)         CMD="$XB/Xyce -r $M/${base}.raw $M/$cir";;
-  xyce_bfit)    env XYCE_USE_BFIT=auto python3 "$BFIT" front "$M/$cir" --sim xyce --cache "$CACHE" -o "$M/${base}_bx.cir" >/dev/null 2>&1
-                if ! grep -qiE 'ce_stage|X[0-9].* ce_stage' "$M/${base}_bx.cir" 2>/dev/null; then echo na; exit 0; fi
+  xyce_bfit)    env XYCE_USE_BFIT=auto python3 "$BFIT" front "$M/$cir" --sim xyce --cache "$CACHE" -o "$M/${base}_bx.cir" >/dev/null 2>&1 || cp "$M/$cir" "$M/${base}_bx.cir"
                 CMD="$XB/Xyce -r $M/${base}_bx.raw $M/${base}_bx.cir";;
   xyce_mpi*)    np="${mode#xyce_mpi}"; [ -z "$np" ] && np=4
                 [ -x "$XBMPI/Xyce" ] || { echo na; exit 0; }

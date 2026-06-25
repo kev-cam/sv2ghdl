@@ -8,7 +8,7 @@ substitute auto-tuned signal-flow macromodels, cache the parameters.
 This module is the ENGINE: SimDriver interface, the optimizer, and the tuner.
 Sim-specific code lives only in the drivers (xyce, ngspice/OpenVAF, ...).
 """
-import os, sys, json, tempfile, subprocess, argparse, math
+import os, sys, json, tempfile, subprocess, argparse, math, re
 
 # ----------------------------------------------------------------------------
 # Sim-driver interface -- the ONLY engine-specific surface. A driver runs a
@@ -218,9 +218,38 @@ def recognize_ce(netlist):
             if vcc: break
         if not vcc: continue
         ce = [x for x in C if e in (x[1], x[2]) and "0" in (x[1], x[2])]
-        matches.append(dict(model="ce_stage", qn=qn, base=b, coll=c,
+        matches.append(dict(model="ce_stage",
+                            insert="X%s %s %s ce_stage" % (qn, b, c),
                             drop=[qraw, rcsel[3], rbsel[3]] +
                                  ([re[0][3]] if re else []) + ([ce[0][3]] if ce else [])))
+    return matches
+
+def recognize_mirror(netlist):
+    """Rule-based recognizer for a MOSFET current mirror: a diode-connected
+       reference (drain==gate) and an output FET sharing the reference's gate
+       node and source rail. Works for NMOS (source=gnd) or PMOS (source=rail).
+       Ports of the macromodel: rail (shared source), ref (gate=ref drain), out."""
+    M = []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        if not s or s[0] in "*.;": continue
+        t = s.split()
+        if t[0][0].upper() == "M" and len(t) >= 6:
+            M.append((t[0], t[1], t[2], t[3], t[5], ln))   # name drain gate source model
+    matches, used = [], set()
+    for i in range(len(M)):
+        for j in range(len(M)):
+            if i == j: continue
+            nr, dr, gr, sr, mr, lr = M[i]      # candidate reference
+            no, do, go, so, mo, lo = M[j]      # candidate output
+            if mr != mo or gr != go or sr != so: continue   # same model, gate, rail
+            if dr != gr or do == go: continue   # ref diode-connected, out not
+            if nr in used or no in used: continue
+            used.add(nr); used.add(no)
+            matches.append(dict(model="current_mirror",
+                                insert="Xmir_%s %s %s %s current_mirror" % (no, sr, gr, do),
+                                drop=[lo, lr]))   # drop[0]=output line (anchor), lr=ref line
+            break
     return matches
 
 def _subckt_block(template, params):
@@ -231,44 +260,67 @@ def _subckt_block(template, params):
     for k, v in params.items(): blk = blk.replace("__%s__" % k, repr(v))
     return blk
 
+_SI_SUF = {"f": 1e-15, "p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3,
+           "k": 1e3, "meg": 1e6, "g": 1e9, "t": 1e12}
+def _spice_num(s):
+    m = re.match(r"^([+-]?[\d.]+(?:e[+-]?\d+)?)(meg|[fpnumkgt])?$", s.strip().lower())
+    if not m: return None
+    return float(m.group(1)) * (_SI_SUF[m.group(2)] if m.group(2) else 1.0)
+
+def _relax_tran(mt):
+    """`.tran tstep tstop [tstart [tmax]]` -> `.tran tstop/1000 tstop`: drop the
+    forced max step and coarsen output to ~1000 points (smooth macromodels)."""
+    p = mt.group(0).split()
+    if len(p) < 3: return mt.group(0)
+    tstop = _spice_num(p[2])
+    if not tstop: return ".tran %s %s" % (p[1], p[2])
+    return ".tran %.4g %.4g" % (tstop / 1000.0, tstop)
+
 def front(netlist, sim, libroot, cache):
     """Transform a netlist for `sim`, honoring <SIM>_USE_BFIT. Returns
     (transformed_netlist, substituted_count, to_tune_list)."""
     mode, models = env_mode(sim)
     if mode == "off":
         return netlist, 0, []
-    matches = recognize_ce(netlist)
-    drop, insert, to_tune, used_params = set(), {}, [], None
+    matches = recognize_ce(netlist) + recognize_mirror(netlist)
+    drop, insert, to_tune, used = set(), {}, [], {}
     for m in matches:
         if mode == "auto" or m["model"] in models:
             p = (cache.get(m["model"]) or {}).get("params")
             if not p:
                 p = json.load(open(os.path.join(libroot, m["model"], "fit.json")))["x0"]
                 if m["model"] not in to_tune: to_tune.append(m["model"])
-            used_params = (m["model"], p)
+            used[m["model"]] = p
             for d in m["drop"]: drop.add(d)
-            insert[m["drop"][0]] = "X%s %s %s %s" % (m["qn"], m["base"], m["coll"], m["model"])
-    if not used_params:
+            insert[m["drop"][0]] = m["insert"]
+    if not used:
         return netlist, 0, []
     out, n = [], 0
     for ln in netlist.splitlines():
         if ln in insert: out.append(insert[ln]); n += 1; continue
         if ln in drop: continue
         out.append(ln)
-    # append the macromodel realisation (subckt) just before .end
-    mdl, params = used_params
-    tmpl = open(os.path.join(libroot, mdl, "template.cir")).read()
-    blk = _subckt_block(tmpl, params)
-    res = []
-    placed = False
+    # append each used macromodel realisation (subckt) just before .end
+    blocks = []
+    for mdl, params in used.items():
+        tmpl = open(os.path.join(libroot, mdl, "template.cir")).read()
+        blocks.append("* --- bfit: %s (params %s) ---" %
+                      (mdl, "cached" if cache.get(mdl) else "best-guess (queued for tuning)"))
+        blocks.append(_subckt_block(tmpl, params))
+    res, placed = [], False
     for ln in out:
         if ln.strip().lower() == ".end" and not placed:
-            res.append("* --- bfit: %s (params %s) ---" %
-                       (mdl, "cached" if cache.get(mdl) else "best-guess (queued for tuning)"))
-            res.append(blk); placed = True
+            res.extend(blocks); placed = True
         res.append(ln)
-    if not placed: res.append(blk)
-    return "\n".join(res) + "\n", n, to_tune
+    if not placed: res.extend(blocks)
+    text = "\n".join(res) + "\n"
+    # The substituted macromodels are smooth signal-flow models: they have no
+    # device-level fast transients, so we drop any forced max timestep and
+    # coarsen the output cadence to ~1000 points. The solver then strides
+    # adaptively and writes far fewer points -- where bfit's speedup comes from.
+    if n:
+        text = re.sub(r'(?im)^\.tran\s+.*$', _relax_tran, text)
+    return text, n, to_tune
 
 def main():
     ap = argparse.ArgumentParser(prog="bfit")
@@ -281,7 +333,8 @@ def main():
     f = sub.add_parser("front", help="recognize patterns + substitute macromodels "
                                      "(gated by <SIM>_USE_BFIT)")
     f.add_argument("netlist")
-    f.add_argument("--libroot", default="library")
+    f.add_argument("--libroot",
+                   default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "library"))
     f.add_argument("--sim", default="xyce")
     f.add_argument("--cache", default="cache.json")
     f.add_argument("-o", "--out")
