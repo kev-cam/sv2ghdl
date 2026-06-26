@@ -473,10 +473,13 @@ def main():
                         "reduced-order like `front`)")
     mg.add_argument("netlist")
     mg.add_argument("-o", "--out")
+    mg.add_argument("--device-va", help="real device Verilog-A to INLINE for the merged "
+                                        "component (general merge) instead of square-law")
     a = ap.parse_args()
     if a.cmd == "merge":
         from merge import merge_front
-        text, matches, elim, vafiles = merge_front(open(a.netlist).read())
+        dev = open(a.device_va).read() if a.device_va else None
+        text, matches, elim, vafiles = merge_front(open(a.netlist).read(), dev)
         (open(a.out, "w") if a.out else sys.stdout).write(text)
         for mod, va in vafiles.items():
             d = os.path.dirname(a.out) if a.out else "."

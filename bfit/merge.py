@@ -57,7 +57,8 @@ def parse_mos(netlist):
         t = s.split()
         if t[0][0].upper() == "M" and len(t) >= 6:
             mos.append(dict(name=t[0], d=t[1], g=t[2], s=t[3], b=t[4],
-                            model=t[5].lower(), wl=_wl(t[6:]), line=ln))
+                            model=t[5].lower(), wl=_wl(t[6:]),
+                            params=[x for x in t[6:] if "=" in x], line=ln))
     return mos
 
 def _ports_and_rails(netlist):
@@ -145,11 +146,81 @@ def _merged_dp_va(mod, typ, k, vth):
     L += ["    end", "endmodule", ""]
     return "\n".join(L)
 
-def recognize_diff_pair(netlist, claimed=None):
+# ---------------------------------------------------------------------------
+# General inlined merge -- inline the REAL device Verilog-A (any model), not
+# square-law. The merge is a pure structural rewrite: parse the device module,
+# and for each instance emit its analog body with (a) port refs remapped to the
+# merged terminals (shared node -> the tail), (b) params/locals namespaced per
+# instance. Works for any device .va (EKV, BSIM-CMG, ...) with its charge model.
+# ---------------------------------------------------------------------------
+def parse_va_module(text):
+    """Parse a single-module device .va: name, ordered ports, params, locals, body."""
+    m = re.search(r"\bmodule\s+(\w+)\s*\(([^)]*)\)", text)
+    name = m.group(1)
+    ports = [p.strip() for p in m.group(2).split(",") if p.strip()]
+    params = {}
+    for pm in re.finditer(r"\bparameter\s+\w+\s+(\w+)\s*=\s*([^;,]+)", text):
+        params[pm.group(1)] = pm.group(2).split("from")[0].strip()
+    locals_ = set()
+    for lm in re.finditer(r"(?m)^\s*(real|integer)\s+([^;]+);", text):
+        if "parameter" in lm.group(0):
+            continue
+        for v in lm.group(2).split(","):
+            locals_.add(v.strip().split("=")[0].strip())
+    am = re.search(r"\banalog\s+begin\b(.*)\bend\b\s*endmodule", text, re.S)
+    body = am.group(1) if am else ""
+    return dict(name=name, ports=ports, params=params, locals=locals_, body=body)
+
+def _inline_body(mod, node_map, sfx):
+    """One instance's body: namespace params/locals (longest-first), then remap
+    port refs inside V()/I() access functions to the merged terminals."""
+    body = mod["body"]
+    for nm in sorted(mod["params"].keys() | mod["locals"], key=len, reverse=True):
+        body = re.sub(r"\b%s\b" % re.escape(nm), "%s__%s" % (nm, sfx), body)
+    def repl(m):
+        fn = m.group(1); args = [a.strip() for a in m.group(2).split(",")]
+        return "%s(%s)" % (fn, ", ".join(node_map.get(a, a) for a in args))
+    return re.sub(r"\b([VI])\(\s*([\w\s,]*?)\s*\)", repl, body)
+
+def _inst_params(va_params, inst_param_tokens):
+    """Map a SPICE instance's k=v tokens onto the device VA's param names (case-insensitive)."""
+    iv = {}
+    for tok in inst_param_tokens or []:
+        k, _, v = tok.partition("="); iv[k.strip().lower()] = v.strip()
+    out = {}
+    for pn, default in va_params.items():
+        out[pn] = iv.get(pn.lower(), default)
+    return out
+
+def general_merge_diffpair_va(device_va, modname, A_tokens, B_tokens):
+    """Merged diff-pair module by INLINING the real device .va twice (shared tail s).
+    Device VA port order assumed MOSFET (drain, gate, source, bulk)."""
+    mod = parse_va_module(device_va)
+    d, g, s, b = (mod["ports"] + ["d", "g", "s", "b"])[:4]
+    bodyA = _inline_body(mod, {d: "d1", g: "g1", s: "s", b: "b"}, "1")
+    bodyB = _inline_body(mod, {d: "d2", g: "g2", s: "s", b: "b"}, "2")
+    pA = _inst_params(mod["params"], A_tokens); pB = _inst_params(mod["params"], B_tokens)
+    L = ['`include "disciplines.vams"', "",
+         "// bfit --merge: GENERAL inline of device '%s' -- two instances -> one" % mod["name"],
+         "// component sharing the tail node s (coupled Jacobian; real device physics+charge).",
+         "module %s(d1, g1, d2, g2, s, b);" % modname,
+         "    inout d1, g1, d2, g2, s, b;",
+         "    electrical d1, g1, d2, g2, s, b;"]
+    for sfx, pv in (("1", pA), ("2", pB)):
+        for pn in mod["params"]:
+            L.append("    parameter real %s__%s = %s;" % (pn, sfx, pv[pn]))
+        if mod["locals"]:
+            L.append("    real " + ", ".join("%s__%s" % (ln, sfx) for ln in sorted(mod["locals"])) + ";")
+    L += ["    analog begin", bodyA.rstrip("\n"), bodyB.rstrip("\n"), "    end", "endmodule", ""]
+    return "\n".join(L)
+
+def recognize_diff_pair(netlist, claimed=None, device_va=None):
     """Matched MOS pair sharing a SOURCE (tail) node, same model, distinct gates and
     drains (differential). Merged to ONE Verilog-A component sharing the tail -- the
     accuracy/stability case (coupled Jacobian, internal feedback in one device); the
-    tail node is NOT eliminated (it's where the mirror injects the constant current)."""
+    tail node is NOT eliminated (it's where the mirror injects the constant current).
+    If `device_va` (the real device .va) is given, the merged module INLINES that real
+    device body twice (any model, with its charge); otherwise a square-law body."""
     models = parse_models(netlist)
     mos = parse_mos(netlist)
     keep = _ports_and_rails(netlist)
@@ -172,13 +243,17 @@ def recognize_diff_pair(netlist, claimed=None):
                 k = kp * A["wl"]                       # matched pair -> same k
                 tag += 1
                 mod = "dp_%s_%d" % (re.sub(r"\W", "", s_node), tag)
-                va = _merged_dp_va(mod, typ, k, vth)
+                if device_va:                          # GENERAL: inline the real device .va
+                    va = general_merge_diffpair_va(device_va, mod, A["params"], B["params"])
+                    how = "general inline of '%s'" % parse_va_module(device_va)["name"]
+                else:                                  # built-in square-law body
+                    va = _merged_dp_va(mod, typ, k, vth); how = "square-law"
                 inst = "Ndp%d %s %s %s %s %s %s %smod" % (
                     tag, A["d"], A["g"], B["d"], B["g"], s_node, A["b"], mod)
                 ins = "\n".join([
-                    "* --- bfit --merge: diff_pair %s+%s -> 1 component (coupled Jacobian, tail '%s')"
-                    " -- compile %s.va (openvaf), then pre_osdi %s.osdi ---"
-                    % (A["name"], B["name"], s_node, mod, mod),
+                    "* --- bfit --merge: diff_pair %s+%s -> 1 component (%s, coupled Jacobian,"
+                    " tail '%s') -- compile %s.va (openvaf), then pre_osdi %s.osdi ---"
+                    % (A["name"], B["name"], how, s_node, mod, mod),
                     inst, ".model %smod %s()" % (mod, mod)])
                 claimed.add(A["name"]); claimed.add(B["name"])
                 matches.append(dict(kind="diff_pair", drop=[A["line"], B["line"]], insert=ins,
@@ -186,11 +261,12 @@ def recognize_diff_pair(netlist, claimed=None):
                                     devices=[A["name"], B["name"]]))
     return matches
 
-def merge_front(netlist):
-    """Apply all --merge recognizers. Returns (text, matches, eliminated_nodes, vafiles)."""
+def merge_front(netlist, device_va=None):
+    """Apply all --merge recognizers. Returns (text, matches, eliminated_nodes, vafiles).
+    `device_va` (real device .va text) -> diff-pair merge inlines it (general); else square-law."""
     cascode = recognize_cascode(netlist)
     claimed = set(d for m in cascode for d in m["devices"])
-    dpair = recognize_diff_pair(netlist, claimed)
+    dpair = recognize_diff_pair(netlist, claimed, device_va)
     matches = cascode + dpair
     if not matches:
         return netlist, [], [], {}
@@ -212,8 +288,11 @@ def main(argv=None):
         description="analytical lossless merge of directly-coupled transistor structures")
     ap.add_argument("netlist")
     ap.add_argument("-o", "--out")
+    ap.add_argument("--device-va", help="real device Verilog-A to INLINE (general merge) "
+                                        "instead of the built-in square-law body")
     a = ap.parse_args(argv)
-    text, matches, elim, vafiles = merge_front(open(a.netlist).read())
+    dev = open(a.device_va).read() if a.device_va else None
+    text, matches, elim, vafiles = merge_front(open(a.netlist).read(), dev)
     (open(a.out, "w").write(text) if a.out else sys.stdout.write(text))
     for mod, va in vafiles.items():
         d = os.path.dirname(a.out) if a.out else "."
