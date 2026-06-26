@@ -158,9 +158,9 @@ def _merged_dp_va(mod, typ, k, vth):
          "module %s(d1, g1, d2, g2, s, b);" % mod,
          "    inout d1, g1, d2, g2, s, b;",
          "    electrical d1, g1, d2, g2, s, b;",
-         "    parameter real kp     = %.6g from (0:inf);" % k,
-         "    parameter real vth    = %.6g;" % vth,
-         "    parameter real lambda = 0.05 from [0:inf);",
+         '    (* type="instance" *) parameter real kp     = %.6g from (0:inf);' % k,
+         '    (* type="instance" *) parameter real vth    = %.6g;' % vth,
+         '    (* type="instance" *) parameter real lambda = 0.05 from [0:inf);',
          "    real vov1, vds1, id1, vov2, vds2, id2;",
          "    analog begin"]
     L += _sl_body(1, "d1", "g1", "s", typ)
@@ -214,10 +214,12 @@ def _inst_params(va_params, inst_param_tokens):
         out[pn] = iv.get(pn.lower(), default)
     return out
 
-def _build_general(device_va, modname, insts, ports, internals, note):
+def _build_general(device_va, modname, insts, ports, internals, note,
+                   extra_params=None, extra_body=None):
     """Assemble a merged Verilog-A module by inlining the device body once per
     instance. insts = [(node_map {va_port->merged_name}, suffix, param_tokens)];
-    ports / internals = merged names that are terminals / internal electrical nodes."""
+    ports / internals = merged names that are terminals / internal electrical nodes.
+    extra_params/extra_body inject merged-in linear elements (e.g. a bleed resistor)."""
     mod = parse_va_module(device_va)
     L = ['`include "disciplines.vams"', "", "// " + note,
          "module %s(%s);" % (modname, ", ".join(ports)),
@@ -230,13 +232,17 @@ def _build_general(device_va, modname, insts, ports, internals, note):
     for node_map, sfx, ptoks in insts:
         pv = _inst_params(mod["params"], ptoks)
         for pn in mod["params"]:
-            L.append("    parameter real %s__%s = %s;" % (pn, sfx, pv[pn]))
+            L.append('    (* type="instance" *) parameter real %s__%s = %s;' % (pn, sfx, pv[pn]))
         if mod["locals"]:
             L.append("    real " + ", ".join("%s__%s" % (ln, sfx) for ln in sorted(mod["locals"])) + ";")
         bodies.append(_inline_body(mod, node_map, sfx))
+    for pn, pv in (extra_params or {}).items():
+        L.append('    (* type="instance" *) parameter real %s = %s;' % (pn, pv))
     L.append("    analog begin")
     for bd in bodies:
         L.append(bd.rstrip("\n"))
+    for ln in (extra_body or []):
+        L.append(ln)
     L += ["    end", "endmodule", ""]
     return "\n".join(L)
 
@@ -353,7 +359,8 @@ def _merged_xc_va(modname, devs):
          "    inout qa, qb, vdd, vss;",
          "    electrical qa, qb, vdd, vss;"]
     for idx, d, g, s, typ, kp, vth in devs:
-        L.append("    parameter real kp_%s = %.6g, vth_%s = %.6g, lam_%s = 0.05;" % (idx, kp, idx, vth, idx))
+        L.append('    (* type="instance" *) parameter real kp_%s = %.6g, vth_%s = %.6g, lam_%s = 0.05;'
+                 % (idx, kp, idx, vth, idx))
         L.append("    real vov_%s, vds_%s, id_%s;" % (idx, idx, idx))
     L.append("    analog begin")
     for idx, d, g, s, typ, kp, vth in devs:
@@ -408,26 +415,58 @@ def parse_diodes(netlist):
                            params=[x for x in t[4:] if "=" in x], line=ln))
     return ds
 
+def parse_resistors(netlist):
+    """Linear resistors: R<name> <n1> <n2> <value>."""
+    rs = []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        if not s or s[0] in "*.;": continue
+        t = s.split()
+        if t[0][0].upper() == "R" and len(t) >= 4:
+            v = _num(t[3])
+            if v: rs.append(dict(name=t[0], n1=t[1], n2=t[2], val=v, line=ln))
+    return rs
+
+def _bleed_resistors(netlist, term_map, claimed):
+    """Resistors whose BOTH ends are bridge terminals -> merge them into the
+    component (a bleed/snubber across the AC or DC nodes). Returns
+    (extra_params, extra_body, dropped_lines, resistor_names)."""
+    ep, eb, drop, names = {}, [], [], []
+    for r in parse_resistors(netlist):
+        if r["name"] in claimed: continue
+        if r["n1"] in term_map and r["n2"] in term_map and r["n1"] != r["n2"]:
+            m1, m2 = term_map[r["n1"]], term_map[r["n2"]]
+            pn = "r_" + re.sub(r"\W", "", r["name"])
+            ep[pn] = "%.6g" % r["val"]
+            eb.append("        I(%s, %s) <+ V(%s, %s)/%s;  // merged-in %s" % (m1, m2, m1, m2, pn, r["name"]))
+            drop.append(r["line"]); names.append(r["name"])
+    return ep, eb, drop, names
+
 def _diode_body(idx, a, c):
     """Built-in exponential diode body (fallback when no real device .va)."""
     return ["        vd_%s = V(%s, %s);" % (idx, a, c),
             "        id_%s = isat*(limexp(vd_%s/vt) - 1.0);" % (idx, idx),
             "        I(%s, %s) <+ id_%s;" % (a, c, idx)]
 
-def _merged_bridge_va(modname, legs):
-    """Full-bridge as ONE component (built-in exponential diodes)."""
+def _merged_bridge_va(modname, legs, extra_params=None, extra_body=None):
+    """Full-bridge as ONE component (built-in exponential diodes), plus any
+    merged-in linear elements (e.g. a bleed resistor) via extra_params/extra_body."""
     L = ['`include "disciplines.vams"', "",
          "// bfit --merge: full-bridge rectifier (4 diodes) -> ONE component.",
          "// The which-diode-conducts switching is resolved in one coupled Jacobian.",
          "module %s(a, b, p, n);" % modname,
          "    inout a, b, p, n;",
          "    electrical a, b, p, n;",
-         "    parameter real isat = 1e-14 from (0:inf);",
-         "    parameter real vt   = 0.02585;",
-         "    real " + ", ".join("vd_%s, id_%s" % (i, i) for i, _, _ in legs) + ";",
-         "    analog begin"]
+         '    (* type="instance" *) parameter real isat = 1e-14 from (0:inf);',
+         '    (* type="instance" *) parameter real vt   = 0.02585;']
+    for pn, pv in (extra_params or {}).items():
+        L.append('    (* type="instance" *) parameter real %s = %s;' % (pn, pv))
+    L.append("    real " + ", ".join("vd_%s, id_%s" % (i, i) for i, _, _ in legs) + ";")
+    L.append("    analog begin")
     for idx, an, cat in legs:
         L += _diode_body(idx, an, cat)
+    for ln in (extra_body or []):
+        L.append(ln)
     L += ["    end", "endmodule", ""]
     return "\n".join(L)
 
@@ -462,24 +501,28 @@ def recognize_bridge(netlist, claimed=None, device_va=None):
                     if len(set(names)) != 4 or set(names) & (claimed | used): continue
                     tag += 1
                     mod = "brg_%s_%d" % (re.sub(r"\W", "", p), tag)
+                    # absorb a bleed/snubber resistor across the AC INPUT nodes (a-b); the
+                    # output (p-n) resistor is the load and is left external.
+                    ep, eb, rdrop, rnames = _bleed_resistors(netlist, {a: "a", b: "b"}, claimed | used)
                     dva = parse_va_module(device_va) if device_va else None
+                    note = "bfit --merge bridge: 4 diodes" + (" + %d merged-in resistor(s)" % len(rnames) if rnames else "")
                     if dva and len(dva["ports"]) == 2:  # general: inline real diode .va
                         da, dc = dva["ports"][:2]
                         insts = [({da: m1, dc: m2}, idx, grp[k]["params"])
                                  for k, (idx, m1, m2) in enumerate(legmap)]
                         va = _build_general(device_va, mod, insts, ["a", "b", "p", "n"], [],
-                                            "bfit --merge bridge: inline real diode '%s'" % dva["name"])
+                                            note + " (real diode '%s')" % dva["name"], ep, eb)
                     else:                               # built-in exponential diodes
-                        va = _merged_bridge_va(mod, legmap)
+                        va = _merged_bridge_va(mod, legmap, ep, eb)
                     inst = "Nbr%d %s %s %s %s %smod" % (tag, a, b, p, n, mod)
                     ins = "\n".join([
-                        "* --- bfit --merge: bridge rectifier %s -> 1 component (4 diodes; switching in"
-                        " one coupled Jacobian) -- compile %s.va (openvaf), pre_osdi %s.osdi ---"
-                        % ("+".join(names), mod, mod),
+                        "* --- bfit --merge: %s -> 1 component (switching in one coupled Jacobian)"
+                        " -- compile %s.va (openvaf), pre_osdi %s.osdi ---"
+                        % ("+".join(names + rnames), mod, mod),
                         inst, ".model %smod %s()" % (mod, mod)])
                     for nm in names: used.add(nm)
-                    matches.append(dict(kind="bridge", drop=[d["line"] for d in grp], insert=ins,
-                                        elim=None, va=va, vamodule=mod, devices=names))
+                    matches.append(dict(kind="bridge", drop=[d["line"] for d in grp] + rdrop, insert=ins,
+                                        elim=None, va=va, vamodule=mod, devices=names + rnames))
     return matches
 
 def merge_front(netlist, device_va=None):
