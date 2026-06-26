@@ -476,12 +476,17 @@ def main():
     a = ap.parse_args()
     if a.cmd == "merge":
         from merge import merge_front
-        text, matches, elim = merge_front(open(a.netlist).read())
+        text, matches, elim, vafiles = merge_front(open(a.netlist).read())
         (open(a.out, "w") if a.out else sys.stdout).write(text)
-        sys.stderr.write("[bfit merge] merged %d structure(s), eliminated %d internal node(s)%s\n" % (
+        for mod, va in vafiles.items():
+            d = os.path.dirname(a.out) if a.out else "."
+            open(os.path.join(d, mod + ".va"), "w").write(va)
+            sys.stderr.write("[bfit merge] wrote %s.va (compile with openvaf)\n" % os.path.join(d, mod))
+        sys.stderr.write("[bfit merge] merged %d structure(s), eliminated %d node(s): %s\n" % (
             len(matches), len(elim),
-            (": " + ", ".join("%s{%s}->drop %s" % (m["kind"], "+".join(m["devices"]), m["elim"])
-                              for m in matches)) if matches else ""))
+            ", ".join("%s{%s}%s" % (m["kind"], "+".join(m["devices"]),
+                      "->drop %s" % m["elim"] if m.get("elim") else "->%s.va" % m["vamodule"])
+                      for m in matches) or "(none)"))
         return
     if a.cmd == "front":
         cache = json.load(open(a.cache)) if os.path.exists(a.cache) else {}

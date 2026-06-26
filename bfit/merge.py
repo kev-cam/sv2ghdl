@@ -114,35 +114,116 @@ def recognize_cascode(netlist):
                             devices=[other["name"], diode["name"]]))
     return matches
 
+def _sl_body(idx, d, g, s, typ):
+    """Square-law MOSFET analog-body lines for one inlined instance."""
+    if typ == "p":                                   # PMOS: Vsg drive, current s->d
+        vov = "V(%s,%s) - vth" % (s, g); vds = "V(%s,%s)" % (s, d); con = "I(%s,%s) <+ id%d;" % (s, d, idx)
+    else:                                            # NMOS: Vgs drive, current d->s
+        vov = "V(%s,%s) - vth" % (g, s); vds = "V(%s,%s)" % (d, s); con = "I(%s,%s) <+ id%d;" % (d, s, idx)
+    return ["        vov%d = %s;" % (idx, vov),
+            "        vds%d = %s;" % (idx, vds),
+            "        id%d = (vov%d>0.0) ? 0.5*kp*vov%d*vov%d*(1.0+lambda*vds%d) : 0.0;" % (idx,idx,idx,idx,idx),
+            "        " + con]
+
+def _merged_dp_va(mod, typ, k, vth):
+    """Generate the merged diff-pair Verilog-A module: the two matched FETs inlined
+    into ONE component sharing the tail node `s` (the mechanical two-instance->single
+    rewrite). One coupled Jacobian; tail stays (it's the mirror's injection point)."""
+    L = ['`include "disciplines.vams"', "",
+         "// bfit --merge: matched %s pair as ONE component (shared tail s -> coupled Jacobian)."
+         % ("PMOS" if typ == "p" else "NMOS"),
+         "module %s(d1, g1, d2, g2, s, b);" % mod,
+         "    inout d1, g1, d2, g2, s, b;",
+         "    electrical d1, g1, d2, g2, s, b;",
+         "    parameter real kp     = %.6g from (0:inf);" % k,
+         "    parameter real vth    = %.6g;" % vth,
+         "    parameter real lambda = 0.05 from [0:inf);",
+         "    real vov1, vds1, id1, vov2, vds2, id2;",
+         "    analog begin"]
+    L += _sl_body(1, "d1", "g1", "s", typ)
+    L += _sl_body(2, "d2", "g2", "s", typ)
+    L += ["    end", "endmodule", ""]
+    return "\n".join(L)
+
+def recognize_diff_pair(netlist, claimed=None):
+    """Matched MOS pair sharing a SOURCE (tail) node, same model, distinct gates and
+    drains (differential). Merged to ONE Verilog-A component sharing the tail -- the
+    accuracy/stability case (coupled Jacobian, internal feedback in one device); the
+    tail node is NOT eliminated (it's where the mirror injects the constant current)."""
+    models = parse_models(netlist)
+    mos = parse_mos(netlist)
+    keep = _ports_and_rails(netlist)
+    claimed = set(claimed or [])
+    bysrc = {}
+    for m in mos:
+        if m["name"] not in claimed:
+            bysrc.setdefault(m["s"], []).append(m)
+    matches, tag = [], 0
+    for s_node, grp in bysrc.items():
+        if s_node in ("0", "gnd") or len(grp) < 2:    # tail is an internal node, not ground
+            continue
+        for i in range(len(grp)):
+            for j in range(i + 1, len(grp)):
+                A, B = grp[i], grp[j]
+                if A["name"] in claimed or B["name"] in claimed: continue
+                if A["model"] != B["model"]: continue
+                if A["g"] == B["g"] or A["d"] == B["d"]: continue   # differential: distinct g & d
+                typ, kp, vth = models.get(A["model"], ("n", 2e-5, 0.5))
+                k = kp * A["wl"]                       # matched pair -> same k
+                tag += 1
+                mod = "dp_%s_%d" % (re.sub(r"\W", "", s_node), tag)
+                va = _merged_dp_va(mod, typ, k, vth)
+                inst = "Ndp%d %s %s %s %s %s %s %smod" % (
+                    tag, A["d"], A["g"], B["d"], B["g"], s_node, A["b"], mod)
+                ins = "\n".join([
+                    "* --- bfit --merge: diff_pair %s+%s -> 1 component (coupled Jacobian, tail '%s')"
+                    " -- compile %s.va (openvaf), then pre_osdi %s.osdi ---"
+                    % (A["name"], B["name"], s_node, mod, mod),
+                    inst, ".model %smod %s()" % (mod, mod)])
+                claimed.add(A["name"]); claimed.add(B["name"])
+                matches.append(dict(kind="diff_pair", drop=[A["line"], B["line"]], insert=ins,
+                                    elim=None, va=va, vamodule=mod, tail=s_node,
+                                    devices=[A["name"], B["name"]]))
+    return matches
+
 def merge_front(netlist):
-    """Apply all --merge recognizers. Returns (text, merges, eliminated_nodes)."""
-    matches = recognize_cascode(netlist)
+    """Apply all --merge recognizers. Returns (text, matches, eliminated_nodes, vafiles)."""
+    cascode = recognize_cascode(netlist)
+    claimed = set(d for m in cascode for d in m["devices"])
+    dpair = recognize_diff_pair(netlist, claimed)
+    matches = cascode + dpair
     if not matches:
-        return netlist, [], []
-    drop, insert = set(), {}
+        return netlist, [], [], {}
+    drop, insert, vafiles = set(), {}, {}
     for m in matches:
         insert[m["drop"][0]] = m["insert"]
         for d in m["drop"]: drop.add(d)
+        if m.get("va"): vafiles[m["vamodule"]] = m["va"]
     out = []
     for ln in netlist.splitlines():
         if ln in insert: out.append(insert[ln]); continue
         if ln in drop: continue
         out.append(ln)
-    return "\n".join(out) + "\n", matches, [m["elim"] for m in matches]
+    return "\n".join(out) + "\n", matches, [m["elim"] for m in matches if m.get("elim")], vafiles
 
 def main(argv=None):
-    import argparse
+    import argparse, os
     ap = argparse.ArgumentParser(prog="bfit merge",
         description="analytical lossless merge of directly-coupled transistor structures")
     ap.add_argument("netlist")
     ap.add_argument("-o", "--out")
     a = ap.parse_args(argv)
-    text, matches, elim = merge_front(open(a.netlist).read())
+    text, matches, elim, vafiles = merge_front(open(a.netlist).read())
     (open(a.out, "w").write(text) if a.out else sys.stdout.write(text))
-    sys.stderr.write("[bfit --merge] merged %d structure(s), eliminated %d internal node(s)%s\n" % (
+    for mod, va in vafiles.items():
+        d = os.path.dirname(a.out) if a.out else "."
+        open(os.path.join(d, mod + ".va"), "w").write(va)
+        sys.stderr.write("[bfit --merge] wrote %s.va\n" % os.path.join(d, mod))
+    sys.stderr.write("[bfit --merge] merged %d structure(s), eliminated %d node(s): %s\n" % (
         len(matches), len(elim),
-        (": " + ", ".join("%s{%s}->%s" % (m["kind"], "+".join(m["devices"]), m["elim"])
-                          for m in matches)) if matches else ""))
+        ", ".join("%s{%s}%s" % (m["kind"], "+".join(m["devices"]),
+                                "->drop %s" % m["elim"] if m.get("elim") else "->%s.va" % m["vamodule"])
+                  for m in matches) or "(none)"))
     return 0
 
 if __name__ == "__main__":
