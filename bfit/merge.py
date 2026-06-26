@@ -72,8 +72,11 @@ def _ports_and_rails(netlist):
             keep.update(s.split()[1:])
     return keep
 
-def recognize_cascode(netlist):
-    """Find diode-connected MOS cascodes and emit the merged 2-terminal element."""
+def recognize_cascode(netlist, device_va=None):
+    """Find diode-connected MOS cascodes and merge them. Without `device_va`: the
+    square-law closed form -> a 2-terminal beta_eff element, internal node ELIMINATED.
+    With `device_va` (the real device .va): inline the real device body twice into one
+    component, internal node kept as `v1` (exact/coupled; no closed-form elimination)."""
     models = parse_models(netlist)
     mos = parse_mos(netlist)
     keep = _ports_and_rails(netlist)
@@ -97,10 +100,25 @@ def recognize_cascode(netlist):
         # X must be the seam: diode.source==X and other.drain==X (the cascode stack)
         if not (diode["s"] == X and other["d"] == X): continue
         top = other["s"]                         # far rail (source of the top device)
+        tagn += 1
+        if device_va:                            # GENERAL: inline the real device VA (node kept)
+            mod = "casc_%s_%d" % (re.sub(r"\W", "", G), tagn)
+            va = general_merge_cascode_va(device_va, mod, other, diode, X, top, G)
+            inst = "Nc%d %s %s %s %smod" % (tagn, top, G, other["b"], mod)
+            ins = "\n".join([
+                "* --- bfit --merge: cascode %s+%s -> 1 component (general inline of real device VA;"
+                " internal node '%s' kept as v1) -- compile %s.va (openvaf), pre_osdi %s.osdi ---"
+                % (other["name"], diode["name"], X, mod, mod),
+                inst, ".model %smod %s()" % (mod, mod)])
+            claimed.add(A["name"]); claimed.add(B["name"])
+            matches.append(dict(kind="cascode", drop=[other["line"], diode["line"]], insert=ins,
+                                elim=None, va=va, vamodule=mod, top=top, gate=G,
+                                devices=[other["name"], diode["name"]]))
+            continue
         typ, kp, vth = models.get(diode["model"], ("p", 2e-5, 0.5))
         kt = kp * other["wl"]; kb = kp * diode["wl"]
         beff = kt * kb / (kt + kb)
-        tagn += 1; tag = "%s_%d" % (re.sub(r"\W", "", G), tagn)
+        tag = "%s_%d" % (re.sub(r"\W", "", G), tagn)
         if typ == "p":                           # PMOS: current top -> G, drive = Vsg = V(top)-V(G)
             drv = "(V(%s)-V(%s)-%g)" % (top, G, vth)
             b = "B_mrg_%s %s %s I={ 0.5*%.6g*pow(max(0,%s),2) }" % (tag, top, G, beff, drv)
@@ -192,27 +210,56 @@ def _inst_params(va_params, inst_param_tokens):
         out[pn] = iv.get(pn.lower(), default)
     return out
 
-def general_merge_diffpair_va(device_va, modname, A_tokens, B_tokens):
-    """Merged diff-pair module by INLINING the real device .va twice (shared tail s).
-    Device VA port order assumed MOSFET (drain, gate, source, bulk)."""
+def _build_general(device_va, modname, insts, ports, internals, note):
+    """Assemble a merged Verilog-A module by inlining the device body once per
+    instance. insts = [(node_map {va_port->merged_name}, suffix, param_tokens)];
+    ports / internals = merged names that are terminals / internal electrical nodes."""
     mod = parse_va_module(device_va)
-    d, g, s, b = (mod["ports"] + ["d", "g", "s", "b"])[:4]
-    bodyA = _inline_body(mod, {d: "d1", g: "g1", s: "s", b: "b"}, "1")
-    bodyB = _inline_body(mod, {d: "d2", g: "g2", s: "s", b: "b"}, "2")
-    pA = _inst_params(mod["params"], A_tokens); pB = _inst_params(mod["params"], B_tokens)
-    L = ['`include "disciplines.vams"', "",
-         "// bfit --merge: GENERAL inline of device '%s' -- two instances -> one" % mod["name"],
-         "// component sharing the tail node s (coupled Jacobian; real device physics+charge).",
-         "module %s(d1, g1, d2, g2, s, b);" % modname,
-         "    inout d1, g1, d2, g2, s, b;",
-         "    electrical d1, g1, d2, g2, s, b;"]
-    for sfx, pv in (("1", pA), ("2", pB)):
+    L = ['`include "disciplines.vams"', "", "// " + note,
+         "module %s(%s);" % (modname, ", ".join(ports)),
+         "    inout %s;" % ", ".join(ports),
+         "    electrical %s;" % ", ".join(ports)]
+    if internals:
+        L.append("    electrical %s;  // internal node(s) kept -- a general device has no "
+                 "closed-form node elimination" % ", ".join(internals))
+    bodies = []
+    for node_map, sfx, ptoks in insts:
+        pv = _inst_params(mod["params"], ptoks)
         for pn in mod["params"]:
             L.append("    parameter real %s__%s = %s;" % (pn, sfx, pv[pn]))
         if mod["locals"]:
             L.append("    real " + ", ".join("%s__%s" % (ln, sfx) for ln in sorted(mod["locals"])) + ";")
-    L += ["    analog begin", bodyA.rstrip("\n"), bodyB.rstrip("\n"), "    end", "endmodule", ""]
+        bodies.append(_inline_body(mod, node_map, sfx))
+    L.append("    analog begin")
+    for bd in bodies:
+        L.append(bd.rstrip("\n"))
+    L += ["    end", "endmodule", ""]
     return "\n".join(L)
+
+def _mos_ports(device_va):
+    return (parse_va_module(device_va)["ports"] + ["d", "g", "s", "b"])[:4]
+
+def general_merge_diffpair_va(device_va, modname, A_tokens, B_tokens):
+    """Matched pair -> one component, shared tail `s` (5 terminals, no node removed)."""
+    d, g, s, b = _mos_ports(device_va)
+    insts = [({d: "d1", g: "g1", s: "s", b: "b"}, "1", A_tokens),
+             ({d: "d2", g: "g2", s: "s", b: "b"}, "2", B_tokens)]
+    note = ("bfit --merge GENERAL inline of '%s': matched pair -> one component, shared tail s"
+            % parse_va_module(device_va)["name"])
+    return _build_general(device_va, modname, insts, ["d1", "g1", "d2", "g2", "s", "b"], [], note)
+
+def general_merge_cascode_va(device_va, modname, other, diode, X, top, G):
+    """Series cascode -> one component; internal node X becomes the VA internal node
+    `v1` (kept). The single coupled component (stability); unlike the square-law path
+    it does NOT remove the node -- a general device has no closed-form elimination."""
+    d, g, s, b = _mos_ports(device_va)
+    mname = lambda nd: "v1" if nd == X else ("top" if nd == top else ("gout" if nd == G else nd))
+    nmA = {d: mname(other["d"]), g: mname(other["g"]), s: mname(other["s"]), b: "b"}
+    nmB = {d: mname(diode["d"]), g: mname(diode["g"]), s: mname(diode["s"]), b: "b"}
+    insts = [(nmA, "1", other.get("params")), (nmB, "2", diode.get("params"))]
+    note = ("bfit --merge GENERAL inline of '%s': cascode -> one component, internal node v1 (=%s)"
+            % (parse_va_module(device_va)["name"], X))
+    return _build_general(device_va, modname, insts, ["top", "gout", "b"], ["v1"], note)
 
 def recognize_diff_pair(netlist, claimed=None, device_va=None):
     """Matched MOS pair sharing a SOURCE (tail) node, same model, distinct gates and
@@ -264,7 +311,7 @@ def recognize_diff_pair(netlist, claimed=None, device_va=None):
 def merge_front(netlist, device_va=None):
     """Apply all --merge recognizers. Returns (text, matches, eliminated_nodes, vafiles).
     `device_va` (real device .va text) -> diff-pair merge inlines it (general); else square-law."""
-    cascode = recognize_cascode(netlist)
+    cascode = recognize_cascode(netlist, device_va)
     claimed = set(d for m in cascode for d in m["devices"])
     dpair = recognize_diff_pair(netlist, claimed, device_va)
     matches = cascode + dpair
