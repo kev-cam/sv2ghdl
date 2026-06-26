@@ -62,17 +62,21 @@ def parse_mos(netlist):
     return mos
 
 def _ports_and_rails(netlist):
-    """Nodes that must stay (subckt ports + ground + supply-looking names)."""
+    """Nodes that must stay: subckt ports, ground, and rails (any node driven by a
+    voltage source -- so a supply isn't mistaken for a diff-pair tail or cascode seam)."""
     keep = {"0", "gnd"}
     for ln in netlist.splitlines():
-        s = ln.strip().lower()
-        if s.startswith(".subckt"):
-            keep.update(s.split()[2:])
-        if s.startswith(".global"):
-            keep.update(s.split()[1:])
+        s = ln.strip(); low = s.lower()
+        if low.startswith(".subckt"):
+            keep.update(low.split()[2:])
+        elif low.startswith(".global"):
+            keep.update(low.split()[1:])
+        elif s and s[0].upper() == "V":                 # voltage source -> its nodes are rails
+            t = s.split()
+            if len(t) >= 3: keep.update(t[1:3])
     return keep
 
-def recognize_cascode(netlist, device_va=None):
+def recognize_cascode(netlist, device_va=None, claimed=None):
     """Find diode-connected MOS cascodes and merge them. Without `device_va`: the
     square-law closed form -> a 2-terminal beta_eff element, internal node ELIMINATED.
     With `device_va` (the real device .va): inline the real device body twice into one
@@ -84,7 +88,7 @@ def recognize_cascode(netlist, device_va=None):
     for m in mos:
         for role in ("d", "s"):
             term.setdefault(m[role], []).append((m, role))
-    matches, claimed, tagn = [], set(), 0
+    matches, claimed, tagn = [], set(claimed or []), 0
     for X, lst in term.items():
         if X in keep or len(lst) != 2:          # internal node touched by exactly 2 device d/s
             continue
@@ -278,7 +282,7 @@ def recognize_diff_pair(netlist, claimed=None, device_va=None):
             bysrc.setdefault(m["s"], []).append(m)
     matches, tag = [], 0
     for s_node, grp in bysrc.items():
-        if s_node in ("0", "gnd") or len(grp) < 2:    # tail is an internal node, not ground
+        if s_node in keep or len(grp) < 2:            # tail is an internal node, not a rail/port
             continue
         for i in range(len(grp)):
             for j in range(i + 1, len(grp)):
@@ -308,13 +312,99 @@ def recognize_diff_pair(netlist, claimed=None, device_va=None):
                                     devices=[A["name"], B["name"]]))
     return matches
 
+def _find_inverters(netlist):
+    """Complementary CMOS inverters: a PMOS + NMOS sharing gate and drain, PMOS to a
+    high rail, NMOS to a low rail. -> [{g,out,P,N,vdd,vss}]."""
+    models = parse_models(netlist); mos = parse_mos(netlist)
+    pol = {m["name"]: models.get(m["model"], (None,))[0] for m in mos}
+    invs = []
+    for n in mos:
+        if pol[n["name"]] != "n": continue
+        for p in mos:
+            if pol[p["name"]] != "p": continue
+            if p["g"] == n["g"] and p["d"] == n["d"]:
+                invs.append(dict(g=n["g"], out=n["d"], P=p, N=n, vdd=p["s"], vss=n["s"]))
+    return invs
+
+def _xc_body(idx, d, g, s, typ):
+    """One square-law transistor body for the cross-coupled component (per-device params)."""
+    if typ == "p":
+        vov = "V(%s,%s)-vth_%s" % (s, g, idx); vds = "V(%s,%s)" % (s, d); con = "I(%s,%s) <+ id_%s;" % (s, d, idx)
+    else:
+        vov = "V(%s,%s)-vth_%s" % (g, s, idx); vds = "V(%s,%s)" % (d, s); con = "I(%s,%s) <+ id_%s;" % (d, s, idx)
+    # triode + saturation: current rolls off to 0 at the rail (vds->0), so the latch
+    # nodes settle instead of running away (sat-only would keep sourcing at the rail).
+    return ["        vov_%s = %s;" % (idx, vov),
+            "        vds_%s = %s;" % (idx, vds),
+            "        id_%s = (vov_%s<=0.0) ? 0.0 : ((vds_%s>=vov_%s)"
+            " ? 0.5*kp_%s*vov_%s*vov_%s*(1.0+lam_%s*vds_%s)"
+            " : kp_%s*(vov_%s*vds_%s-0.5*vds_%s*vds_%s));"
+            % (idx, idx, idx, idx, idx, idx, idx, idx, idx, idx, idx, idx, idx, idx),
+            "        " + con]
+
+def _merged_xc_va(modname, devs):
+    """Cross-coupled (regenerative) pair as ONE component: 4 transistor bodies inlined,
+    the qa<->qb positive feedback resolved inside one coupled Jacobian (stable solve)."""
+    L = ['`include "disciplines.vams"', "",
+         "// bfit --merge: cross-coupled / regenerative pair -> ONE component.",
+         "// The qa<->qb positive feedback lives in one self-consistent Jacobian -> the",
+         "// solver no longer fights the loop across separate devices (better convergence).",
+         "module %s(qa, qb, vdd, vss);" % modname,
+         "    inout qa, qb, vdd, vss;",
+         "    electrical qa, qb, vdd, vss;"]
+    for idx, d, g, s, typ, kp, vth in devs:
+        L.append("    parameter real kp_%s = %.6g, vth_%s = %.6g, lam_%s = 0.05;" % (idx, kp, idx, vth, idx))
+        L.append("    real vov_%s, vds_%s, id_%s;" % (idx, idx, idx))
+    L.append("    analog begin")
+    for idx, d, g, s, typ, kp, vth in devs:
+        L += _xc_body(idx, d, g, s, typ)
+    L += ["    end", "endmodule", ""]
+    return "\n".join(L)
+
+def recognize_xcoupled(netlist, claimed=None):
+    """Cross-coupled / regenerative pair: two inverters where each one's gate is the
+    OTHER's output (qa<->qb positive feedback) -- SRAM latch, sense amp, comparator
+    core. Merged to ONE component so the regenerative loop is solved in a single
+    coupled Jacobian (the stability win; nodes qa/qb stay -- they fan out)."""
+    invs = _find_inverters(netlist)
+    models = parse_models(netlist)
+    claimed = set(claimed or [])
+    matches, tag = [], 0
+    for i in range(len(invs)):
+        for j in range(i + 1, len(invs)):
+            A, B = invs[i], invs[j]
+            names = [A["P"]["name"], A["N"]["name"], B["P"]["name"], B["N"]["name"]]
+            if set(names) & claimed or len(set(names)) != 4: continue
+            if not (A["g"] == B["out"] and B["g"] == A["out"]): continue   # cross-coupled
+            qa, qb, vdd, vss = A["out"], B["out"], A["vdd"], A["vss"]
+            pP = models.get(A["P"]["model"], ("p", 2e-5, 0.5)); pN = models.get(A["N"]["model"], ("n", 2e-5, 0.5))
+            kpp = pP[1] * A["P"]["wl"]; kpn = pN[1] * A["N"]["wl"]
+            devs = [("pa", "qa", "qb", "vdd", "p", kpp, pP[2]), ("na", "qa", "qb", "vss", "n", kpn, pN[2]),
+                    ("pb", "qb", "qa", "vdd", "p", kpp, pP[2]), ("nb", "qb", "qa", "vss", "n", kpn, pN[2])]
+            tag += 1
+            mod = "xc_%s_%s_%d" % (re.sub(r"\W", "", qa), re.sub(r"\W", "", qb), tag)
+            va = _merged_xc_va(mod, devs)
+            inst = "Nxc%d %s %s %s %s %smod" % (tag, qa, qb, vdd, vss, mod)
+            ins = "\n".join([
+                "* --- bfit --merge: cross-coupled %s -> 1 component (regenerative qa<->qb feedback"
+                " in one coupled Jacobian) -- compile %s.va (openvaf), pre_osdi %s.osdi ---"
+                % ("+".join(names), mod, mod),
+                inst, ".model %smod %s()" % (mod, mod)])
+            for nm in names: claimed.add(nm)
+            matches.append(dict(kind="xcoupled",
+                                drop=[A["P"]["line"], A["N"]["line"], B["P"]["line"], B["N"]["line"]],
+                                insert=ins, elim=None, va=va, vamodule=mod, devices=names))
+    return matches
+
 def merge_front(netlist, device_va=None):
     """Apply all --merge recognizers. Returns (text, matches, eliminated_nodes, vafiles).
     `device_va` (real device .va text) -> diff-pair merge inlines it (general); else square-law."""
-    cascode = recognize_cascode(netlist, device_va)
-    claimed = set(d for m in cascode for d in m["devices"])
+    xcoupled = recognize_xcoupled(netlist)
+    claimed = set(d for m in xcoupled for d in m["devices"])
+    cascode = recognize_cascode(netlist, device_va, claimed)
+    claimed |= set(d for m in cascode for d in m["devices"])
     dpair = recognize_diff_pair(netlist, claimed, device_va)
-    matches = cascode + dpair
+    matches = xcoupled + cascode + dpair
     if not matches:
         return netlist, [], [], {}
     drop, insert, vafiles = set(), {}, {}
