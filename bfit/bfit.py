@@ -468,7 +468,21 @@ def main():
     f.add_argument("--sim", default="xyce")
     f.add_argument("--cache", default="cache.json")
     f.add_argument("-o", "--out")
+    mg = sub.add_parser("merge", help="ANALYTICAL lossless merge of directly-coupled "
+                        "transistor structures -- eliminate internal nodes (exact, NOT "
+                        "reduced-order like `front`)")
+    mg.add_argument("netlist")
+    mg.add_argument("-o", "--out")
     a = ap.parse_args()
+    if a.cmd == "merge":
+        from merge import merge_front
+        text, matches, elim = merge_front(open(a.netlist).read())
+        (open(a.out, "w") if a.out else sys.stdout).write(text)
+        sys.stderr.write("[bfit merge] merged %d structure(s), eliminated %d internal node(s)%s\n" % (
+            len(matches), len(elim),
+            (": " + ", ".join("%s{%s}->drop %s" % (m["kind"], "+".join(m["devices"]), m["elim"])
+                              for m in matches)) if matches else ""))
+        return
     if a.cmd == "front":
         cache = json.load(open(a.cache)) if os.path.exists(a.cache) else {}
         mode, models = env_mode(a.sim)
