@@ -9,6 +9,7 @@ transistor structures into one component. Three recognizers (see `bfit/merge.py`
 | `recognize_cascode` | diode-connected series stack (internal seam node) | square-law → 1 element, **internal node eliminated** (`β_eff=kt·kb/(kt+kb)`); general (`--device-va`) → inline real device, node kept |
 | `recognize_diff_pair` | matched pair, shared tail | 1 Verilog-A component (coupled Jacobian); tail kept |
 | `recognize_xcoupled` | two inverters, each gate = other's output | 1 component, regenerative loop in one Jacobian |
+| `recognize_bridge` | full-bridge rectifier (4 diodes: common-cathode + common-anode pairs over the 2 AC nodes) | 1 four-terminal component; the diode switching in one coupled Jacobian (exact counterpart of `bfit front`'s reduced-order `bridge_rect`) |
 
 All three are **exact**: validated bit-identical to the transistor reference
 (cascode 147.0 µA / node gone; diff-pair 5.000/9.61302 µA balanced+steered;

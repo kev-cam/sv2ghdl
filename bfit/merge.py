@@ -396,15 +396,103 @@ def recognize_xcoupled(netlist, claimed=None):
                                 insert=ins, elim=None, va=va, vamodule=mod, devices=names))
     return matches
 
+def parse_diodes(netlist):
+    """SPICE diodes: D<name> <anode> <cathode> <model> [params]."""
+    ds = []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        if not s or s[0] in "*.;": continue
+        t = s.split()
+        if t[0][0].upper() == "D" and len(t) >= 4:
+            ds.append(dict(name=t[0], a=t[1], c=t[2], model=t[3].lower(),
+                           params=[x for x in t[4:] if "=" in x], line=ln))
+    return ds
+
+def _diode_body(idx, a, c):
+    """Built-in exponential diode body (fallback when no real device .va)."""
+    return ["        vd_%s = V(%s, %s);" % (idx, a, c),
+            "        id_%s = isat*(limexp(vd_%s/vt) - 1.0);" % (idx, idx),
+            "        I(%s, %s) <+ id_%s;" % (a, c, idx)]
+
+def _merged_bridge_va(modname, legs):
+    """Full-bridge as ONE component (built-in exponential diodes)."""
+    L = ['`include "disciplines.vams"', "",
+         "// bfit --merge: full-bridge rectifier (4 diodes) -> ONE component.",
+         "// The which-diode-conducts switching is resolved in one coupled Jacobian.",
+         "module %s(a, b, p, n);" % modname,
+         "    inout a, b, p, n;",
+         "    electrical a, b, p, n;",
+         "    parameter real isat = 1e-14 from (0:inf);",
+         "    parameter real vt   = 0.02585;",
+         "    real " + ", ".join("vd_%s, id_%s" % (i, i) for i, _, _ in legs) + ";",
+         "    analog begin"]
+    for idx, an, cat in legs:
+        L += _diode_body(idx, an, cat)
+    L += ["    end", "endmodule", ""]
+    return "\n".join(L)
+
+def recognize_bridge(netlist, claimed=None, device_va=None):
+    """Full-bridge rectifier: 4 diodes -- two with a common cathode (the + output,
+    anodes = the two AC nodes a,b) and two with a common anode (the - output,
+    cathodes = a,b).  Merged to ONE 4-terminal component (a,b,p,n); the diode
+    switching lives in one coupled Jacobian.  With `device_va` (a 2-port diode .va)
+    the real diode body is inlined; else a built-in exponential diode."""
+    ds = parse_diodes(netlist)
+    claimed = set(claimed or [])
+    avail = [d for d in ds if d["name"] not in claimed]
+    bycat, byan = {}, {}
+    for d in avail:
+        bycat.setdefault(d["c"], []).append(d)
+        byan.setdefault(d["a"], []).append(d)
+    legmap = [("1", "a", "p"), ("2", "b", "p"), ("3", "n", "a"), ("4", "n", "b")]
+    matches, tag, used = [], 0, set()
+    for p, plist in bycat.items():                      # p = + output (common cathode)
+        if len(plist) < 2: continue
+        for n, nlist in byan.items():                   # n = - output (common anode)
+            if n == p or len(nlist) < 2: continue
+            for i in range(len(plist)):
+                for j in range(i + 1, len(plist)):
+                    D1, D2 = plist[i], plist[j]
+                    a, b = D1["a"], D2["a"]
+                    if a == b or p in (a, b) or n in (a, b): continue
+                    D3 = next((d for d in nlist if d["c"] == a and d["name"] not in used), None)
+                    D4 = next((d for d in nlist if d["c"] == b and d["name"] not in used), None)
+                    if not D3 or not D4: continue
+                    grp = [D1, D2, D3, D4]; names = [d["name"] for d in grp]
+                    if len(set(names)) != 4 or set(names) & (claimed | used): continue
+                    tag += 1
+                    mod = "brg_%s_%d" % (re.sub(r"\W", "", p), tag)
+                    dva = parse_va_module(device_va) if device_va else None
+                    if dva and len(dva["ports"]) == 2:  # general: inline real diode .va
+                        da, dc = dva["ports"][:2]
+                        insts = [({da: m1, dc: m2}, idx, grp[k]["params"])
+                                 for k, (idx, m1, m2) in enumerate(legmap)]
+                        va = _build_general(device_va, mod, insts, ["a", "b", "p", "n"], [],
+                                            "bfit --merge bridge: inline real diode '%s'" % dva["name"])
+                    else:                               # built-in exponential diodes
+                        va = _merged_bridge_va(mod, legmap)
+                    inst = "Nbr%d %s %s %s %s %smod" % (tag, a, b, p, n, mod)
+                    ins = "\n".join([
+                        "* --- bfit --merge: bridge rectifier %s -> 1 component (4 diodes; switching in"
+                        " one coupled Jacobian) -- compile %s.va (openvaf), pre_osdi %s.osdi ---"
+                        % ("+".join(names), mod, mod),
+                        inst, ".model %smod %s()" % (mod, mod)])
+                    for nm in names: used.add(nm)
+                    matches.append(dict(kind="bridge", drop=[d["line"] for d in grp], insert=ins,
+                                        elim=None, va=va, vamodule=mod, devices=names))
+    return matches
+
 def merge_front(netlist, device_va=None):
     """Apply all --merge recognizers. Returns (text, matches, eliminated_nodes, vafiles).
     `device_va` (real device .va text) -> diff-pair merge inlines it (general); else square-law."""
     xcoupled = recognize_xcoupled(netlist)
     claimed = set(d for m in xcoupled for d in m["devices"])
+    bridge = recognize_bridge(netlist, claimed, device_va)
+    claimed |= set(d for m in bridge for d in m["devices"])
     cascode = recognize_cascode(netlist, device_va, claimed)
     claimed |= set(d for m in cascode for d in m["devices"])
     dpair = recognize_diff_pair(netlist, claimed, device_va)
-    matches = xcoupled + cascode + dpair
+    matches = xcoupled + bridge + cascode + dpair
     if not matches:
         return netlist, [], [], {}
     drop, insert, vafiles = set(), {}, {}
