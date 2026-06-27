@@ -1,4 +1,4 @@
-# bfit cross-engine performance
+# Cross-engine performance
 
 One run per circuit, **same netlist on every engine**. Base columns are
 simulation **seconds** (lower is better); **+bfit** columns are
