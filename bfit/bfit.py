@@ -475,16 +475,20 @@ def main():
     mg.add_argument("-o", "--out")
     mg.add_argument("--device-va", help="real device Verilog-A to INLINE for the merged "
                                         "component (general merge) instead of square-law")
+    mg.add_argument("--table", action="store_true",
+                    help="emit the merged bridge as a table-driven .so (PyMS table fallback) "
+                         "-- bounded interpolation that converges where exp does not")
     a = ap.parse_args()
     if a.cmd == "merge":
         from merge import merge_front
         dev = open(a.device_va).read() if a.device_va else None
-        text, matches, elim, vafiles = merge_front(open(a.netlist).read(), dev)
+        text, matches, elim, vafiles = merge_front(open(a.netlist).read(), dev, a.table)
         (open(a.out, "w") if a.out else sys.stdout).write(text)
-        for mod, va in vafiles.items():
+        for fname, src in vafiles.items():
             d = os.path.dirname(a.out) if a.out else "."
-            open(os.path.join(d, mod + ".va"), "w").write(va)
-            sys.stderr.write("[bfit merge] wrote %s.va (compile with openvaf)\n" % os.path.join(d, mod))
+            open(os.path.join(d, fname), "w").write(src)
+            how = "compile: g++ -shared -fPIC" if fname.endswith(".cpp") else "compile with openvaf"
+            sys.stderr.write("[bfit merge] wrote %s (%s)\n" % (os.path.join(d, fname), how))
         sys.stderr.write("[bfit merge] merged %d structure(s), eliminated %d node(s): %s\n" % (
             len(matches), len(elim),
             ", ".join("%s{%s}%s" % (m["kind"], "+".join(m["devices"]),

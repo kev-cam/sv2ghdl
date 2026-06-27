@@ -442,6 +442,31 @@ def _bleed_resistors(netlist, term_map, claimed):
             drop.append(r["line"]); names.append(r["name"])
     return ep, eb, drop, names
 
+def _sample_diode(device_va=None, vmin=-5.0, vmax=1.0, npts=256):
+    """Sample a diode I(Vd) characteristic for the table fallback. Reads isat/n/vt
+    from the device .va (or the built-in exp defaults) and evaluates the junction
+    over [vmin,vmax]. Returns (vd_list, id_list, cjo). The PyMS limexp->exp issue
+    is moot here: we sample the bounded characteristic into a table."""
+    import math
+    isat, nn, vt, cjo = 1e-14, 1.0, 0.02585, 0.0
+    if device_va:
+        for k, tgt in (("isat", "isat"), ("is", "isat"), ("n", "n"),
+                       ("vt", "vt"), ("cjo", "cjo"), ("cj0", "cjo")):
+            m = re.search(r"parameter\s+real\s+%s\s*=\s*([-\w.+eE]+)" % k, device_va)
+            if m:
+                v = _num(m.group(1))
+                if v is not None:
+                    if tgt == "isat": isat = v
+                    elif tgt == "n": nn = v
+                    elif tgt == "vt": vt = v
+                    elif tgt == "cjo": cjo = v
+    vd, idv = [], []
+    for i in range(npts):
+        v = vmin + (vmax - vmin) * i / (npts - 1)
+        idv.append(isat * (math.exp(min(v / (nn * vt), 40.0)) - 1.0))
+        vd.append(v)
+    return vd, idv, cjo
+
 def _diode_body(idx, a, c):
     """Built-in exponential diode body (fallback when no real device .va)."""
     return ["        vd_%s = V(%s, %s);" % (idx, a, c),
@@ -470,7 +495,16 @@ def _merged_bridge_va(modname, legs, extra_params=None, extra_body=None):
     L += ["    end", "endmodule", ""]
     return "\n".join(L)
 
-def recognize_bridge(netlist, claimed=None, device_va=None):
+def _bridge_table_so(mod, device_va, rbleed):
+    """Emit the merged bridge as a table-driven VAE-ABI .so (PyMS table fallback)."""
+    import os
+    pyms = os.environ.get("PYMS_DIR", "/usr/local/src/xyce/utils/PyMS")
+    if pyms not in sys.path: sys.path.insert(0, os.path.join(pyms, "vae"))
+    from table_model import emit_bridge_table_so
+    vd, idv, cjo = _sample_diode(device_va)
+    return emit_bridge_table_so(mod, vd, idv, rbleed=rbleed, cjo=cjo)
+
+def recognize_bridge(netlist, claimed=None, device_va=None, table=False):
     """Full-bridge rectifier: 4 diodes -- two with a common cathode (the + output,
     anodes = the two AC nodes a,b) and two with a common anode (the - output,
     cathodes = a,b).  Merged to ONE 4-terminal component (a,b,p,n); the diode
@@ -506,7 +540,12 @@ def recognize_bridge(netlist, claimed=None, device_va=None):
                     ep, eb, rdrop, rnames = _bleed_resistors(netlist, {a: "a", b: "b"}, claimed | used)
                     dva = parse_va_module(device_va) if device_va else None
                     note = "bfit --merge bridge: 4 diodes" + (" + %d merged-in resistor(s)" % len(rnames) if rnames else "")
-                    if dva and len(dva["ports"]) == 2:  # general: inline real diode .va
+                    ext = ".va"
+                    if table:                           # table-driven .so (PyMS fallback)
+                        rbleed = next((_num(v) for v in ep.values()), None)
+                        va = _bridge_table_so(mod, device_va, rbleed)
+                        ext = ".cpp"
+                    elif dva and len(dva["ports"]) == 2:  # general: inline real diode .va
                         da, dc = dva["ports"][:2]
                         insts = [({da: m1, dc: m2}, idx, grp[k]["params"])
                                  for k, (idx, m1, m2) in enumerate(legmap)]
@@ -515,22 +554,26 @@ def recognize_bridge(netlist, claimed=None, device_va=None):
                     else:                               # built-in exponential diodes
                         va = _merged_bridge_va(mod, legmap, ep, eb)
                     inst = "Nbr%d %s %s %s %s %smod" % (tag, a, b, p, n, mod)
+                    build = ("compile %s.cpp (g++ -shared -fPIC), load as table .so"
+                             if table else "compile %s.va (openvaf), pre_osdi %s.osdi") % (
+                             (mod,) if table else (mod, mod))
                     ins = "\n".join([
-                        "* --- bfit --merge: %s -> 1 component (switching in one coupled Jacobian)"
-                        " -- compile %s.va (openvaf), pre_osdi %s.osdi ---"
-                        % ("+".join(names + rnames), mod, mod),
+                        "* --- bfit --merge%s: %s -> 1 component (switching in one coupled Jacobian)"
+                        " -- %s ---" % (" --table" if table else "", "+".join(names + rnames), build),
                         inst, ".model %smod %s()" % (mod, mod)])
                     for nm in names: used.add(nm)
                     matches.append(dict(kind="bridge", drop=[d["line"] for d in grp] + rdrop, insert=ins,
-                                        elim=None, va=va, vamodule=mod, devices=names + rnames))
+                                        elim=None, va=va, vamodule=mod, ext=ext, devices=names + rnames))
     return matches
 
-def merge_front(netlist, device_va=None):
+def merge_front(netlist, device_va=None, table=False):
     """Apply all --merge recognizers. Returns (text, matches, eliminated_nodes, vafiles).
-    `device_va` (real device .va text) -> diff-pair merge inlines it (general); else square-law."""
+    `device_va` (real device .va text) -> diff-pair merge inlines it (general); else square-law.
+    `table=True` -> emit the merged bridge as a table-driven .so (PyMS fallback) instead of VA.
+    vafiles keys carry their extension (.va or .cpp)."""
     xcoupled = recognize_xcoupled(netlist)
     claimed = set(d for m in xcoupled for d in m["devices"])
-    bridge = recognize_bridge(netlist, claimed, device_va)
+    bridge = recognize_bridge(netlist, claimed, device_va, table)
     claimed |= set(d for m in bridge for d in m["devices"])
     cascode = recognize_cascode(netlist, device_va, claimed)
     claimed |= set(d for m in cascode for d in m["devices"])
@@ -542,7 +585,7 @@ def merge_front(netlist, device_va=None):
     for m in matches:
         insert[m["drop"][0]] = m["insert"]
         for d in m["drop"]: drop.add(d)
-        if m.get("va"): vafiles[m["vamodule"]] = m["va"]
+        if m.get("va"): vafiles[m["vamodule"] + m.get("ext", ".va")] = m["va"]
     out = []
     for ln in netlist.splitlines():
         if ln in insert: out.append(insert[ln]); continue
@@ -558,14 +601,17 @@ def main(argv=None):
     ap.add_argument("-o", "--out")
     ap.add_argument("--device-va", help="real device Verilog-A to INLINE (general merge) "
                                         "instead of the built-in square-law body")
+    ap.add_argument("--table", action="store_true",
+                    help="emit the merged bridge as a table-driven .so (PyMS table fallback) "
+                         "-- bounded interpolation that converges where exp does not")
     a = ap.parse_args(argv)
     dev = open(a.device_va).read() if a.device_va else None
-    text, matches, elim, vafiles = merge_front(open(a.netlist).read(), dev)
+    text, matches, elim, vafiles = merge_front(open(a.netlist).read(), dev, a.table)
     (open(a.out, "w").write(text) if a.out else sys.stdout.write(text))
-    for mod, va in vafiles.items():
+    for fname, src in vafiles.items():
         d = os.path.dirname(a.out) if a.out else "."
-        open(os.path.join(d, mod + ".va"), "w").write(va)
-        sys.stderr.write("[bfit --merge] wrote %s.va\n" % os.path.join(d, mod))
+        open(os.path.join(d, fname), "w").write(src)
+        sys.stderr.write("[bfit --merge] wrote %s\n" % os.path.join(d, fname))
     sys.stderr.write("[bfit --merge] merged %d structure(s), eliminated %d node(s): %s\n" % (
         len(matches), len(elim),
         ", ".join("%s{%s}%s" % (m["kind"], "+".join(m["devices"]),
