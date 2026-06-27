@@ -16,12 +16,16 @@ module ce_stage(in, out);
   parameter real Vhi  = 9.0;                    // top rail clamp
   parameter real Rout = 600    from (0:inf);    // output impedance
   parameter real Rin  = 100000 from (0:inf);    // input DC reference
-  real ctr, span, vc;
+  parameter real fp   = 6e3    from (0:inf);    // dominant pole (Hz): the in-band
+                                                 // Miller roll-off the static model lacked
+  electrical pl;                                 // internal pole node
+  real ctr, vlin, cp;
   analog begin
-    ctr  = 0.5*(Vhi + Vlo);
-    span = 0.5*(Vhi - Vlo);
+    ctr = 0.5*(Vhi + Vlo);
+    cp  = 1.0/(6.2832*fp);                       // with the 1-mho pull below -> pole at fp
     I(in)  <+ V(in) / Rin;                       // input bias
-    vc = max(Vlo, min(Vhi, ctr - gain * V(in)));    // clamped linear transfer
-    I(out) <+ (V(out) - vc) / Rout;              // out = clamped target behind Rout
+    vlin = ctr - gain * V(in);                   // linear transconductance (unclamped)
+    I(pl)  <+ (V(pl) - vlin) + cp*ddt(V(pl));    // single dominant pole at fp
+    I(out) <+ (V(out) - max(Vlo, min(Vhi, V(pl)))) / Rout;  // rail clip behind Rout
   end
 endmodule

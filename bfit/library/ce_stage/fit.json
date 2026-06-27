@@ -1,9 +1,56 @@
 {
   "module": "ce_stage",
   "pattern": "common-emitter gain stage  (BJT + Rc[coll->vcc] + Rb[base->vcc] + Re||Ce[emitter])",
-  "ports": ["in", "out"],
-  "params": { "gain": [1, 30], "Vlo": [0, 5], "Vhi": [5, 12], "Rout": [50, 5000] },
-  "x0":     { "gain": 5,       "Vlo": 2,      "Vhi": 10,      "Rout": 1500 },
-  "features": [ ["c1", "amp"], ["c2", "amp"], ["c3", "min"], ["c3", "max"] ],
-  "note": "features capture the overdrive cascade: linear early stages (amp) + rail clipping at the output stage (min/max)."
+  "ports": [
+    "in",
+    "out"
+  ],
+  "params": {
+    "gain": [
+      1,
+      3000
+    ],
+    "Vlo": [
+      0,
+      8
+    ],
+    "Vhi": [
+      4,
+      14
+    ],
+    "Rout": [
+      50,
+      5000
+    ],
+    "fp": [
+      1000.0,
+      50000.0
+    ]
+  },
+  "x0": {
+    "gain": 80,
+    "Vlo": 5,
+    "Vhi": 11,
+    "Rout": 1500,
+    "fp": 6000.0
+  },
+  "features": [
+    [
+      "c1",
+      "amp"
+    ],
+    [
+      "c2",
+      "amp"
+    ],
+    [
+      "c3",
+      "min"
+    ],
+    [
+      "c3",
+      "max"
+    ]
+  ],
+  "note": "dynamic: linear transconductance -> single pole fp (the in-band Miller roll-off) -> rail clip. Needs the tuner (BFIT_NGSPICE) to fit gain+fp to a given stage."
 }

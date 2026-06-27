@@ -11,9 +11,13 @@ Cc2 c2 n3 1u
 X3 n3 c3 ce_stage
 Cout c3 out 1u
 Rload out 0 10k
-.subckt ce_stage in out PARAMS: gain=__gain__ Vlo=__Vlo__ Vhi=__Vhi__ Rout=__Rout__ Rin=100k
+.subckt ce_stage in out PARAMS: gain=__gain__ Vlo=__Vlo__ Vhi=__Vhi__ Rout=__Rout__ Rin=100k fp=__fp__
 Rin in 0 {Rin}
-Bvc vc 0 V={ max(Vlo, min(Vhi, (Vhi+Vlo)/2 - gain*V(in))) }
+* linear transconductance (stiff source) -> dominant pole (Rp=1, Cp -> fp) -> rail clip
+Bvlin vlin 0 V={ (Vhi+Vlo)/2 - gain*V(in) }
+Rp vlin pl 1
+Cp pl 0 {1/(6.2832*fp)}
+Bvc vc 0 V={ max(Vlo, min(Vhi, V(pl))) }
 Rout vc out {Rout}
 .ends
 .tran 1u 2m
