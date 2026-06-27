@@ -58,6 +58,31 @@ Short-transient capacity probe; wall seconds if it completed, `brk` if it aborte
 By 1000 stages QSPICE and ngspice abort; LTspice dies by 3000; **only Xyce
 reaches 3000** — the robustness its framework cost buys.
 
+## Accuracy — does the macromodel match the golden (full-device) result?
+
+A speedup is worthless if the answer is wrong, so every `+bfit` cell carries an
+accuracy cost. `benchmarks/accuracy.py` compares the bfit run to the native-device
+**golden** on the same engine and reports two numbers: **rel-L2 err%**
+(‖bfit−golden‖/‖golden‖ over the steady-state window — universal, AC or DC), and
+**THD%** (golden vs bfit) where the output is tone-driven — the analog signal-path
+spec. Measured (ngspice golden = full device model):
+
+| Model | bfit pattern | THD golden→bfit | rel-L2 / level err |
+| :--- | :--- | ---: | ---: |
+| 2-stage Miller op-amp (follower) | current_mirror | 0.008% → 0.009% (ΔTHD **0.001 pt**) | **0.01%** |
+| 5T OTA (large-signal) | current_mirror | 31.46% → 31.16% (ΔTHD **0.30 pt**) | 1.8% |
+| Bridge rectifier (RC load) | bridge_rect | N/A (DC+ripple, not a tone) | **5.8%** V_DC |
+
+The analytic mirror models are essentially exact (op-amp tracks to 0.01% and
+reproduces distortion to a thousandth of a percent; the OTA holds 0.3 pt even driven
+to 31% THD). The rectifier's 5.8% is the fixed 1.2 V bridge-drop approximation —
+tunable via `__vdrop__`. **THD% is the right league-table accuracy column for the
+signal-path rows**; rectifier/PSU rows use DC-level error (THD undefined on a
+non-tone output), and digital rows (inverter/ring) use propagation-delay /
+oscillation-frequency error. NB `ce_stage` accuracy is **tuning-dependent**: untuned
+(empty cache) the BJT amp comes out at ~0.1× gain — report ce_stage rows only with
+their tuned cache.
+
 ---
 
 ## Notes
