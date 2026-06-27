@@ -1,6 +1,6 @@
 * bfit candidate -- 3x ce_stage macromodel. __param__ tokens are filled by the
 * tuner. For the Xyce driver this uses the SPICE realisation of ce_stage.vams
-* (B-source = the same tanh transfer); the ngspice/OpenVAF driver compiles the
+* (B-source = the same clamped transfer); the ngspice/OpenVAF driver compiles the
 * portable ce_stage.vams directly. Stimulus + probes must match the reference.
 Vin in 0 SIN(0 0.01 10k)
 Cin in n1 1u
@@ -13,7 +13,7 @@ Cout c3 out 1u
 Rload out 0 10k
 .subckt ce_stage in out PARAMS: gain=__gain__ Vlo=__Vlo__ Vhi=__Vhi__ Rout=__Rout__ Rin=100k
 Rin in 0 {Rin}
-Bvc vc 0 V={ (Vhi+Vlo)/2 - (Vhi-Vlo)/2*tanh( gain*V(in)/((Vhi-Vlo)/2) ) }
+Bvc vc 0 V={ max(Vlo, min(Vhi, (Vhi+Vlo)/2 - gain*V(in))) }
 Rout vc out {Rout}
 .ends
 .tran 1u 2m

@@ -336,6 +336,10 @@ def recognize_mirror(netlist, sim="xyce"):
             # Verilog-A leg: ports (g, d, s) = (gate/ref, drain/out, source/rail)
             inst = ("Y%s %s" % (mod, no)) if sim == "xyce" else ("N%s" % no)
             L.append("%s %s %s %s %smod" % (inst, gr, do, sr, mod))
+            # small grounded cap on the output: gives the otherwise-instantaneous
+            # mirror leg a pole (frequency response) and stabilises the high-Z
+            # output node for the solver.
+            L.append("Ccm_%s %s 0 1f" % (no, do))
         drop = [lr] + [lo for _, _, _, lo in outs]
         matches.append(dict(model="current_mirror", inline=True,
                             insert="\n".join(L), drop=drop, va=va))  # drop[0]=ref line (anchor)

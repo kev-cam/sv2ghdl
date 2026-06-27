@@ -6,9 +6,10 @@
 *   numerically the current, normalized on the smallest device in the mirror.
 * V->I (each output reads that node): I_out = ratio * overdrive, where
 *   ratio = (W/L)_out / (W/L)_smallest, then GOING RESISTIVE near the rail --
-*   tanh() makes it ohmic in the last `vsat` of headroom and saturate beyond,
-*   so the output current folds to zero (and reverses) at the supply and can
+*   a min/max clamp (no tanh) makes it ohmic in the last `vsat` of headroom and
+*   saturate beyond, so the output current folds to zero at the supply and can
 *   never run past it. ratio is passed per instance; vt, vsat are tuned.
+*   (Superseded by the cmout Verilog-A legs emitted in recognize_mirror.)
 *
 * (test harness below is for the tuner: a 5T OTA single-ended stage)
 Vdd vdd 0 3.3
@@ -26,7 +27,7 @@ Cl out 0 0.5p
 Vt rail vtn {vt}
 R1 vtn ref 1
 * V -> I : mirror current, straight function of overdrive x size, resistive near rail
-Bout rail out I={ ratio*(V(rail)-V(ref)-vt) * tanh((V(rail)-V(out))/vsat) }
+Bout rail out I={ ratio*(V(rail)-V(ref)-vt) * max(-1, min(1, (V(rail)-V(out))/vsat)) }
 .ends
 .tran 5n 5u
 .print tran format=gnuplot v(out) v(d1)
