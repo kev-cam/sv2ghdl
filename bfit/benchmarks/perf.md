@@ -19,13 +19,21 @@ QSPICE is shown native only.
 
 | Model *(bfit pattern)* | QSPICE | ngspice n→bfit | Xyce n→best | bfit accuracy loss |
 | :--- | ---: | ---: | ---: | ---: |
-| RLC band-pass *(none)* | 0.02 | 0.13 | 0.33 | — |
-| Op-amp follower *(current_mirror)* | 0.02 | 0.12→0.12 **×1** | 0.43→0.23 ×1.9 | 0.01 % (ΔTHD 0.001 pt) |
-| 5T OTA *(current_mirror)* | 0.03 | 0.12→0.13 **×1** | 0.23→0.23 **×1** | 1.8 % (ΔTHD 0.43 pt) |
-| Bridge rectifier *(bridge_rect)* | 0.03 | 0.12→0.12 **×1** | 0.33→0.33 **×1** | 5.9 % V_DC |
-| BJT 3-stage amp *(ce_stage)* | 0.04 | 0.12 | 0.33 | ⚠️ **96 % — model broken** |
+| §RLC band-pass *(none)* | 0.02 | 0.13 | 0.33 | — |
+| §Op-amp follower *(current_mirror)* | 0.02 | 0.12→0.12 **×1** | 0.43→0.23 | 0.01 % (ΔTHD 0.001 pt) |
+| §5T OTA *(current_mirror)* | 0.03 | 0.12→0.13 **×1** | 0.23→0.23 **×1** | 1.8 % (ΔTHD 0.43 pt) |
+| §Bridge rectifier *(bridge_rect)* | 0.03 | 0.12→0.12 **×1** | 0.33→0.33 **×1** | 5.9 % V_DC |
+| §BJT 3-stage amp *(ce_stage)* | 0.04 | 0.12 | 0.33 | ⚠️ **96 % — model broken** |
 | CMOS inverter ×100 *(cmos_inv)* | 3.11 | 1.83→0.73 ×2.5 | 6.73→0.83 **×8.1** | digital timing ‡ |
 | CMOS ring osc ×51 *(cmos_inv)* | **brk** ‖ | 3.43→0.32 ×11 | 20.6→0.33 **×62** | ⚠️ **freq −48 %** ‡ |
+
+**§ = startup-bound — no solver measurement here.** These five circuits solve in well
+under a millisecond, so every cell is that engine's *fixed* process/framework overhead,
+not solve time: QSPICE ~0.02–0.04 s, ngspice ~0.12 s, Xyce ~0.3 s. That's why bfit is
+~1× — there is nothing to accelerate (even the op-amp Xyce 0.43→0.23 is within startup
+noise, not a real win). **Only the two digital rows are genuine solver measurements.**
+To make the analog rows measurable you'd have to scale the circuits up — which we won't,
+since that just manufactures work to flatter a number.
 
 ‖ QSPICE *aborts* the device-level ring oscillator (timestep collapse). (Aside: the
 portable bfit netlist does run on QSPICE — 0.09 s — so bfit can rescue circuits even a
