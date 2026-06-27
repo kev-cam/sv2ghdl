@@ -236,11 +236,13 @@ def _wl(tokens):
 # max -- cheap): cutoff (off), saturation (current source gain*ov with finite
 # output conductance gain*lam -- a HIGH resistance off a far rail), triode
 # (resistive gain*Vds -- a LOW resistance pulling the drain to its source rail).
-# Continuous at the boundaries; cross() pins the timestep there (honored by
-# ngspice/OpenVAF; PyMS parses+ignores it -- the if/else still selects the
-# regime and PyMS finite-differences the Jacobian to stay consistent with it).
-# gain/vth/lam/pol are baked per ratio so no model-card override is needed (the
-# PyMS math .so does not yet thread .model params).  pol=+1 NMOS, -1 PMOS.
+# Continuous at the boundaries, so no event is needed for correctness.  A
+# @(cross()) at each boundary would pin the acceptance timestep there, but this
+# OpenVAF build rejects cross() (only initial_step/final_step), and PyMS parses+
+# ignores it -- so it is omitted; re-add once PyMS honors cross() (it FD's the
+# Jacobian to track the live regime regardless).  gain/vth/lam/pol are baked per
+# ratio so no model-card override is needed (the PyMS math .so does not yet
+# thread .model params).  pol=+1 NMOS, -1 PMOS.
 CMOUT_VA = '''`include "disciplines.vams"
 
 module {mod}(g, d, s);
@@ -254,8 +256,6 @@ module {mod}(g, d, s);
     analog begin
         ov  = pol*V(g,s) - vth;
         vds = pol*V(d,s);
-        @(cross(ov, 0));
-        @(cross(vds - ov, 0));
         if (ov <= 0.0)
             iout = 0.0;                       // cutoff
         else if (vds >= ov)
