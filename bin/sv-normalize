@@ -33,8 +33,39 @@ sub _REPLACE_get_val {
         return "${arr}\[${ix1}\]\[${ix2}\]\[${rng}\]"
             unless $t =~ /^[ijklmn](\s*[+-]\s*\d+)?$/;
     }
-    # Skip if rng is anything funky.
-    return "\$get_val(${arr}, ${ix1}, ${ix2})";
+    # Third subscript: a part-select range [HI:LO] is DROPPED — $get_val
+    # returns the full inner element, which matches the surrounding context's
+    # expected width. But a single-bit INDEX [l] must be PRESERVED as a third
+    # $get_val arg, or we silently widen one bit to the whole inner slice
+    # (scalar value, vector target -> NVC "type ... does not match" errors,
+    # and a wrong reduction). $get_val accepts N indices (tgt-vhdl expr.cc).
+    return "\$get_val(${arr}, ${ix1}, ${ix2})" if $rng =~ /:/;
+    return "\$get_val(${arr}, ${ix1}, ${ix2}, ${rng})";
+}
+
+# For a dynamic-index temp `tmp = arr[idx]`, the temp must keep the SHAPE of
+# arr[idx] (all packed dims except the first) so later 2-D uses `tmp[i][rng]`
+# stay in range. The flat `[$bits(arr[0])-1:0]` form is only correct when
+# arr[idx] is 1-D (i.e. arr is 2-D). This scans the module for arr's packed
+# declaration and returns the trailing dims (e.g. `[RET_STACK-1:0][31:0]`)
+# ONLY when 2+ tail dims remain (arr is 3-D+); otherwise undef -> keep flat
+# (so 2-D arrays — the EH1 case — stay byte-identical).
+sub _array_tail_dims {
+    my ($arr, $lines_ref, $ms, $me) = @_;
+    for my $i ($ms .. $me) {
+        my $l = $lines_ref->[$i];
+        next unless defined $l;
+        $l =~ s{//.*$}{};
+        next unless $l =~ /\b(?:logic|reg|wire|bit)\b[^\[;]*((?:\s*\[[^\]]*\])+)\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*;/;
+        my ($dims, $names) = ($1, $2);
+        next unless grep { (my $t = $_) =~ s/^\s+|\s+$//g; $t eq $arr }
+                    split /,/, $names;
+        my @d = $dims =~ /(\[[^\]]*\])/g;
+        shift @d;                       # drop the first (indexed) dimension
+        return undef unless @d >= 2;    # only override for 3-D+ sources
+        return join('', @d);
+    }
+    return undef;
 }
 
 # Find chained-index occurrences `IDENT[<outer-expr>][<inner>]` in $code.
@@ -324,6 +355,19 @@ my %vhdl_refs;     # track what vhdl.X references we need
     # module-scope wires). Rule 0b below handles procedural-loop indices.
     my %loopvars = map { $_ => 1 } qw(i j k l m n);
 
+    # Genvars are compile-time constants: iverilog UNROLLS generate loops, so a
+    # genvar index resolves to a literal and the original (possibly multi-dim)
+    # access works natively. They must NOT be captured as Rule 0 dynamic-index
+    # temps — those land at module scope where the genvar is unbound (e.g. EH2
+    # `for (genvar tid...) ... rets_in[tid]`). Treat every declared genvar
+    # (`for (genvar X...)` or `genvar X, Y;`) as a fold-able loop var. EH1's
+    # genvars are i/j (already listed) so this is a no-op there.
+    for my $gl (@lines) {
+        while ($gl =~ /\bgenvar\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)/g) {
+            for my $g (split /\s*,\s*/, $1) { $loopvars{$g} = 1; }
+        }
+    }
+
     # Per-module rewrite.
     for my $m (0 .. $#mod_starts) {
         my $ms = $mod_starts[$m];
@@ -431,8 +475,14 @@ my %vhdl_refs;     # track what vhdl.X references we need
                         }
                         $next_loop_temp++;
                         $loop_temps{$key} = $tname;
-                        push @loop_temp_decls,
-                            "  reg [\$bits(${arr}[0])-1:0] ${tname};";
+                        my $tail = _array_tail_dims($arr, \@lines, $ms, $me);
+                        if (defined $tail) {
+                            push @loop_temp_decls,
+                                "  reg ${tail} ${tname};";
+                        } else {
+                            push @loop_temp_decls,
+                                "  reg [\$bits(${arr}[0])-1:0] ${tname};";
+                        }
                     }
                     my $tname = $loop_temps{$key};
                     push @these_pre, "${tname} = ${arr}[${idx}];";
@@ -531,8 +581,14 @@ my %vhdl_refs;     # track what vhdl.X references we need
                 }
                 $next_temp++;
                 $temps{$key} = $tname;
-                push @temp_decls,
-                    "  wire [\$bits(${arr}[0])-1:0] ${tname} = ${arr}[${idx}];";
+                my $tail = _array_tail_dims($arr, \@lines, $ms, $me);
+                if (defined $tail) {
+                    push @temp_decls,
+                        "  wire ${tail} ${tname} = ${arr}[${idx}];";
+                } else {
+                    push @temp_decls,
+                        "  wire [\$bits(${arr}[0])-1:0] ${tname} = ${arr}[${idx}];";
+                }
             }
         }
         next if !@temp_decls;
