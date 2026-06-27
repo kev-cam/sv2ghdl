@@ -478,7 +478,26 @@ def main():
     mg.add_argument("--table", action="store_true",
                     help="emit the merged bridge as a table-driven .so (PyMS table fallback) "
                          "-- bounded interpolation that converges where exp does not")
+    tb = sub.add_parser("table", help="SIMPLIS-style TABLE MODE: every device -> table model "
+                        "from the start (fast + always converges, accuracy traded). "
+                        "INDEPENDENT of merge.")
+    tb.add_argument("netlist")
+    tb.add_argument("-o", "--out")
+    tb.add_argument("--device-va", help="diode Verilog-A to read default isat/n/vt/cjo from")
     a = ap.parse_args()
+    if a.cmd == "table":
+        from tablemode import table_front
+        dev = open(a.device_va).read() if a.device_va else None
+        text, sofiles, rep = table_front(open(a.netlist).read(), dev)
+        (open(a.out, "w") if a.out else sys.stdout).write(text)
+        for fname, src in sofiles.items():
+            d = os.path.dirname(a.out) if a.out else "."
+            open(os.path.join(d, fname), "w").write(src)
+            sys.stderr.write("[bfit table] wrote %s (g++ -shared -fPIC)\n" % os.path.join(d, fname))
+        sys.stderr.write("[bfit table] table-ized %d diode(s) over %d model(s)%s\n" % (
+            rep["diode_insts"], rep["diode_models"],
+            ("; passthrough (need 2-D table): " + ", ".join(rep["skipped"])) if rep["skipped"] else ""))
+        return
     if a.cmd == "merge":
         from merge import merge_front
         dev = open(a.device_va).read() if a.device_va else None

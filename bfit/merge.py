@@ -442,30 +442,44 @@ def _bleed_resistors(netlist, term_map, claimed):
             drop.append(r["line"]); names.append(r["name"])
     return ep, eb, drop, names
 
-def _sample_diode(device_va=None, vmin=-5.0, vmax=1.0, npts=256):
-    """Sample a diode I(Vd) characteristic for the table fallback. Reads isat/n/vt
-    from the device .va (or the built-in exp defaults) and evaluates the junction
+def _sample_diode(device_va=None, isat=None, n=None, vt=None, cjo=None,
+                  vmin=-5.0, vmax=1.0, npts=256):
+    """Sample a diode I(Vd) characteristic for the table model. Reads isat/n/vt
+    from the device .va (or the built-in exp defaults), then applies any explicit
+    overrides (e.g. parsed from a SPICE .model card), and evaluates the junction
     over [vmin,vmax]. Returns (vd_list, id_list, cjo). The PyMS limexp->exp issue
     is moot here: we sample the bounded characteristic into a table."""
     import math
-    isat, nn, vt, cjo = 1e-14, 1.0, 0.02585, 0.0
+    p = dict(isat=1e-14, n=1.0, vt=0.02585, cjo=0.0)
     if device_va:
         for k, tgt in (("isat", "isat"), ("is", "isat"), ("n", "n"),
                        ("vt", "vt"), ("cjo", "cjo"), ("cj0", "cjo")):
             m = re.search(r"parameter\s+real\s+%s\s*=\s*([-\w.+eE]+)" % k, device_va)
-            if m:
-                v = _num(m.group(1))
-                if v is not None:
-                    if tgt == "isat": isat = v
-                    elif tgt == "n": nn = v
-                    elif tgt == "vt": vt = v
-                    elif tgt == "cjo": cjo = v
+            if m and _num(m.group(1)) is not None: p[tgt] = _num(m.group(1))
+    for k, v in (("isat", isat), ("n", n), ("vt", vt), ("cjo", cjo)):
+        if v is not None: p[k] = v
     vd, idv = [], []
     for i in range(npts):
         v = vmin + (vmax - vmin) * i / (npts - 1)
-        idv.append(isat * (math.exp(min(v / (nn * vt), 40.0)) - 1.0))
+        idv.append(p["isat"] * (math.exp(min(v / (p["n"] * p["vt"]), 40.0)) - 1.0))
         vd.append(v)
-    return vd, idv, cjo
+    return vd, idv, p["cjo"]
+
+def parse_diode_models(netlist):
+    """SPICE diode .model cards -> {name(lower): {is,n,rs,cjo}}. Only type 'd'."""
+    out = {}
+    for ln in netlist.splitlines():
+        t = ln.strip().split(None, 3)
+        if len(t) < 3 or t[0].lower() != ".model": continue
+        typ = t[2].lstrip("(").lower()
+        if typ != "d": continue
+        rest = t[3] if len(t) > 3 else ""
+        params = {}
+        for k in ("is", "n", "rs", "cjo", "cj0"):
+            m = re.search(r"\b%s\s*=\s*([-\w.+eE]+)" % k, rest, re.I)
+            if m and _num(m.group(1)) is not None: params[k] = _num(m.group(1))
+        out[t[1].lower()] = params
+    return out
 
 def _diode_body(idx, a, c):
     """Built-in exponential diode body (fallback when no real device .va)."""
