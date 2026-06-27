@@ -157,7 +157,15 @@ their tuned cache.
   excluded — Windows engines (QSPICE, LTspice) self-report "Total elapsed time";
   Linux engines (ngspice, Xyce) are inner wall-clock inside WSL, min of runs.
   Threadripper PRO 5955WX (16C/32T); Xyce serial `-O3`. Generators: `gen_models.py`
-  (suite), `gen_amp.py` (cascade). Sub-0.1 s cells are startup-dominated.
+  (suite), `gen_amp.py` (cascade).
+- **Transient lengths calibrated to a ≥3 s QSPICE baseline** (startup <1%), but only
+  the circuits with per-cycle nonlinear work can hit it: rectifier (25 s tran →3.2 s),
+  bjt_amp (14 ms →3.2 s), inv_chain (600 ns →3.1 s). QSPICE's adaptive stepper
+  **strides through the smooth analog circuits** (rlc/ota/opamp) at steady state, so
+  duration does nothing to QSPICE there (stays ~0.1 s) while only inflating ngspice/
+  Xyce (which honor the deck's forced max step) — those stay short and remain
+  startup-bound; they'd need size scaling, not duration. ring_osc: QSPICE aborts it,
+  baseline is Xyce (~20 s).
 - **SIMetrix = N/A.** SIMetrix *does* have a non-GUI mode, but it runs through a
   standalone `SIM` console binary and requires **network** licensing. The free
   **SIMPLIS/Elements 9.2** install here ships only the GUI `SIMetrix.exe` (engine

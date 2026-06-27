@@ -7,6 +7,17 @@ QSPICE, LTspice, ngspice and Xyce unmodified. Writes <name>.cir into the target
 dir (default: the perfbench scratch dir).
 
 Usage: gen_models.py [outdir]
+
+Transient lengths are calibrated so the QSPICE baseline runs >=3 s, putting the
+~0.02 s process startup below 1% (don't measure startup). NB this only works for
+circuits with genuine per-cycle nonlinear work -- rectifier (diodes, 25 s tran ->
+~3.2 s), bjt_amp (BJTs, 14 ms -> ~3.2 s), inv_chain (digital switching, 600 ns ->
+~3.1 s). QSPICE's adaptive stepper STRIDES through the smooth analog circuits
+(rlc/ota/opamp) once they reach steady state, so extending their duration does
+nothing to QSPICE (it stays ~0.1 s) while only inflating ngspice/Xyce, which honor
+the deck's forced max step -- so those are left short and remain startup-bound
+(they'd need SIZE scaling, not duration, to give QSPICE real work). ring_osc:
+QSPICE aborts it, so its baseline is Xyce (~20 s) -- left as-is.
 """
 import os, sys
 
@@ -39,7 +50,7 @@ Rload out 0 470
 Cload out 0 220u
 Rbleed a b 1meg
 .model DM D(IS=1e-14 RS=0.05 N=1.2 CJO=20p)
-.tran 20u 60m 0 20u
+.tran 20u 25 0 20u
 .end
 """
 
@@ -67,7 +78,7 @@ def cmos_chain(n, ring=False):
         for k in range(1, n + 1):
             nn = "out" if k == n else "n%d" % k
             L.append("Xi%d %s %s vdd inv" % (k, prev, nn)); prev = nn
-        L.append(".tran 0.05n 400n 0 0.05n")
+        L.append(".tran 0.05n 600n 0 0.05n")
     L.append(".end")
     return "\n".join(L) + "\n"
 
@@ -122,7 +133,7 @@ Q3 c3 b3 e3 QN
 Cout c3 out 1u
 Rload out 0 10k
 .model QN NPN(BF=200 IS=1e-14 VAF=100 RB=10 RC=1 RE=0.5 CJC=3p CJE=8p TF=0.4n TR=10n)
-.tran 20n 2m 0 20n
+.tran 20n 14m 0 20n
 .end
 """
 
