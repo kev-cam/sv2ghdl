@@ -1,0 +1,5 @@
+Merged via regression gate (claude@clevo-lx) 2026-06-26.
+Gate block: ivtest/iverilog-nvc (the SV->VHDL->nvc shim path, the only block exercising sv-normalize+tgt-vhdl+sv2vhdl).
+Result: run #81 (branch) vs #78 (prior landed) = 0 pass->fail regressions, +12 fixes.
+Part of coordinated EH2-build branch across sv2ghdl(sv-normalize)+iverilog(tgt-vhdl)+nvc(sv2vhdl pkg).
+This commit FF-merged to origin/main.
