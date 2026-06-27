@@ -23,18 +23,6 @@ os.makedirs(OUT, exist_ok=True)
 
 MODELS = {}
 
-# ---- 1. passive RLC band-pass filter (0 transistors) -----------------------
-MODELS["rlc_filter"] = """\
-* RLC band-pass filter -- passive, ring-down transient (0 transistors)
-V1 in 0 PULSE(0 1 1n 1n 1n 1u 2u)
-R1 in a 50
-L1 a out 100u
-C1 out 0 100p
-R2 out 0 1k
-.tran 5n 40u
-.end
-"""
-
 # ---- 2. full-wave bridge rectifier (0 transistors, 4 diodes) ---------------
 MODELS["rectifier"] = """\
 * Full-wave bridge rectifier into an RC load (4 diodes)
@@ -47,7 +35,7 @@ Rload out 0 470
 Cload out 0 220u
 Rbleed a b 1meg
 .model DM D(IS=1e-14 RS=0.05 N=1.2 CJO=20p)
-.tran 50u 600m
+.tran 200u 480
 .end
 """
 
@@ -89,7 +77,7 @@ MODELS["ota_5t"] = """\
 .model PM PMOS (LEVEL=1 VTO=-0.6 KP=50u LAMBDA=0.02 GAMMA=0.4 PHI=0.65)
 Vdd  vdd 0 3.3
 Vcm  cm  0 1.65
-Vsig inp cm SIN(0 0.05 1meg)
+Bsig inp cm V={0.05*(sin(6.2832*0.4e6*time)+sin(6.2832*1e6*time)+sin(6.2832*2.3e6*time))}
 Vbias gb 0 0.95
 * tail current source
 Mtail tail gb 0 0 NM W=20u L=0.5u
@@ -100,7 +88,7 @@ M2 out cm  tail 0 NM W=10u L=0.5u
 M3 d1 d1 vdd vdd PM W=10u L=0.5u
 M4 out d1 vdd vdd PM W=10u L=0.5u
 Cl out 0 0.5p
-.tran 20n 5u
+.tran 20n 24m
 .end
 """
 
@@ -108,7 +96,7 @@ Cl out 0 0.5p
 MODELS["bjt_amp"] = """\
 * 3-stage common-emitter BJT amplifier (bfit ce_stage pattern, 3 transistors)
 Vcc vcc 0 12
-Vin in 0 SIN(0 0.005 10k)
+Bin in 0 V={0.005*(sin(6.2832*5e3*time)+sin(6.2832*13e3*time)+sin(6.2832*27e3*time))}
 Cin in b1 1u
 Rc1 vcc c1 4.7k
 Rb1 vcc b1 100k
@@ -130,7 +118,7 @@ Q3 c3 b3 e3 QN
 Cout c3 out 1u
 Rload out 0 10k
 .model QN NPN(BF=200 IS=1e-14 VAF=100 RB=10 RC=1 RE=0.5 CJC=3p CJE=8p TF=0.4n TR=10n)
-.tran 200n 2m
+.tran 2u 1.2
 .end
 """
 
@@ -154,8 +142,8 @@ M4 n2 n1 vdd vdd PM W=20u L=1u
 M6 no n2 vdd vdd PM W=80u L=1u
 Cc n2 no 2p
 Cl no 0 1p
-Vin inp 0 SIN(1.35 0.15 100k)
-.tran 50n 40u
+Bin inp 0 V={1.35+0.05*(sin(6.2832*100e3*time)+sin(6.2832*270e3*time)+sin(6.2832*730e3*time))}
+.tran 30n 210m
 .end
 """
 
