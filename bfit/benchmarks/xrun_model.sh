@@ -31,7 +31,10 @@ esac
 timeout "$tmo" $CMD >/tmp/xrm_$$.log 2>&1; rc=$?
 if [ $rc -eq 124 ]; then echo "t/o"; rm -f /tmp/xrm_$$.log; exit 0; fi
 if [ $rc -ne 0 ]; then echo "brk"; rm -f /tmp/xrm_$$.log; exit 0; fi
-grep -qaiE 'time ?step too small|step too small|no convergence|iteration limit|fatal' /tmp/xrm_$$.log && { echo brk; rm -f /tmp/xrm_$$.log; exit 0; }
+# only a HARD abort counts as brk -- a bare "timestep too small" can be a benign
+# warning the engine recovers from (it false-flagged ring_osc+bfit, which completes
+# and oscillates). rc!=0 above already catches real aborts; match only fatal phrasing.
+grep -qaiE 'fatal error|simulation.{0,4}aborted|run aborted|doAnalyses: *TRAN: *Timestep too small' /tmp/xrm_$$.log && { echo brk; rm -f /tmp/xrm_$$.log; exit 0; }
 rm -f /tmp/xrm_$$.log
 best=""
 for _ in 1 2; do

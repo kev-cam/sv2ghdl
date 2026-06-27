@@ -43,6 +43,21 @@ never costs anything. The commercial engines win the tiny analog circuits
 (sub-0.1 s = process startup, not solve), and the **SIMetrix mixed-signal model
 runs only in the Xyce+nvc stack**.
 
+> **Re-measured 2026-06-26 (current decks, quiet machine — QSPICE + ngspice/Xyce ±bfit).**
+> The analytic-pattern rows hold: op-amp `+bfit` ngspice 1.03→0.12, Xyce 0.33→0.23;
+> OTA flat (startup-bound); inverter chain ngspice 1.23→0.62, Xyce 4.53→0.63; ring
+> oscillator **ngspice 3.43→0.20, Xyce 20.75→0.33** while **QSPICE still aborts it**
+> (timestep collapse). The **rectifier Xyce+bfit now runs (0.23 s)** — the old `×1.0`
+> was the masked singular-matrix crash, fixed in `120243b`. Two issues the re-run
+> exposed: (1) **`bjt_amp`'s `ce_stage` is currently inaccurate** — even re-tuned it
+> fits at ~0.08× gain (rel-L2 97 %, THD 0.1 % vs golden 45 %); its `+bfit` cells are
+> speed-valid but *wrong*, so they are **held pending a `ce_stage` fix**, not posted.
+> (2) the runner's `brk` detector false-flagged a benign "timestep too small" warning
+> (it completes + oscillates) — fixed in `xrun_model.sh`. Native times sit ~2–3× below
+> the original snapshot (the generator decks changed since it was taken), so a clean
+> wholesale refresh of the numeric table also needs a fresh LTspice pass + the
+> `ce_stage` fix — tracked, not yet applied.
+
 ## Scaling wall — who survives?
 
 Past a few hundred series high-gain stages a BJT cascade turns numerically stiff.
