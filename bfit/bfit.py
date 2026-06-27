@@ -370,7 +370,12 @@ def recognize_bridge(netlist):
                 tag = re.sub(r"\W", "", out)
                 L = ["* --- bfit: bridge_rect (ac %s,%s -> %s) ---" % (a, b, out),
                      "Brect_%s 0 %s I={ max(0, (max(0, abs(V(%s)-V(%s)) - 2*__vdrop__)"
-                     "-V(%s))/__rs__) - V(%s)/__rleak__ }" % (tag, out, a, b, out, out)]
+                     "-V(%s))/__rs__) - V(%s)/__rleak__ }" % (tag, out, a, b, out, out),
+                     # the dropped diodes were the AC nodes' only DC path to ground;
+                     # restore it with their reverse-leakage resistance (Xyce flags the
+                     # orphan as a singular matrix; ngspice only hid it under gmin)
+                     "Rleak_%s_a %s 0 __rleak__" % (tag, a),
+                     "Rleak_%s_b %s 0 __rleak__" % (tag, b)]
                 matches.append(dict(model="bridge_rect", inline=True,
                                     insert="\n".join(L), drop=[la, lb, ga, gb]))  # drop[0]=anchor
                 break
