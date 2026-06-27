@@ -17,7 +17,7 @@ same netlist, no per-engine edits.
 | Model | # Tx | QSPICE | SIMetrix | LTspice | ngspice | ngspice+bfit | Xyce | Xyce+bfit | Xyce-MPI |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Passive RLC band-pass | 0 | 0.02 ×27.5 | N/A | 0.03 ×18.3 | 1.45 ×0.4 | 1.45 ×0.4 | 0.55 ×1.0 | 0.55 ×1.0 | N/A |
-| Bridge rectifier (RC load) | 0 | 0.03 ×18.7 | N/A | 0.04 ×14.0 | 0.25 ×2.2 | 0.25 ×2.2 | 0.56 ×1.0 | 0.56 ×1.0 | N/A |
+| Bridge rectifier (RC load, short) | 0 | 0.03 ×18.7 | N/A | 0.04 ×14.0 | 0.25 ×2.2 | 0.25 ×2.2 | 0.56 ×1.0 | 0.56 ×1.0 † | N/A |
 | CMOS inverter chain ×100 | 200 | 2.07 ×1.9 | N/A | 2.47 ×1.6 | 2.05 ×1.9 | 🟢 0.75 ×5.1 | 3.86 ×1.0 | 🔵 0.85 ×4.5 | N/A |
 | CMOS ring oscillator ×51 | 102 | N/A | N/A | 5.63 ×3.5 | 4.86 ×4.1 | 🟢 0.45 ×44 | 19.78 ×1.0 | 🟢 0.45 ×44 | N/A |
 | 5T OTA (diff pair + mirror) | 5 | 0.03 ×15.3 | N/A | 0.05 ×9.2 | 0.25 ×1.8 | 0.15 ×3.1 | 0.46 ×1.0 | 0.45 ×1.0 | N/A |
@@ -57,6 +57,39 @@ Short-transient capacity probe; wall seconds if it completed, `brk` if it aborte
 
 By 1000 stages QSPICE and ngspice abort; LTspice dies by 3000; **only Xyce
 reaches 3000** — the robustness its framework cost buys.
+
+## † Rectifier flips on a realistic transient (2026-06-26)
+
+The suite rectifier above is a short startup-bound deck, so bfit shows nothing and
+QSPICE's near-zero startup wins. Two fixes change the picture: (1) the `bridge_rect`
+recognizer was **orphaning the AC input nodes** (no DC path to ground) — ngspice hid
+it under gmin but Xyce rejected it as singular, so the old `Xyce+bfit ×1.0` was a
+*silent crash*, not a no-op. Fixed (`120243b`: restore the diodes' reverse-leak path).
+(2) On a realistic long transient (`rect_big.cir`, 12 V/60 Hz, 600 ms) the diodes'
+brief conduction windows force fine steps that the smooth B-source removes:
+
+| Bridge rectifier, 600 ms | QSPICE | ngspice | ngspice+bfit | Xyce | Xyce+bfit |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| time (s) | 0.25 | 0.38 | 🟢 **0.05** | 4.09 | 🔵 **0.23** |
+| ×vs Xyce | ×16 | ×11 | **×82** | ×1.0 | ×18 |
+
+**ngspice+bfit (0.05 s) now beats QSPICE (0.25 s) 5×** and Xyce+bfit ties it — the
+rectifier flips from a QSPICE win to ours once the transient is long enough to matter.
+Accuracy: V_DC +5.8 % (the fixed 1.2 V bridge drop, tunable via `__vdrop__`).
+
+## Small→large crossover vs QSPICE (CMOS inverter chain, KLU)
+
+QSPICE owns the small end; the crossover is **~N = 2000**, after which Xyce+KLU pulls
+away — near-linear (~N^1.1) vs QSPICE's superlinear (~N^1.4). On *benign* chains QSPICE
+does not abort, it just scales badly (the "breaks at N~1000" story is for *stiff*
+cascades, above). Wall seconds, `.tran 0.1n 5n`:
+
+| N inverters | devices | QSPICE | Xyce+KLU | winner |
+| ---: | ---: | ---: | ---: | :--- |
+| 2,000   | 4 k   | 3.0 | 2.0 | ~even |
+| 10,000  | 20 k  | 28  | **7.8** | Xyce 3.6× |
+| 50,000  | 100 k | 188 | **49**  | Xyce 3.8× |
+| 200,000 | 400 k | 370 | (setup-bound) | — |
 
 ## Accuracy — does the macromodel match the golden (full-device) result?
 
@@ -98,7 +131,13 @@ their tuned cache.
   the MOSFET current mirror — a two-part I→V (reference current → overdrive
   voltage across a sense resistor, normalized on the smallest device) / V→I
   (each output = size·overdrive, going resistive near the rail) model, so one
-  reference fans out to many outputs as in op-amp mirror banks. Next: diff pair.
+  reference fans out to many outputs as in op-amp mirror banks. Patterns today:
+  `ce_stage`, `current_mirror`, `cmos_inv` (logic gate), `bridge_rect`. Next: diff pair.
+- **Table mode (`bfit table`).** A separate, SIMPLIS-style path (orthogonal to the
+  pattern substitution above and to `--merge`): replace *every* device with a
+  table/PWL model from the start and never attempt the accurate analytical/JIT
+  solve — trades accuracy for speed and rock-solid convergence. Diodes today;
+  MOS/BJT pending their 2-D table emitters. Bench + numbers in `benchmarks/table/`.
 - **Methodology.** Each cell is engine simulation time, cross-environment launch
   excluded — Windows engines (QSPICE, LTspice) self-report "Total elapsed time";
   Linux engines (ngspice, Xyce) are inner wall-clock inside WSL, min of runs.
