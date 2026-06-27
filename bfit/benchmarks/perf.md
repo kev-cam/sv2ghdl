@@ -1,62 +1,53 @@
 # Cross-engine performance
 
-Simulation time in **seconds** for a spread of real circuit styles, run on every
-engine on this box. Each cell is `time ×speedup`, where speedup = (serial Xyce
-time) / (engine time) — so **×>1 is faster than our Xyce**, and Xyce is ×1.0 by
-definition. The **+bfit** columns swap in portable Verilog-AMS macromodels where
-bfit recognizes a pattern (today: the BJT CE stage, the MOSFET current mirror,
-the CMOS logic inverter, and the full-bridge rectifier), and pass the netlist
-through untouched otherwise. 🟢 marks an open
-engine (ngspice or Xyce, including +bfit) that is the **fastest** in its row;
-🔵 marks one that **beats both commercial engines** (QSPICE/LTspice) but isn't
-the outright fastest. `N/A` = the engine can't run that model (see notes). All
-same netlist, no per-engine edits.
+Every cell is **each engine's best effort** — its own adaptive stepping with a
+*sensible* output step, NOT an artificially fine `tstep` (which only handicaps
+ngspice, the one engine that honours it as a step ceiling; QSPICE and Xyce ignore
+it). Times in **seconds** (min of repeated runs, cross-environment launch excluded).
+Speedup is **per-engine**: `native → bfit` on the *same* engine. The **accuracy loss**
+column is the bfit macromodel's error vs the golden (native, fine-step) result. The
+Xyce column uses the best of **bfit / merge / table-driven** (here bfit is the
+operative tool; merge/table target structures — cascode stacks, exp-junction
+convergence — not on the critical path of this suite).
 
-## Model suite
+## Model suite (best effort, 2026-06-26)
 
-| Model | # Tx | QSPICE | SIMetrix | LTspice | ngspice | ngspice+bfit | Xyce | Xyce+bfit | Xyce-MPI |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Passive RLC band-pass | 0 | 0.02 ×27.5 | N/A | 0.03 ×18.3 | 1.45 ×0.4 | 1.45 ×0.4 | 0.55 ×1.0 | 0.55 ×1.0 | N/A |
-| Bridge rectifier (RC load, short) | 0 | 0.03 ×18.7 | N/A | 0.04 ×14.0 | 0.25 ×2.2 | 0.25 ×2.2 | 0.56 ×1.0 | 0.56 ×1.0 † | N/A |
-| CMOS inverter chain ×100 | 200 | 2.07 ×1.9 | N/A | 2.47 ×1.6 | 2.05 ×1.9 | 🟢 0.75 ×5.1 | 3.86 ×1.0 | 🔵 0.85 ×4.5 | N/A |
-| CMOS ring oscillator ×51 | 102 | N/A | N/A | 5.63 ×3.5 | 4.86 ×4.1 | 🟢 0.45 ×44 | 19.78 ×1.0 | 🟢 0.45 ×44 | N/A |
-| 5T OTA (diff pair + mirror) | 5 | 0.03 ×15.3 | N/A | 0.05 ×9.2 | 0.25 ×1.8 | 0.15 ×3.1 | 0.46 ×1.0 | 0.45 ×1.0 | N/A |
-| 2-stage Miller op-amp (CMOS) | 7 | 0.02 ×17.0 | N/A | 0.06 ×5.7 | 1.09 ×0.3 | 0.11 ×3.1 | 0.34 ×1.0 | 0.31 ×1.1 | N/A |
-| BJT 3-stage amp | 3 | 0.46 ×7.3 | N/A | 0.53 ×6.3 | 1.56 ×2.2 | 🟢 0.25 ×13.4 | 3.36 ×1.0 | 🔵 0.45 ×7.5 | N/A |
-| SIMetrix mixed-signal A↔D cosim | digital | N/A | N/A | N/A | N/A | N/A | 🟢 0.87 ×1.0 | N/A | N/A |
+QSPICE / ngspice-native / LTspice are the **baselines to beat**; bfit is *our*
+preprocessor, so it's applied to the open engines (ngspice, Xyce). It is portable
+(same macromodel netlist runs anywhere), but a QSPICE user wouldn't reach for it, so
+QSPICE is shown native only.
 
-bfit substitutes the **CE stages** in the BJT amp (tuned macromodel: ngspice
-1.56→0.25, Xyce 3.36→0.45 — the fastest cell in its row) and the **current
-mirrors** in the OTA and the op-amp. The mirror model is two-part (I→V / V→I)
-with rail compliance and handles both polarities and fan-out: in the **2-stage
-op-amp** it replaces an NMOS bias bank (one reference feeding the tail + the
-2nd-stage sink) *and* a PMOS load mirror, cutting **ngspice 1.09→0.11 s (≈10×)**
-while tracking the output to ~0.01% — the behavioral mirrors have no internal
-pole, so the solver drops the forced fine timestep and strides. (Xyce barely
-moves: it was already taking adaptive steps.) On the **digital** circuits bfit
-substitutes the **CMOS inverter** with a programmed-conductance logic gate (no
-`tanh`): the inverter chain drops 2.7× and the **ring oscillator 44× on Xyce**
-(19.78→0.45 s, still oscillating) — here *both* engines win, because the forced
-fine step the digital decks demand is exactly what the smooth gate removes. On
-the models with no pattern yet, bfit passes the netlist through unchanged, so it
-never costs anything. The commercial engines win the tiny analog circuits
-(sub-0.1 s = process startup, not solve), and the **SIMetrix mixed-signal model
-runs only in the Xyce+nvc stack**.
+| Model *(bfit pattern)* | QSPICE | ngspice n→bfit | Xyce n→best | bfit accuracy loss |
+| :--- | ---: | ---: | ---: | ---: |
+| RLC band-pass *(none)* | 0.02 | 0.13 | 0.33 | — |
+| Op-amp follower *(current_mirror)* | 0.02 | 0.12→0.12 **×1** | 0.43→0.23 ×1.9 | 0.01 % (ΔTHD 0.001 pt) |
+| 5T OTA *(current_mirror)* | 0.03 | 0.12→0.13 **×1** | 0.23→0.23 **×1** | 1.8 % (ΔTHD 0.43 pt) |
+| Bridge rectifier *(bridge_rect)* | 0.03 | 0.12→0.12 **×1** | 0.33→0.33 **×1** | 5.9 % V_DC |
+| BJT 3-stage amp *(ce_stage)* | 0.04 | 0.12 | 0.33 | ⚠️ **96 % — model broken** |
+| CMOS inverter ×100 *(cmos_inv)* | 3.11 | 1.83→0.73 ×2.5 | 6.73→0.83 **×8.1** | digital timing ‡ |
+| CMOS ring osc ×51 *(cmos_inv)* | **brk** ‖ | 3.43→0.32 ×11 | 20.6→0.33 **×62** | ⚠️ **freq −48 %** ‡ |
 
-> **Re-measured 2026-06-26 (current decks, quiet machine — QSPICE + ngspice/Xyce ±bfit).**
-> The analytic-pattern rows hold: op-amp `+bfit` ngspice 1.03→0.12, Xyce 0.33→0.23;
-> OTA flat (startup-bound); inverter chain ngspice 1.23→0.62, Xyce 4.53→0.63; ring
-> oscillator **ngspice 3.43→0.20, Xyce 20.75→0.33** while **QSPICE still aborts it**
-> (timestep collapse). The **rectifier Xyce+bfit now runs (0.23 s)** — the old `×1.0`
-> was the masked singular-matrix crash, fixed in `120243b`. Two issues the re-run
-> exposed: (1) **`bjt_amp`'s `ce_stage` is currently inaccurate** — even re-tuned it
-> fits at ~0.08× gain (rel-L2 97 %, THD 0.1 % vs golden 45 %); its `+bfit` cells are
-> speed-valid but *wrong*, so they are **held pending a `ce_stage` fix**, not posted.
-> (2) the runner's `brk` detector false-flagged a benign "timestep too small" warning
-> (it completes + oscillates) — fixed in `xrun_model.sh`. Native times sit ~2–3× below
-> the original snapshot (the generator decks changed since it was taken), so a clean
-> wholesale refresh of the numeric table also needs a fresh LTspice pass + the
-> `ce_stage` fix — tracked, not yet applied.
+‖ QSPICE *aborts* the device-level ring oscillator (timestep collapse). (Aside: the
+portable bfit netlist does run on QSPICE — 0.09 s — so bfit can rescue circuits even a
+commercial engine can't take, but that's a portability note, not a QSPICE result.)
+‡ the `cmos_inv` delay is uncalibrated, so the bfit ring oscillates at ~half the golden
+frequency (1.13 GHz → 0.59 GHz) — fast but wrong-timing until tuned; the inverter chain
+inherits the same delay error.
+
+**The honest read.** bfit's speedup is real **only where fine timesteps are physically
+required** — the digital circuits, whose switching forces fine steps no engine can skip.
+There the smooth gate wins **2.5–62×** and even rescues the ring oscillator on QSPICE.
+On the **smooth analog** circuits best-effort native is already startup-bound (<0.5 s) —
+there is no solver time to remove — so bfit is **~1×** and only *costs* accuracy
+(0.01–5.9 %). Earlier large analog "wins" (op-amp ≈10×, the rectifier flip) were an
+artifact of an over-fine `tstep` that throttled ngspice; with best-effort stepping they
+vanish — the coarse-step native is bit-identical to the fine-step golden, so the fine
+step bought nothing but slowdown. Two open issues: the **ce_stage / BJT-amp model is
+broken** (~0.1× gain, 96 % error — held), and the **digital wins carry a timing cost**
+(ring-osc frequency −48 %) pending `cmos_inv` delay calibration.
+
+*(LTspice/SIMetrix/MPI columns dropped from this best-effort pass: LTspice not re-run;
+SIMetrix GUI-bound; MPI is scale-out, characterized separately below.)*
 
 ## Scaling wall — who survives?
 
@@ -72,25 +63,6 @@ Short-transient capacity probe; wall seconds if it completed, `brk` if it aborte
 
 By 1000 stages QSPICE and ngspice abort; LTspice dies by 3000; **only Xyce
 reaches 3000** — the robustness its framework cost buys.
-
-## † Rectifier flips on a realistic transient (2026-06-26)
-
-The suite rectifier above is a short startup-bound deck, so bfit shows nothing and
-QSPICE's near-zero startup wins. Two fixes change the picture: (1) the `bridge_rect`
-recognizer was **orphaning the AC input nodes** (no DC path to ground) — ngspice hid
-it under gmin but Xyce rejected it as singular, so the old `Xyce+bfit ×1.0` was a
-*silent crash*, not a no-op. Fixed (`120243b`: restore the diodes' reverse-leak path).
-(2) On a realistic long transient (`rect_big.cir`, 12 V/60 Hz, 600 ms) the diodes'
-brief conduction windows force fine steps that the smooth B-source removes:
-
-| Bridge rectifier, 600 ms | QSPICE | ngspice | ngspice+bfit | Xyce | Xyce+bfit |
-| :--- | ---: | ---: | ---: | ---: | ---: |
-| time (s) | 0.25 | 0.38 | 🟢 **0.05** | 4.09 | 🔵 **0.23** |
-| ×vs Xyce | ×16 | ×11 | **×82** | ×1.0 | ×18 |
-
-**ngspice+bfit (0.05 s) now beats QSPICE (0.25 s) 5×** and Xyce+bfit ties it — the
-rectifier flips from a QSPICE win to ours once the transient is long enough to matter.
-Accuracy: V_DC +5.8 % (the fixed 1.2 V bridge drop, tunable via `__vdrop__`).
 
 ## Small→large crossover vs QSPICE (CMOS inverter chain, KLU)
 
@@ -158,14 +130,14 @@ their tuned cache.
   Linux engines (ngspice, Xyce) are inner wall-clock inside WSL, min of runs.
   Threadripper PRO 5955WX (16C/32T); Xyce serial `-O3`. Generators: `gen_models.py`
   (suite), `gen_amp.py` (cascade).
-- **Transient lengths calibrated to a ≥3 s QSPICE baseline** (startup <1%), but only
-  the circuits with per-cycle nonlinear work can hit it: rectifier (25 s tran →3.2 s),
-  bjt_amp (14 ms →3.2 s), inv_chain (600 ns →3.1 s). QSPICE's adaptive stepper
-  **strides through the smooth analog circuits** (rlc/ota/opamp) at steady state, so
-  duration does nothing to QSPICE there (stays ~0.1 s) while only inflating ngspice/
-  Xyce (which honor the deck's forced max step) — those stay short and remain
-  startup-bound; they'd need size scaling, not duration. ring_osc: QSPICE aborts it,
-  baseline is Xyce (~20 s).
+- **Best-effort stepping (no cheating).** Each `.tran` uses a sensible output step
+  (~period/50), not an artificially fine `tstep`. A fine `tstep` only throttles ngspice
+  (it honours it as a step ceiling; QSPICE/Xyce ignore it) — that artifact produced the
+  old analog "speedups", now removed. Fine steps are kept only where physics forces them
+  (the digital decks). Smooth analog circuits are intrinsically startup-bound on
+  QSPICE/Xyce and stay that way — we do **not** size-scale them to manufacture solver
+  work. The honest consequence: bfit's real speedup shows only on the physics-stiff /
+  digital circuits, with its accuracy cost reported alongside.
 - **SIMetrix = N/A.** SIMetrix *does* have a non-GUI mode, but it runs through a
   standalone `SIM` console binary and requires **network** licensing. The free
   **SIMPLIS/Elements 9.2** install here ships only the GUI `SIMetrix.exe` (engine

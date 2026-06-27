@@ -8,16 +8,13 @@ dir (default: the perfbench scratch dir).
 
 Usage: gen_models.py [outdir]
 
-Transient lengths are calibrated so the QSPICE baseline runs >=3 s, putting the
-~0.02 s process startup below 1% (don't measure startup). NB this only works for
-circuits with genuine per-cycle nonlinear work -- rectifier (diodes, 25 s tran ->
-~3.2 s), bjt_amp (BJTs, 14 ms -> ~3.2 s), inv_chain (digital switching, 600 ns ->
-~3.1 s). QSPICE's adaptive stepper STRIDES through the smooth analog circuits
-(rlc/ota/opamp) once they reach steady state, so extending their duration does
-nothing to QSPICE (it stays ~0.1 s) while only inflating ngspice/Xyce, which honor
-the deck's forced max step -- so those are left short and remain startup-bound
-(they'd need SIZE scaling, not duration, to give QSPICE real work). ring_osc:
-QSPICE aborts it, so its baseline is Xyce (~20 s) -- left as-is.
+BEST-EFFORT methodology: each .tran uses a SENSIBLE output step (~signal_period/50),
+not an artificially fine tstep. A fine tstep only handicaps ngspice (it honours tstep
+as a step ceiling; QSPICE and Xyce ignore it and stride), which silently inflated the
+old analog "speedups". Fine steps are kept ONLY where physics demands them -- the
+digital decks (inv_chain, ring_osc), whose edges force them regardless. Don't game the
+numbers: smooth analog circuits are intrinsically fast (startup-bound) on QSPICE/Xyce
+and stay that way; bfit's real win shows only on the physics-stiff/digital circuits.
 """
 import os, sys
 
@@ -34,7 +31,7 @@ R1 in a 50
 L1 a out 100u
 C1 out 0 100p
 R2 out 0 1k
-.tran 0.2n 40u
+.tran 5n 40u
 .end
 """
 
@@ -50,7 +47,7 @@ Rload out 0 470
 Cload out 0 220u
 Rbleed a b 1meg
 .model DM D(IS=1e-14 RS=0.05 N=1.2 CJO=20p)
-.tran 20u 25 0 20u
+.tran 50u 600m
 .end
 """
 
@@ -103,7 +100,7 @@ M2 out cm  tail 0 NM W=10u L=0.5u
 M3 d1 d1 vdd vdd PM W=10u L=0.5u
 M4 out d1 vdd vdd PM W=10u L=0.5u
 Cl out 0 0.5p
-.tran 5n 5u
+.tran 20n 5u
 .end
 """
 
@@ -133,7 +130,7 @@ Q3 c3 b3 e3 QN
 Cout c3 out 1u
 Rload out 0 10k
 .model QN NPN(BF=200 IS=1e-14 VAF=100 RB=10 RC=1 RE=0.5 CJC=3p CJE=8p TF=0.4n TR=10n)
-.tran 20n 14m 0 20n
+.tran 200n 2m
 .end
 """
 
@@ -158,7 +155,7 @@ M6 no n2 vdd vdd PM W=80u L=1u
 Cc n2 no 2p
 Cl no 0 1p
 Vin inp 0 SIN(1.35 0.15 100k)
-.tran 0.2n 40u
+.tran 50n 40u
 .end
 """
 
