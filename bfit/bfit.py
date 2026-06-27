@@ -232,27 +232,68 @@ def _wl(tokens):
         elif tl.startswith("l="): l = _spice_num(tl[2:])
     return (w if w else 1.0) / (l if l else 1.0)
 
-def recognize_mirror(netlist):
+# Verilog-A current-mirror OUTPUT leg.  Three regimes via if/else (NO tanh, NO
+# max -- cheap): cutoff (off), saturation (current source gain*ov with finite
+# output conductance gain*lam -- a HIGH resistance off a far rail), triode
+# (resistive gain*Vds -- a LOW resistance pulling the drain to its source rail).
+# Continuous at the boundaries; cross() pins the timestep there (honored by
+# ngspice/OpenVAF; PyMS parses+ignores it -- the if/else still selects the
+# regime and PyMS finite-differences the Jacobian to stay consistent with it).
+# gain/vth/lam/pol are baked per ratio so no model-card override is needed (the
+# PyMS math .so does not yet thread .model params).  pol=+1 NMOS, -1 PMOS.
+CMOUT_VA = '''`include "disciplines.vams"
+
+module {mod}(g, d, s);
+    inout g, d, s;
+    electrical g, d, s;
+    (* type="instance" *) parameter real gain = {gain:.7g};
+    (* type="instance" *) parameter real vth  = {vth:.7g};
+    (* type="instance" *) parameter real lam  = {lam:.7g};
+    (* type="instance" *) parameter real pol  = {pol:.7g};
+    real ov, vds, iout;
+    analog begin
+        ov  = pol*V(g,s) - vth;
+        vds = pol*V(d,s);
+        @(cross(ov, 0));
+        @(cross(vds - ov, 0));
+        if (ov <= 0.0)
+            iout = 0.0;                       // cutoff
+        else if (vds >= ov)
+            iout = gain*ov*(1.0 + lam*vds);   // saturation: current source, high Rout
+        else
+            iout = gain*vds;                  // triode: resistive pull to source rail
+        I(d,s) <+ pol*iout;
+    end
+endmodule
+'''
+
+def recognize_mirror(netlist, sim="xyce"):
     """MOSFET current-mirror groups: a diode-connected reference (drain==gate)
     and EVERY output FET sharing its gate node, source rail and model -- one
-    reference fans out to many outputs (op-amp mirror banks). Emits a two-part
-    signal-flow model:
+    reference fans out to many outputs (op-amp mirror banks). Emits:
       I->V at the reference -- a `vt` source off the rail feeds a sense resistor,
         so the reference current develops an overdrive VOLTAGE on the gate node;
         the resistor is 1 ohm when the reference is the smallest device (sizes
         are normalized on the smallest in the group).
-      V->I at each output -- current = (size ratio) x overdrive, GOING RESISTIVE
-        near the rail (tanh) so the output can never run past the supply.
-    Handles both polarities: PMOS (rail above the gate, sources current) and
-    NMOS (rail below the gate, e.g. gnd, sinks current) -- the overdrive sign and
-    the resistive-rail term flip accordingly. Params vt, vsat are tuned."""
-    pol = {}                                          # MOS model -> 'n'/'p' from .model
+      V->I at each output -- a `cmout` Verilog-A leg (see CMOUT_VA): saturation
+        current = (size ratio) x overdrive with a finite output conductance, and
+        a triode regime that pulls the drain to its source rail once it droops
+        below saturation, so the node is never a pure current source (which has
+        a vanishing output conductance -> singular matrix in Xyce).  vth/lambda
+        come from the device .model; gain = size ratio; one VA module per
+        distinct (gain, pol, vth, lam), carried in match['va'] for front() to
+        write and wire up (.hdl + .model)."""
+    pol, vto, lam = {}, {}, {}                         # MOS model -> pol / VTO / LAMBDA
     for ln in netlist.splitlines():
         s = ln.strip().lower()
         if s.startswith(".model") and len(s.split()) >= 3:
             nm = s.split()[1]
             if   "pmos" in s: pol[nm] = "p"
             elif "nmos" in s: pol[nm] = "n"
+            mv = re.search(r"\bvto?\s*=\s*([-+\d.eE]+)", s)
+            ml = re.search(r"\blambda\s*=\s*([-+\d.eE]+)", s)
+            vto[nm] = abs(float(mv.group(1))) if mv else 0.6
+            lam[nm] = float(ml.group(1)) if ml else 0.02
     M = []
     for ln in netlist.splitlines():
         s = ln.strip()
@@ -260,7 +301,7 @@ def recognize_mirror(netlist):
         t = s.split()
         if t[0][0].upper() == "M" and len(t) >= 6:
             M.append((t[0], t[1], t[2], t[3], t[5], _wl(t[6:]), ln))  # name d g s model wl line
-    matches, claimed = [], set()
+    matches, claimed, modcache = [], set(), {}
     for nr, dr, gr, sr, mr, wlr, lr in M:
         if dr != gr or nr in claimed:                 # reference must be diode-connected
             continue
@@ -271,27 +312,33 @@ def recognize_mirror(netlist):
         smin = min([wlr] + [w for _, _, w, _ in outs])   # normalize on the smallest device
         claimed.add(nr)
         p = pol.get(mr.lower(), "n" if sr == "0" else "p")   # .model, else rail-is-gnd heuristic
+        vth = vto.get(mr.lower(), 0.6); lm = lam.get(mr.lower(), 0.02)
+        polv = 1.0 if p == "n" else -1.0
         tag = re.sub(r"\W", "", gr); R = "%.4g" % (smin / wlr)   # = 1 when ref is smallest
-        L = ["* --- bfit: current_mirror (%s, ref %s, %d output%s) ---"
+        L = ["* --- bfit: current_mirror (VA cmout legs, %s, ref %s, %d output%s) ---"
              % ("NMOS" if p == "n" else "PMOS", gr, len(outs), "s" if len(outs) > 1 else "")]
         if p == "p":          # rail above gate: vt drops below rail; outputs SOURCE rail->out
-            L += ["Vt_%s %s cmv_%s __vt__" % (nr, sr, tag),
+            L += ["Vt_%s %s cmv_%s %.7g" % (nr, sr, tag, vth),
                   "R1_%s cmv_%s %s %s" % (nr, tag, gr, R)]
-            ov = "(V(%s)-V(%s)-__vt__)" % (sr, gr)
-            mk = lambda no, do, g: "Bcm_%s %s %s I={ %.4g*%s*tanh((V(%s)-V(%s))/__vsat__) }" \
-                 % (no, sr, do, g, ov, sr, do)
         else:                 # rail below gate (gnd): vt rises above rail; outputs SINK out->rail
-            L += ["Vt_%s cmv_%s %s __vt__" % (nr, tag, sr),
+            L += ["Vt_%s cmv_%s %s %.7g" % (nr, tag, sr, vth),
                   "R1_%s %s cmv_%s %s" % (nr, gr, tag, R)]
-            ov = "(V(%s)-V(%s)-__vt__)" % (gr, sr)
-            mk = lambda no, do, g: "Bcm_%s %s %s I={ %.4g*%s*tanh((V(%s)-V(%s))/__vsat__) }" \
-                 % (no, do, sr, g, ov, do, sr)
-        for no, do, wlo, lo in outs:                  # V->I: one source per mirror output
+        va = []
+        for no, do, wlo, lo in outs:                  # V->I: one cmout VA leg per output
             claimed.add(no)
-            L.append(mk(no, do, wlo / smin))
+            gain = wlo / smin
+            key = (round(gain, 6), polv, round(vth, 6), round(lm, 6))
+            if key not in modcache:
+                mod = "cmout_%d" % (len(modcache) + 1)
+                modcache[key] = mod
+                va.append((mod, CMOUT_VA.format(mod=mod, gain=gain, vth=vth, lam=lm, pol=polv)))
+            mod = modcache[key]
+            # Verilog-A leg: ports (g, d, s) = (gate/ref, drain/out, source/rail)
+            inst = ("Y%s %s" % (mod, no)) if sim == "xyce" else ("N%s" % no)
+            L.append("%s %s %s %s %smod" % (inst, gr, do, sr, mod))
         drop = [lr] + [lo for _, _, _, lo in outs]
         matches.append(dict(model="current_mirror", inline=True,
-                            insert="\n".join(L), drop=drop))  # drop[0]=ref line (anchor)
+                            insert="\n".join(L), drop=drop, va=va))  # drop[0]=ref line (anchor)
     return matches
 
 def recognize_inverter(netlist):
@@ -411,15 +458,19 @@ def front(netlist, sim, libroot, cache):
     mode, models = env_mode(sim)
     if mode == "off":
         return netlist, 0, []
-    matches = (recognize_ce(netlist) + recognize_mirror(netlist)
+    matches = (recognize_ce(netlist) + recognize_mirror(netlist, sim)
                + recognize_inverter(netlist) + recognize_bridge(netlist))
-    drop, insert, to_tune, used, hit = set(), {}, [], {}, False
+    drop, insert, to_tune, used, va_files, hit = set(), {}, [], {}, {}, False
     for m in matches:
         if mode == "auto" or m["model"] in models:
-            p = (cache.get(m["model"]) or {}).get("params")
-            if not p:
-                p = json.load(open(os.path.join(libroot, m["model"], "fit.json")))["x0"]
-                if m["model"] not in to_tune: to_tune.append(m["model"])
+            if m.get("va"):              # VA legs bake all params -- nothing to fit/tune
+                p = {}
+                for modname, content in m["va"]: va_files[modname] = content
+            else:
+                p = (cache.get(m["model"]) or {}).get("params")
+                if not p:
+                    p = json.load(open(os.path.join(libroot, m["model"], "fit.json")))["x0"]
+                    if m["model"] not in to_tune: to_tune.append(m["model"])
             hit = True
             blk = m["insert"]
             if m.get("inline"):          # macromodel emitted as raw elements (e.g. mirror groups)
@@ -448,6 +499,20 @@ def front(netlist, sim, libroot, cache):
             res.extend(blocks); placed = True
         res.append(ln)
     if not placed: res.extend(blocks)
+    # Verilog-A mirror legs: write each module's .va beside the deck and wire it
+    # in right after the title line (Xyce wants .hdl early). For ngspice the
+    # OpenVAF-built .osdi is loaded by the run driver via pre_osdi, so emit only
+    # the .model card there.
+    if va_files:
+        for modname, content in va_files.items():
+            with open(modname + ".va", "w") as f:
+                f.write(content)
+        wire = []
+        for modname in va_files:
+            if sim == "xyce":
+                wire.append('.hdl "%s.va"' % modname)
+            wire.append(".model %smod %s()" % (modname, modname))
+        res = ([res[0]] + wire + res[1:]) if res else wire
     text = "\n".join(res) + "\n"
     # The substituted macromodels are smooth signal-flow models: they have no
     # device-level fast transients, so we drop any forced max timestep and
