@@ -10,7 +10,7 @@ This driver returns the same {signal: [...], "time": [...]} contract as the Xyce
 driver, so the tuner is engine-neutral. It is a thin adapter -- everything else
 in bfit is sim-agnostic.
 """
-import os, tempfile, subprocess, struct
+import os, shutil, tempfile, subprocess, struct
 
 class NgspiceDriver:
     name = "ngspice"
@@ -38,18 +38,37 @@ class NgspiceDriver:
         # OpenVAF-compiled to OSDI and loaded (pre_osdi). Behavioral realisations
         # in the deck run natively -- no OpenVAF needed.
         pre = ""
+        needs_va = False
         for ln in deck.splitlines():
             s = ln.strip().lower()
             if s.startswith(".hdl") or s.startswith(".va "):
+                needs_va = True
                 va = ln.split()[1].strip('"')
                 pre += "pre_osdi %s\n" % self.compile_va(va, d)
         ctrl = ".control\n" + pre + "set filetype=binary\nrun\nwrite c.raw\nquit\n.endc\n.end\n"
         open(cir, "w").write(deck + ctrl)
-        subprocess.run([self.ngspice, "-b", "c.cir"], cwd=d,
-                       capture_output=True, text=True, timeout=300)
+        # Resolve the binary up front so a missing/mis-set ngspice gives an
+        # actionable message instead of a bare FileNotFoundError deep in the run.
+        exe = self.ngspice if (os.path.sep in self.ngspice) else shutil.which(self.ngspice)
+        if not exe or not os.path.exists(exe):
+            raise RuntimeError(
+                "ngspice not found: BFIT_NGSPICE=%r resolved to %r. Set BFIT_NGSPICE "
+                "to the ngspice binary (e.g. /usr/bin/ngspice) or put it on PATH."
+                % (self.ngspice, exe))
+        try:
+            r = subprocess.run([exe, "-b", "c.cir"], cwd=d,
+                               capture_output=True, text=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("ngspice timed out (300s) running c.cir in %s" % d)
         if not os.path.exists(raw):
-            raise RuntimeError("ngspice: no rawfile (set BFIT_NGSPICE; for the "
-                               ".vams/OSDI path set BFIT_OPENVAF)")
+            # ngspice ran but produced no rawfile -- surface WHY (its stderr/stdout
+            # carry the real cause: a deck error, or the OSDI/OpenVAF path failing).
+            tail = (r.stderr or r.stdout or "").strip()[-1200:]
+            hint = (" For the .vams/OSDI path set BFIT_OPENVAF to a working "
+                    "openvaf binary." if needs_va else "")
+            raise RuntimeError(
+                "ngspice produced no rawfile (exit %d).%s\n--- ngspice output (%s) ---\n%s"
+                % (r.returncode, hint, cir, tail or "(no output captured)"))
         return _parse_ngspice_raw(raw)
 
 def _parse_ngspice_raw(p):

@@ -448,8 +448,15 @@ def _spice_num(s):
     return float(m.group(1)) * (_SI_SUF[m.group(2)] if m.group(2) else 1.0)
 
 def _relax_tran(mt):
-    """`.tran tstep tstop [tstart [tmax]]` -> `.tran tstop/1000 tstop`: drop the
-    forced max step and coarsen output to ~1000 points (smooth macromodels)."""
+    """`.tran tstep tstop [...]` -> `.tran tstop/1000 tstop`: coarsen to ~1000
+    points so the solver strides over the smooth macromodels.
+
+    ngspice honours the first arg as a step CEILING and strides at it. Xyce's
+    adaptive integrator only treats it as a suggested/print step and its
+    local-truncation-error (LTE) control still refines to resolve the input --
+    so capping the max step (DTMAX / delmax) is NOT enough; it never strides.
+    front() additionally loosens Xyce's LTE for sim=xyce so it ACCEPTS the
+    coarse steps and undersamples like ngspice (same accuracy/speed trade)."""
     p = mt.group(0).split()
     if len(p) < 3: return mt.group(0)
     tstop = _spice_num(p[2])
@@ -524,6 +531,17 @@ def front(netlist, sim, libroot, cache):
     # adaptively and writes far fewer points -- where bfit's speedup comes from.
     if n:
         text = re.sub(r'(?im)^\.tran\s+.*$', _relax_tran, text)
+        if sim == "xyce":
+            # Xyce won't stride over the coarsened .tran on its own: its LTE
+            # control refines to resolve the input. Loosen LTE (so it ACCEPTS
+            # the coarse step) and cap the max step at the coarsened cadence C,
+            # so it undersamples like ngspice. (delmax alone or DTMAX alone does
+            # NOT stride -- the loosened reltol/abstol is the operative knob.)
+            m = re.search(r'(?im)^\.tran\s+(\S+)\s', text)
+            C = _spice_num(m.group(1)) if m else None
+            if C and C > 0:
+                opt = ".options timeint reltol=0.5 abstol=0.1 delmax=%.4g" % C
+                text = re.sub(r'(?im)^(\.end\b)', opt + "\n\\1", text, count=1)
     return text, n, to_tune
 
 def main():
