@@ -1,53 +1,106 @@
 #!/bin/bash
-# Linux side of the perf league table: per model, base ngspice/Xyce times +
-# bfit acceleration (time -> speedup, and rel-L2 accuracy vs the ngspice base).
-# Handles the cmout VA toolchain (Xyce: .hdl/PyMS; ngspice: OpenVAF .osdi).
+# Open-engine side of the perf league table (-> benchmarks/perf.md, via assemble.py).
+# Per model, sequentially (valid timing, no resource contention):
+#   * ngspice & Xyce NATIVE base
+#   * ng+bfit & xy+bfit at  --accuracy balanced  AND  fast
+#     (rel-L2 accuracy vs that engine's OWN native base waveform)
+#   * Xyce-MPI np 2/4/8/16 sweep: best np that BEATS serial, killed once a run
+#     passes the serial wall-clock (a slower-than-serial run has already lost).
+#   * the 3000-stage "breaker" cascade (capacity row; native engines only).
+# Writes $MODELS/open.csv for assemble.py. Paths are env-overridable.
+#
+#   bash model_bench.sh                  # full suite (~1 h; the breaker MPI dominates)
+#   ROWS="inv_chain" DO_BREAKER=0 bash model_bench.sh    # quick smoke of one row
 export PATH=/usr/bin:/bin:/usr/local/bin
-export LD_LIBRARY_PATH=/usr/local/src/xyce-build/src
-export PYMS_DIR=/usr/local/src/xyce/utils/PyMS XYCE_SRC=/usr/local/src/xyce/src XYCE_BUILD=/usr/local/src/xyce-build
-XYCE=/usr/local/src/xyce-build/src/Xyce
-B=/usr/local/src/sv2ghdl/bfit/bfit.py
-OV=/opt/openvaf/openvaf
-ACC=/usr/local/src/sv2ghdl/bfit/benchmarks/accuracy.py
-M=/mnt/c/cygwin64/tmp/perfbench/models
-W=/tmp/mbench; rm -rf "$W"; mkdir -p "$W"; cd "$W" || exit 1
-python3 /usr/local/src/sv2ghdl/bfit/benchmarks/gen_models.py "$M" >/dev/null 2>&1
+HERE=$(cd "$(dirname "$0")" && pwd)
+BFIT=${BFIT:-$HERE/../bfit.py}; GENM=$HERE/gen_models.py; GENA=$HERE/gen_amp.py; ACC=$HERE/accuracy.py
+XYCE=${XYCE:-/usr/local/src/xyce-build/src/Xyce}
+XYCE_LD=${XYCE_LD:-/usr/local/src/xyce-build/src}
+XYCE_MPI=${XYCE_MPI:-$HOME/xyce-build-mpi/src/Xyce}
+XYCE_MPI_LD=${XYCE_MPI_LD:-$HOME/xyce-build-mpi/src:$HOME/trilinos-mpi/lib:$HOME/trilinos-mpi/lib64}
+MPIRUN=${MPIRUN:-mpirun --allow-run-as-root --oversubscribe}
+OV=${OPENVAF:-/opt/openvaf/openvaf}
+export BFIT_NGSPICE=${BFIT_NGSPICE:-$(command -v ngspice)}
+export PYMS_DIR=${PYMS_DIR:-/usr/local/src/xyce/utils/PyMS}
+export XYCE_SRC=${XYCE_SRC:-/usr/local/src/xyce/src} XYCE_BUILD=${XYCE_BUILD:-/usr/local/src/xyce-build}
+M=${MODELS:-/mnt/c/cygwin64/tmp/perfbench/models}
+W=${WORK:-/tmp/mbench}; rm -rf "$W"; mkdir -p "$W"; cd "$W" || exit 1
+OUTCSV=${OUTCSV:-$M/open.csv}
+ROWS=${ROWS:-"rectifier inv_chain ring_osc ota_5t bjt_amp opamp"}
+DO_BREAKER=${DO_BREAKER:-1}
 
-declare -A OUT=( [rectifier]=out [inv_chain]=out [ring_osc]=n0 [ota_5t]=out [bjt_amp]=out [opamp]=no )
+python3 "$GENM" "$M" >/dev/null 2>&1
+python3 "$GENA" 3000 | sed 's/^\.tran .*/.tran 20n 200u 0 20n/' > "$M/breaker.cir"
+declare -A OUT=( [rectifier]=out [inv_chain]=out [ring_osc]=n0 [ota_5t]=out [bjt_amp]=out [opamp]=no [breaker]=out )
+declare -A FRQ=( [rectifier]=60 [inv_chain]=1e7 [ring_osc]=1e8 [ota_5t]=1e6 [bjt_amp]=1e4 [opamp]=3e5 [breaker]=1e4 )
 
-acc() { python3 "$ACC" 1e6 "$1" "$2" 2>/dev/null | grep -aoE '[0-9.]+%' | head -1; }
-wall() { awk -v a="$1" -v b="$2" 'BEGIN{printf "%.2f",b-a}'; }
+wall(){ awk -v a=$1 -v b=$2 'BEGIN{printf "%.2f",b-a}'; }
+lt(){ awk -v x=$1 -v y=$2 'BEGIN{exit !(x+0<y+0)}'; }
+rl2(){ python3 "$ACC" "$1" "$2" "$3" 2>/dev/null | grep -aoE 'rel-L2 err *[0-9.]+%' | grep -aoE '[0-9.]+%'; }
 
-ng_run() {  # deck node outfile -> echoes secs|brk ; writes outfile (time value)
+ng_run(){ # deck node outfile -> secs|brk ; writes outfile (time value)
   sed '/^\.end$/d' "$1" > _d.cir
   { echo '.control'; for o in *.osdi; do [ -e "$o" ] && echo "pre_osdi $W/$o"; done
     echo run; echo "wrdata $3 v($2)"; echo quit; echo .endc; echo .end; } >> _d.cir
-  local t0=$(date +%s.%N); timeout 600 ngspice -b _d.cir >/tmp/ng.log 2>&1; local rc=$?; local t1=$(date +%s.%N)
-  { [ $rc -ne 0 ] || grep -qaiE 'fatal|aborted|too small'  /tmp/ng.log; } && { echo brk; return; }
-  wall $t0 $t1
-}
-xy_run() {  # deck node outfile -> echoes secs|brk ; writes outfile (time value)
+  local t0=$(date +%s.%N); LD_LIBRARY_PATH=$XYCE_LD timeout ${TMO:-700} ngspice -b _d.cir >/tmp/ng.log 2>&1; local rc=$?; local t1=$(date +%s.%N)
+  { [ $rc -eq 124 ] || grep -qaiE 'fatal|aborted|too small|iteration limit' /tmp/ng.log; } && { echo brk; return; }
+  wall $t0 $t1; }
+xy_run(){ # deck node outfile -> secs|brk ; writes outfile (time value)
   sed "s/^\.end/.print tran format=csv V($2)\n.end/" "$1" > _x.cir
-  rm -rf /tmp/mb_cache; export PYMS_CACHE=/tmp/mb_cache XYCE_VA_PATH="$W"
-  local t0=$(date +%s.%N); timeout 600 "$XYCE" _x.cir >/tmp/xy.log 2>&1; local rc=$?; local t1=$(date +%s.%N)
+  rm -rf /tmp/mb_cache; export PYMS_CACHE=/tmp/mb_cache XYCE_VA_PATH=$W
+  local t0=$(date +%s.%N); LD_LIBRARY_PATH=$XYCE_LD timeout ${TMO:-700} "$XYCE" _x.cir >/tmp/xy.log 2>&1; local rc=$?; local t1=$(date +%s.%N)
   [ $rc -ne 0 ] && { echo brk; return; }
   awk -F, 'NR>1{print $1,$NF}' _x.cir.csv > "$3" 2>/dev/null
-  wall $t0 $t1
-}
+  wall $t0 $t1; }
+xy_mpi(){ # deck node np cap -> secs|brk
+  [ -x "$XYCE_MPI" ] || { echo brk; return; }
+  sed "s/^\.end/.print tran format=csv V($2)\n.end/" "$1" > _m$3.cir
+  local t0=$(date +%s.%N)
+  LD_LIBRARY_PATH=$XYCE_MPI_LD timeout $4 $MPIRUN -x LD_LIBRARY_PATH -np $3 "$XYCE_MPI" _m$3.cir >/tmp/mpi.log 2>&1
+  local rc=$?; local t1=$(date +%s.%N); rm -f _m$3.cir.csv
+  [ $rc -ne 0 ] && { echo brk; return; }
+  wall $t0 $t1; }
+# best np that beats serial (cap = serial wall-clock + 2s grace). 'mode=small'
+# early-exits when np2 & np4 both lose (more ranks are strictly worse on a tiny
+# circuit); 'mode=full' (breaker) runs all np -- a 1-D cascade can win at high np.
+mpi_sweep(){ local deck=$1 node=$2 base=$3 mode=$4; local best=999999 bnp=0
+  [ "$base" = brk ] && { echo "brk 0"; return; }
+  local cap=$(awk -v b=$base 'BEGIN{c=b+2; if(c<10)c=10; if(c>900)c=900; printf "%d",c}')
+  for np in 2 4 8 16; do
+    local t=$(xy_mpi "$deck" $node $np $cap)
+    [ "$t" != brk ] && lt "$t" "$best" && { best=$t; bnp=$np; }
+    [ "$mode" = small ] && [ "$np" = 4 ] && [ "$bnp" = 0 ] && break
+  done
+  [ "$bnp" = 0 ] && best=brk
+  echo "$best $bnp"; }
 
-echo "model | ngspice xyce | ng+bfit(s,acc) xy+bfit(s,acc)"
-for m in rectifier inv_chain ring_osc ota_5t bjt_amp opamp; do
-  node=${OUT[$m]}; cp "$M/$m.cir" .
-  rm -f *.osdi
-  ngt=$(ng_run $m.cir $node gold.dat)
-  xyt=$(xy_run $m.cir $node xy.dat)
-  # build bfit decks (front: mirrors->cmout, inverter/bridge/ce as before)
-  rm -f *.va *.osdi
-  XYCE_USE_BFIT=auto   python3 "$B" front $m.cir --sim xyce    -o ${m}_bx.cir >/dev/null 2>&1
-  NGSPICE_USE_BFIT=auto python3 "$B" front $m.cir --sim ngspice -o ${m}_bn.cir >/dev/null 2>&1
-  for va in *.va; do [ -e "$va" ] && $OV "$va" >/dev/null 2>&1; done
-  ngbt=$(ng_run ${m}_bn.cir $node ngb.dat); nacc="-"; [ "$ngbt" != brk ] && nacc=$(acc gold.dat ngb.dat)
-  xybt=$(xy_run ${m}_bx.cir $node xyb.dat); xacc="-"; [ "$xybt" != brk ] && xacc=$(acc gold.dat xyb.dat)
-  printf 'RESULT %-10s ng=%-6s xy=%-6s ngb=%-6s/%-7s xyb=%-6s/%-7s\n' "$m" "$ngt" "$xyt" "$ngbt" "$nacc" "$xybt" "$xacc"
-done
-echo "=== DONE model_bench ==="
+echo "model,ng_base,xy_base,ng_bal,ng_bal_acc,ng_fast,ng_fast_acc,xy_bal,xy_bal_acc,xy_fast,xy_fast_acc,mpi_best,mpi_np" > "$OUTCSV"
+run_row(){ local m=$1 mode=$2 node=${OUT[$m]} F=${FRQ[$m]}
+  cp "$M/$m.cir" .; rm -f *.va *.osdi
+  local ngb=$(ng_run $m.cir $node gold.dat)
+  local xyb=$(xy_run $m.cir $node xygold.dat)
+  local ngbal=- ngbalA=- ngfast=- ngfastA=- xybal=- xybalA=- xyfast=- xyfastA=-
+  for acc in balanced fast; do
+    rm -f *.va *.osdi
+    NGSPICE_USE_BFIT=auto python3 "$BFIT" front $m.cir --sim ngspice --accuracy $acc -o n_$acc.cir >/dev/null 2>&1
+    for va in *.va; do [ -e "$va" ] && $OV "$va" >/dev/null 2>&1; done
+    local nt=$(ng_run n_$acc.cir $node nd.dat); local na=-; { [ "$nt" != brk ] && [ "$ngb" != brk ]; } && na=$(rl2 $F gold.dat nd.dat)
+    rm -f *.va *.osdi
+    XYCE_USE_BFIT=auto python3 "$BFIT" front $m.cir --sim xyce --accuracy $acc -o x_$acc.cir >/dev/null 2>&1
+    local xt=$(xy_run x_$acc.cir $node xd.dat); local xa=-; { [ "$xt" != brk ] && [ "$xyb" != brk ]; } && xa=$(rl2 $F xygold.dat xd.dat)
+    if [ "$acc" = balanced ]; then ngbal=$nt; ngbalA=$na; xybal=$xt; xybalA=$xa
+    else ngfast=$nt; ngfastA=$na; xyfast=$xt; xyfastA=$xa; fi
+  done
+  local mb mnp; read mb mnp < <(mpi_sweep "$M/$m.cir" $node "$xyb" "$mode")
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$m" "$ngb" "$xyb" \
+    "$ngbal" "${ngbalA:-?}" "$ngfast" "${ngfastA:-?}" "$xybal" "${xybalA:-?}" "$xyfast" "${xyfastA:-?}" "$mb" "$mnp" | tee -a "$OUTCSV"
+}
+for m in $ROWS; do run_row $m small; done
+if [ "$DO_BREAKER" = 1 ]; then       # capacity row: native engines only, no bfit
+  node=${OUT[breaker]}
+  ngb=$(ng_run "$M/breaker.cir" $node bg.dat)
+  xyb=$(xy_run "$M/breaker.cir" $node bxg.dat)
+  read mb mnp < <(mpi_sweep "$M/breaker.cir" $node "$xyb" full)
+  printf 'breaker,%s,%s,-,-,-,-,-,-,-,-,%s,%s\n' "$ngb" "$xyb" "$mb" "$mnp" | tee -a "$OUTCSV"
+fi
+echo "=== DONE -> $OUTCSV ==="

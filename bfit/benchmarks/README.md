@@ -17,12 +17,14 @@ with no model changes. This harness measures all of that side by side.
 
 | file            | what it does |
 |-----------------|--------------|
-| `gen_models.py` | generates the **model suite** — a varied, portable set (passive RLC, bridge rectifier, CMOS inverter chain, CMOS ring oscillator, 5T OTA, BJT amp) that runs unmodified on every engine |
-| `win_models.sh` / `run_lin_models.sh` / `xrun_model.sh` | time the model suite on the Windows engines (QSPICE/LTspice) and Linux engines (ngspice/Xyce) |
-| `gen_amp.py`    | generates an N-stage common-emitter BJT amplifier cascade (the scaling/bfit study; every stage is the exact pattern bfit's recognizer substitutes) |
-| `run_bench.sh`  | cascade orchestrator — run from Cygwin; drives Windows-native + (via `wsl.exe`) Linux engines |
-| `xrun.sh`       | WSL-side helper — runs one Linux engine on one circuit, prints min inner wall-clock |
-| `mpisweep.sh`   | finds the optimum Xyce-MPI rank count (np=2..16 sweep) per size and the speedup vs serial |
+| `gen_models.py` | generates the **model suite** — a varied, portable set (bridge rectifier, CMOS inverter chain ×100, CMOS ring oscillator ×51, 5T OTA, BJT amp, 2-stage Miller op-amp) driven with **multi-tone** inputs, runs unmodified on every engine |
+| **`model_bench.sh`** | **league-table runner (Linux side)**: per model, native ngspice/Xyce + `bfit --accuracy {balanced,fast}` + Xyce-MPI np-sweep + the 3000-stage breaker → `open.csv` |
+| **`win_models.sh`** | league-table runner (Windows side, from Cygwin): QSPICE + LTspice per model → `commercial.csv` |
+| **`assemble.py`** | turns `open.csv` + `commercial.csv` into **`perf.md`** — computes every ×multiplier and 🟢/🔵 dot deterministically (no hand arithmetic) |
+| `open.csv` / `commercial.csv` | the measured snapshots `assemble.py` reads (committed, so `perf.md` regenerates without re-measuring) |
+| `accuracy.py`   | rel-L2 / THD of a bfit run vs that engine's own native golden |
+| `gen_amp.py`    | generates an N-stage CE BJT cascade (the breaker / scaling study) |
+| `run_bench.sh` / `xrun.sh` / `mpisweep.sh` | the older N=3..3000 cascade-scaling study (separate from the league table) |
 | `perf.md` / `perf.csv` | the tables |
 
 The **mixed-signal cosim** row in `perf.md` comes from
@@ -30,7 +32,35 @@ The **mixed-signal cosim** row in `perf.md` comes from
 `simetrix_cosim.pl` (digital A-devices → VHDL, analog → Xyce) and run on the
 Xyce+nvc runtime; no other engine here can simulate it.
 
-## Running it
+## Reproducing the league table (`perf.md`)
+
+Three steps; the two measurement steps run in their own environment, then the
+assembler stitches the CSVs into the page:
+
+```sh
+# 1. Linux engines (from WSL): native + bfit bal/fast + Xyce-MPI sweep + breaker
+#    -> open.csv   (sequential, ~1 h; the breaker MPI sweep dominates)
+bash model_bench.sh                       # ROWS="inv_chain" DO_BREAKER=0  for a quick smoke
+
+# 2. Commercial engines (from Cygwin): QSPICE + LTspice -> commercial.csv
+bash win_models.sh
+
+# 3. assemble -> perf.md  (instant; pure arithmetic on the two CSVs)
+python3 assemble.py open.csv commercial.csv > perf.md
+```
+
+`open.csv` / `commercial.csv` are committed, so step 3 alone regenerates
+`perf.md` (re-run 1–2 only to re-measure). `model_bench.sh` path knobs are env
+vars with sensible defaults: `XYCE` / `XYCE_MPI` (+ their `*_LD` library paths),
+`MPIRUN`, `BFIT_NGSPICE`, `OPENVAF`, `MODELS`, `ROWS`, `DO_BREAKER`. If no MPI
+Xyce is present the MPI column is simply `—`.
+
+**The MPI rule:** a run is killed once it passes the serial wall-clock — a
+slower-than-serial MPI run has already lost — so the column shows the fastest np
+that *beats* serial, else `—`. Small circuits never beat serial (decomposition
+overhead); only the 3000-stage breaker does, at a *middle* rank count.
+
+## Running the cascade-scaling study
 
 ```sh
 # from a Cygwin shell:
@@ -83,9 +113,12 @@ probe out to 3000 stages:
   Verilog-AMS netlist just runs on ngspice — portability is the escape hatch.
 - **At scale, robustness flips the ranking.** By N=1000 QSPICE and ngspice abort
   (timestep → ~1e-19); LTspice dies by N=3000; **only Xyce reaches 3000 stages.**
-- **MPI is for scale-out, not these sizes** — sweeping np=2..16, the optimum rank
-  count grows with size (np2→4→6) but is still ×0.2–0.3 (3–5× *slower*) than
-  serial, and times out by N=300. See `mpisweep.sh`.
+- **MPI is for scale-out, and the crossover is real.** It *loses* on every small
+  circuit (decomposition overhead ≫ work) — slower than serial, so the league
+  table shows `—`. But on the 3000-stage breaker it finally **wins, ×1.7 at
+  np=4** (266 s vs 464 s serial); np=2/8/16 lose, so the optimum is a *middle*
+  rank count, not max. MPI is the large-circuit / cloud lever, not a
+  small-circuit one.
 
 ## Roadmap — pattern library
 
