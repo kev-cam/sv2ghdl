@@ -118,9 +118,22 @@ cd "$REG" || exit 2
 CAND=$(q "SELECT MAX(run_id) FROM block_run WHERE block=?" "$BLOCK")
 read ct cp cf < <(q "SELECT total,passed,failed FROM block_run WHERE run_id=? AND block=?" "$CAND" "$BLOCK")
 echo "  candidate run #$CAND: total=$ct pass=$cp fail=$cf"
+# The candidate is the run we just created; a tiny total means the regression
+# run itself failed/aborted — refuse to gate on it.
+if [ -z "$ct" ] || [ "$ct" -lt 100 ]; then
+  echo "VERDICT: HELD — candidate run #$CAND has total=$ct (regression run failed/partial)"; exit 2
+fi
 
 # ---- 3. pick reference run + diff -------------------------------------------
-[ -z "$REFRUN" ] && REFRUN=$(q "SELECT MAX(run_id) FROM block_run WHERE block=? AND run_id<?" "$BLOCK" "$CAND")
+# Auto-select the most recent prior run, but only a COMPLETE one. A stray
+# partial/aborted run (e.g. total=1) would make the JOIN-based diff trivially
+# "clean" (few/no common tests) and wave a real regression through. Require the
+# reference within 10% of the candidate's test count (override with --ref-run).
+MIN_REF_TOTAL=$(( ct * 9 / 10 ))
+[ -z "$REFRUN" ] && REFRUN=$(q "SELECT MAX(run_id) FROM block_run WHERE block=? AND run_id<? AND total>=?" "$BLOCK" "$CAND" "$MIN_REF_TOTAL")
+if [ -z "$REFRUN" ]; then
+  echo "VERDICT: HELD — no complete reference run (total>=$MIN_REF_TOTAL) for $BLOCK before #$CAND; pass --ref-run N"; exit 2
+fi
 read rt rp rf < <(q "SELECT total,passed,failed FROM block_run WHERE run_id=? AND block=?" "$REFRUN" "$BLOCK")
 echo "  reference run #$REFRUN: total=$rt pass=$rp fail=$rf"
 RB=$(q "SELECT block_run_id FROM block_run WHERE run_id=? AND block=?" "$REFRUN" "$BLOCK")
