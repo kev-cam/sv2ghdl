@@ -748,7 +748,18 @@ for my $i (0 .. $#lines) {
     # keyword is rewritten; continuation lines are unchanged). Iverilog flags
     # multiple `assign s.f1 = ...; assign s.f2 = ...;` on the same struct as
     # multi-driver; switching to procedural assigns sidesteps this.
-    if ($code =~ /^(\s*)assign\s+([A-Za-z_]\w*\.\w+(?:\[[^\]]+\])?)\s*=\s*(.*)$/) {
+    #
+    # OBSOLETE on a current iverilog: continuous `assign struct.field` (disjoint
+    # fields, or one field by `assign` while others come from an instance port)
+    # elaborates fine. Worse, the procedural rewrite CAUSES a conflict when the
+    # struct is also continuously driven -- e.g. eh2_dec_tlu_top drives 7/8
+    # fields of an output packed-struct via a flop `.dout({...})` and the 8th
+    # (`.tid`) via `assign`; making `.tid` procedural -> "Cannot perform
+    # procedural assignment ... also continuously assigned". Set
+    # SV_NORMALIZE_NO_STRUCT_ASSIGN=1 to keep the continuous form (the sv2ghdl
+    # flow sets it when iverilog has the modern frontend; see iverilog-sv2ghdl).
+    if (!$ENV{SV_NORMALIZE_NO_STRUCT_ASSIGN}
+        && $code =~ /^(\s*)assign\s+([A-Za-z_]\w*\.\w+(?:\[[^\]]+\])?)\s*=\s*(.*)$/) {
         my ($indent, $lhs, $rest) = ($1, $2, $3);
         $lines[$i] = "${indent}always @(*) ${lhs} = ${rest}${comment}";
         $rewrites++;

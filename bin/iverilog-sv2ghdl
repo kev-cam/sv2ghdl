@@ -38,18 +38,22 @@ if [[ -z "$IVERILOG" ]]; then
     fi
 fi
 
-# The chained-dynamic-index sv-normalize workaround (Rule 0/0b/0c, gotcha-c) is
-# superseded by iverilog's native variable-prefix-index support (commit
-# bb318c2be, "elaborate: allow a variable prefix index in a chained packed
-# select"). If the resolved iverilog HAS that support, disable the workaround
-# and let the core elaborate the chains directly -- cleaner, exact, and
-# validated 0-regression on ivtest/iverilog-nvc. Probe once (a variable prefix
-# index errors on an unpatched iverilog); honour an explicit env override.
-if [[ -z "${SV_NORMALIZE_NO_CHAINED+x}" ]]; then
+# Several sv-normalize rewrites work around iverilog frontend limitations that a
+# current iverilog no longer has, and that now do more harm than good:
+#  - the chained-dynamic-index hoist (Rule 0/0b/0c, gotcha-c) is superseded by
+#    native variable-prefix-index support (commit bb318c2be);
+#  - Rule 1b's `assign struct.field` -> procedural rewrite is unnecessary (the
+#    continuous form elaborates) and CREATES a proc-vs-continuous conflict when
+#    the struct is also continuously driven (eh2_dec_tlu_top .tid).
+# Probe the resolved iverilog ONCE (a variable prefix index errors on an
+# unpatched build); if it has the modern frontend, disable both superseded
+# rewrites so the core does the work. Each env var honours an explicit override.
+if [[ -z "${SV_NORMALIZE_NO_CHAINED+x}" || -z "${SV_NORMALIZE_NO_STRUCT_ASSIGN+x}" ]]; then
     _vpx=$(mktemp -d)
     printf 'module _vpx; logic [3:0][7:0] a; integer r; wire [3:0] y = a[r][3:0]; endmodule\n' > "$_vpx/p.v"
     if "$IVERILOG" -g2012 -tnull -o /dev/null "$_vpx/p.v" >/dev/null 2>&1; then
-        export SV_NORMALIZE_NO_CHAINED=1
+        [[ -z "${SV_NORMALIZE_NO_CHAINED+x}" ]]       && export SV_NORMALIZE_NO_CHAINED=1
+        [[ -z "${SV_NORMALIZE_NO_STRUCT_ASSIGN+x}" ]] && export SV_NORMALIZE_NO_STRUCT_ASSIGN=1
     fi
     rm -rf "$_vpx"
 fi
