@@ -11,7 +11,7 @@
 Multiplier reference: base-engine × is vs the row's SLOWEST native engine; the
 +bfit and Xyce-MPI × are vs that engine's OWN native run. Dots: green = fastest
 cell in the row; blue = an open engine/mode beating BOTH commercial tools."""
-import sys, os, csv
+import sys, os, csv, math
 
 NTX = {'rectifier':0,'inv_chain':200,'ring_osc':102,'ota_5t':5,'bjt_amp':3,'opamp':8,'breaker':3000}
 LABEL = {'rectifier':'Bridge rectifier (4 diodes)','inv_chain':'CMOS inverter chain ×100',
@@ -43,9 +43,12 @@ cm = rows_by_model(COMM)
 def mult(ref, x):
     return None if (ref is None or x is None or x <= 0) else ref / x
 
-def pct(a):
+def db(a):  # rel-L2 % -> signal-to-error ratio in dB (higher = better).
     v = num(str(a).rstrip('%')) if a is not None else None
-    return ('%.0f%%' % v) if v is not None else '?'
+    if v is None: return '?'
+    if v <= 0: return '∞ dB'
+    d = -20 * math.log10(v / 100.0)
+    return ('%+.0f dB' % d) if abs(d) >= 0.5 else '0 dB'
 
 def fmt(sec, mu, extra='', dot=''):
     if sec is None: return 'brk'
@@ -79,10 +82,10 @@ for m in ROWS:
            fmt(qs, mult(ref, qs), dot=dot('qspice')), fmt(lt, mult(ref, lt), dot=dot('ltspice')),
            fmt(ngb, mult(ref, ngb), dot=dot('ngspice')), fmt(xyb, mult(ref, xyb), dot=dot('xyce'))]
     row.append(fmt(mpi, mult(xyb, mpi), ' (np %s)' % mnp if mpi else '', dot('mpi')) if mpi else '—')
-    row += [fmt(nbal, mult(ngb, nbal), ' (%s)' % pct(o.get('ng_bal_acc')), dot('nbal')) if nbal else '—',
-            fmt(nfast, mult(ngb, nfast), ' (%s)' % pct(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
-            fmt(xbal, mult(xyb, xbal), ' (%s)' % pct(o.get('xy_bal_acc')), dot('xbal')) if xbal else '—',
-            fmt(xfast, mult(xyb, xfast), ' (%s)' % pct(o.get('xy_fast_acc')), dot('xfast')) if xfast else '—']
+    row += [fmt(nbal, mult(ngb, nbal), ' (%s)' % db(o.get('ng_bal_acc')), dot('nbal')) if nbal else '—',
+            fmt(nfast, mult(ngb, nfast), ' (%s)' % db(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
+            fmt(xbal, mult(xyb, xbal), ' (%s)' % db(o.get('xy_bal_acc')), dot('xbal')) if xbal else '—',
+            fmt(xfast, mult(xyb, xfast), ' (%s)' % db(o.get('xy_fast_acc')), dot('xfast')) if xfast else '—']
     lines.append('| ' + ' | '.join(row) + ' |')
 TABLE = '\n'.join(lines)
 
@@ -90,7 +93,8 @@ print("""# Cross-engine performance
 
 One run per circuit, **same netlist on every engine**. Each cell is
 `seconds ×speedup` (fewer seconds / bigger × is better); **+bfit** cells append
-`(rel-L2 error vs that engine's own base waveform)`. Transients are sized so
+`(signal-to-error ratio in dB vs that engine's own base; higher = better)`.
+Transients are sized so
 QSPICE solves for **≥3 s** and driven with **multi-tone** inputs so the adaptive
 engines can't coast to steady state. 🟢 = fastest cell in the row; 🔵 = an open
 engine/mode beating **both** commercial tools. `brk` = aborted (timestep
@@ -105,11 +109,14 @@ actually bought. **bal / fast** are the `bfit front --accuracy` presets
 
 """ + TABLE + """
 
-† digital rows (inverter, ring): rel-L2 is **timing/phase** (edge delay, the
-free-running oscillator's frequency), not amplitude — so the % overstates the
-*functional* error. ‡ the BJT amp is an overdriven **limiter** (railed output);
-the `ce_stage` macromodel fits its features to <1% but rel-L2 here is
-phase-dominated, so the % overstates it — the speedup is real.
+**Accuracy = signal-to-error ratio in dB** (`SER = −20·log₁₀(rel-L2)`); higher is
+better, +25 dB ≈ 6% error, 0 dB = error equals signal. It is **phase-sensitive**,
+so a macromodel that matches amplitude but lags in phase scores low: † the
+digital rows (inverter, ring) are dominated by **timing** (edge delay, the
+oscillator's frequency), not amplitude; ‡ the BJT amp is an overdriven
+**limiter** whose macromodel matches the clipping levels to <1% but sits near
+0 dB on phase alone. A delay-aligned SER (removing benign propagation delay) is
+the honest fix for the amps — coming next.
 
 **Xyce-MPI.** Domain-decomposition overhead dwarfs the work on small circuits,
 so MPI is **slower than serial on every small row** (→ —, killed once it passes
