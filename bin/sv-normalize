@@ -68,6 +68,25 @@ sub _array_tail_dims {
     return undef;
 }
 
+# Return the element (last packed) dimension text of an array, e.g. `[3:0]`
+# for `logic [1:0][3:0] arr`. Used to detect a redundant full-width trailing
+# range on a chained dynamic index.
+sub _array_last_dim {
+    my ($arr, $lines_ref, $ms, $me) = @_;
+    for my $i ($ms .. $me) {
+        my $l = $lines_ref->[$i];
+        next unless defined $l;
+        $l =~ s{//.*$}{};
+        next unless $l =~ /\b(?:logic|reg|wire|bit)\b[^\[;]*((?:\s*\[[^\]]*\])+)\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*;/;
+        my ($dims, $names) = ($1, $2);
+        next unless grep { (my $t = $_) =~ s/^\s+|\s+$//g; $t eq $arr }
+                    split /,/, $names;
+        my @d = $dims =~ /(\[[^\]]*\])/g;
+        return $d[-1] if @d >= 2;   # need a packed element dim below the outer
+    }
+    return undef;
+}
+
 # Find chained-index occurrences `IDENT[<outer-expr>][<inner>]` in $code.
 # Returns a list of [arr, outer_expr, inner_expr, span_start, span_end_excl].
 # Uses bracket balancing so the outer expression may contain nested `[...]`.
@@ -335,7 +354,13 @@ my %vhdl_refs;     # track what vhdl.X references we need
 # ("Array index expressions must be constant here"). Extract the dynamic slice
 # into a wire so iverilog only sees a single-level dynamic index, which it
 # handles via case-style mux generation.
-{
+#
+# SUPERSEDED by iverilog commit bb318c2be ("elaborate: allow a variable prefix
+# index in a chained packed select"): the frontend now handles arr[VAR][range],
+# arr[CONST_EXPR][...], arr[part_select][...] and packed-struct-array .field
+# natively. Set SV_NORMALIZE_NO_CHAINED=1 to skip this whole block (Rule 0/0b/0c
+# and the gotcha-c struct-member case) and let the core do the work.
+if (!$ENV{SV_NORMALIZE_NO_CHAINED}) {
     # Identify module boundaries to scope temp declarations.
     my @mod_starts;
     my @mod_ends;
@@ -372,6 +397,29 @@ my %vhdl_refs;     # track what vhdl.X references we need
     for my $m (0 .. $#mod_starts) {
         my $ms = $mod_starts[$m];
         my $me = $mod_ends[$m];
+
+        # Rule 0c: strip a REDUNDANT full-width trailing range on an LHS chained
+        # dynamic index. `arr[idx][HI:LO] (op)= ...` where [HI:LO] is exactly
+        # arr's element width is equivalent to `arr[idx] (op)= ...`. iverilog
+        # rejects `arr[idx][range]` with a non-constant PREFIX index (a chained
+        # variable index must be constant — evaluate_index_prefix); Rule 0b's
+        # read-temp can't fix an LHS write (the temp wouldn't write back). The
+        # plain dynamic element select `arr[idx]` is accepted for read+write.
+        # Only strips when the range textually equals the declared element dim,
+        # so it is a pure no-op (e.g. eh2_lsu_stbuf `stbuf_numvld_any[i][3:0] +=`).
+        for my $i ($ms .. $me) {
+            my $code = $lines[$i];
+            next unless $code =~ /^(\s*)([A-Za-z_]\w*)\[([A-Za-z_]\w*)\]\[([^\[\]]*:[^\[\]]*)\]\s*([-+&|^*\/%]?=)(?!=)/;
+            my ($arr, $idx, $rng) = ($2, $3, $4);
+            my $last = _array_last_dim($arr, \@lines, $ms, $me);
+            next unless defined $last;
+            (my $rn = "[$rng]") =~ s/\s+//g;
+            (my $ln = $last) =~ s/\s+//g;
+            next unless $rn eq $ln;     # range must be the full element width
+            if ($lines[$i] =~ s/^(\s*\Q$arr\E\[\Q$idx\E\])\[\Q$rng\E\]/$1/) {
+                $rewrites++;
+            }
+        }
 
         # Rule 0b: chained dynamic-then-range with procedural-loop-var index
         # → procedural temp assigned just before each use. Iverilog rejects
@@ -566,8 +614,18 @@ my %vhdl_refs;     # track what vhdl.X references we need
                 # only valid inside the procedural for body — skip at module
                 # scope (Rule 0b handles the inside-loop case).
                 next if $idx_trim =~ /\b[ijklmn]\b/;
-                # skip if outer index references a hierarchical name (`.`)
-                next if $idx_trim =~ /\./;
+                # An index with a `.` is normally skipped, EXCEPT the precise
+                # gotcha-c shape `arr[wbd.field][HI:LO]`: a struct-member outer
+                # index AND a bit-RANGE inner select on a packed (bit) array.
+                # Hoisting `wire t = arr[wbd.field]` then `t[HI:LO]` lets iverilog
+                # elaborate it (a variable PREFIX index in a chain must otherwise
+                # be constant — see evaluate_index_prefix). The range-inner guard
+                # is essential: `struct_arr[x.tid][i].field` (index inner + field)
+                # is a STRUCT-array access iverilog already handles, and must NOT
+                # be flattened into a fieldless wire. Complex/deep indices stay skipped.
+                next if ($idx_trim =~ /\./
+                         && !($rng =~ /:/
+                              && $idx_trim =~ /^[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)+$/));
                 my $key = "$arr|$idx_trim";
                 next if exists $temps{$key};
                 # Build a stable temp name. For simple identifiers use the
