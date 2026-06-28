@@ -67,9 +67,9 @@ TIMEOUT_MS=29000        # >= this on a FAIL == clock-jump noise
 # tracked files our commits are expected to change (used for the rebase-preserve
 # hash check). Format: repo:default:file[,file...]
 REPOS=(
-  "sv2ghdl:main:bin/sv-normalize"
-  "iverilog:main:tgt-vhdl/cast.cc,tgt-vhdl/scope.cc,tgt-vhdl/stmt.cc"
-  "nvc:master:lib/sv2vhdl/logic3d_types_pkg.vhd"
+  "sv2ghdl:main:bin/sv-normalize,bin/iverilog-sv2ghdl,bin/verilator-sv2ghdl,bin/gen-veer-tb"
+  "iverilog:main:PExpr.cc,PExpr.h,elab_expr.cc,elab_lval.cc,netmisc.cc,netmisc.h,tgt-vhdl/stmt.cc,tgt-vhdl/support.cc,ivtest/ivltests/genvar_inline_port_select.v,ivtest/ivltests/var_prefix_index.v,ivtest/regress-sv.list"
+  "nvc:master:lib/sv2vhdl/logic3d_types_pkg.vhd,lib/sv2vhdl/sv_display_pkg.vhd"
 )
 
 while [ $# -gt 0 ]; do
