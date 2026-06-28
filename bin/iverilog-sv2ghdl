@@ -213,7 +213,7 @@ if [[ -n "$NORM_SRC" && -x "$SV2VHDL_MODULES" ]]; then
             cp "$_mods" "$VHDL_OUT"
         fi
         cd "$OUTDIR"
-        if $NVC --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
+        if $NVC -M 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
             IVERILOG_OK=1
             echo "SV2VHDL_MODULES=1" >> "$OUTDIR/_metadata.tmp"
         fi
@@ -230,7 +230,7 @@ if [[ $IVERILOG_OK -eq 0 ]] && \
     if [[ -s "$VHDL_OUT" ]]; then
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
-        if $NVC --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
+        if $NVC -M 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
             IVERILOG_OK=1
             echo "IVERILOG_BACKEND=1" >> "$OUTDIR/_metadata.tmp"
         fi
