@@ -447,9 +447,10 @@ def _spice_num(s):
     if not m: return None
     return float(m.group(1)) * (_SI_SUF[m.group(2)] if m.group(2) else 1.0)
 
-def _relax_tran(mt):
-    """`.tran tstep tstop [...]` -> `.tran tstop/1000 tstop`: coarsen to ~1000
-    points so the solver strides over the smooth macromodels.
+def _relax_tran(mt, points=1000):
+    """`.tran tstep tstop [...]` -> `.tran tstop/points tstop`: coarsen to ~`points`
+    samples so the solver strides over the smooth macromodels (fewer points =
+    faster + coarser; the `front --accuracy` knob sets `points`).
 
     ngspice honours the first arg as a step CEILING and strides at it. Xyce's
     adaptive integrator only treats it as a suggested/print step and its
@@ -461,11 +462,15 @@ def _relax_tran(mt):
     if len(p) < 3: return mt.group(0)
     tstop = _spice_num(p[2])
     if not tstop: return ".tran %s %s" % (p[1], p[2])
-    return ".tran %.4g %.4g" % (tstop / 1000.0, tstop)
+    return ".tran %.4g %.4g" % (tstop / float(points), tstop)
 
-def front(netlist, sim, libroot, cache):
+def front(netlist, sim, libroot, cache, points=1000, reltol=0.1, abstol=0.01):
     """Transform a netlist for `sim`, honoring <SIM>_USE_BFIT. Returns
-    (transformed_netlist, substituted_count, to_tune_list)."""
+    (transformed_netlist, substituted_count, to_tune_list).
+
+    Speed/accuracy knob: `points` is the transient coarsening target (None =>
+    'exact', no coarsening). `reltol`/`abstol` loosen Xyce's LTE so it accepts
+    the coarse step (None => leave Xyce's tolerances untouched)."""
     mode, models = env_mode(sim)
     if mode == "off":
         return netlist, 0, []
@@ -529,9 +534,9 @@ def front(netlist, sim, libroot, cache):
     # device-level fast transients, so we drop any forced max timestep and
     # coarsen the output cadence to ~1000 points. The solver then strides
     # adaptively and writes far fewer points -- where bfit's speedup comes from.
-    if n:
-        text = re.sub(r'(?im)^\.tran\s+.*$', _relax_tran, text)
-        if sim == "xyce":
+    if n and points:                 # points falsy => 'exact': keep the fine .tran
+        text = re.sub(r'(?im)^\.tran\s+.*$', lambda mt: _relax_tran(mt, points), text)
+        if sim == "xyce" and reltol:
             # Xyce won't stride over the coarsened .tran on its own: its LTE
             # control refines to resolve the input. Loosen LTE (so it ACCEPTS
             # the coarse step) and cap the max step at the coarsened cadence C,
@@ -540,9 +545,16 @@ def front(netlist, sim, libroot, cache):
             m = re.search(r'(?im)^\.tran\s+(\S+)\s', text)
             C = _spice_num(m.group(1)) if m else None
             if C and C > 0:
-                opt = ".options timeint reltol=0.5 abstol=0.1 delmax=%.4g" % C
+                opt = ".options timeint reltol=%g abstol=%g delmax=%.4g" % (reltol, abstol, C)
                 text = re.sub(r'(?im)^(\.end\b)', opt + "\n\\1", text, count=1)
     return text, n, to_tune
+
+# Speed/accuracy presets for `front`: (coarsen-to-points, xyce reltol, xyce abstol).
+# 'exact' => no coarsening (full reference accuracy, macromodel-only speed); raw
+# --points/--reltol/--abstol override any individual value so the forms compose.
+ACC_PRESETS = {"exact": (None, None, None),
+               "balanced": (1000, 0.1, 0.01),
+               "fast": (300, 0.5, 0.1)}
 
 def main():
     ap = argparse.ArgumentParser(prog="bfit")
@@ -560,6 +572,13 @@ def main():
     f.add_argument("--sim", default="xyce")
     f.add_argument("--cache", default="cache.json")
     f.add_argument("-o", "--out")
+    f.add_argument("--accuracy", default="balanced", choices=list(ACC_PRESETS),
+                   help="speed/accuracy preset: exact (no coarsening), balanced "
+                        "(~1000 pts, reltol 0.1), fast (~300 pts, reltol 0.5). Default balanced.")
+    f.add_argument("--points", type=int, help="override coarsening target sample count "
+                                              "(0/omit with --accuracy exact = no coarsening)")
+    f.add_argument("--reltol", type=float, help="override Xyce LTE reltol")
+    f.add_argument("--abstol", type=float, help="override Xyce LTE abstol")
     mg = sub.add_parser("merge", help="ANALYTICAL lossless merge of directly-coupled "
                         "transistor structures -- eliminate internal nodes (exact, NOT "
                         "reduced-order like `front`)")
@@ -609,9 +628,16 @@ def main():
     if a.cmd == "front":
         cache = json.load(open(a.cache)) if os.path.exists(a.cache) else {}
         mode, models = env_mode(a.sim)
-        net, n, totune = front(open(a.netlist).read(), a.sim, a.libroot, cache)
-        sys.stderr.write("[bfit] %s_USE_BFIT=%s%s -> substituted %d block(s)%s\n" % (
+        pts, rt, at = ACC_PRESETS[a.accuracy]
+        if a.points is not None: pts = a.points or None      # --points 0 => exact
+        if a.reltol is not None: rt = a.reltol
+        if a.abstol is not None: at = a.abstol
+        if pts and rt is None: rt, at = 0.1, 0.01            # coarsening needs an LTE for xyce
+        net, n, totune = front(open(a.netlist).read(), a.sim, a.libroot, cache,
+                               points=pts, reltol=rt, abstol=at)
+        sys.stderr.write("[bfit] %s_USE_BFIT=%s%s -> substituted %d block(s); accuracy=%s (points=%s)%s\n" % (
             a.sim.upper(), mode, (":" + ",".join(models)) if models else "", n,
+            a.accuracy, pts if pts else "exact",
             ("; queued for tuning: " + ",".join(totune)) if totune else ""))
         (open(a.out, "w") if a.out else sys.stdout).write(net)
         return
