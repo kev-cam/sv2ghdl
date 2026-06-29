@@ -166,6 +166,10 @@ int main(int argc, char **argv)
     }
 
     Yosys::yosys_setup();
+    if (getenv("GSM_LOG")) {            // surface yosys diagnostics for debugging
+        Yosys::log_streams.push_back(&std::cerr);
+        Yosys::log_error_stderr = true;
+    }
 
     // Read each source (-sv for .sv); read_verilog accumulates modules.
     for (const std::string &f : inputs) {
@@ -203,6 +207,11 @@ int main(int argc, char **argv)
     Yosys::run_pass("proc");
     Yosys::run_pass("flatten");
     Yosys::run_pass("opt");
+    // Lower clock-enable and SYNCHRONOUS reset into the FF's D logic ($sdff/
+    // $dffe -> plain $dff + an explicit mux). Async resets ($adff) are left for
+    // sm_reset. Without this the codegen drops sync resets (q_next = d only).
+    Yosys::run_pass("dffunmap");
+    Yosys::run_pass("opt_clean");   // tidy WITHOUT opt_dff re-absorbing the reset into $dff SRST
 
     auto *design = Yosys::yosys_get_design();
     auto *mod = design->top_module();
@@ -525,8 +534,13 @@ int main(int argc, char **argv)
     }
     fprintf(out, "}\n\n");
 
-    // Cycle evaluation function
-    fprintf(out, "void sm_eval(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+    // Cycle evaluation, SPLIT into sm_comb (combinational outputs from the
+    // CURRENT register state + inputs, no commit) and sm_clock (advance the
+    // registers/memory to the next state). The --accel bridge re-runs sm_comb on
+    // every boundary-input-change delta (intra-cycle combinational settling) and
+    // sm_clock once per clock posedge. sm_eval is kept as a back-compat wrapper.
+    // Shared preamble (aliases + comb-wire decls + topological comb eval) lambda:
+    auto emit_comb = [&]() {
     fprintf(out, "    // Input aliases\n");
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
@@ -748,8 +762,10 @@ int main(int argc, char **argv)
         }
     }
     fprintf(out, "\n");
+    };  // end emit_comb lambda
 
-    // Update registers (next state)
+    // Register commits + memory writes + FSM coverage (the sm_clock tail).
+    auto emit_seq = [&]() {
     fprintf(out, "    // Register updates (next state)\n");
     for (auto &reg : registers) {
         // Emit source location for register assignment
@@ -818,8 +834,10 @@ int main(int argc, char **argv)
         }
         fprintf(out, "\n");
     }
+    };  // end emit_seq lambda
 
-    // Copy outputs — trace through sigmap to find the actual source
+    // Output copies (the sm_comb tail) — trace through sigmap to find the source.
+    auto emit_outputs = [&]() {
     fprintf(out, "    // Outputs\n");
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
@@ -830,6 +848,28 @@ int main(int argc, char **argv)
             fprintf(out, "    o->%s = %s;\n", wn.c_str(), expr.c_str());
         }
     }
+    };  // end emit_outputs lambda
+
+    // sm_comb: combinational OUTPUTS from the CURRENT register state + inputs,
+    // with no side effects (no register/memory commit). The bridge re-runs this
+    // on every boundary-input-change delta to settle combinational outputs.
+    fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+    emit_comb();
+    emit_outputs();
+    fprintf(out, "}\n\n");
+
+    // sm_clock: advance the registers / memory to the next state (no outputs).
+    // The bridge calls this once per clock posedge.
+    fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
+    emit_comb();
+    emit_seq();
+    fprintf(out, "}\n\n");
+
+    // sm_eval: back-compat wrapper — combinational outputs from the current state,
+    // then commit (identical to the old single-function semantics).
+    fprintf(out, "void sm_eval(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+    fprintf(out, "    sm_comb(s, in, o);\n");
+    fprintf(out, "    sm_clock(s, in);\n");
     fprintf(out, "}\n\n");
 
     // FSM coverage report function
