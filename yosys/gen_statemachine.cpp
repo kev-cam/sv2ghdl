@@ -34,17 +34,46 @@ static std::string cname(const std::string &s) {
     return r;
 }
 
+// Wide-signal support: signals up to 64 bits use uint64_t (byte-identical to the
+// pre-wide codegen); 65..128 bits use unsigned __int128 so big datapath chunks
+// (e.g. dec's 68-bit i0_brp) compute correctly instead of truncating to 64.
+static const char *ctype(int w) { return w > 64 ? "unsigned __int128" : "uint64_t"; }
+
+// Emit a C literal for a value up to 128 bits (hi/lo split for >64); for <=64
+// emits exactly the old `UINT64_C(0x..)` spelling so narrow output is unchanged.
+static std::string u128_lit(unsigned __int128 v) {
+    std::ostringstream o;
+    uint64_t lo = (uint64_t)v, hi = (uint64_t)(v >> 64);
+    if (hi == 0)
+        o << "UINT64_C(0x" << std::hex << lo << ")";
+    else
+        o << "((((unsigned __int128)UINT64_C(0x" << std::hex << hi << "))<<64)|UINT64_C(0x"
+          << std::hex << lo << "))";
+    return o.str();
+}
+
+// Emit a C mask literal for a width 1..128, computed with __int128 at codegen so
+// the UB `1<<w` (w>=64) never runs; <=64 matches the old `UINT64_C(0x..)` spelling.
+static std::string mask_lit(int w) {
+    if (w >= 128) return "(~(unsigned __int128)0)";
+    if (w == 64)  return "UINT64_C(0xffffffffffffffff)";
+    if (w < 64) {
+        std::ostringstream o;
+        o << "UINT64_C(0x" << std::hex << ((UINT64_C(1) << w) - 1) << ")";
+        return o.str();
+    }
+    return u128_lit(((unsigned __int128)1 << w) - 1);   // 65..127
+}
+
 // Get a C expression for a SigSpec (wire reference or constant)
 static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
     auto mapped = sigmap(sig);
     if (mapped.is_fully_const()) {
         auto val = mapped.as_const();
-        uint64_t v = 0;
+        unsigned __int128 v = 0;
         for (int i = val.size()-1; i >= 0; i--)
             v = (v << 1) | (val[i] == RTLIL::S1 ? 1 : 0);
-        std::ostringstream oss;
-        oss << "UINT64_C(0x" << std::hex << v << ")";
-        return oss.str();
+        return u128_lit(v);
     }
 
     // Single wire reference. NB: hold chunks() in a NAMED local. SigSpec::chunks()
@@ -61,9 +90,8 @@ static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
             else if (chunk.width == 1)
                 return "(((" + wn + ") >> " + std::to_string(chunk.offset) + ") & 1)";
             else {
-                uint64_t mask = (1ULL << chunk.width) - 1;
                 std::ostringstream oss;
-                oss << "(((" << wn << ") >> " << chunk.offset << ") & UINT64_C(0x" << std::hex << mask << "))";
+                oss << "(((" << wn << ") >> " << chunk.offset << ") & " << mask_lit(chunk.width) << ")";
                 return oss.str();
             }
         }
@@ -79,18 +107,15 @@ static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
             if (chunk.offset == 0 && chunk.width == chunk.wire->width)
                 part = wn;
             else {
-                uint64_t mask = (1ULL << chunk.width) - 1;
                 std::ostringstream oss;
-                oss << "((" << wn << " >> " << chunk.offset << ") & UINT64_C(0x" << std::hex << mask << "))";
+                oss << "((" << wn << " >> " << chunk.offset << ") & " << mask_lit(chunk.width) << ")";
                 part = oss.str();
             }
         } else {
-            uint64_t v = 0;
+            unsigned __int128 v = 0;
             for (int i = chunk.data.size()-1; i >= 0; i--)
                 v = (v << 1) | (chunk.data[i] == RTLIL::S1 ? 1 : 0);
-            std::ostringstream oss;
-            oss << "UINT64_C(0x" << std::hex << v << ")";
-            part = oss.str();
+            part = u128_lit(v);
         }
         if (pos == 0)
             expr = part;
@@ -112,6 +137,13 @@ static bool is_signed(RTLIL::Cell *cell) {
 
 // Generate sign-extension expression for comparison operands
 static std::string signed_expr(const std::string &expr, int width) {
+    if (width >= 128) return "(__int128)" + expr;
+    if (width > 64) {   // 65..127: sign-extend within an __int128
+        std::ostringstream oss;
+        oss << "((__int128)((unsigned __int128)(" << expr << ") << " << (128 - width)
+            << ") >> " << (128 - width) << ")";
+        return oss.str();
+    }
     if (width >= 64) return "(int64_t)" + expr;
     std::ostringstream oss;
     oss << "((int64_t)((" << expr << ") << " << (64 - width) << ") >> " << (64 - width) << ")";
@@ -224,14 +256,14 @@ int main(int argc, char **argv)
         std::string en_expr;  // empty = always enabled
         std::string src;      // source location "file:line.col"
         int width;
-        uint64_t arst_val;
+        unsigned __int128 arst_val;
     };
     struct MemInfo {
         std::string name;
         int width;          // bits per word
         int depth;          // number of words
         int abits;          // address bits
-        std::map<int, uint64_t> init;  // addr -> value
+        std::map<int, unsigned __int128> init;  // addr -> value
     };
     std::map<std::string, MemInfo> memories;  // keyed by MEMID
 
@@ -260,7 +292,7 @@ int main(int argc, char **argv)
             uint64_t addr = 0;
             for (int i = addr_const.size()-1; i >= 0; i--)
                 addr = (addr << 1) | (addr_const[i] == RTLIL::S1 ? 1 : 0);
-            uint64_t data = 0;
+            unsigned __int128 data = 0;
             for (int i = data_const.size()-1; i >= 0; i--)
                 data = (data << 1) | (data_const[i] == RTLIL::S1 ? 1 : 0);
             mem.init[addr] = data;
@@ -315,7 +347,7 @@ int main(int argc, char **argv)
             reg.arst_val = 0;
             if (type == "$adff" || type == "$adffe") {
                 auto arst_val = cell->getParam(ID(ARST_VALUE));
-                uint64_t rv = 0;
+                unsigned __int128 rv = 0;
                 for (int i = arst_val.size()-1; i >= 0; i--)
                     rv = (rv << 1) | (arst_val[i] == RTLIL::S1 ? 1 : 0);
                 reg.arst_val = rv;
@@ -471,7 +503,7 @@ int main(int argc, char **argv)
         if (wire->port_input) {
             std::string wn = cname(wire->name.str());
             if (wn != "_clk" && wn != "_rst") {
-                fprintf(out, "    uint64_t %s;  // %d bits\n", wn.c_str(), wire->width);
+                fprintf(out, "    %s %s;  // %d bits\n", ctype(wire->width), wn.c_str(), wire->width);
                 has_inputs = true;
             }
         }
@@ -479,10 +511,20 @@ int main(int argc, char **argv)
     if (!has_inputs) fprintf(out, "    int _dummy;\n");
     fprintf(out, "} inputs_t;\n\n");
 
+    // Wide-word memories (>64b/word) are out of scope: the $memwr/$memrd data
+    // path below stays uint64_t, so silently truncating a wide word would be
+    // wrong. Decline the whole module (stays interpreted in nvc) instead.
+    for (auto &m : memories)
+        if (m.second.width > 64) {
+            fprintf(stderr, "gen_statemachine: memory %s has %d-bit words (>64) — declining\n",
+                    m.second.name.c_str(), m.second.width);
+            exit(1);   // install checks the exit code and leaves the chunk in nvc
+        }
+
     // State struct
     fprintf(out, "typedef struct {\n");
     for (auto &reg : registers)
-        fprintf(out, "    uint64_t %s;  // %d bits\n", reg.name.c_str(), reg.width);
+        fprintf(out, "    %s %s;  // %d bits\n", ctype(reg.width), reg.name.c_str(), reg.width);
     for (auto &m : memories)
         fprintf(out, "    uint64_t %s[%d];  // %d x %d-bit\n",
                 m.second.name.c_str(), m.second.depth, m.second.depth, m.second.width);
@@ -512,24 +554,24 @@ int main(int argc, char **argv)
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
         if (wire->port_output)
-            fprintf(out, "    uint64_t %s;  // %d bits\n",
-                    cname(wire->name.str()).c_str(), wire->width);
+            fprintf(out, "    %s %s;  // %d bits\n",
+                    ctype(wire->width), cname(wire->name.str()).c_str(), wire->width);
     }
     fprintf(out, "} outputs_t;\n\n");
 
     // Reset function
     fprintf(out, "void sm_reset(state_t *s) {\n");
     for (auto &reg : registers)
-        fprintf(out, "    s->%s = UINT64_C(0x%llx);\n",
-                reg.name.c_str(), (unsigned long long)reg.arst_val);
+        fprintf(out, "    s->%s = %s;\n",
+                reg.name.c_str(), u128_lit(reg.arst_val).c_str());
     for (auto &m : memories) {
         auto &mem = m.second;
         for (int i = 0; i < mem.depth; i++) {
             auto it = mem.init.find(i);
-            uint64_t val = (it != mem.init.end()) ? it->second : 0;
+            unsigned __int128 val = (it != mem.init.end()) ? it->second : 0;
             if (val != 0)
-                fprintf(out, "    s->%s[%d] = UINT64_C(0x%llx);\n",
-                        mem.name.c_str(), i, (unsigned long long)val);
+                fprintf(out, "    s->%s[%d] = %s;\n",
+                        mem.name.c_str(), i, u128_lit(val).c_str());
         }
     }
     fprintf(out, "}\n\n");
@@ -549,12 +591,12 @@ int main(int argc, char **argv)
             if (wn == "_clk" || wn == "_rst")
                 fprintf(out, "    uint64_t %s = 0;  // clock/reset handled externally\n", wn.c_str());
             else
-                fprintf(out, "    uint64_t %s = in->%s;\n", wn.c_str(), wn.c_str());
+                fprintf(out, "    %s %s = in->%s;\n", ctype(wire->width), wn.c_str(), wn.c_str());
         }
     }
     fprintf(out, "\n    // Register aliases (current state)\n");
     for (auto &reg : registers)
-        fprintf(out, "    uint64_t %s = s->%s;\n", reg.name.c_str(), reg.name.c_str());
+        fprintf(out, "    %s %s = s->%s;\n", ctype(reg.width), reg.name.c_str(), reg.name.c_str());
     fprintf(out, "\n");
 
     // Declare all wires not already covered by registers or inputs
@@ -573,7 +615,7 @@ int main(int argc, char **argv)
         auto *wire = w.second;
         std::string wn = cname(wire->name.str());
         if (!declared.count(wn)) {
-            fprintf(out, "    uint64_t %s = 0;\n", wn.c_str());
+            fprintf(out, "    %s %s = 0;\n", ctype(wire->width), wn.c_str());
             declared.insert(wn);
         }
     }
@@ -606,30 +648,29 @@ int main(int argc, char **argv)
             if (!data_name.empty()) {
                 auto addr = sig_expr(cell->getPort(ID(ADDR)), sigmap);
                 int abits = cell->getParam(ID(ABITS)).as_int();
-                uint64_t addr_mask = (1ULL << abits) - 1;
-                fprintf(out, "    %s = s->%s[%s & UINT64_C(0x%llx)];\n",
+                fprintf(out, "    %s = s->%s[%s & %s];\n",
                         data_name.c_str(), cname(memid).c_str(),
-                        addr.c_str(), (unsigned long long)addr_mask);
+                        addr.c_str(), mask_lit(abits).c_str());
             }
             continue;
         }
 
         if (y_name.empty()) continue;
 
-        uint64_t mask = y_width >= 64 ? ~0ULL : ((1ULL << y_width) - 1);
+        std::string masks = mask_lit(y_width);   // width-correct C mask string
 
         if (type == "$add") {
-            fprintf(out, "    %s = (%s + %s) & UINT64_C(0x%llx);\n",
+            fprintf(out, "    %s = (%s + %s) & %s;\n",
                     y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
-                    (unsigned long long)mask);
+                    masks.c_str());
         } else if (type == "$sub") {
-            fprintf(out, "    %s = (%s - %s) & UINT64_C(0x%llx);\n",
+            fprintf(out, "    %s = (%s - %s) & %s;\n",
                     y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
-                    (unsigned long long)mask);
+                    masks.c_str());
         } else if (type == "$and") {
             fprintf(out, "    %s = %s & %s;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
@@ -643,15 +684,15 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str());
         } else if (type == "$not") {
-            fprintf(out, "    %s = (~%s) & UINT64_C(0x%llx);\n", y_name.c_str(),
+            fprintf(out, "    %s = (~%s) & %s;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    (unsigned long long)mask);
+                    masks.c_str());
         } else if (type == "$shl") {
-            fprintf(out, "    %s = (%s << %s) & UINT64_C(0x%llx);\n",
+            fprintf(out, "    %s = (%s << %s) & %s;\n",
                     y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
-                    (unsigned long long)mask);
+                    masks.c_str());
         } else if (type == "$shr") {
             fprintf(out, "    %s = %s >> %s;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
@@ -728,35 +769,46 @@ int main(int argc, char **argv)
             }
             fprintf(out, "    %s = (%s >= %s) ? 1 : 0;\n", y_name.c_str(), a.c_str(), b.c_str());
         } else if (type == "$mul") {
-            fprintf(out, "    %s = (%s * %s) & UINT64_C(0x%llx);\n",
-                    y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
-                    (unsigned long long)mask);
+            // a >64b product needs a wide multiply (two uint64_t operands would
+            // lose the high half before masking); cast one operand to the Y type.
+            if (y_width > 64)
+                fprintf(out, "    %s = ((unsigned __int128)(%s) * (%s)) & %s;\n",
+                        y_name.c_str(),
+                        sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                        sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
+            else
+                fprintf(out, "    %s = (%s * %s) & %s;\n",
+                        y_name.c_str(),
+                        sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                        sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
         } else if (type == "$neg") {
-            fprintf(out, "    %s = (-%s) & UINT64_C(0x%llx);\n", y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    (unsigned long long)mask);
+            fprintf(out, "    %s = (-%s) & %s;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(), masks.c_str());
         } else if (type == "$reduce_and") {
             auto a = sig_expr(cell->getPort(ID::A), sigmap);
             int a_width = cell->getPort(ID::A).size();
-            uint64_t a_mask = a_width >= 64 ? ~0ULL : ((1ULL << a_width) - 1);
-            fprintf(out, "    %s = ((%s & UINT64_C(0x%llx)) == UINT64_C(0x%llx)) ? 1 : 0;\n",
-                    y_name.c_str(), a.c_str(),
-                    (unsigned long long)a_mask, (unsigned long long)a_mask);
+            std::string am = mask_lit(a_width);
+            fprintf(out, "    %s = ((%s & %s) == %s) ? 1 : 0;\n",
+                    y_name.c_str(), a.c_str(), am.c_str(), am.c_str());
         } else if (type == "$reduce_xor") {
-            fprintf(out, "    { uint64_t _t = %s; _t ^= _t >> 32; _t ^= _t >> 16; "
-                    "_t ^= _t >> 8; _t ^= _t >> 4; _t ^= _t >> 2; _t ^= _t >> 1; "
-                    "%s = _t & 1; }\n",
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(), y_name.c_str());
+            int a_width = cell->getPort(ID::A).size();
+            if (a_width > 64)
+                fprintf(out, "    { unsigned __int128 _t = %s; _t ^= _t >> 64; _t ^= _t >> 32; "
+                        "_t ^= _t >> 16; _t ^= _t >> 8; _t ^= _t >> 4; _t ^= _t >> 2; _t ^= _t >> 1; "
+                        "%s = (uint64_t)(_t & 1); }\n",
+                        sig_expr(cell->getPort(ID::A), sigmap).c_str(), y_name.c_str());
+            else
+                fprintf(out, "    { uint64_t _t = %s; _t ^= _t >> 32; _t ^= _t >> 16; "
+                        "_t ^= _t >> 8; _t ^= _t >> 4; _t ^= _t >> 2; _t ^= _t >> 1; "
+                        "%s = _t & 1; }\n",
+                        sig_expr(cell->getPort(ID::A), sigmap).c_str(), y_name.c_str());
         } else if (type == "$reduce_bool") {
             fprintf(out, "    %s = (%s != 0) ? 1 : 0;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str());
         } else if (type == "$xnor") {
-            fprintf(out, "    %s = (~(%s ^ %s)) & UINT64_C(0x%llx);\n", y_name.c_str(),
+            fprintf(out, "    %s = (~(%s ^ %s)) & %s;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
-                    (unsigned long long)mask);
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
         } else {
             fprintf(out, "    // TODO: unhandled cell type %s\n", type.c_str());
         }
