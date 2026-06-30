@@ -17,6 +17,15 @@
 
 using namespace Yosys;
 
+// Read redirect: maps each sigmap-representative SigBit to the net's actual
+// DRIVEN storage bit (a cell output Y/DATA, a register Q, or a module input).
+// yosys's SigMap frequently elects an UNDRIVEN port/alias wire as a connect
+// group's representative (ports are preferred reps), so a read of that rep would
+// emit a dead 0 wire while the real value lives under the driver's name. Built
+// once after sigmap (g_build_redirect); identity for alias-free designs, so the
+// narrow toy output stays byte-identical.
+static std::map<RTLIL::SigBit, RTLIL::SigBit> *g_redirect = nullptr;
+
 // Sanitize RTLIL names to valid C identifiers
 static std::string cname(const std::string &s) {
     std::string r;
@@ -104,7 +113,19 @@ static const char *WIDE_RT =
 
 // Get a C expression for a SigSpec (wire reference or constant)
 static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
-    auto mapped = sigmap(sig);
+    RTLIL::SigSpec mapped = sigmap(sig);
+    // Redirect each representative bit to its actual driven storage bit, so a
+    // read of an undriven connect-group representative resolves to the driver
+    // (cell/register/input) instead of a dead 0 wire. Identity (no remap) for
+    // alias-free designs -> narrow output unchanged.
+    if (g_redirect != nullptr && !g_redirect->empty()) {
+        RTLIL::SigSpec rm;
+        for (RTLIL::SigBit bit : mapped) {   // by value — operator* yields a temporary
+            auto it = g_redirect->find(bit);
+            rm.append(it != g_redirect->end() ? it->second : bit);
+        }
+        mapped = rm;
+    }
     if (mapped.is_fully_const()) {
         auto val = mapped.as_const();
         unsigned __int128 v = 0;
@@ -482,6 +503,29 @@ int main(int argc, char **argv)
     auto *mod = design->top_module();
     SigMap sigmap(mod);
 
+    // Build the read-redirect: for every DRIVEN net (cell output Y/DATA, register
+    // Q, module input), map its sigmap representative bit -> the raw driven bit.
+    // A read then resolves through sig_expr to the driver's own C name even when
+    // sigmap elected an undriven port/alias wire as the group representative
+    // (the root cause of dec's dead-wire miscompute). One driver per net, so no
+    // conflicts; identity for alias-free designs.
+    std::map<RTLIL::SigBit, RTLIL::SigBit> redirect;
+    {
+        auto markspec = [&](const RTLIL::SigSpec &s) {
+            RTLIL::SigSpec m = sigmap(s);
+            for (int i = 0; i < GetSize(s); i++)
+                if (s[i].wire) redirect[m[i]] = s[i];
+        };
+        for (auto &cp : mod->cells_) {
+            RTLIL::Cell *cell = cp.second;
+            for (auto pid : {ID::Y, ID(DATA), ID::Q})
+                if (cell->hasPort(pid)) markspec(cell->getPort(pid));
+        }
+        for (auto &wp : mod->wires_)
+            if (wp.second->port_input) markspec(RTLIL::SigSpec(wp.second));
+    }
+    g_redirect = &redirect;
+
     // Collect all wires, identify registers
     struct RegInfo {
         std::string name;
@@ -680,13 +724,19 @@ int main(int argc, char **argv)
     // wide register's D input, each slice a separate cell) has MULTIPLE drivers;
     // all must be ordered before a reader, else a reader sees a partially-written
     // wire. (Single-driver wires keep a 1-element list -> identical topo order.)
+    // Key by the SIGMAP-CANONICAL output net, NOT the raw Y wire. Reads go
+    // through sigmap (sig_expr), so the driver and its readers must agree on the
+    // canonical net; for a wire in a `connect`/alias group the raw Y wire differs
+    // from the canonical, which would emit `rawY = ...` while readers read the
+    // canonical -> the value never flows (silent dead wire). (Alias-free designs:
+    // sigmap is identity, so unchanged.)
     std::map<RTLIL::Wire*, std::vector<RTLIL::Cell*>> wire_driver;
     for (auto *cell : comb_cells) {
-        // Check Y port (most cells) and DATA port ($memrd)
+        // Check Y port (most cells) and DATA port ($memrd). Key by the RAW driven
+        // wire (the name the cell writes); readers reach it through the redirect.
         for (auto port_id : {ID::Y, ID(DATA)}) {
             if (cell->hasPort(port_id)) {
-                auto &y = cell->getPort(port_id);
-                for (auto &chunk : y.chunks())
+                for (auto &chunk : cell->getPort(port_id).chunks())
                     if (chunk.wire) wire_driver[chunk.wire].push_back(cell);
             }
         }
@@ -699,15 +749,21 @@ int main(int argc, char **argv)
     topo_visit = [&](RTLIL::Cell *cell) {
         if (visited.count(cell)) return;
         visited.insert(cell);
-        // Visit dependencies (input wires)
+        // Visit dependencies (input wires). Resolve each input bit to its DRIVEN
+        // wire through sigmap+redirect (an aliased net's connect is folded here),
+        // then look up the raw-keyed wire_driver — so a dependency through a
+        // connect/alias is not missed (which left the topo order undefined and
+        // emitted a consumer before its producer).
         for (auto &conn : cell->connections()) {
             if (conn.first == ID::Y) continue;  // skip output
-            for (auto &chunk : conn.second.chunks()) {
-                if (chunk.wire) {
-                    auto it = wire_driver.find(chunk.wire);
-                    if (it != wire_driver.end())
-                        for (auto *dc : it->second) topo_visit(dc);
-                }
+            RTLIL::SigSpec m = sigmap(conn.second);
+            for (auto &bit : m) {
+                auto rit = redirect.find(bit);
+                RTLIL::Wire *w = (rit != redirect.end() ? rit->second : bit).wire;
+                if (w == nullptr) continue;
+                auto it = wire_driver.find(w);
+                if (it != wire_driver.end())
+                    for (auto *dc : it->second) topo_visit(dc);
             }
         }
         sorted.push_back(cell);
@@ -912,6 +968,9 @@ int main(int argc, char **argv)
         std::string y_name;
         int y_width = 0, y_off = 0, ywire_w = 0;
         if (cell->hasPort(ID::Y)) {
+            // The cell writes its RAW Y wire (its driven storage). Readers resolve
+            // to this name through the g_redirect map (sig_expr), so aliased
+            // (connect-group) nets read the driver's value rather than a dead wire.
             auto &y = cell->getPort(ID::Y);
             if (y.chunks().begin() != y.chunks().end() && (*y.chunks().begin()).wire) {
                 RTLIL::SigChunk yc = *y.chunks().begin();
@@ -927,7 +986,7 @@ int main(int argc, char **argv)
         // Handle $memrd separately (uses DATA port, not Y)
         if (type == "$memrd" || type == "$memrd_v2") {
             std::string memid = cell->getParam(ID(MEMID)).decode_string();
-            auto &data_port = cell->getPort(ID(DATA));
+            auto &data_port = cell->getPort(ID(DATA));   // raw driven storage
             std::string data_name;
             if (data_port.chunks().begin() != data_port.chunks().end() &&
                 (*data_port.chunks().begin()).wire)
@@ -957,6 +1016,20 @@ int main(int argc, char **argv)
         }
 
         std::string masks = mask_lit(y_width);   // width-correct C mask string
+
+        // Multi-wire Y: a cell whose output is a CONCATENATION of distinct wires
+        // (e.g. a $mux/$pmux from the procedural sv_and/sv_or helpers drives
+        // {wireA, wireB}). The op below writes ONE name; emitting only the first
+        // chunk's wire leaves the others dead-0 (the root cause of dec's
+        // miscompute). Run the op into a temp, then scatter it to every Y chunk.
+        std::vector<RTLIL::SigChunk> y_chunks;
+        bool y_multi = false;
+        if (cell->hasPort(ID::Y)) {
+            auto yc = cell->getPort(ID::Y).chunks();
+            int nwire = 0; for (auto &c : yc) if (c.wire) nwire++;
+            if (nwire > 1) { y_chunks.assign(yc.begin(), yc.end()); y_multi = true; }
+        }
+        if (y_multi) { fprintf(out, "    { uint64_t _yspl = 0;\n"); y_name = "_yspl"; }
 
         if (type == "$add") {
             fprintf(out, "    %s = (%s + %s) & %s;\n",
@@ -1110,6 +1183,30 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
         } else {
             fprintf(out, "    // TODO: unhandled cell type %s\n", type.c_str());
+        }
+        if (y_multi) {
+            int pos = 0;
+            for (auto &ch : y_chunks) {
+                if (ch.wire) {
+                    std::string wn = cname(ch.wire->name.str());
+                    int w = ch.width, off = ch.offset, ww = ch.wire->width;
+                    if (is_wide(ww))   // chunk targets a limb-array wire
+                        fprintf(out, "      for(int _sb=0;_sb<%d;_sb++)"
+                                " wplaceb(%s,%d+_sb,(uint32_t)((_yspl>>(%d+_sb))&1));\n",
+                                w, wn.c_str(), off, pos);
+                    else if (off == 0 && w == ww)
+                        fprintf(out, "      %s = (_yspl >> %d) & %s;\n",
+                                wn.c_str(), pos, mask_lit(w).c_str());
+                    else {
+                        std::string m = mask_lit(w);
+                        fprintf(out, "      %s = (%s & ~(%s << %d)) |"
+                                " (((_yspl >> %d) & %s) << %d);\n",
+                                wn.c_str(), wn.c_str(), m.c_str(), off, pos, m.c_str(), off);
+                    }
+                }
+                pos += ch.width;
+            }
+            fprintf(out, "    }\n");
         }
     }
     fprintf(out, "\n");
