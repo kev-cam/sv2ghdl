@@ -535,6 +535,8 @@ int main(int argc, char **argv)
         std::string src;      // source location "file:line.col"
         int width;
         unsigned __int128 arst_val;
+        std::string clk_name; // CLK net cname (redirect-folded); "_clk" = main clk
+        int clk_group = 0;    // 0 = main clk; 1+i = extra_clocks[i]
     };
     struct MemInfo {
         std::string name;
@@ -645,10 +647,52 @@ int main(int argc, char **argv)
                 }
             }
 
+            // Clock net (fold through redirect exactly like data reads, so an
+            // internal gated clock that `connect`s to \clk -> cname "_clk" -> main
+            // group). The bridge advances each flop on ITS clock's posedge.
+            reg.clk_name = "_clk";
+            if (cell->hasPort(ID::CLK)) {
+                RTLIL::SigBit cb = sigmap(cell->getPort(ID::CLK))[0];
+                auto rit = redirect.find(cb);
+                if (rit != redirect.end()) cb = rit->second;
+                if (cb.wire) reg.clk_name = cname(cb.wire->name.str());
+            }
+
             registers.push_back(reg);
         } else {
             comb_cells.push_back(cell);
         }
+    }
+
+    // --- Multi-clock grouping ---
+    // Group registers by their clock net. Group 0 = the main clk (cname "_clk",
+    // which the bridge drives the posedge from). Each DISTINCT other clock (e.g.
+    // free_clk / active_clk, which are module INPUTS = clk & enable) becomes an
+    // extra group whose flops the bridge advances on THAT clock's own posedge.
+    std::vector<std::string> extra_clocks;
+    {
+        std::set<std::string> input_cnames;
+        for (auto &w : mod->wires_)
+            if (w.second->port_input) input_cnames.insert(cname(w.second->name.str()));
+        for (auto &reg : registers) {
+            if (reg.clk_name == "_clk") continue;
+            if (std::find(extra_clocks.begin(), extra_clocks.end(), reg.clk_name)
+                == extra_clocks.end()) {
+                // The bridge can only edge-detect a clock that is a boundary INPUT.
+                // An internal generated clock that did not fold to \clk can't be
+                // tracked -> decline (stay interpreted) rather than miscompute.
+                if (!input_cnames.count(reg.clk_name)) {
+                    fprintf(stderr, "gen_statemachine: extra clock %s is not a "
+                            "module input — declining\n", reg.clk_name.c_str());
+                    exit(1);
+                }
+                extra_clocks.push_back(reg.clk_name);
+            }
+        }
+        for (auto &reg : registers)
+            reg.clk_group = (reg.clk_name == "_clk") ? 0
+                : 1 + (int)(std::find(extra_clocks.begin(), extra_clocks.end(),
+                                      reg.clk_name) - extra_clocks.begin());
     }
 
     // --- FSM detection ---
@@ -911,7 +955,7 @@ int main(int argc, char **argv)
     // every boundary-input-change delta (intra-cycle combinational settling) and
     // sm_clock once per clock posedge. sm_eval is kept as a back-compat wrapper.
     // Shared preamble (aliases + comb-wire decls + topological comb eval) lambda:
-    auto emit_comb = [&]() {
+    auto emit_comb = [&](const char *sp) {
     fprintf(out, "    // Input aliases\n");
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
@@ -929,10 +973,10 @@ int main(int argc, char **argv)
     fprintf(out, "\n    // Register aliases (current state)\n");
     for (auto &reg : registers) {
         if (is_wide(reg.width))
-            fprintf(out, "    uint32_t %s[%d]; wcopy(%s,s->%s,%d);\n",
-                    reg.name.c_str(), nlimbs(reg.width), reg.name.c_str(), reg.name.c_str(), nlimbs(reg.width));
+            fprintf(out, "    uint32_t %s[%d]; wcopy(%s,%s->%s,%d);\n",
+                    reg.name.c_str(), nlimbs(reg.width), reg.name.c_str(), sp, reg.name.c_str(), nlimbs(reg.width));
         else
-            fprintf(out, "    %s %s = s->%s;\n", ctype(reg.width), reg.name.c_str(), reg.name.c_str());
+            fprintf(out, "    %s %s = %s->%s;\n", ctype(reg.width), reg.name.c_str(), sp, reg.name.c_str());
     }
     fprintf(out, "\n");
 
@@ -1213,7 +1257,10 @@ int main(int argc, char **argv)
     };  // end emit_comb lambda
 
     // Register commits + memory writes + FSM coverage (the sm_clock tail).
-    auto emit_seq = [&]() {
+    // sp = write-pointer ("s" single-clock; "dst" masked). masked=false emits the
+    // ORIGINAL unguarded text (single-clock byte-identical). masked=true guards
+    // each commit by its clock group's posedge_mask bit.
+    auto emit_seq = [&](const char *sp, bool masked) {
     fprintf(out, "    // Register updates (next state)\n");
     for (auto &reg : registers) {
         // Emit source location for register assignment
@@ -1227,18 +1274,25 @@ int main(int argc, char **argv)
                     fprintf(out, "#line %d \"%s\"\n", line, file.c_str());
             }
         }
+        std::string dst = std::string(sp) + "->" + reg.name;
+        // Build the commit condition: [group-bit] [&&] [enable].
+        std::string cond;
+        if (masked) {
+            char g[40]; snprintf(g, sizeof g, "(posedge_mask & (1u<<%d))", reg.clk_group);
+            cond = g;
+            if (!reg.en_expr.empty()) cond += " && (" + reg.en_expr + ")";
+        } else cond = reg.en_expr;   // empty or the enable, exactly as before
         if (is_wide(reg.width)) {
-            std::string dst = "s->" + reg.name;
             int ny = nlimbs(reg.width);
-            if (!reg.en_expr.empty()) fprintf(out, "    if (%s) {\n", reg.en_expr.c_str());
+            if (!cond.empty()) fprintf(out, "    if (%s) {\n", cond.c_str());
             emit_materialize(out, dst, ny, reg.d_sig, sigmap, false, 0);
             emit_wmask(out, dst, reg.width, ny);
-            if (!reg.en_expr.empty()) fprintf(out, "    }\n");
-        } else if (reg.en_expr.empty())
-            fprintf(out, "    s->%s = %s;\n", reg.name.c_str(), reg.d_expr.c_str());
+            if (!cond.empty()) fprintf(out, "    }\n");
+        } else if (cond.empty())
+            fprintf(out, "    %s = %s;\n", dst.c_str(), reg.d_expr.c_str());
         else
-            fprintf(out, "    if (%s) s->%s = %s;\n",
-                    reg.en_expr.c_str(), reg.name.c_str(), reg.d_expr.c_str());
+            fprintf(out, "    if (%s) %s = %s;\n",
+                    cond.c_str(), dst.c_str(), reg.d_expr.c_str());
     }
 
     // Memory WRITE ports ($memwr). These were previously dropped entirely (only
@@ -1262,23 +1316,26 @@ int main(int argc, char **argv)
             std::string en   = sig_expr(cell->getPort(ID(EN)), sigmap);
             // Masked write: bits where EN=1 take DATA, EN=0 keep old word. Handles
             // uniform full-word enables (FIFOs) and partial/byte enables alike.
+            // Memory writes are owned by the main clk group (bit 0) when masked.
+            std::string menc = masked ? std::string("(posedge_mask & 1u) && ") + en : en;
             fprintf(out, "    if (%s) { uint64_t _wa = (%s) & UINT64_C(0x%llx); "
-                         "s->%s[_wa] = (s->%s[_wa] & ~(uint64_t)(%s)) | ((%s) & (%s)); }\n",
-                    en.c_str(), addr.c_str(), (unsigned long long)amask,
-                    mn.c_str(), mn.c_str(), en.c_str(), data.c_str(), en.c_str());
+                         "%s->%s[_wa] = (%s->%s[_wa] & ~(uint64_t)(%s)) | ((%s) & (%s)); }\n",
+                    menc.c_str(), addr.c_str(), (unsigned long long)amask,
+                    sp, mn.c_str(), sp, mn.c_str(), en.c_str(), data.c_str(), en.c_str());
         }
     }
     fprintf(out, "\n");
 
-    // FSM coverage tracking
+    // FSM coverage tracking (owned by the main clk group when masked)
     if (!fsms.empty()) {
+        if (masked) fprintf(out, "    if (posedge_mask & 1u) {\n");
         fprintf(out, "    // FSM coverage update\n");
         fprintf(out, "    sm_fsm_cov.cycle_count++;\n");
         for (auto &fsm : fsms) {
             uint64_t mask = fsm.max_states - 1;
             fprintf(out, "    {\n");
-            fprintf(out, "        uint64_t _cur = s->%s & UINT64_C(0x%llx);\n",
-                    fsm.name.c_str(), (unsigned long long)mask);
+            fprintf(out, "        uint64_t _cur = %s->%s & UINT64_C(0x%llx);\n",
+                    sp, fsm.name.c_str(), (unsigned long long)mask);
             fprintf(out, "        sm_fsm_cov.%s_seen[_cur] = 1;\n", fsm.name.c_str());
             fprintf(out, "        if (sm_fsm_cov.%s_valid)\n", fsm.name.c_str());
             fprintf(out, "            sm_fsm_cov.%s_trans[sm_fsm_cov.%s_prev][_cur] = 1;\n",
@@ -1287,6 +1344,7 @@ int main(int argc, char **argv)
             fprintf(out, "        sm_fsm_cov.%s_valid = 1;\n", fsm.name.c_str());
             fprintf(out, "    }\n");
         }
+        if (masked) fprintf(out, "    }\n");
         fprintf(out, "\n");
     }
     };  // end emit_seq lambda
@@ -1316,16 +1374,46 @@ int main(int argc, char **argv)
     // with no side effects (no register/memory commit). The bridge re-runs this
     // on every boundary-input-change delta to settle combinational outputs.
     fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
-    emit_comb();
+    emit_comb("s");
     emit_outputs();
     fprintf(out, "}\n\n");
 
     // sm_clock: advance the registers / memory to the next state (no outputs).
-    // The bridge calls this once per clock posedge.
-    fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
-    emit_comb();
-    emit_seq();
-    fprintf(out, "}\n\n");
+    // Single-clock designs: byte-identical to before (one unconditional group).
+    // Multi-clock: sm_clock_masked advances only the groups whose clock posedged
+    // (posedge_mask), reading the pre-edge snapshot `src` (so coincident edges and
+    // the cross-delta clock race both sample one frozen pre-edge state).
+    if (extra_clocks.empty()) {
+        fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
+        emit_comb("s");
+        emit_seq("s", false);
+        fprintf(out, "}\n\n");
+    } else {
+        // Each clock group advances reading the LIVE state at its own delta. A
+        // derived gated clock (free_clk = clk & en) posedges a delta AFTER clk in
+        // nvc's delta model, so its flops correctly see the post-clk-advance state
+        // (matching the interpreted reference) — NOT a frozen pre-edge snapshot.
+        // The top-of-emit_comb alias snapshot still gives correct NBA within a
+        // single call (any groups co-firing in one mask read one snapshot).
+        fprintf(out, "void sm_clock_masked(state_t *s, const inputs_t *in, "
+                     "unsigned posedge_mask) {\n");
+        emit_comb("s");
+        emit_seq("s", true);
+        fprintf(out, "}\n\n");
+        fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
+        fprintf(out, "    sm_clock_masked(s, in, ~0u);\n");
+        fprintf(out, "}\n\n");
+    }
+    // Cross-file table: the bridge text-scrapes these to discover the extra clock
+    // INPUT field base-names (matching pins[].name / `in._<name>`) and the count,
+    // for per-clock edge detection. Always emitted so the symbols resolve.
+    fprintf(out, "const char *sm_extra_clocks[] = {");
+    for (auto &c : extra_clocks) {
+        std::string nm = (!c.empty() && c[0] == '_') ? c.substr(1) : c;
+        fprintf(out, "\"%s\", ", nm.c_str());
+    }
+    fprintf(out, "0};\n");
+    fprintf(out, "#define SM_NUM_EXTRA_CLOCKS %zu\n\n", extra_clocks.size());
 
     // sm_eval: back-compat wrapper — combinational outputs from the current state,
     // then commit (identical to the old single-function semantics).
