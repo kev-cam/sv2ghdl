@@ -98,6 +98,8 @@ static const char *WIDE_RT =
 "static inline int wred_xor(const uint32_t*a,int n){uint32_t x=0;for(int i=0;i<n;i++)x^=a[i];x^=x>>16;x^=x>>8;x^=x>>4;x^=x>>2;x^=x>>1;return x&1;}\n"
 "static inline int wred_and(const uint32_t*a,int width,int n){for(int i=0;i<n;i++){uint32_t m=(i==n-1&&(width&31))?((1u<<(width&31))-1):0xffffffffu;if((a[i]&m)!=m)return 0;}return 1;}\n"
 "static inline uint64_t wslice64(const uint32_t*s,int off,int w,int n){int l=off>>5,b=off&31;uint64_t lo=s[l];if(l+1<n)lo|=(uint64_t)s[l+1]<<32;uint64_t v=lo>>b;if(b&&w+b>64&&l+2<n)v|=(uint64_t)s[l+2]<<(64-b);return w>=64?v:(v&((UINT64_C(1)<<w)-1));}\n"
+"static inline void wplace(uint32_t*d,int off,const uint32_t*s,int w){for(int i=0;i<w;i++){int p=off+i;uint32_t b=(s[i>>5]>>(i&31))&1;d[p>>5]=(d[p>>5]&~(1u<<(p&31)))|(b<<(p&31));}}\n"
+"static inline void wplaceb(uint32_t*d,int off,uint32_t b){d[off>>5]=(d[off>>5]&~(1u<<(off&31)))|((b&1)<<(off&31));}\n"
 "\n";
 
 // Get a C expression for a SigSpec (wire reference or constant)
@@ -268,21 +270,29 @@ static void emit_materialize(FILE *o, const std::string &dst, int ny,
     }
 }
 
-// Emit a wide (>64b operand or result) cell. Mirrors the scalar op chain but in
-// limb arithmetic. Value ops compute into a temp then store to y (a limb array
-// if y is wide, else a <=64b scalar via wslice64). Comparisons/reductions yield
-// a 1-bit scalar y even with wide operands.
+// Emit a wide cell — any cell whose operands OR whose TARGET WIRE exceed 64
+// bits. Mirrors the scalar op chain in limb arithmetic. The result is written
+// into the target at its bit offset `yoff`: when the target wire is wide
+// (`twide`) via wplace/wplaceb (a read-modify-write, so a wire driven in several
+// sub-slices by different cells composes correctly); otherwise to a <=64b scalar.
+// `yw` is the cell's Y width (slice width), not the whole wire.
 static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
-                           const std::string &y, int yw, int aw, int bw) {
+                           const std::string &y, int yw, int yoff, bool twide,
+                           int aw, int bw) {
     auto type = cell->type.str();
     int ny = nlimbs(yw > 0 ? yw : 1);
     auto matA = [&](const char *d, int nl, bool sx, int sw) {
         emit_materialize(o, d, nl, cell->getPort(ID::A), sigmap, sx, sw); };
     auto matB = [&](const char *d, int nl, bool sx, int sw) {
         emit_materialize(o, d, nl, cell->getPort(ID::B), sigmap, sx, sw); };
-    auto store_val = [&](int ng) {            // store _wy (ng limbs) into y
-        if (is_wide(yw)) { fprintf(o, "      wcopy(%s,_wy,%d);\n", y.c_str(), ny); emit_wmask(o, y, yw, ny); }
-        else fprintf(o, "      %s = wslice64(_wy,0,%d,%d);\n", y.c_str(), yw, ng); };
+    // Store the yw-bit result held in _wy (ng limbs) into the target.
+    auto put_val = [&](int ng) {
+        if (twide) fprintf(o, "      wplace(%s,%d,_wy,%d);\n", y.c_str(), yoff, yw);
+        else       fprintf(o, "      %s = wslice64(_wy,0,%d,%d);\n", y.c_str(), yw, ng); };
+    // Store a 1-bit result expression into the target.
+    auto put_bit = [&](const std::string &e) {
+        if (twide) fprintf(o, "      wplaceb(%s,%d,%s);\n", y.c_str(), yoff, e.c_str());
+        else       fprintf(o, "      %s = %s;\n", y.c_str(), e.c_str()); };
 
     fprintf(o, "    {\n");
     if (type == "$add" || type == "$sub" || type == "$mul" ||
@@ -294,73 +304,78 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
                          type == "$mul" ? "wmul" : type == "$and" ? "wand" :
                          type == "$or" ? "wor_" : "wxor";
         fprintf(o, "      %s(_wy,_wa,_wb,%d);\n", fn, ng);
-        store_val(ng);
+        put_val(ng);
     } else if (type == "$xnor") {
         int ng = nlimbs(std::max(yw, std::max(aw, bw)));
         fprintf(o, "      uint32_t _wa[%d],_wb[%d],_wy[%d];\n", ng, ng, ng);
         matA("_wa", ng, false, 0); matB("_wb", ng, false, 0);
         fprintf(o, "      wxor(_wy,_wa,_wb,%d); wnot(_wy,_wy,%d);\n", ng, ng);
-        store_val(ng);
+        put_val(ng);
     } else if (type == "$not" || type == "$neg") {
         int ng = nlimbs(std::max(yw, aw));
         fprintf(o, "      uint32_t _wa[%d],_wy[%d];\n", ng, ng);
         matA("_wa", ng, false, 0);
         fprintf(o, "      %s(_wy,_wa,%d);\n", type == "$not" ? "wnot" : "wneg", ng);
-        store_val(ng);
+        put_val(ng);
     } else if (type == "$shl" || type == "$shr") {
         int ng = nlimbs(std::max(yw, aw));
         fprintf(o, "      uint32_t _wa[%d],_wy[%d]; int _sh=(int)(%s);\n",
                 ng, ng, scalar_of(cell->getPort(ID::B), sigmap).c_str());
         matA("_wa", ng, false, 0);
         fprintf(o, "      %s(_wy,_wa,_sh,%d);\n", type == "$shl" ? "wshl" : "wshr", ng);
-        store_val(ng);
+        put_val(ng);
     } else if (type == "$mux") {
-        fprintf(o, "      uint32_t _wa[%d],_wb[%d];\n", ny, ny);
+        fprintf(o, "      uint32_t _wa[%d],_wb[%d],_wy[%d];\n", ny, ny, ny);
         matA("_wa", ny, false, 0); matB("_wb", ny, false, 0);
-        fprintf(o, "      if (%s) wcopy(%s,_wb,%d); else wcopy(%s,_wa,%d);\n",
-                scalar_of(cell->getPort(ID::S), sigmap).c_str(),
-                y.c_str(), ny, y.c_str(), ny);
-        emit_wmask(o, y, yw, ny);
+        fprintf(o, "      if (%s) wcopy(_wy,_wb,%d); else wcopy(_wy,_wa,%d);\n",
+                scalar_of(cell->getPort(ID::S), sigmap).c_str(), ny, ny);
+        put_val(ny);
     } else if (type == "$pmux") {
         int n_cases = cell->getPort(ID::S).size();
-        emit_materialize(o, y, ny, cell->getPort(ID::A), sigmap, false, 0);
-        emit_wmask(o, y, yw, ny);
+        fprintf(o, "      uint32_t _wy[%d];\n", ny);
+        emit_materialize(o, "_wy", ny, cell->getPort(ID::A), sigmap, false, 0);
         for (int i = 0; i < n_cases; i++) {
             fprintf(o, "      if (%s) {\n",
                     scalar_of(cell->getPort(ID::S).extract(i, 1), sigmap).c_str());
-            emit_materialize(o, y, ny, cell->getPort(ID::B).extract(i * yw, yw), sigmap, false, 0);
-            emit_wmask(o, y, yw, ny);
+            emit_materialize(o, "_wy", ny, cell->getPort(ID::B).extract(i * yw, yw), sigmap, false, 0);
             fprintf(o, "      }\n");
         }
+        put_val(ny);
     } else if (type == "$eq" || type == "$ne") {
         int nc = nlimbs(std::max(aw, bw));
         fprintf(o, "      uint32_t _wa[%d],_wb[%d];\n", nc, nc);
         matA("_wa", nc, false, 0); matB("_wb", nc, false, 0);
-        fprintf(o, "      %s = weq(_wa,_wb,%d) ? %d : %d;\n", y.c_str(), nc,
-                type == "$eq" ? 1 : 0, type == "$eq" ? 0 : 1);
+        char e[64]; snprintf(e, sizeof e, "weq(_wa,_wb,%d)?%d:%d", nc,
+                             type == "$eq" ? 1 : 0, type == "$eq" ? 0 : 1);
+        put_bit(e);
     } else if (type == "$lt" || type == "$le" || type == "$gt" || type == "$ge") {
         bool sg = is_signed(cell);
         int nc = nlimbs(std::max(aw, bw));
         fprintf(o, "      uint32_t _wa[%d],_wb[%d];\n", nc, nc);
         matA("_wa", nc, sg, aw); matB("_wb", nc, sg, bw);
         const char *cmp = sg ? "wslt" : "wult";
-        if (type == "$lt")      fprintf(o, "      %s = %s(_wa,_wb,%d)?1:0;\n", y.c_str(), cmp, nc);
-        else if (type == "$gt") fprintf(o, "      %s = %s(_wb,_wa,%d)?1:0;\n", y.c_str(), cmp, nc);
-        else if (type == "$le") fprintf(o, "      %s = %s(_wb,_wa,%d)?0:1;\n", y.c_str(), cmp, nc);
-        else                    fprintf(o, "      %s = %s(_wa,_wb,%d)?0:1;\n", y.c_str(), cmp, nc);
+        char e[64];
+        if (type == "$lt")      snprintf(e, sizeof e, "%s(_wa,_wb,%d)?1:0", cmp, nc);
+        else if (type == "$gt") snprintf(e, sizeof e, "%s(_wb,_wa,%d)?1:0", cmp, nc);
+        else if (type == "$le") snprintf(e, sizeof e, "%s(_wb,_wa,%d)?0:1", cmp, nc);
+        else                    snprintf(e, sizeof e, "%s(_wa,_wb,%d)?0:1", cmp, nc);
+        put_bit(e);
     } else if (type == "$reduce_or" || type == "$reduce_bool" || type == "$logic_not") {
         int na = nlimbs(aw);
         fprintf(o, "      uint32_t _wa[%d];\n", na); matA("_wa", na, false, 0);
-        fprintf(o, "      %s = wred_or(_wa,%d)?%d:%d;\n", y.c_str(), na,
-                type == "$logic_not" ? 0 : 1, type == "$logic_not" ? 1 : 0);
+        char e[48]; snprintf(e, sizeof e, "wred_or(_wa,%d)?%d:%d", na,
+                             type == "$logic_not" ? 0 : 1, type == "$logic_not" ? 1 : 0);
+        put_bit(e);
     } else if (type == "$reduce_and") {
         int na = nlimbs(aw);
         fprintf(o, "      uint32_t _wa[%d];\n", na); matA("_wa", na, false, 0);
-        fprintf(o, "      %s = wred_and(_wa,%d,%d)?1:0;\n", y.c_str(), aw, na);
+        char e[48]; snprintf(e, sizeof e, "wred_and(_wa,%d,%d)?1:0", aw, na);
+        put_bit(e);
     } else if (type == "$reduce_xor") {
         int na = nlimbs(aw);
         fprintf(o, "      uint32_t _wa[%d];\n", na); matA("_wa", na, false, 0);
-        fprintf(o, "      %s = wred_xor(_wa,%d)?1:0;\n", y.c_str(), na);
+        char e[48]; snprintf(e, sizeof e, "wred_xor(_wa,%d)?1:0", na);
+        put_bit(e);
     } else {
         fprintf(o, "      // TODO: unhandled WIDE cell type %s (yw=%d aw=%d bw=%d)\n",
                 type.c_str(), yw, aw, bw);
@@ -660,16 +675,19 @@ int main(int argc, char **argv)
         }
     }
 
-    // Build dependency graph for topological sort
-    // Map output wire -> cell that produces it
-    std::map<RTLIL::Wire*, RTLIL::Cell*> wire_driver;
+    // Build dependency graph for topological sort. Map output wire -> the
+    // cell(s) producing it. A wire driven in several sub-slices (common for a
+    // wide register's D input, each slice a separate cell) has MULTIPLE drivers;
+    // all must be ordered before a reader, else a reader sees a partially-written
+    // wire. (Single-driver wires keep a 1-element list -> identical topo order.)
+    std::map<RTLIL::Wire*, std::vector<RTLIL::Cell*>> wire_driver;
     for (auto *cell : comb_cells) {
         // Check Y port (most cells) and DATA port ($memrd)
         for (auto port_id : {ID::Y, ID(DATA)}) {
             if (cell->hasPort(port_id)) {
                 auto &y = cell->getPort(port_id);
                 for (auto &chunk : y.chunks())
-                    if (chunk.wire) wire_driver[chunk.wire] = cell;
+                    if (chunk.wire) wire_driver[chunk.wire].push_back(cell);
             }
         }
     }
@@ -685,8 +703,11 @@ int main(int argc, char **argv)
         for (auto &conn : cell->connections()) {
             if (conn.first == ID::Y) continue;  // skip output
             for (auto &chunk : conn.second.chunks()) {
-                if (chunk.wire && wire_driver.count(chunk.wire))
-                    topo_visit(wire_driver[chunk.wire]);
+                if (chunk.wire) {
+                    auto it = wire_driver.find(chunk.wire);
+                    if (it != wire_driver.end())
+                        for (auto *dc : it->second) topo_visit(dc);
+                }
             }
         }
         sorted.push_back(cell);
@@ -889,12 +910,15 @@ int main(int argc, char **argv)
     for (auto *cell : sorted) {
         auto type = cell->type.str();
         std::string y_name;
-        int y_width = 0;
+        int y_width = 0, y_off = 0, ywire_w = 0;
         if (cell->hasPort(ID::Y)) {
             auto &y = cell->getPort(ID::Y);
             if (y.chunks().begin() != y.chunks().end() && (*y.chunks().begin()).wire) {
-                y_name = cname((*y.chunks().begin()).wire->name.str());
+                RTLIL::SigChunk yc = *y.chunks().begin();
+                y_name  = cname(yc.wire->name.str());
                 y_width = y.size();
+                y_off   = yc.offset;          // cell may drive a SLICE of the wire
+                ywire_w = yc.wire->width;
             }
         }
         // Emit source location for debugger
@@ -920,12 +944,15 @@ int main(int argc, char **argv)
 
         if (y_name.empty()) continue;
 
-        // Wide cell (any operand or the result > 64 bits): limb arithmetic. The
-        // scalar chain below is left byte-identical and only runs for narrow cells.
+        // Wide cell: any operand, the Y slice, OR the TARGET WIRE exceeds 64
+        // bits. (A narrow slice of a wide wire — a partial drive — must still go
+        // wide, else we'd emit `wide_array = scalar`.) The scalar chain below is
+        // left byte-identical and only runs for fully-narrow cells.
         int aw_ = cell->hasPort(ID::A) ? cell->getPort(ID::A).size() : 0;
         int bw_ = cell->hasPort(ID::B) ? cell->getPort(ID::B).size() : 0;
-        if (is_wide(y_width) || is_wide(aw_) || is_wide(bw_)) {
-            emit_wide_cell(out, cell, sigmap, y_name, y_width, aw_, bw_);
+        if (is_wide(ywire_w) || is_wide(y_width) || is_wide(aw_) || is_wide(bw_)) {
+            emit_wide_cell(out, cell, sigmap, y_name, y_width, y_off,
+                           is_wide(ywire_w), aw_, bw_);
             continue;
         }
 
