@@ -1427,6 +1427,30 @@ int main(int argc, char **argv)
     emit_outputs();
     fprintf(out, "}\n\n");
 
+    // Debug: dump EVERY combinational wire + register (for a net-level differential
+    // against a reference sim — pinpoints the deepest miscompiled net, not just a
+    // divergent output). Guarded by SM_DUMP so production builds skip the bloat.
+    fprintf(out, "#ifdef SM_DUMP\n");
+    fprintf(out, "#include <stdio.h>\n");
+    fprintf(out, "void sm_dump_comb(state_t *s, const inputs_t *in, FILE *_df) {\n");
+    emit_comb("s");
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        if (wire->port_input) continue;
+        std::string wn = cname(wire->name.str());
+        if (wn == "_clk" || wn == "_rst") continue;
+        if (is_wide(wire->width)) {
+            int nl = nlimbs(wire->width);
+            fprintf(out, "    fprintf(_df,\"%s=\");", wn.c_str());
+            for (int l = nl - 1; l >= 0; l--)
+                fprintf(out, " fprintf(_df,\"%%08x\",(unsigned)%s[%d]);", wn.c_str(), l);
+            fprintf(out, " fprintf(_df,\"\\n\");\n");
+        } else
+            fprintf(out, "    fprintf(_df,\"%s=%%llx\\n\",(unsigned long long)%s);\n",
+                    wn.c_str(), wn.c_str());
+    }
+    fprintf(out, "}\n#endif\n\n");
+
     // sm_clock: advance the registers / memory to the next state (no outputs).
     // Single-clock designs: byte-identical to before (one unconditional group).
     // Multi-clock: sm_clock_masked advances only the groups whose clock posedged
