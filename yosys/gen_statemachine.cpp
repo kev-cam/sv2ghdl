@@ -1126,8 +1126,17 @@ int main(int argc, char **argv)
         bool y_multi = false;
         if (cell->hasPort(ID::Y)) {
             auto yc = cell->getPort(ID::Y).chunks();
-            int nwire = 0; for (auto &c : yc) if (c.wire) nwire++;
-            if (nwire > 1) { y_chunks.assign(yc.begin(), yc.end()); y_multi = true; }
+            int nwire = 0; bool partial = false;
+            for (auto &c : yc) {
+                if (c.wire) nwire++;
+                // A chunk that is a partial slice of its wire (offset!=0 or narrower
+                // than the wire) can't be a bare `wire = expr` — that writes the value
+                // at bit 0 and clobbers the untouched bits (e.g. VeeR's per-slice
+                // `dec_tlu_packet_e4[24:20] = ...` assigns). Route it through the
+                // scatter, which RMW-places each chunk at its own offset.
+                if (c.wire && (c.offset != 0 || c.width != c.wire->width)) partial = true;
+            }
+            if (nwire > 1 || partial) { y_chunks.assign(yc.begin(), yc.end()); y_multi = true; }
         }
         if (y_multi) { fprintf(out, "    { uint64_t _yspl = 0;\n"); y_name = "_yspl"; }
 
