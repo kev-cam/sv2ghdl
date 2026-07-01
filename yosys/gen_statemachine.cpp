@@ -785,14 +785,23 @@ int main(int argc, char **argv)
     // from the canonical, which would emit `rawY = ...` while readers read the
     // canonical -> the value never flows (silent dead wire). (Alias-free designs:
     // sigmap is identity, so unchanged.)
-    std::map<RTLIL::Wire*, std::vector<RTLIL::Cell*>> wire_driver;
+    // BIT-PRECISE: record which BIT RANGE each cell drives, not just the wire.
+    // A wire that is partially written (e.g. VeeR's dec_i0_brp input, whose bit 46
+    // is overwritten internally while bit 51 is read as the branch-error input)
+    // otherwise makes a reader of an UNwritten bit falsely depend on the cell that
+    // writes a DIFFERENT bit — a false cycle (scatter -> br_error -> scatter's own
+    // select) that the DFS breaks arbitrarily, emitting the scatter before its
+    // select and reading a stale (0) select. Keyed by the RAW driven wire+offset.
+    struct DrvRange { int off, width; RTLIL::Cell *cell; };
+    std::map<RTLIL::Wire*, std::vector<DrvRange>> wire_driver;
     for (auto *cell : comb_cells) {
         // Check Y port (most cells) and DATA port ($memrd). Key by the RAW driven
         // wire (the name the cell writes); readers reach it through the redirect.
         for (auto port_id : {ID::Y, ID(DATA)}) {
             if (cell->hasPort(port_id)) {
                 for (auto &chunk : cell->getPort(port_id).chunks())
-                    if (chunk.wire) wire_driver[chunk.wire].push_back(cell);
+                    if (chunk.wire)
+                        wire_driver[chunk.wire].push_back({chunk.offset, chunk.width, cell});
             }
         }
     }
@@ -814,11 +823,16 @@ int main(int argc, char **argv)
             RTLIL::SigSpec m = sigmap(conn.second);
             for (auto &bit : m) {
                 auto rit = redirect.find(bit);
-                RTLIL::Wire *w = (rit != redirect.end() ? rit->second : bit).wire;
-                if (w == nullptr) continue;
-                auto it = wire_driver.find(w);
-                if (it != wire_driver.end())
-                    for (auto *dc : it->second) topo_visit(dc);
+                RTLIL::SigBit rb = (rit != redirect.end() ? rit->second : bit);
+                if (rb.wire == nullptr) continue;
+                auto it = wire_driver.find(rb.wire);
+                if (it == wire_driver.end()) continue;
+                // Depend ONLY on cells that drive THIS bit (bit-precise), so a read
+                // of an unwritten bit of a partially-driven wire doesn't chain to the
+                // driver of some other bit (the false-cycle -> stale-select bug).
+                for (auto &dr : it->second)
+                    if (rb.offset >= dr.off && rb.offset < dr.off + dr.width)
+                        topo_visit(dr.cell);
             }
         }
         sorted.push_back(cell);
