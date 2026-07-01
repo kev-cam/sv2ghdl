@@ -112,11 +112,12 @@ for n,w in outputs:
         prints.append('%08x%08x'); args.append(f'(unsigned)o._{n}[1]'); args.append(f'(unsigned)o._{n}[0]')
     else:
         prints.append('%0'+str(hexdig(w))+'x'); args.append(f'(unsigned long long)o._{n}')
-# fix narrow format to use llx
+# wide outputs: print ALL limbs high->low (so >64b signals compare fully)
 pr=[]; ar=[]
 for n,w in outputs:
     if is_wide(w):
-        pr.append('%08x%08x'); ar.append(f'(unsigned)o._{n}[1]'); ar.append(f'(unsigned)o._{n}[0]')
+        nl=limbs(w); pr.append('%08x'*nl)
+        for k in range(nl-1,-1,-1): ar.append(f'(unsigned)o._{n}[{k}]')
     else:
         pr.append('%0'+str(hexdig(w))+'llx'); ar.append(f'(unsigned long long)o._{n}')
 cd.append('    printf("'+' '.join(pr)+r'\n",'+','.join(ar)+');')
@@ -133,13 +134,18 @@ dv=subprocess.run([f'{WORK}/drv'],capture_output=True,text=True).stdout.splitlin
 iv=[x for x in iv if x and not x.startswith('VCD')]
 onames=[n for n,_ in outputs]
 print(f"cycles: iverilog={len(iv)} cdriver={len(dv)}  outputs={len(onames)}")
+owidths=[w for _,w in outputs]
+def eq(a,b,w):
+    # compare low w bits; iverilog x/z nibbles are don't-care (undriven/4-state)
+    a=a.lower(); b=b.lower(); n=(w+3)//4
+    a=a.rjust(n,'0')[-n:]; b=b.rjust(n,'0')[-n:]
+    return all(a[i] in 'xz' or a[i]==b[i] for i in range(n))
 mism={}
 for cyc in range(8, min(len(iv),len(dv))):   # skip reset preamble
     a=iv[cyc].split(); b=dv[cyc].split()
     if len(a)!=len(onames) or len(b)!=len(onames): continue
     for j,nm in enumerate(onames):
-        if 'x' in a[j].lower(): continue      # iverilog X (uninit) — not comparable
-        if a[j].lstrip('0')!=b[j].lstrip('0') and nm not in mism:
+        if not eq(a[j],b[j],owidths[j]) and nm not in mism:
             mism[nm]=(cyc,a[j],b[j])
 if not mism: print("*** NO MISMATCH — .so matches iverilog on all outputs ***")
 else:
