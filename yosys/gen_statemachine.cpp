@@ -535,6 +535,7 @@ int main(int argc, char **argv)
         std::string src;      // source location "file:line.col"
         int width;
         unsigned __int128 arst_val;
+        std::string arst_expr; // async-reset ($adff) assert condition; "" = none
         std::string clk_name; // CLK net cname (redirect-folded); "_clk" = main clk
         int clk_group = 0;    // 0 = main clk; 1+i = extra_clocks[i]
     };
@@ -626,7 +627,11 @@ int main(int argc, char **argv)
             reg.d_expr = is_wide(reg.width) ? "" : sig_expr(d, sigmap);
             reg.src = cell->get_src_attribute();
 
-            // Get async reset value if present
+            // Get async reset value + assert condition if present. $adff resets
+            // ASYNCHRONOUSLY (level-sensitive on ARST), so beyond the initial value
+            // (sm_reset) we must force the reg to arst_val whenever ARST is asserted
+            // during operation — not just at a clock edge. Capture the ARST net (as
+            // a C condition, polarity-normalized to "true == reset asserted").
             reg.arst_val = 0;
             if (type == "$adff" || type == "$adffe") {
                 auto arst_val = cell->getParam(ID(ARST_VALUE));
@@ -634,6 +639,12 @@ int main(int argc, char **argv)
                 for (int i = arst_val.size()-1; i >= 0; i--)
                     rv = (rv << 1) | (arst_val[i] == RTLIL::S1 ? 1 : 0);
                 reg.arst_val = rv;
+                if (cell->hasPort(ID::ARST)) {
+                    std::string a = sig_expr(cell->getPort(ID::ARST), sigmap);
+                    bool pol = !cell->hasParam(ID(ARST_POLARITY))
+                             || cell->getParam(ID(ARST_POLARITY)).as_bool();
+                    reg.arst_expr = pol ? a : ("(!(" + a + "))");
+                }
             }
 
             // Get clock enable if present
@@ -980,6 +991,37 @@ int main(int argc, char **argv)
     }
     fprintf(out, "\n");
 
+    // Async reset ($adff/$adffe): level-sensitive. Whenever ARST is asserted, force
+    // the register to its reset value NOW — both the local snapshot (so this eval's
+    // combinational outputs reflect the reset) and the persistent state (so it holds
+    // through to the next clock edge, matching async-reset hardware). Without this,
+    // the reset value was only applied once at sm_reset() and a mid-cycle reset that
+    // followed a clocked load stuck at the stale value. The clocked commit in
+    // emit_seq is gated off while ARST is asserted so it can't clobber the reset.
+    {
+        bool hdr = false;
+        for (auto &reg : registers) {
+            if (reg.arst_expr.empty()) continue;
+            if (!hdr) { fprintf(out, "    // Async reset overrides\n"); hdr = true; }
+            if (is_wide(reg.width)) {
+                int ny = nlimbs(reg.width);
+                fprintf(out, "    if (%s) {", reg.arst_expr.c_str());
+                for (int l = 0; l < ny; l++) {
+                    uint32_t lw = (l < 4) ? (uint32_t)(reg.arst_val >> (32*l)) : 0;
+                    fprintf(out, " %s[%d]=0x%xu; %s->%s[%d]=0x%xu;",
+                            reg.name.c_str(), l, lw, sp, reg.name.c_str(), l, lw);
+                }
+                fprintf(out, " }\n");
+            } else {
+                std::string rv = u128_lit(reg.arst_val);
+                fprintf(out, "    if (%s) { %s = %s; %s->%s = %s; }\n",
+                        reg.arst_expr.c_str(), reg.name.c_str(), rv.c_str(),
+                        sp, reg.name.c_str(), rv.c_str());
+            }
+        }
+        if (hdr) fprintf(out, "\n");
+    }
+
     // Declare all wires not already covered by registers or inputs
     fprintf(out, "    // Combinational wires\n");
     std::set<std::string> declared;
@@ -1282,6 +1324,13 @@ int main(int argc, char **argv)
             cond = g;
             if (!reg.en_expr.empty()) cond += " && (" + reg.en_expr + ")";
         } else cond = reg.en_expr;   // empty or the enable, exactly as before
+        // Async-reset regs: the level-sensitive override in emit_comb already forced
+        // arst_val whenever ARST is asserted; gate the clocked load off while ARST is
+        // asserted so a coincident clock edge can't overwrite the reset value.
+        if (!reg.arst_expr.empty()) {
+            std::string g = "!(" + reg.arst_expr + ")";
+            cond = cond.empty() ? g : (g + " && " + cond);
+        }
         if (is_wide(reg.width)) {
             int ny = nlimbs(reg.width);
             if (!cond.empty()) fprintf(out, "    if (%s) {\n", cond.c_str());
