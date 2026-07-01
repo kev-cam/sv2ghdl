@@ -527,7 +527,7 @@ int main(int argc, char **argv)
     Yosys::run_pass(std::string("hierarchy -top ") + top_name);
     Yosys::run_pass("proc");
     Yosys::run_pass("flatten");
-    Yosys::run_pass("opt");
+    Yosys::run_pass("opt -keepdc");
     // Lower clock-enable and SYNCHRONOUS reset into the FF's D logic ($sdff/
     // $dffe -> plain $dff + an explicit mux). Async resets ($adff) are left for
     // sm_reset. Without this the codegen drops sync resets (q_next = d only).
