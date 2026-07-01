@@ -306,10 +306,45 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         emit_materialize(o, d, nl, cell->getPort(ID::A), sigmap, sx, sw); };
     auto matB = [&](const char *d, int nl, bool sx, int sw) {
         emit_materialize(o, d, nl, cell->getPort(ID::B), sigmap, sx, sw); };
+    // Y may be a CONCATENATION of several (possibly non-contiguous, possibly
+    // multi-wire) slices — e.g. {din[61],din[58],din[54:35],din[32:19],din[17:0]}.
+    // yoff/yw describe only the FIRST chunk, so a single wplace(y,yoff,_wy,yw)
+    // packs the yw-bit result contiguously at yoff and MIS-PLACES every later
+    // slice (dec's writeback packet shifted/dropped). Collect the chunks
+    // (LSB-first) and, when there are several, scatter each to its own wire+offset
+    // just like the scalar path's _yspl scatter does.
+    std::vector<RTLIL::SigChunk> ychunks;
+    if (cell->hasPort(ID::Y)) {
+        auto yy = cell->getPort(ID::Y);
+        ychunks.assign(yy.chunks().begin(), yy.chunks().end());
+    }
+    const bool y_scatter = ychunks.size() > 1;
     // Store the yw-bit result held in _wy (ng limbs) into the target.
     auto put_val = [&](int ng) {
-        if (twide) fprintf(o, "      wplace(%s,%d,_wy,%d);\n", y.c_str(), yoff, yw);
-        else       fprintf(o, "      %s = wslice64(_wy,0,%d,%d);\n", y.c_str(), yw, ng); };
+        if (y_scatter) {
+            int pos = 0;
+            for (auto &ch : ychunks) {
+                if (ch.wire) {
+                    std::string wn = cname(ch.wire->name.str());
+                    int w = ch.width, off = ch.offset, ww = ch.wire->width;
+                    if (is_wide(ww))   // chunk targets a limb-array wire
+                        fprintf(o, "      for(int _sb=0;_sb<%d;_sb++) wplaceb(%s,%d+_sb,"
+                                "(uint32_t)((_wy[(%d+_sb)>>5]>>((%d+_sb)&31))&1));\n",
+                                w, wn.c_str(), off, pos, pos);
+                    else if (off == 0 && w == ww)
+                        fprintf(o, "      %s = wslice64(_wy,%d,%d,%d);\n",
+                                wn.c_str(), pos, w, ng);
+                    else
+                        fprintf(o, "      %s = (%s & ~(%s << %d)) |"
+                                " ((wslice64(_wy,%d,%d,%d) & %s) << %d);\n",
+                                wn.c_str(), wn.c_str(), mask_lit(w).c_str(), off,
+                                pos, w, ng, mask_lit(w).c_str(), off);
+                }
+                pos += ch.width;
+            }
+        }
+        else if (twide) fprintf(o, "      wplace(%s,%d,_wy,%d);\n", y.c_str(), yoff, yw);
+        else            fprintf(o, "      %s = wslice64(_wy,0,%d,%d);\n", y.c_str(), yw, ng); };
     // Store a 1-bit result expression into the target.
     auto put_bit = [&](const std::string &e) {
         if (twide) fprintf(o, "      wplaceb(%s,%d,%s);\n", y.c_str(), yoff, e.c_str());
