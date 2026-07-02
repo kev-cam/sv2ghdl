@@ -380,6 +380,30 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         matA("_wa", ng, false, 0);
         fprintf(o, "      %s(_wy,_wa,_sh,%d);\n", type == "$shl" ? "wshl" : "wshr", ng);
         put_val(ng);
+    } else if (type == "$shift" || type == "$shiftx") {
+        // Dynamic indexed part-select on a WIDE operand: Y = A >> B, where B is a
+        // (possibly signed) offset; negative B shifts LEFT by -B. yosys emits these
+        // for signal-indexed part-selects — critically, VeeR models each icache
+        // SRAM as one flat wire[8703:0] ram_core with a dynamic $shiftx read
+        // (ram_core[adr +: w]) and a $shift one-hot fill-word placement on write.
+        // Previously unhandled here -> fell through to the // TODO unhandled-WIDE
+        // stub, leaving Y at 0: every icache HIT read returned 0 -> corrupt
+        // IC_RD_DATA -> boot derail. x/undefined fill = 0 in 2-state; put_val()
+        // masks Y to yw. Mirrors the scalar handler + the $shl/$shr wide case above.
+        int ng = nlimbs(std::max(yw, aw));
+        bool bs = cell->getParam(ID::B_SIGNED).as_bool();
+        fprintf(o, "      uint32_t _wa[%d],_wy[%d]; int64_t _sh=(int64_t)(uint64_t)(%s);\n",
+                ng, ng, scalar_of(cell->getPort(ID::B), sigmap).c_str());
+        if (bs) {
+            int bw = cell->getPort(ID::B).size();
+            if (bw < 64)
+                fprintf(o, "      if (_sh & (INT64_C(1)<<%d)) _sh -= (INT64_C(1)<<%d);\n",
+                        bw - 1, bw);
+        }
+        matA("_wa", ng, false, 0);
+        fprintf(o, "      if (_sh >= 0) wshr(_wy,_wa,(int)_sh,%d); else wshl(_wy,_wa,(int)(-_sh),%d);\n",
+                ng, ng);
+        put_val(ng);
     } else if (type == "$mux") {
         fprintf(o, "      uint32_t _wa[%d],_wb[%d],_wy[%d];\n", ny, ny, ny);
         matA("_wa", ny, false, 0); matB("_wb", ny, false, 0);
@@ -1213,6 +1237,30 @@ int main(int argc, char **argv)
             fprintf(out, "    %s = %s >> %s;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str());
+        } else if (type == "$shift" || type == "$shiftx") {
+            // Dynamic-offset shift / indexed part-select a[b +: w]: Y = A >> B,
+            // where B is the (possibly signed) offset — a negative B shifts LEFT
+            // by -B. yosys emits $shift/$shiftx (NOT $shr) whenever a signal is
+            // used as a part-select/bit-select offset; the fill is x for $shiftx
+            // / 0 for $shift, which in 2-state is 0. Previously unhandled, so Y
+            // silently stayed at its init 0 (e.g. VeeR ifu
+            // dec_tlu_mrac_ff[cacheable_select] -> ifc_fetch_uncacheable always 1,
+            // lsu dec_tlu_mrac_ff[csr_idx] -> is_sideeffects wrong).
+            auto a = sig_expr(cell->getPort(ID::A), sigmap);
+            auto b = sig_expr(cell->getPort(ID::B), sigmap);
+            bool bs = cell->getParam(ID::B_SIGNED).as_bool();
+            int bw = cell->getPort(ID::B).size();
+            if (bs && bw < 64)
+                fprintf(out, "    { int64_t _o=(int64_t)(uint64_t)(%s);"
+                        " if(_o&(INT64_C(1)<<%d)) _o-=(INT64_C(1)<<%d);"
+                        " %s = ((_o<=-64||_o>=64)?0:(_o>=0?((uint64_t)(%s)>>_o)"
+                        ":((uint64_t)(%s)<<(-_o)))) & %s; }\n",
+                        b.c_str(), bw-1, bw, y_name.c_str(), a.c_str(), a.c_str(),
+                        masks.c_str());
+            else
+                fprintf(out, "    { uint64_t _o=(uint64_t)(%s);"
+                        " %s = (_o>=64?0:((uint64_t)(%s)>>_o)) & %s; }\n",
+                        b.c_str(), y_name.c_str(), a.c_str(), masks.c_str());
         } else if (type == "$eq") {
             fprintf(out, "    %s = (%s == %s) ? 1 : 0;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
