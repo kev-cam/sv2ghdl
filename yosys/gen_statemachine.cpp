@@ -421,12 +421,16 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
             fprintf(o, "      }\n");
         }
         put_val(ny);
-    } else if (type == "$eq" || type == "$ne") {
+    } else if (type == "$eq" || type == "$ne"
+               || type == "$eqx" || type == "$nex") {
+        // $eqx/$nex (===/!==, casez compares) are exact 4-state equality; in
+        // 2-state they reduce to plain equality.
+        const bool is_eq = type == "$eq" || type == "$eqx";
         int nc = nlimbs(std::max(aw, bw));
         fprintf(o, "      uint32_t _wa[%d],_wb[%d];\n", nc, nc);
         matA("_wa", nc, false, 0); matB("_wb", nc, false, 0);
         char e[64]; snprintf(e, sizeof e, "weq(_wa,_wb,%d)?%d:%d", nc,
-                             type == "$eq" ? 1 : 0, type == "$eq" ? 0 : 1);
+                             is_eq ? 1 : 0, is_eq ? 0 : 1);
         put_bit(e);
     } else if (type == "$lt" || type == "$le" || type == "$gt" || type == "$ge") {
         bool sg = is_signed(cell);
@@ -457,8 +461,10 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         char e[48]; snprintf(e, sizeof e, "wred_xor(_wa,%d)?1:0", na);
         put_bit(e);
     } else {
-        fprintf(o, "      // TODO: unhandled WIDE cell type %s (yw=%d aw=%d bw=%d)\n",
-                type.c_str(), yw, aw, bw);
+        fprintf(stderr, "gen_statemachine: unhandled WIDE cell type %s"
+                " (yw=%d aw=%d bw=%d) — declining (a silent stub would leave"
+                " its output 0 and miscompute)\n", type.c_str(), yw, aw, bw);
+        exit(1);   // install checks the exit code; the chunk stays interpreted
     }
     fprintf(o, "    }\n");
 }
@@ -1261,7 +1267,8 @@ int main(int argc, char **argv)
                 fprintf(out, "    { uint64_t _o=(uint64_t)(%s);"
                         " %s = (_o>=64?0:((uint64_t)(%s)>>_o)) & %s; }\n",
                         b.c_str(), y_name.c_str(), a.c_str(), masks.c_str());
-        } else if (type == "$eq") {
+        } else if (type == "$eq" || type == "$eqx") {
+            // $eqx (===): exact 4-state equality == plain equality in 2-state
             fprintf(out, "    %s = (%s == %s) ? 1 : 0;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str());
@@ -1292,7 +1299,7 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::S), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str());
-        } else if (type == "$ne") {
+        } else if (type == "$ne" || type == "$nex") {
             fprintf(out, "    %s = (%s != %s) ? 1 : 0;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str());
@@ -1374,7 +1381,10 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
         } else {
-            fprintf(out, "    // TODO: unhandled cell type %s\n", type.c_str());
+            fprintf(stderr, "gen_statemachine: unhandled cell type %s —"
+                    " declining (a silent stub would leave its output 0 and"
+                    " miscompute)\n", type.c_str());
+            exit(1);   // install checks the exit code; chunk stays interpreted
         }
         if (y_multi) {
             int pos = 0;
