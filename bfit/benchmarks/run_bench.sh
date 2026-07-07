@@ -86,10 +86,14 @@ hdr() { case $1 in qspice)echo QSPICE;; ltspice)echo LTspice;; simetrix)echo SIM
   xyce_bfit)echo "Xyce+bfit";; xyce_mpi)echo "Xyce -np$MPINP";; esac; }
 cols=""; for e in $order; do case " $ENGINES " in *" $e "*) cols="$cols $e";; esac; done
 
-CSV="$WORK/perf.csv"; MD="$WORK/perf.md"
+# Date-named snapshots: this cascade lane must never clobber the league
+# table (perf.md, from model_bench.sh/assemble.py). assemble.py links the
+# cascade-*.md files from the league page.
+STAMP=$(date +%F)
+CSV="$WORK/cascade-$STAMP.csv"; MD="$WORK/cascade-$STAMP.md"
 { printf "stages,transistors"; for e in $cols; do printf ",%s" "$(hdr $e)"; done; echo
   for n in $SIZES; do printf "%s,%s" "$n" "$n"; for e in $cols; do printf ",%s" "${T[$n,$e]:-}"; done; echo; done; } > "$CSV"
-{ echo "# bfit cross-engine performance"; echo
+{ echo "# Cascade-depth stress run — $STAMP"; echo
   echo "N-stage common-emitter BJT amplifier cascade (\`gen_amp.py\`), \`.tran 20n 2m\`."
   echo "Each cell is engine **simulation time in seconds** (lower is better) — Windows"
   echo "engines self-report their \"Total elapsed time\"; Linux engines are inner"
@@ -106,4 +110,4 @@ CSV="$WORK/perf.csv"; MD="$WORK/perf.md"
 
 echo; echo "wrote $MD"; echo; cat "$MD"
 # copy results into the WSL bfit/benchmarks tree
-$WSL -- bash -lc "cp -f /mnt/c/cygwin64/tmp/perfbench/perf.md /mnt/c/cygwin64/tmp/perfbench/perf.csv /usr/local/src/sv2ghdl/bfit/benchmarks/ 2>/dev/null" 2>/dev/null
+$WSL -- bash -lc "cp -f /mnt/c/cygwin64/tmp/perfbench/cascade-$STAMP.md /mnt/c/cygwin64/tmp/perfbench/cascade-$STAMP.csv /usr/local/src/sv2ghdl/bfit/benchmarks/ 2>/dev/null" 2>/dev/null

@@ -135,4 +135,15 @@ all abort — only Xyce solves it, and MPI then nearly halves that.
 _Models: `gen_models.py` (+ `gen_amp.py` for the breaker). Open engines:
 `model_bench.sh` → `open.csv`. Commercial: `win_models.sh` → `commercial.csv`.
 Table: `assemble.py`. Accuracy: `accuracy.py`. Speed/accuracy knob:
-`bfit front --accuracy {exact,balanced,fast}` (or raw `--points/--reltol/--abstol`)._""")
+`bfit front --accuracy {exact,balanced,fast}` (or raw `--points/--reltol/--abstol`)._
+
+## Cascade-depth stress runs
+
+The N-stage cascade sweep (`run_bench.sh`) is a separate lane and writes
+**date-named snapshots** next to this page — `cascade-YYYY-MM-DD.md` — so
+each run is preserved rather than overwriting this table:""")
+
+import glob
+for f in sorted(glob.glob(os.path.join(HERE, 'cascade-*.md')), reverse=True):
+    b = os.path.basename(f)
+    print("- [%s](%s)" % (b.replace('cascade-', '').replace('.md', ''), b))
