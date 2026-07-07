@@ -517,10 +517,15 @@ int main(int argc, char **argv)
     }
 
     Yosys::yosys_setup();
-    if (getenv("GSM_LOG")) {            // surface yosys diagnostics for debugging
+    // Errors ALWAYS reach stderr: a yosys log_error otherwise vanishes (no
+    // console stream is connected in library mode) and the subtree silently
+    // stays interpreted — VeeR's ifu_aln_ctl failed that way from day one
+    // with nothing in any log. log_errfile is yosys's errors-only channel
+    // (log_error_stderr alone only redirects EXISTING stdout log files).
+    // Full diagnostics remain opt-in via GSM_LOG.
+    Yosys::log_errfile = stderr;
+    if (getenv("GSM_LOG"))              // surface all yosys diagnostics
         Yosys::log_streams.push_back(&std::cerr);
-        Yosys::log_error_stderr = true;
-    }
 
     // Read each source (-sv for .sv); read_verilog accumulates modules.
     for (const std::string &f : inputs) {
