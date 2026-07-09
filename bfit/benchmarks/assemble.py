@@ -124,6 +124,16 @@ the serial wall-clock). It pays off only at **scale**: the 3000-stage breaker
 wins at a *middle* rank count (the cloud / large-circuit lever, not a
 single-small-circuit one).
 
+**Behavioral-assist (Xyce column).** Each Xyce cell is the faster of *plain*
+Xyce and Xyce with the quiescence-bypass stack (`XYCE_BYPASS=1e-12
+XYCE_FROZEN_STATE=1`), chosen per row and verified correct against the plain run.
+It wins on the **digital/switching** rows — inverter chain 6.8→6.3 s (−8%), ring
+oscillator 21→19 s (−8%) — where most devices sit quiescent between edges; it is
+correctly rejected on the **analog** rows (op-amp/OTA: no quiescent set, and
+frozen state corrupts slow analog nodes) and is N/A on the diode/BJT rows
+(MOSFET1-only). `XYCE_FROZEN_JAC` is excluded — it segfaults when stacked and
+adds no speed.
+
 **Reading it.** bfit swaps device stages for smooth macromodels and coarsens the
 transient, so the solver strides — every accelerated row beats both commercial
 tools. The cleanest win is the **op-amp** (merged diff-pair + current-mirror

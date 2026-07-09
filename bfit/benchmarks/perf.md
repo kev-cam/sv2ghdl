@@ -19,11 +19,11 @@ actually bought. **bal / fast** are the `bfit front --accuracy` presets
 | Model | # Tx | QSPICE | LTspice | ngspice | Xyce | Xyce-MPI | ng+bfit bal | ng+bfit fast | xy+bfit bal | xy+bfit fast |
 | :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: |
 | Bridge rectifier (4 diodes) | 0 | 3.7 ×30.7 | 3.3 ×34.4 | 8.3 ×13.6 | 114 ×1.0 | — | 🟢 0.12 ×69.3 (+10 dB) | 🔵 0.12 ×69.3 (+21 dB) | 9.5 ×11.9 (+25 dB) | 9.6 ×11.8 (+31 dB) |
-| CMOS inverter chain ×100 | 200 | 3.1 ×2.2 | 3.1 ×2.2 | 🔵 1.9 ×3.6 | 6.8 ×1.0 | — | 🔵 0.72 ×2.7 (+12 dB) | 🔵 0.52 ×3.7 (+12 dB) | 🔵 0.52 ×13.1 (+12 dB) | 🟢 0.32 ×21.3 (+12 dB) |
-| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.8 | 🔵 3.5 ×5.9 | 21 ×1.0 | — | 🔵 0.32 ×11.0 (+3 dB) | 🟢 0.12 ×29.3 (+3 dB) | 🔵 0.32 ×65.4 (+3 dB) | 🔵 0.22 ×95.2 (+3 dB) |
-| 5T OTA (diff pair + mirror) | 5 | 3.9 ×27.0 | 4.5 ×23.4 | 6.5 ×16.1 | 105 ×1.0 | — | 🟢 0.12 ×54.3 (+3 dB) | 🔵 0.12 ×54.3 (+2 dB) | 6.1 ×17.2 (+3 dB) | 5.6 ×18.7 (+2 dB) |
+| CMOS inverter chain ×100 | 200 | 3.1 ×2.0 | 3.1 ×2.0 | 🔵 1.9 ×3.3 | 6.3 ×1.0 | — | 🔵 0.72 ×2.7 (+12 dB) | 🔵 0.52 ×3.7 (+12 dB) | 🔵 0.52 ×12.1 (+12 dB) | 🟢 0.32 ×19.6 (+12 dB) |
+| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.5 | 🔵 3.5 ×5.5 | 19 ×1.0 | — | 🔵 0.32 ×11.0 (+3 dB) | 🟢 0.12 ×29.3 (+3 dB) | 🔵 0.32 ×60.6 (+3 dB) | 🔵 0.22 ×88.1 (+3 dB) |
+| 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.4 | 4.5 ×22.9 | 6.5 ×15.8 | 103 ×1.0 | — | 🟢 0.12 ×54.3 (+3 dB) | 🔵 0.12 ×54.3 (+2 dB) | 6.1 ×16.8 (+3 dB) | 5.6 ×18.3 (+2 dB) |
 | BJT 3-stage CE amp ‡ | 3 | 3.9 ×52.4 | 7.7 ×26.6 | 5.4 ×37.7 | 204 ×1.0 | — | 🔵 0.72 ×7.5 (-3 dB) | 🔵 0.72 ×7.5 (-3 dB) | 🔵 3.2 ×63.5 (-2 dB) | 🟢 0.22 ×929.5 (0 dB) |
-| 2-stage Miller op-amp | 8 | 3.5 ×23.1 | 4.6 ×17.6 | 38 ×2.1 | 81 ×1.0 | — | 🔵 0.12 ×317.9 (+24 dB) | 🟢 0.11 ×346.8 (+26 dB) | 16 ×4.9 (+25 dB) | 16 ×4.9 (+22 dB) |
+| 2-stage Miller op-amp | 8 | 3.5 ×22.4 | 4.6 ×17.1 | 38 ×2.1 | 79 ×1.0 | — | 🔵 0.12 ×317.9 (+24 dB) | 🟢 0.11 ×346.8 (+26 dB) | 16 ×4.8 (+25 dB) | 16 ×4.8 (+22 dB) |
 | BJT cascade ×3000 (breaker) | 3000 | brk | brk | brk | 🔵 464 ×1.0 | 🟢 266 ×1.7 (np 4) | — | — | — | — |
 
 **Accuracy = signal-to-error ratio in dB** (`SER = −20·log₁₀(rel-L2)`); higher is
@@ -41,6 +41,16 @@ the serial wall-clock). It pays off only at **scale**: the 3000-stage breaker
 wins at a *middle* rank count (the cloud / large-circuit lever, not a
 single-small-circuit one).
 
+**Behavioral-assist (Xyce column).** Each Xyce cell is the faster of *plain*
+Xyce and Xyce with the quiescence-bypass stack (`XYCE_BYPASS=1e-12
+XYCE_FROZEN_STATE=1`), chosen per row and verified correct against the plain run.
+It wins on the **digital/switching** rows — inverter chain 6.8→6.3 s (−8%), ring
+oscillator 21→19 s (−8%) — where most devices sit quiescent between edges; it is
+correctly rejected on the **analog** rows (op-amp/OTA: no quiescent set, and
+frozen state corrupts slow analog nodes) and is N/A on the diode/BJT rows
+(MOSFET1-only). `XYCE_FROZEN_JAC` is excluded — it segfaults when stacked and
+adds no speed.
+
 **Reading it.** bfit swaps device stages for smooth macromodels and coarsens the
 transient, so the solver strides — every accelerated row beats both commercial
 tools. The cleanest win is the **op-amp** (merged diff-pair + current-mirror
@@ -57,7 +67,6 @@ Table: `assemble.py`. Accuracy: `accuracy.py`. Speed/accuracy knob:
 ## Cascade-depth stress runs
 
 The N-stage cascade sweep (`run_bench.sh`) is a separate lane and writes
-**date-named snapshots** next to this page so each run is preserved rather
-than overwriting this table:
-
+**date-named snapshots** next to this page — `cascade-YYYY-MM-DD.md` — so
+each run is preserved rather than overwriting this table:
 - [2026-07-06](cascade-2026-07-06.md)
