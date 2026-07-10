@@ -1,0 +1,5 @@
+#!/bin/sh
+# Present verilator-sv2ghdl under the name `verilator` for tools that invoke
+# the simulator by PATH lookup (rtlmeter). Prepend THIS dir to PATH to select
+# the nvc backend; the real verilator stays untouched elsewhere on PATH.
+exec "$(dirname "$0")/../verilator-sv2ghdl" "$@"

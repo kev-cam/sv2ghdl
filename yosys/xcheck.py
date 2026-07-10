@@ -29,14 +29,18 @@ for l in open(V).read().splitlines():
     if re.match(r'^module\s+'+re.escape(TOP)+r'\b', l): inmod=True; continue
     if inmod:
         if l.strip().startswith(');') or l.strip()==');': break
-        m=re.match(r'\s*(input|output)\s*(\[(\d+):(\d+)\])?\s*(\w+)', l)
+        m=re.match(r'\s*(input|output)\s*(?:reg\s+)?(\[(\d+):(\d+)\])?\s*(\w+)', l)
         if m:
             w=(int(m.group(3))-int(m.group(4))+1) if m.group(2) else 1
             ports.append((m.group(5), m.group(1), w))
 inputs =[(n,w) for n,d,w in ports if d=='input']
 outputs=[(n,w) for n,d,w in ports if d=='output']
-CLK={'clk','free_clk','active_clk'}
-vin=[(n,w) for n,w in inputs if n not in CLK and n!='clk_override']
+# clock set: main 'clk' + whatever the generated C names in sm_extra_clocks[]
+mx=re.search(r'sm_extra_clocks\[\] = \{([^}]*)\}', open(C).read())
+EXTRA=[s.strip().strip('"') for s in mx.group(1).split(',') if s.strip() not in ('','0')] if mx else []
+CLK={'clk'} | set(EXTRA)
+CLK &= {n for n,_ in inputs}          # only clocks that are real ports
+vin=[(n,w) for n,w in inputs if n not in CLK]
 def limbs(w): return (w+31)//32
 def hexdig(w): return (w+3)//4
 
@@ -60,21 +64,21 @@ with open(f"{WORK}/vecs.txt","w") as f:
 
 # ---- iverilog testbench ----
 tb=[f'`timescale 1ns/1ns','module tb;']
-tb.append('  reg clk, free_clk, active_clk, clk_override;')
+tb.append('  reg '+', '.join(sorted(CLK))+';')
 for n,w in vin:  tb.append(f'  reg [{w-1}:0] {n};')
 for n,w in outputs: tb.append(f'  wire [{w-1}:0] {n};')
-conn=['.clk(clk)','.free_clk(free_clk)','.active_clk(active_clk)','.clk_override(clk_override)']
+conn=[f'.{n}({n})' for n in sorted(CLK)]
 conn+=[f'.{n}({n})' for n,_ in vin]+[f'.{n}({n})' for n,_ in outputs]
 tb.append(f'  {TOP} dut({", ".join(conn)});')
 tb.append('  integer fd, cyc, code;')
 tb.append('  initial begin')
-tb.append('    clk=0; free_clk=0; active_clk=0; clk_override=0;')
+tb.append('    '+' '.join(f'{n}=0;' for n in sorted(CLK)))
 for n,w in vin: tb.append(f'    {n}=0;')
 tb.append(f'    fd=$fopen("{WORK}/vecs.txt","r");')
 scan='    code=$fscanf(fd,"'+' '.join(['%h']*len(vin))+r'\n",'+','.join(n for n,_ in vin)+');'
 tb.append(f'    for (cyc=0; cyc<{N}; cyc=cyc+1) begin')
 tb.append(scan)
-tb.append('      #1; clk=1; free_clk=1; active_clk=1; #1; clk=0; free_clk=0; active_clk=0; #1;')
+tb.append('      #1; '+' '.join(f'{n}=1;' for n in sorted(CLK))+' #1; '+' '.join(f'{n}=0;' for n in sorted(CLK))+' #1;')
 fmt=' '.join(['%0'+str(hexdig(w))+'h' for _,w in outputs])
 tb.append(f'      $display("{fmt}",'+','.join(n for n,_ in outputs)+');')
 tb.append('    end $finish; end')
@@ -98,7 +102,6 @@ for n,w in vin:
         cd.append(f'    rdhex(tok, in._{n}, {limbs(w)});')
     else:
         cd.append(f'    in._{n} = (uint64_t)strtoull(tok,0,16);')
-cd.append('    in._clk_override=0;')
 cd.append('    sm_clock(&s,&in); sm_comb(&s,&in,&o);')
 outfmt=' '.join(['%0'+str(hexdig(w))+ ('x' if not is_wide(w) else 'x') for _,w in outputs])
 # build print args: wide outputs printed limb0 only won't match; print full hex for wide

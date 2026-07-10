@@ -1597,6 +1597,20 @@ int main(int argc, char **argv)
         fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
         fprintf(out, "    sm_clock_masked(s, in, ~0u);\n");
         fprintf(out, "}\n\n");
+        // sm_clock_late: advance ONLY the masked (extra) clock groups, with the
+        // combinational cone computed from a PRE-EDGE state snapshot `k` (taken
+        // by the bridge at the main posedge, before group 0 advanced) and the
+        // CURRENT boundary inputs. This is the interp-faithful semantics of a
+        // derived gated clock: its rise arrives deltas after clk, when internal
+        // comb nets still hold pre-edge values but input signals have their
+        // at-that-delta values. Group-0 commits, memory writes and FSM coverage
+        // are all (posedge_mask & 1u)-guarded, so a mask of extra bits only
+        // touches the extra groups.
+        fprintf(out, "void sm_clock_late(state_t *s, state_t *k, "
+                     "const inputs_t *in, unsigned posedge_mask) {\n");
+        emit_comb("k");
+        emit_seq("s", true);
+        fprintf(out, "}\n\n");
     }
     // Cross-file table: the bridge text-scrapes these to discover the extra clock
     // INPUT field base-names (matching pins[].name / `in._<name>`) and the count,

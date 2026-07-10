@@ -146,6 +146,22 @@ print <<'CLK';
     end if;
   end process;
 
+  -- Retire trace: architectural committed-instruction oracle (PC per slot).
+  -- This is the reference stream for cross-simulator comparison (diffed
+  -- instruction-for-instruction against Verilator's EXECUTION_TRACE exec.log)
+  -- and for --accel stamp validation; do not remove.
+  trace_proc: process(s_clk)
+  begin
+    if rising_edge(s_clk) and is_one(s_rst_l) then
+      if l3d_to_nat(s_trace_rv_i_valid_ip) /= 0 then
+        report "RETIRE cyc=" & integer'image(cycle_cnt)
+             & " v=" & integer'image(l3d_to_nat(s_trace_rv_i_valid_ip))
+             & " pc0=" & integer'image(l3d_to_nat(s_trace_rv_i_address_ip(31 downto 0)))
+             & " pc1=" & integer'image(l3d_to_nat(s_trace_rv_i_address_ip(63 downto 32)));
+      end if;
+    end if;
+  end process;
+
   -- Default ack signals high so AXI handshakes complete in one cycle
   s_lsu_axi_awready <= L3D_1;
   s_lsu_axi_wready  <= L3D_1;

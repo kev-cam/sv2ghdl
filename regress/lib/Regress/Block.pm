@@ -89,11 +89,18 @@ my %ENGINES = (
         return { env => \%e, path_prepend => _base_path() };
     },
     # nvc via the verilator shim: put verilator-sv2ghdl first as `verilator`.
+    # rtlmeter invokes literal `verilator` by PATH lookup (it does NOT consult
+    # $VERILATOR), so prepend the as-verilator/ wrapper dir where the shim is
+    # presented under that name.
     'nvc-vl-shim' => sub {
         my $e = _nvc_env();
         my $shim = shim_bin('verilator-sv2ghdl');
         $e->{VERILATOR} = $shim if $shim;
-        return { env => $e, path_prepend => _base_path() };
+        (my $asdir = $shim // '') =~ s{/verilator-sv2ghdl$}{/as-verilator};
+        $asdir = '' unless -d $asdir;
+        # NB: _base_path() is a colon-joined STRING — never -d filter it.
+        return { env => $e,
+                 path_prepend => join(':', grep { length } $asdir, _base_path()) };
     },
     # native Xyce (analog / SPICE) — point XYCE at the build-area binary.
     xyce => sub {
@@ -158,11 +165,11 @@ my @BLOCKS = (
       ready  => sub { iverilog_bin() ? 1 : 0 } },
 
     { name => 'rtlmeter/verilator',  suite => 'rtlmeter', engine => 'verilator',
-      params => { sim => 'verilator' },
+      params => { cases => 'VeeR-EH1:default:hello' },
       ready  => sub { Regress::Adapter::Rtlmeter::ready() && verilator_bin() ? 1 : 0 } },
 
     { name => 'rtlmeter/verilator-nvc', suite => 'rtlmeter', engine => 'nvc-vl-shim',
-      params => { sim => 'verilator', shim => 1 },
+      params => { cases => 'VeeR-EH1:default:hello', shim => 1 },
       ready  => sub { Regress::Adapter::Rtlmeter::ready() && nvc_bin()
                        && shim_bin('verilator-sv2ghdl') ? 1 : 0 } },
 

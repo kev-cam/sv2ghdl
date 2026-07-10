@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+# GNU-time-compatible shim for containers without /usr/bin/time.
+# Supports the subset rtlmeter uses: `time -o FILE -f FORMAT CMD [ARGS...]`
+# (%e wall seconds, %U user, %S system, %M max RSS KiB, %% literal).
+# Runs CMD, writes the formatted stats to FILE, exits with CMD's status.
+import os, sys, time
+
+
+def main() -> int:
+    outfile = None
+    fmt = "%e %U %S %M"
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-o", "--output"):
+            outfile = args[i + 1]; i += 2
+        elif a in ("-f", "--format"):
+            fmt = args[i + 1]; i += 2
+        elif a in ("-a", "--append", "-v", "--verbose", "-p", "--portability",
+                   "-q", "--quiet"):
+            i += 1                      # accepted, ignored
+        else:
+            break
+    cmd = args[i:]
+    if not cmd:
+        print("time-shim: no command", file=sys.stderr)
+        return 125
+
+    start = time.monotonic()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.execvp(cmd[0], cmd)
+        except OSError as e:
+            print(f"time-shim: {cmd[0]}: {e}", file=sys.stderr)
+            os._exit(127)
+    _, status, ru = os.wait4(pid, 0)
+    elapsed = time.monotonic() - start
+
+    exitcode = os.waitstatus_to_exitcode(status)
+    if exitcode < 0:                    # killed by signal N -> 128+N, like GNU time
+        exitcode = 128 - exitcode
+
+    subst = {
+        "e": f"{elapsed:.2f}",
+        "U": f"{ru.ru_utime:.2f}",
+        "S": f"{ru.ru_stime:.2f}",
+        "M": str(ru.ru_maxrss),         # KiB on Linux, matching GNU time
+        "x": str(exitcode),
+        "%": "%",
+    }
+    out = []
+    j = 0
+    while j < len(fmt):
+        c = fmt[j]
+        if c == "%" and j + 1 < len(fmt):
+            out.append(subst.get(fmt[j + 1], "%" + fmt[j + 1])); j += 2
+        else:
+            out.append(c); j += 1
+    text = "".join(out) + "\n"
+    if outfile:
+        with open(outfile, "w", encoding="utf-8") as f:
+            f.write(text)
+    else:
+        sys.stderr.write(text)
+    return exitcode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

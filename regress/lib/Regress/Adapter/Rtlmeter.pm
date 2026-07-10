@@ -32,13 +32,23 @@ sub run {
               message => "rtlmeter not present at $d" } ] };
     }
 
-    # Cases come from rtlmeter's own listing; allow a filter to restrict.
-    my @cases = $block->{params}{cases} ? @{ $block->{params}{cases} } : ();
-    @cases = split(/,/, $opt{filter}) if defined $opt{filter} && length $opt{filter};
+    # rtlmeter's CLI: `run --cases '<pat> <pat> ...'` — ONE space-separated
+    # fnmatch-pattern argument (+tag / !exclude supported); there is no --sim
+    # flag (the simulator is whatever `verilator` resolves to — the shim block
+    # sets $VERILATOR/PATH via Block.pm engine env). --filter overrides cases.
+    my $cases = $block->{params}{cases} || 'VeeR-EH1:default:hello';
+    $cases = join(' ', split(/,/, $opt{filter}))
+        if defined $opt{filter} && length $opt{filter};
 
-    my $sim = $block->{params}{sim} || 'verilator';
-    my @cmd = ('./rtlmeter', 'run', '--sim', $sim);
-    push @cmd, '--case', $_ for @cases;
+    # Engine-specific workRoot: rtlmeter reuses the FIRST compiled simulator
+    # found under <workRoot>/<design>/<config>/compile-0, so native verilator
+    # and the nvc shim MUST NOT share a workRoot or one silently executes the
+    # other's artifacts.
+    (my $eng = $block->{engine} || 'default') =~ s/[^\w.-]/_/g;
+    my $work = "$d/work-$eng";
+
+    my @cmd = ('./rtlmeter', 'run', '--cases', $cases,
+               '--workRoot', $work, '--timeout', '60');
 
     my ($exit, $out) = run_capture(\@cmd,
         dir => $d, env => $block->{env}, path_prepend => $block->{path_prepend},
