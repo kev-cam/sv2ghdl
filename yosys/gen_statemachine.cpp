@@ -1612,6 +1612,97 @@ int main(int argc, char **argv)
         emit_seq("s", true);
         fprintf(out, "}\n\n");
     }
+    // Per-output cone class: an output whose combinational cone reaches a
+    // boundary INPUT is Mealy — the bridge must deposit it in the ACTIVE
+    // region (immediately), like interp comb propagation. An output whose
+    // cone is register-only is a flop Q — the bridge may commit it in the
+    // NBA region (NVC_ACCEL_NBA), giving interp-exact `<=` timing across
+    // chunk boundaries. Backward taint: seed = input ports; propagate
+    // through comb cells + connections to fixpoint; register Q wires
+    // terminate (they are state, not flow). CONSERVATIVE: anything not
+    // proven register-only is listed Mealy (Mealy keeps today's behaviour).
+    {
+        // BIT-level taint: packed structs (VeeR predict packets) mix flop
+        // fields with comb fields in ONE wire — wire-level analysis smears
+        // them and misclassifies pure flop slices (e.g. exu_i0_br_hist_e4)
+        // as Mealy. Track SigBits; register Q bits terminate propagation.
+        pool<RTLIL::SigBit> regq;
+        for (auto &c2 : mod->cells_) {
+            RTLIL::Cell *cell = c2.second;
+            std::string ty = cell->type.str();
+            if (ty == "$adff" || ty == "$dff" || ty == "$adffe"
+                || ty == "$dffe" || ty == "$sdff" || ty == "$sdffe") {
+                RTLIL::SigSpec qs = sigmap(cell->getPort(ID::Q));
+                for (auto &b : qs) if (b.wire) regq.insert(b);
+            }
+        }
+        pool<RTLIL::SigBit> taint;
+        auto bit_tainted = [&](const RTLIL::SigBit &mb) {
+            return mb.wire && (mb.wire->port_input || taint.count(mb));
+        };
+        auto sig_tainted = [&](const RTLIL::SigSpec &sig) {
+            RTLIL::SigSpec ms = sigmap(sig);
+            for (auto &b : ms) if (bit_tainted(b)) return true;
+            return false;
+        };
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            // cell granularity: any tainted input bit taints every output bit
+            // (conservative for muxes/arith — correct)
+            for (auto *cell : sorted) {
+                bool t = false;
+                for (auto &conn : cell->connections())
+                    if (!cell->output(conn.first) && sig_tainted(conn.second)) {
+                        t = true; break;
+                    }
+                if (!t) continue;
+                for (auto &conn : cell->connections())
+                    if (cell->output(conn.first)) {
+                        RTLIL::SigSpec os = sigmap(conn.second);
+                        for (auto &b : os)
+                            if (b.wire && !regq.count(b) && taint.insert(b).second)
+                                changed = true;
+                    }
+            }
+            // connections: bit-precise (concat/slice plumbing of packed structs)
+            for (auto &conn : mod->connections()) {
+                RTLIL::SigSpec ls = sigmap(conn.first);
+                RTLIL::SigSpec rs = sigmap(conn.second);
+                const int n = std::min(ls.size(), rs.size());
+                for (int i = 0; i < n; i++) {
+                    RTLIL::SigBit lb = ls[i], rb = rs[i];
+                    if (lb.wire && bit_tainted(rb) && !regq.count(lb)
+                        && taint.insert(lb).second)
+                        changed = true;
+                }
+            }
+        }
+        // Two bridge classes:
+        //   DIRECT-Q output (every bit is literally a register Q bit): the
+        //   interpreter updates it in the NBA region of the edge delta
+        //   (visible d1) -> the bridge may sched_deposit(nonblock) it.
+        //   EVERYTHING ELSE (comb of inputs and/or registers): the
+        //   interpreter exposes it only after the post-edge comb cascade
+        //   (d2+). Publishing it at d1 runs a delta ahead of interp and
+        //   feeds level-sensitive clock-gater latches a cycle early (the
+        //   dec+ifu NBA regression) -> the bridge stages it two deltas.
+        fprintf(out, "const char *sm_comb_outputs[] = {");
+        for (auto &w2 : mod->wires_) {
+            auto *wire = w2.second;
+            if (!wire->port_output) continue;
+            RTLIL::SigSpec ms = sigmap(RTLIL::SigSpec(wire));
+            bool direct_q = true;
+            for (auto &b : ms)
+                if (b.wire != nullptr && !regq.count(b)) { direct_q = false; break; }
+            if (direct_q) continue;   // pure flop Q (constants allowed)
+            std::string nm = cname(wire->name.str());
+            if (!nm.empty() && nm[0] == '_') nm = nm.substr(1);
+            fprintf(out, "\"%s\", ", nm.c_str());
+        }
+        fprintf(out, "0};\n\n");
+    }
+
     // Cross-file table: the bridge text-scrapes these to discover the extra clock
     // INPUT field base-names (matching pins[].name / `in._<name>`) and the count,
     // for per-clock edge detection. Always emitted so the symbols resolve.
