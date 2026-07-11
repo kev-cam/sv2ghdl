@@ -1114,6 +1114,11 @@ int main(int argc, char **argv)
     for (auto &w : mod->wires_)
         if (is_wide(w.second->width)) { any_wide = true; break; }
     if (any_wide) fprintf(out, "%s", WIDE_RT);
+    // Dead-output pruning mask: bit i = output i (sm_output_order[]) is live.
+    // The bridge clears bits for outputs whose consumer nexus has no readers;
+    // cone cells exclusive to dead outputs are skipped at run time.
+    fprintf(out, "uint64_t sm_live_outputs[4] ="
+                 " {~0ull,~0ull,~0ull,~0ull};\n\n");
 
     // Input struct (primary inputs, excluding clk/rst)
     fprintf(out, "typedef struct {\n");
@@ -1232,6 +1237,19 @@ int main(int argc, char **argv)
     // outputs — replacing the full second sm_comb pass at the posedge eval.
     pool<RTLIL::Cell*> outcone;
     pool<std::string>  outcone_regs;
+    // Dead-output pruning: which outputs each cone cell feeds (bit per output
+    // in emission order; >64 outputs -> masks saturate to ~0 = always shared).
+    // The bridge writes the exported `sm_live_outputs` mask after inspecting
+    // which output nexuses actually have readers; cells exclusive to dead
+    // outputs are skipped at run time (anything feeding a shared cell is
+    // itself shared, so the shared/bucket partition preserves topo order).
+    struct FeedMask { uint64_t w[4] = {0,0,0,0};
+        void set(int i){ if(i<256) w[i>>6] |= 1ull<<(i&63); else w[0]=w[1]=w[2]=w[3]=~0ull; }
+        bool has(int i) const { return i<256 ? (w[i>>6]>>(i&63))&1 : true; }
+        int pop() const { int n=0; for(int k=0;k<4;k++) n+=__builtin_popcountll(w[k]); return n; }
+        void sat(){ w[0]=w[1]=w[2]=w[3]=~0ull; } };
+    dict<RTLIL::Cell*, FeedMask> feeds;
+    std::vector<RTLIL::Wire*> out_order;
     {
         dict<RTLIL::SigBit, RTLIL::Cell*> bdrv;
         for (auto *cell : sorted)
@@ -1247,27 +1265,32 @@ int main(int argc, char **argv)
             for (int ci = 0; ci < n; ci++)
                 if (ls[ci].wire && rs[ci].wire) connmap[ls[ci]] = rs[ci];
         }
-        std::vector<RTLIL::SigBit> wl;
-        pool<RTLIL::SigBit> seen;
         for (auto &w2 : mod->wires_)
-            if (w2.second->port_output) {
-                RTLIL::SigSpec os = sigmap(RTLIL::SigSpec(w2.second));
-                for (auto &b : os) if (b.wire) wl.push_back(b);
-            }
-        while (!wl.empty()) {
-            RTLIL::SigBit b = wl.back(); wl.pop_back();
-            if (!b.wire || seen.count(b)) continue;
-            seen.insert(b);
-            auto rq = g_regbit.find(b);
-            if (rq != g_regbit.end()) { outcone_regs.insert(rq->second.first); continue; }
-            if (b.wire->port_input) continue;
-            auto cm = connmap.find(b);
-            if (cm != connmap.end()) wl.push_back(cm->second);
-            auto dv = bdrv.find(b);
-            if (dv == bdrv.end()) continue;
-            RTLIL::Cell *c = dv->second;
-            if (!outcone.count(c)) {
-                outcone.insert(c);
+            if (w2.second->port_output) out_order.push_back(w2.second);
+        int oi = 0;
+        for (auto *ow : out_order) {
+            const int obit = oi;   // FeedMask index; >=256 saturates
+            oi++;
+            std::vector<RTLIL::SigBit> wl;
+            pool<RTLIL::SigBit> seen;
+            RTLIL::SigSpec os = sigmap(RTLIL::SigSpec(ow));
+            for (auto &b : os) if (b.wire) wl.push_back(b);
+            while (!wl.empty()) {
+                RTLIL::SigBit b = wl.back(); wl.pop_back();
+                if (!b.wire || seen.count(b)) continue;
+                seen.insert(b);
+                auto rq = g_regbit.find(b);
+                if (rq != g_regbit.end()) { outcone_regs.insert(rq->second.first); continue; }
+                if (b.wire->port_input) continue;
+                auto cm = connmap.find(b);
+                if (cm != connmap.end()) wl.push_back(cm->second);
+                auto dv = bdrv.find(b);
+                if (dv == bdrv.end()) continue;
+                RTLIL::Cell *c = dv->second;
+                FeedMask &fm = feeds[c];
+                if (fm.has(obit) && outcone.count(c)) continue;
+                fm.set(obit);
+                if (!outcone.count(c)) outcone.insert(c);
                 for (auto &conn : c->connections())
                     if (!c->output(conn.first)) {
                         RTLIL::SigSpec is = sigmap(conn.second);
@@ -1616,6 +1639,34 @@ int main(int argc, char **argv)
         }
         };
 
+    // Emit the output-cone cells: shared cells (feeding >1 output — anything
+    // feeding a shared cell is itself shared, so topo order is preserved)
+    // unconditionally, then each output's exclusive bucket guarded by its
+    // sm_live_outputs bit.
+    auto emit_outcone_cells = [&]() {
+        FeedMask sat; sat.sat();
+        for (auto *cell : sorted)
+            if (outcone.count(cell)) {
+                const FeedMask &fm = feeds.count(cell) ? feeds.at(cell) : sat;
+                if (fm.pop() != 1) emit_cell(cell);
+            }
+        for (size_t oi = 0; oi < out_order.size() && oi < 256; oi++) {
+            bool hdr = false;
+            for (auto *cell : sorted) {
+                if (!outcone.count(cell)) continue;
+                const FeedMask &fm = feeds.count(cell) ? feeds.at(cell) : sat;
+                if (fm.pop() != 1 || !fm.has((int)oi)) continue;
+                if (!hdr) {
+                    fprintf(out, "    if (sm_live_outputs[%d] & (1ull<<%d)) {\n",
+                            (int)(oi >> 6), (int)(oi & 63));
+                    hdr = true;
+                }
+                emit_cell(cell);
+            }
+            if (hdr) fprintf(out, "    }\n");
+        }
+    };
+
     auto emit_comb_prefix = [&](const char *sp) {
     fprintf(out, "    // Input aliases\n");
     for (auto &w : mod->wires_) {
@@ -1785,8 +1836,11 @@ int main(int argc, char **argv)
     }
     fprintf(out, "\n");
 
-    // FSM coverage tracking (owned by the main clk group when masked)
+    // FSM coverage tracking (owned by the main clk group when masked).
+    // Compiled out of the hot commit path unless -DSM_FSM_COV: it updates
+    // shared per-FSM tables every posedge and inflates sm_clock.
     if (!fsms.empty()) {
+        fprintf(out, "#ifdef SM_FSM_COV\n");
         if (masked) fprintf(out, "    if (posedge_mask & 1u) {\n");
         fprintf(out, "    // FSM coverage update\n");
         fprintf(out, "    sm_fsm_cov.cycle_count++;\n");
@@ -1804,6 +1858,7 @@ int main(int argc, char **argv)
             fprintf(out, "    }\n");
         }
         if (masked) fprintf(out, "    }\n");
+        fprintf(out, "#endif // SM_FSM_COV\n");
         fprintf(out, "\n");
     }
     };  // end emit_seq lambda
@@ -1811,11 +1866,15 @@ int main(int argc, char **argv)
     // Output copies (the sm_comb tail) — trace through sigmap to find the source.
     auto emit_outputs = [&]() {
     fprintf(out, "    // Outputs\n");
+    int _oi = 0;
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
         if (wire->port_output) {
             std::string wn = cname(wire->name.str());
             SigSpec port_sig(wire);
+            if (_oi < 256)
+                fprintf(out, "    if (sm_live_outputs[%d] & (1ull<<%d)) {\n",
+                        _oi >> 6, _oi & 63);
             if (is_wide(wire->width)) {
                 std::string dst = "o->" + wn;
                 int ny = nlimbs(wire->width);
@@ -1825,6 +1884,8 @@ int main(int argc, char **argv)
                 std::string expr = sig_expr(port_sig, sigmap);
                 fprintf(out, "    o->%s = %s;\n", wn.c_str(), expr.c_str());
             }
+            if (_oi < 256) fprintf(out, "    }\n");
+            _oi++;
         }
     }
     };  // end emit_outputs lambda
@@ -1839,8 +1900,7 @@ int main(int argc, char **argv)
     fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
     emit_comb_prefix("s");
     fprintf(out, "    // output cones only\n");
-    for (auto *cell : sorted)
-        if (outcone.count(cell)) emit_cell(cell);
+    emit_outcone_cells();
     emit_outputs();
     fprintf(out, "}\n\n");
 
@@ -1893,8 +1953,7 @@ int main(int argc, char **argv)
                 fprintf(out, "    %s = s->%s;\n", rn.c_str(), rn.c_str());
         }
         fprintf(out, "    // output-cone recompute (post-edge values)\n");
-        for (auto *cell : sorted)
-            if (outcone.count(cell)) emit_cell(cell);
+        emit_outcone_cells();
         emit_outputs();
         fprintf(out, "}\n\n");
     } else {
@@ -1927,8 +1986,7 @@ int main(int argc, char **argv)
                 fprintf(out, "    %s = s->%s;\n", rn.c_str(), rn.c_str());
         }
         fprintf(out, "    // output-cone recompute (post-edge values)\n");
-        for (auto *cell : sorted)
-            if (outcone.count(cell)) emit_cell(cell);
+        emit_outcone_cells();
         emit_outputs();
         fprintf(out, "}\n\n");
 
@@ -1969,8 +2027,7 @@ int main(int argc, char **argv)
                 fprintf(out, "    %s = s->%s;\n", rn.c_str(), rn.c_str());
         }
         fprintf(out, "    // output-cone recompute (post-commit values)\n");
-        for (auto *cell : sorted)
-            if (outcone.count(cell)) emit_cell(cell);
+        emit_outcone_cells();
         emit_outputs();
         fprintf(out, "}\n\n");
     }
@@ -2068,6 +2125,14 @@ int main(int argc, char **argv)
     // Cross-file table: the bridge text-scrapes these to discover the extra clock
     // INPUT field base-names (matching pins[].name / `in._<name>`) and the count,
     // for per-clock edge detection. Always emitted so the symbols resolve.
+    fprintf(out, "const char *sm_output_order[] = {");
+    for (auto *ow : out_order) {
+        std::string nm = cname(ow->name.str());
+        if (!nm.empty() && nm[0] == '_') nm = nm.substr(1);
+        fprintf(out, "\"%s\", ", nm.c_str());
+    }
+    fprintf(out, "0};\n\n");
+
     fprintf(out, "const char *sm_extra_clocks[] = {");
     for (auto &c : extra_clocks) {
         std::string nm = (!c.empty() && c[0] == '_') ? c.substr(1) : c;
