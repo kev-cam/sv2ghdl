@@ -263,7 +263,15 @@ print <<'CLK';
               when others     => b := -1;
             end case;
             exit when b < 0;
-            addr := addr * 16 + b;
+            -- Saturate instead of overflowing VHDL's 31-bit integer: hex
+            -- files carry high segments (e.g. dhry's 0xD05F0000 mailbox
+            -- region) far beyond our 256KB model; a saturated address stays
+            -- out of range so those bytes are skipped until the next '@'.
+            if addr < 2**26 then
+              addr := addr * 16 + b;
+            else
+              addr := 2**29;
+            end if;
           end loop;
         end if;
         while l'length > 0 loop
