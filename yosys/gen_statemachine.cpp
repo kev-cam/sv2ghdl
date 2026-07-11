@@ -606,6 +606,8 @@ int main(int argc, char **argv)
         int width;
         unsigned __int128 arst_val;
         std::string arst_expr; // async-reset ($adff) assert condition; "" = none
+        RTLIL::SigSpec arst_sig;  // raw ARST port (for cone inlining)
+        bool arst_pol = true;
         std::string clk_name; // CLK net cname (redirect-folded); "_clk" = main clk
         int clk_group = 0;    // 0 = main clk; 1+i = extra_clocks[i]
     };
@@ -620,6 +622,8 @@ int main(int argc, char **argv)
 
     std::vector<RegInfo> registers;
     std::vector<RTLIL::Cell*> comb_cells;
+    // Q bit -> (reg alias name, bit offset) — for inlining async-reset cones
+    dict<RTLIL::SigBit, std::pair<std::string,int>> g_regbit;
 
     // First pass: collect memory info from $meminit cells
     for (auto &c : mod->cells_) {
@@ -691,6 +695,11 @@ int main(int argc, char **argv)
             reg_names_used.insert(wname);
             reg.name = wname;
             reg.width = q.size();
+            {   // Q bit -> (reg alias name, offset), for arst-cone inlining
+                RTLIL::SigSpec qs = sigmap(q);
+                for (int qi = 0; qi < qs.size(); qi++)
+                    if (qs[qi].wire) g_regbit[qs[qi]] = { wname, qi };
+            }
             reg.d_sig = d;
             // Wide D is committed via emit_materialize (sig_expr can't return a
             // limb array); only render the scalar string for narrow regs.
@@ -714,6 +723,8 @@ int main(int argc, char **argv)
                     bool pol = !cell->hasParam(ID(ARST_POLARITY))
                              || cell->getParam(ID(ARST_POLARITY)).as_bool();
                     reg.arst_expr = pol ? a : ("(!(" + a + "))");
+                    reg.arst_sig = cell->getPort(ID::ARST);
+                    reg.arst_pol = pol;
                 }
             }
 
@@ -909,6 +920,153 @@ int main(int argc, char **argv)
     };
     for (auto *cell : comb_cells)
         topo_visit(cell);
+
+    // ---- async-reset cone inliner -------------------------------------
+    // The "Async reset overrides" block runs BEFORE the comb wires are
+    // declared/evaluated, so a DERIVED reset (arst = comb of inputs, e.g.
+    // VeeR dbg's `or(rst_l, dbg_dm_rst_l) & dbg_rst_l`) referenced a C net
+    // that does not exist yet -> compile error -> the whole chunk was left
+    // interpreted. Render such conditions by recursively inlining the cone
+    // from input/register aliases (reset cones are a handful of gates).
+    // Unsupported cell types make the render fail -> status-quo fallback.
+    dict<RTLIL::SigBit, RTLIL::Cell*> g_bitdrv;
+    for (auto *cell : sorted)
+        for (auto &conn : cell->connections())
+            if (cell->output(conn.first)) {
+                RTLIL::SigSpec os = sigmap(conn.second);
+                for (auto &b : os)
+                    if (b.wire) g_bitdrv[b] = cell;
+            }
+    std::function<bool(RTLIL::SigBit, std::string &, int &)> bit_expr =
+        [&](RTLIL::SigBit b, std::string &out_s, int &budget) -> bool {
+        if (--budget < 0) return false;
+        b = sigmap(b);
+        if (b.wire == nullptr) {           // constant
+            out_s = (b.data == RTLIL::S1) ? "1" : "0";
+            return true;
+        }
+        auto rq = g_regbit.find(b);
+        if (rq != g_regbit.end()) {        // register Q bit: use the alias
+            char buf[160];
+            const auto &nm = rq->second.first; int off = rq->second.second;
+            // wide regs alias as uint32_t limb arrays, narrow as scalars
+            bool wide = false;
+            for (auto &r : registers)
+                if (r.name == nm) { wide = is_wide(r.width); break; }
+            if (wide)
+                snprintf(buf, sizeof buf, "((%s[%d] >> %d) & 1)",
+                         nm.c_str(), off >> 5, off & 31);
+            else
+                snprintf(buf, sizeof buf, "((%s >> %d) & 1)", nm.c_str(), off);
+            out_s = buf;
+            return true;
+        }
+        if (b.wire->port_input) {          // input alias
+            std::string wn = cname(b.wire->name.str());
+            char buf[160];
+            if (wn == "_clk" || wn == "_rst") return false;
+            if (is_wide(b.wire->width))
+                snprintf(buf, sizeof buf, "((%s[%d] >> %d) & 1)",
+                         wn.c_str(), b.offset >> 5, b.offset & 31);
+            else
+                snprintf(buf, sizeof buf, "((%s >> %d) & 1)",
+                         wn.c_str(), b.offset);
+            out_s = buf;
+            return true;
+        }
+        auto dit = g_bitdrv.find(b);
+        if (dit == g_bitdrv.end()) return false;
+        RTLIL::Cell *c = dit->second;
+        std::string ty = c->type.str();
+        auto bin = [&](const char *op) -> bool {
+            RTLIL::SigSpec A = sigmap(c->getPort(ID::A));
+            RTLIL::SigSpec B = sigmap(c->getPort(ID::B));
+            // bitwise ops: operate on the SAME bit lane as the output bit
+            RTLIL::SigSpec Y = sigmap(c->getPort(ID::Y));
+            int lane = -1;
+            for (int i = 0; i < Y.size(); i++) if (Y[i] == b) { lane = i; break; }
+            if (lane < 0 || lane >= A.size() || lane >= B.size()) return false;
+            std::string sa, sb2;
+            if (!bit_expr(A[lane], sa, budget) || !bit_expr(B[lane], sb2, budget))
+                return false;
+            out_s = "(" + sa + " " + op + " " + sb2 + ")";
+            return true;
+        };
+        auto reduce = [&](const char *op, bool invert) -> bool {
+            RTLIL::SigSpec A = sigmap(c->getPort(ID::A));
+            if (A.size() > 8) return false;
+            std::string acc;
+            for (int i = 0; i < A.size(); i++) {
+                std::string sa;
+                if (!bit_expr(A[i], sa, budget)) return false;
+                acc = acc.empty() ? sa : "(" + acc + " " + op + " " + sa + ")";
+            }
+            out_s = invert ? "(!" + acc + ")" : acc;
+            return true;
+        };
+        if (ty == "$and")  return bin("&");
+        if (ty == "$or")   return bin("|");
+        if (ty == "$xor")  return bin("^");
+        if (ty == "$not" || ty == "$logic_not" || ty == "$pos" || ty == "$buf") {
+            RTLIL::SigSpec A = sigmap(c->getPort(ID::A));
+            if (ty == "$logic_not" && A.size() != 1) return false;
+            RTLIL::SigSpec Y = sigmap(c->getPort(ID::Y));
+            int lane = -1;
+            for (int i = 0; i < Y.size(); i++) if (Y[i] == b) { lane = i; break; }
+            if (lane < 0 || lane >= A.size()) return false;
+            std::string sa;
+            if (!bit_expr(A[lane], sa, budget)) return false;
+            out_s = (ty == "$pos" || ty == "$buf") ? sa : "(!" + sa + ")";
+            return true;
+        }
+        if (ty == "$reduce_or"  || ty == "$reduce_bool") return reduce("|", false);
+        if (ty == "$reduce_and") return reduce("&", false);
+        if (ty == "$logic_and") {
+            std::string sa, sb2;
+            RTLIL::SigSpec A = sigmap(c->getPort(ID::A)), B = sigmap(c->getPort(ID::B));
+            if (A.size() != 1 || B.size() != 1) return false;
+            if (!bit_expr(A[0], sa, budget) || !bit_expr(B[0], sb2, budget)) return false;
+            out_s = "(" + sa + " && " + sb2 + ")";
+            return true;
+        }
+        if (ty == "$logic_or") {
+            std::string sa, sb2;
+            RTLIL::SigSpec A = sigmap(c->getPort(ID::A)), B = sigmap(c->getPort(ID::B));
+            if (A.size() != 1 || B.size() != 1) return false;
+            if (!bit_expr(A[0], sa, budget) || !bit_expr(B[0], sb2, budget)) return false;
+            out_s = "(" + sa + " || " + sb2 + ")";
+            return true;
+        }
+        if (ty == "$mux") {
+            RTLIL::SigSpec A = sigmap(c->getPort(ID::A)), B = sigmap(c->getPort(ID::B));
+            RTLIL::SigSpec S = sigmap(c->getPort(ID(S))), Y = sigmap(c->getPort(ID::Y));
+            int lane = -1;
+            for (int i = 0; i < Y.size(); i++) if (Y[i] == b) { lane = i; break; }
+            if (lane < 0 || S.size() != 1 || lane >= A.size() || lane >= B.size())
+                return false;
+            std::string ss, sa, sb2;
+            if (!bit_expr(S[0], ss, budget) || !bit_expr(A[lane], sa, budget)
+                || !bit_expr(B[lane], sb2, budget)) return false;
+            out_s = "(" + ss + " ? " + sb2 + " : " + sa + ")";
+            return true;
+        }
+        return false;
+    };
+    // Pre-render each register's inlined reset condition (empty = fallback)
+    for (auto &reg : registers) {
+        if (reg.arst_expr.empty() || reg.arst_sig.size() == 0) continue;
+        RTLIL::SigSpec as = sigmap(reg.arst_sig);
+        if (as.size() != 1) continue;
+        RTLIL::SigBit ab = as[0];
+        // direct input/reg/const references are already fine — only DERIVED
+        // (comb-driven) reset nets need inlining
+        if (ab.wire == nullptr || ab.wire->port_input || g_regbit.count(ab))
+            continue;
+        std::string s; int budget = 96;
+        if (bit_expr(ab, s, budget))
+            reg.arst_expr = reg.arst_pol ? s : ("(!(" + s + "))");
+        // else: leave as-is (status quo: chunk declines at compile)
+    }
 
     // Helper: emit #line directive from Yosys src attribute
     // Format: "filename:line.col-line.col" -> #line <line> "filename"
