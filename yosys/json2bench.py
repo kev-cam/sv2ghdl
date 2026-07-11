@@ -10,7 +10,7 @@
 # the D cone is what coverage exercises).  Clock inputs vanish (bench DFFs are
 # implicitly clocked).  Constants fold; a residual const net is synthesized
 # from the first input (x XOR x = 0).
-import json, re, sys
+import json, re, sys, os
 
 if len(sys.argv) != 4:
     sys.exit("usage: json2bench.py in.json TOP out.bench")
@@ -24,10 +24,12 @@ CLOCKS = {'clk', '_clk'}          # implicit in bench DFFs
 names = {}                        # json bit id -> bench net name
 
 def sanitize(nm):
-    out=[]
-    for ch in nm:
-        out.append(ch if ch.isalnum() or ch=='_' else '_')
-    s=''.join(out).strip('_')
+    # Match gen_statemachine's cname(): non-[A-Za-z0-9_] -> '_', KEEP underscores
+    # (do NOT strip — the model field is cname('\'+wire) = '_'+sanitize(wire), and
+    # scan_certify.resolve() reattaches that leading '_'), 'w_' on a leading digit.
+    s = ''.join(ch if (ch.isalnum() or ch == '_') else '_' for ch in nm)
+    if s and s[0].isdigit():
+        s = 'w_' + s
     return s or 'n'
 
 consts = {}                       # bit id of synthesized const nets
@@ -46,32 +48,58 @@ def bit_name(b):
         names[b] = fresh()
     return names[b]
 
-# named wires first (prefer real names — register Q wires must map to
-# state_t fields in the certify driver), ports override
-for wname, w in mod.get('netnames', {}).items():
-    if wname.startswith('$'): continue
+# Naming priority (all claim-only, so higher priority wins the bit):
+#   (1) register manifest wires  -> match state_t fields
+#   (2) ports                    -> match inputs_t / outputs_t fields
+#   (3) any other named wire
+# A register that directly drives an OUTPUT port thus KEEPS its state-field name
+# for the PPI/PPO; the output PO is materialized separately (a port-named BUFF of
+# the driver) so it still maps to an outputs_t field.
+netnames = mod.get('netnames', {})
+
+def claim(wname):
+    w = netnames.get(wname)
+    if not w:
+        return
     nm = sanitize(wname)
     bits = w['bits']
     for i, b in enumerate(bits):
         if isinstance(b, int) and b not in names:
             names[b] = nm if len(bits) == 1 else f"{nm}_{i}"
 
-# ports next so their bits get port-derived names
+# (1) register wires from gen_statemachine's <json>.regnames manifest (or
+# J2B_REGNAMES). A register net has aliases (bus_intf...obuf_merge vs
+# ...obuf_mergeff.dffs.dout_reg); the model names the state_t field after the FF
+# Q wire, so claim those EXACT wires FIRST or the cone goes unmapped.
+regnames_file = os.environ.get('J2B_REGNAMES') or (sys.argv[1] + '.regnames')
+priority = ([l.strip() for l in open(regnames_file) if l.strip()]
+            if os.path.exists(regnames_file) else [])
+n_claimed = sum(1 for wn in priority if wn in netnames)
+for wname in priority:
+    claim(wname)
+
+# (2) ports: name any UNCLAIMED bit; build the PI list; collect output ports to
+# materialize after the gate helpers are defined.
+out_ports = []
 for pname, p in mod['ports'].items():
     bits = p['bits']
     for i, b in enumerate(bits):
-        nm = pname if len(bits) == 1 else f"{pname}_{i}"
-        if isinstance(b, int):
-            names[b] = nm
+        if isinstance(b, int) and b not in names:
+            names[b] = pname if len(bits) == 1 else f"{pname}_{i}"
     if p['direction'] == 'input':
         if pname in CLOCKS:
             continue
         for i, b in enumerate(bits):
-            nm = pname if len(bits) == 1 else f"{pname}_{i}"
-            inputs.append(nm)
+            inputs.append(pname if len(bits) == 1 else f"{pname}_{i}")
     elif p['direction'] == 'output':
         for i, b in enumerate(bits):
-            outputs.append(bit_name(b))
+            out_ports.append((pname if len(bits) == 1 else f"{pname}_{i}", b))
+
+# (3) any remaining named wires
+for wname in netnames:
+    if wname.startswith('$'):
+        continue
+    claim(wname)
 
 mod_inputs0 = list(inputs)
 
@@ -101,6 +129,19 @@ def const1():
     c1 = fresh('const1_')
     lines.append(f"{c1} = NOT({const0()})")
     return c1
+
+# Materialize output ports: OUTPUT(port) = BUFF(driver). Naming the PO by the
+# PORT (not the driver net) guarantees it maps to an outputs_t field even when
+# the driver is a register whose net carries a state_t name (a register that
+# directly drives an output). When the driver already IS the port net (ordinary
+# combinational output), no buffer is added.
+for pn, b in out_ports:
+    drv = bit_name(b)
+    if drv == pn:
+        outputs.append(pn)
+    else:
+        gate('BUFF', pn, [drv])
+        outputs.append(pn)
 
 SIMPLE = {'$_AND_': 'AND', '$_OR_': 'OR', '$_NAND_': 'NAND', '$_NOR_': 'NOR',
           '$_XOR_': 'XOR', '$_XNOR_': 'XNOR', '$_NOT_': 'NOT', '$_BUF_': 'BUFF'}
@@ -215,4 +256,5 @@ for l in lines:
     out.write(l + "\n")
 out.close()
 print(f"bench (full-scan): {len(live_inputs)}+{len(dffs)} PI, "
-      f"{len(outputs)}+{len(dffs)} PO, {len(lines)} gates")
+      f"{len(outputs)}+{len(dffs)} PO, {len(lines)} gates "
+      f"[{n_claimed}/{len(priority)} manifest reg-names claimed]")

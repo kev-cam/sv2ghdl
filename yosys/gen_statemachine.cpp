@@ -626,6 +626,9 @@ int main(int argc, char **argv)
         bool arst_pol = true;
         std::string clk_name; // CLK net cname (redirect-folded); "_clk" = main clk
         int clk_group = 0;    // 0 = main clk; 1+i = extra_clocks[i]
+        std::string raw_qname; // raw Q-wire name (no backslash) for the scan-bench
+                               // manifest so json2bench names the PPI to match
+                               // this reg's cname()d state_t field
     };
     struct MemInfo {
         std::string name;
@@ -705,11 +708,17 @@ int main(int argc, char **argv)
             auto &q = cell->getPort(ID::Q);
             auto &d = cell->getPort(ID::D);
             // Use wire name, but fall back to cell name on collision
-            std::string wname = cname((*q.chunks().begin()).wire->name.str());
-            if (reg_names_used.count(wname))
+            std::string raw_q = (*q.chunks().begin()).wire->name.str();
+            std::string wname = cname(raw_q);
+            if (reg_names_used.count(wname)) {
                 wname = cname(cell->name.str());
+                raw_q = cell->name.str();
+            }
             reg_names_used.insert(wname);
             reg.name = wname;
+            // strip yosys public '\' so it matches write_json's netname keys
+            reg.raw_qname = (!raw_q.empty() && raw_q[0] == '\\')
+                          ? raw_q.substr(1) : raw_q;
             reg.width = q.size();
             {   // Q bit -> (reg alias name, offset), for arst-cone inlining
                 RTLIL::SigSpec qs = sigmap(q);
@@ -2316,6 +2325,52 @@ int main(int argc, char **argv)
 
     fclose(mout);
     fprintf(stderr, "Generated %s (NVC-mapped version)\n", mapped_file.c_str());
+
+    // --- Optional: emit a full-scan ISCAS89-source JSON of THIS design -------
+    // With GSM_SCAN_JSON set, dump the design (post dffunmap/opt_clean, the same
+    // state the model was built from) as gate-primitive JSON for json2bench.py.
+    // Because the model AND the bench then come from ONE gen_statemachine run,
+    // the register/port net names are exactly the cname()s used for the
+    // state_t/inputs_t/outputs_t fields — so the per-cone certificate maps every
+    // net (no json2bench<->gen_statemachine provenance mismatch). json2bench
+    // turns each DFF into a PPI/PPO; dffunmap already folded sync reset/enable
+    // into D, and async resets remain $_DFF_*_ whose R json2bench ignores —
+    // matching the model's per-cycle next-state (= D; async reset via sm_reset).
+    if (const char *scan_json = getenv("GSM_SCAN_JSON")) {
+        std::string tn = mod->name.str();
+        if (!tn.empty() && tn[0] == '\\') tn = tn.substr(1);
+        fprintf(stderr, "Emitting full-scan JSON -> %s (top %s)\n",
+                scan_json, tn.c_str());
+        // techmap reads share/techmap.v; library-mode yosys can't auto-locate
+        // share/, so point it at the build's share dir (env-overridable).
+        if (Yosys::yosys_share_dirname.empty()) {
+            const char *sd = getenv("YOSYS_SHARE");
+            Yosys::yosys_share_dirname =
+                sd ? std::string(sd) : "/usr/local/src/yosys-build/share/";
+            if (!Yosys::yosys_share_dirname.empty() &&
+                Yosys::yosys_share_dirname.back() != '/')
+                Yosys::yosys_share_dirname += '/';
+        }
+        Yosys::run_pass("techmap");    // $add/$eq/... -> gate primitives
+        Yosys::run_pass("simplemap");  // $dff/$mux/... -> $_DFF_*_/$_MUX_/...
+        Yosys::run_pass("opt_clean");
+        Yosys::run_pass(std::string("write_json ") + scan_json);
+        // Register wire-name manifest: json2bench prefers these netnames when
+        // claiming register bits, so each PPI/PPO is named after the SAME wire
+        // whose cname() is this reg's state_t field (a register net has several
+        // aliases — e.g. bus_intf.bus_buffer.obuf_merge vs ...obuf_mergeff.dffs.
+        // dout_reg — and json2bench's first-come pick would otherwise diverge).
+        std::string regnames = std::string(scan_json) + ".regnames";
+        if (FILE *rf = fopen(regnames.c_str(), "w")) {
+            for (auto &reg : registers)
+                if (!reg.raw_qname.empty())
+                    fprintf(rf, "%s\n", reg.raw_qname.c_str());
+            fclose(rf);
+            fprintf(stderr, "Wrote %zu register names -> %s\n",
+                    registers.size(), regnames.c_str());
+        }
+        fprintf(stderr, "SCAN_JSON_TOP %s\n", tn.c_str());
+    }
 
     Yosys::yosys_shutdown();
     return 0;
