@@ -602,6 +602,7 @@ int main(int argc, char **argv)
         std::string d_expr;       // narrow (<=64b) D as a scalar C expr
         RTLIL::SigSpec d_sig;      // wide (>64b) D, committed via emit_materialize
         std::string en_expr;  // empty = always enabled
+        RTLIL::SigSpec en_sig;  // raw EN port (for late D-cone analysis)
         std::string src;      // source location "file:line.col"
         int width;
         unsigned __int128 arst_val;
@@ -732,6 +733,7 @@ int main(int argc, char **argv)
             if (type == "$dffe" || type == "$adffe" || type == "$sdffe") {
                 if (cell->hasPort(ID::EN)) {
                     reg.en_expr = sig_expr(cell->getPort(ID::EN), sigmap);
+                    reg.en_sig  = cell->getPort(ID::EN);
                     // Check enable polarity
                     if (cell->hasParam(ID(EN_POLARITY)) &&
                         !cell->getParam(ID(EN_POLARITY)).as_bool())
@@ -1208,90 +1210,115 @@ int main(int argc, char **argv)
     // every boundary-input-change delta (intra-cycle combinational settling) and
     // sm_clock once per clock posedge. sm_eval is kept as a back-compat wrapper.
     // Shared preamble (aliases + comb-wire decls + topological comb eval) lambda:
-    auto emit_comb = [&](const char *sp) {
-    fprintf(out, "    // Input aliases\n");
-    for (auto &w : mod->wires_) {
-        auto *wire = w.second;
-        if (wire->port_input) {
-            std::string wn = cname(wire->name.str());
-            if (wn == "_clk" || wn == "_rst")
-                fprintf(out, "    uint64_t %s = 0;  // clock/reset handled externally\n", wn.c_str());
-            else if (is_wide(wire->width))
-                fprintf(out, "    uint32_t %s[%d]; wcopy(%s,in->%s,%d);\n",
-                        wn.c_str(), nlimbs(wire->width), wn.c_str(), wn.c_str(), nlimbs(wire->width));
-            else
-                fprintf(out, "    %s %s = in->%s;\n", ctype(wire->width), wn.c_str(), wn.c_str());
-        }
-    }
-    fprintf(out, "\n    // Register aliases (current state)\n");
-    for (auto &reg : registers) {
-        if (is_wide(reg.width))
-            fprintf(out, "    uint32_t %s[%d]; wcopy(%s,%s->%s,%d);\n",
-                    reg.name.c_str(), nlimbs(reg.width), reg.name.c_str(), sp, reg.name.c_str(), nlimbs(reg.width));
-        else
-            fprintf(out, "    %s %s = %s->%s;\n", ctype(reg.width), reg.name.c_str(), sp, reg.name.c_str());
-    }
-    fprintf(out, "\n");
-
-    // Async reset ($adff/$adffe): level-sensitive. Whenever ARST is asserted, force
-    // the register to its reset value NOW — both the local snapshot (so this eval's
-    // combinational outputs reflect the reset) and the persistent state (so it holds
-    // through to the next clock edge, matching async-reset hardware). Without this,
-    // the reset value was only applied once at sm_reset() and a mid-cycle reset that
-    // followed a clocked load stuck at the stale value. The clocked commit in
-    // emit_seq is gated off while ARST is asserted so it can't clobber the reset.
+    // ---- output-cone analysis (for the fused sm_clock_out) ------------
+    // Cells reachable backward from the output ports, stopping at register
+    // Q bits and input ports. After emit_seq commits the registers, these
+    // cells recomputed with REFRESHED register aliases yield the POST-edge
+    // outputs — replacing the full second sm_comb pass at the posedge eval.
+    pool<RTLIL::Cell*> outcone;
+    pool<std::string>  outcone_regs;
     {
-        bool hdr = false;
-        for (auto &reg : registers) {
-            if (reg.arst_expr.empty()) continue;
-            if (!hdr) { fprintf(out, "    // Async reset overrides\n"); hdr = true; }
-            if (is_wide(reg.width)) {
-                int ny = nlimbs(reg.width);
-                fprintf(out, "    if (%s) {", reg.arst_expr.c_str());
-                for (int l = 0; l < ny; l++) {
-                    uint32_t lw = (l < 4) ? (uint32_t)(reg.arst_val >> (32*l)) : 0;
-                    fprintf(out, " %s[%d]=0x%xu; %s->%s[%d]=0x%xu;",
-                            reg.name.c_str(), l, lw, sp, reg.name.c_str(), l, lw);
+        dict<RTLIL::SigBit, RTLIL::Cell*> bdrv;
+        for (auto *cell : sorted)
+            for (auto &conn : cell->connections())
+                if (cell->output(conn.first)) {
+                    RTLIL::SigSpec os = sigmap(conn.second);
+                    for (auto &b : os) if (b.wire) bdrv[b] = cell;
                 }
-                fprintf(out, " }\n");
-            } else {
-                std::string rv = u128_lit(reg.arst_val);
-                fprintf(out, "    if (%s) { %s = %s; %s->%s = %s; }\n",
-                        reg.arst_expr.c_str(), reg.name.c_str(), rv.c_str(),
-                        sp, reg.name.c_str(), rv.c_str());
+        dict<RTLIL::SigBit, RTLIL::SigBit> connmap;
+        for (auto &cn : mod->connections()) {
+            RTLIL::SigSpec ls = sigmap(cn.first), rs = sigmap(cn.second);
+            int n = std::min(ls.size(), rs.size());
+            for (int ci = 0; ci < n; ci++)
+                if (ls[ci].wire && rs[ci].wire) connmap[ls[ci]] = rs[ci];
+        }
+        std::vector<RTLIL::SigBit> wl;
+        pool<RTLIL::SigBit> seen;
+        for (auto &w2 : mod->wires_)
+            if (w2.second->port_output) {
+                RTLIL::SigSpec os = sigmap(RTLIL::SigSpec(w2.second));
+                for (auto &b : os) if (b.wire) wl.push_back(b);
+            }
+        while (!wl.empty()) {
+            RTLIL::SigBit b = wl.back(); wl.pop_back();
+            if (!b.wire || seen.count(b)) continue;
+            seen.insert(b);
+            auto rq = g_regbit.find(b);
+            if (rq != g_regbit.end()) { outcone_regs.insert(rq->second.first); continue; }
+            if (b.wire->port_input) continue;
+            auto cm = connmap.find(b);
+            if (cm != connmap.end()) wl.push_back(cm->second);
+            auto dv = bdrv.find(b);
+            if (dv == bdrv.end()) continue;
+            RTLIL::Cell *c = dv->second;
+            if (!outcone.count(c)) {
+                outcone.insert(c);
+                for (auto &conn : c->connections())
+                    if (!c->output(conn.first)) {
+                        RTLIL::SigSpec is = sigmap(conn.second);
+                        for (auto &ib : is) if (ib.wire) wl.push_back(ib);
+                    }
             }
         }
-        if (hdr) fprintf(out, "\n");
     }
-
-    // Declare all wires not already covered by registers or inputs
-    fprintf(out, "    // Combinational wires\n");
-    std::set<std::string> declared;
-    for (auto &reg : registers)
-        declared.insert(reg.name);
-    for (auto &w : mod->wires_) {
-        auto *wire = w.second;
-        if (wire->port_input) {
-            declared.insert(cname(wire->name.str()));
-            continue;
+    // Cells feeding the D/EN/ARST of the LATE (extra-clock-group) registers:
+    // sm_clock_late needs only THIS cone evaluated from the snapshot — for
+    // designs whose gated clocks were internalized (whole-core chunks) it is
+    // a handful of cells, replacing a full-network pass per gated edge.
+    pool<RTLIL::Cell*> latecone;
+    {
+        dict<RTLIL::SigBit, RTLIL::Cell*> bdrv;
+        for (auto *cell : sorted)
+            for (auto &conn : cell->connections())
+                if (cell->output(conn.first)) {
+                    RTLIL::SigSpec os = sigmap(conn.second);
+                    for (auto &b : os) if (b.wire) bdrv[b] = cell;
+                }
+        dict<RTLIL::SigBit, RTLIL::SigBit> connmap;
+        for (auto &cn : mod->connections()) {
+            RTLIL::SigSpec ls = sigmap(cn.first), rs = sigmap(cn.second);
+            int n = std::min(ls.size(), rs.size());
+            for (int ci = 0; ci < n; ci++)
+                if (ls[ci].wire && rs[ci].wire) connmap[ls[ci]] = rs[ci];
+        }
+        std::vector<RTLIL::SigBit> wl;
+        pool<RTLIL::SigBit> seen;
+        auto push_sig = [&](const RTLIL::SigSpec &sg) {
+            RTLIL::SigSpec ms = sigmap(sg);
+            for (auto &b : ms) if (b.wire) wl.push_back(b);
+        };
+        for (auto &r : registers)
+            if (r.clk_group > 0) {
+                push_sig(r.d_sig);
+                if (r.en_sig.size()) push_sig(r.en_sig);
+                if (r.arst_sig.size()) push_sig(r.arst_sig);
+            }
+        while (!wl.empty()) {
+            RTLIL::SigBit b = wl.back(); wl.pop_back();
+            if (!b.wire || seen.count(b)) continue;
+            seen.insert(b);
+            if (g_regbit.count(b)) continue;
+            if (b.wire->port_input) continue;
+            auto cm = connmap.find(b);
+            if (cm != connmap.end()) wl.push_back(cm->second);
+            auto dv = bdrv.find(b);
+            if (dv == bdrv.end()) continue;
+            RTLIL::Cell *c = dv->second;
+            if (!latecone.count(c)) {
+                latecone.insert(c);
+                for (auto &conn : c->connections())
+                    if (!c->output(conn.first)) {
+                        RTLIL::SigSpec is = sigmap(conn.second);
+                        for (auto &ib : is) if (ib.wire) wl.push_back(ib);
+                    }
+            }
         }
     }
-    for (auto &w : mod->wires_) {
-        auto *wire = w.second;
-        std::string wn = cname(wire->name.str());
-        if (!declared.count(wn)) {
-            if (is_wide(wire->width))
-                fprintf(out, "    uint32_t %s[%d] = {0};\n", wn.c_str(), nlimbs(wire->width));
-            else
-                fprintf(out, "    %s %s = 0;\n", ctype(wire->width), wn.c_str());
-            declared.insert(wn);
-        }
-    }
-    fprintf(out, "\n");
+    std::map<std::string,int> regwidth;
+    for (auto &r : registers) regwidth[r.name] = r.width;
 
-    // Emit combinational logic in topological order
-    fprintf(out, "    // Combinational evaluation (topologically sorted)\n");
-    for (auto *cell : sorted) {
+    // one cell's C emission (shared by the full pass and the cone recompute)
+    auto emit_cell = [&](RTLIL::Cell *cell) {
         auto type = cell->type.str();
         std::string y_name;
         int y_width = 0, y_off = 0, ywire_w = 0;
@@ -1326,10 +1353,10 @@ int main(int argc, char **argv)
                         data_name.c_str(), cname(memid).c_str(),
                         addr.c_str(), mask_lit(abits).c_str());
             }
-            continue;
+            return;
         }
 
-        if (y_name.empty()) continue;
+        if (y_name.empty()) return;
 
         // Wide cell: any operand, the Y slice, OR the TARGET WIRE exceeds 64
         // bits. (A narrow slice of a wide wire — a partial drive — must still go
@@ -1340,7 +1367,7 @@ int main(int argc, char **argv)
         if (is_wide(ywire_w) || is_wide(y_width) || is_wide(aw_) || is_wide(bw_)) {
             emit_wide_cell(out, cell, sigmap, y_name, y_width, y_off,
                            is_wide(ywire_w), aw_, bw_);
-            continue;
+            return;
         }
 
         std::string masks = mask_lit(y_width);   // width-correct C mask string
@@ -1573,7 +1600,97 @@ int main(int argc, char **argv)
             }
             fprintf(out, "    }\n");
         }
+        };
+
+    auto emit_comb_prefix = [&](const char *sp) {
+    fprintf(out, "    // Input aliases\n");
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        if (wire->port_input) {
+            std::string wn = cname(wire->name.str());
+            if (wn == "_clk" || wn == "_rst")
+                fprintf(out, "    uint64_t %s = 0;  // clock/reset handled externally\n", wn.c_str());
+            else if (is_wide(wire->width))
+                fprintf(out, "    uint32_t %s[%d]; wcopy(%s,in->%s,%d);\n",
+                        wn.c_str(), nlimbs(wire->width), wn.c_str(), wn.c_str(), nlimbs(wire->width));
+            else
+                fprintf(out, "    %s %s = in->%s;\n", ctype(wire->width), wn.c_str(), wn.c_str());
+        }
     }
+    fprintf(out, "\n    // Register aliases (current state)\n");
+    for (auto &reg : registers) {
+        if (is_wide(reg.width))
+            fprintf(out, "    uint32_t %s[%d]; wcopy(%s,%s->%s,%d);\n",
+                    reg.name.c_str(), nlimbs(reg.width), reg.name.c_str(), sp, reg.name.c_str(), nlimbs(reg.width));
+        else
+            fprintf(out, "    %s %s = %s->%s;\n", ctype(reg.width), reg.name.c_str(), sp, reg.name.c_str());
+    }
+    fprintf(out, "\n");
+
+    // Async reset ($adff/$adffe): level-sensitive. Whenever ARST is asserted, force
+    // the register to its reset value NOW — both the local snapshot (so this eval's
+    // combinational outputs reflect the reset) and the persistent state (so it holds
+    // through to the next clock edge, matching async-reset hardware). Without this,
+    // the reset value was only applied once at sm_reset() and a mid-cycle reset that
+    // followed a clocked load stuck at the stale value. The clocked commit in
+    // emit_seq is gated off while ARST is asserted so it can't clobber the reset.
+    {
+        bool hdr = false;
+        for (auto &reg : registers) {
+            if (reg.arst_expr.empty()) continue;
+            if (!hdr) { fprintf(out, "    // Async reset overrides\n"); hdr = true; }
+            if (is_wide(reg.width)) {
+                int ny = nlimbs(reg.width);
+                fprintf(out, "    if (%s) {", reg.arst_expr.c_str());
+                for (int l = 0; l < ny; l++) {
+                    uint32_t lw = (l < 4) ? (uint32_t)(reg.arst_val >> (32*l)) : 0;
+                    fprintf(out, " %s[%d]=0x%xu; %s->%s[%d]=0x%xu;",
+                            reg.name.c_str(), l, lw, sp, reg.name.c_str(), l, lw);
+                }
+                fprintf(out, " }\n");
+            } else {
+                std::string rv = u128_lit(reg.arst_val);
+                fprintf(out, "    if (%s) { %s = %s; %s->%s = %s; }\n",
+                        reg.arst_expr.c_str(), reg.name.c_str(), rv.c_str(),
+                        sp, reg.name.c_str(), rv.c_str());
+            }
+        }
+        if (hdr) fprintf(out, "\n");
+    }
+
+    // Declare all wires not already covered by registers or inputs
+    fprintf(out, "    // Combinational wires\n");
+    std::set<std::string> declared;
+    for (auto &reg : registers)
+        declared.insert(reg.name);
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        if (wire->port_input) {
+            declared.insert(cname(wire->name.str()));
+            continue;
+        }
+    }
+    for (auto &w : mod->wires_) {
+        auto *wire = w.second;
+        std::string wn = cname(wire->name.str());
+        if (!declared.count(wn)) {
+            if (is_wide(wire->width))
+                fprintf(out, "    uint32_t %s[%d] = {0};\n", wn.c_str(), nlimbs(wire->width));
+            else
+                fprintf(out, "    %s %s = 0;\n", ctype(wire->width), wn.c_str());
+            declared.insert(wn);
+        }
+    }
+    fprintf(out, "\n");
+
+    };  // end emit_comb_prefix
+
+    auto emit_comb = [&](const char *sp) {
+    emit_comb_prefix(sp);
+    // Emit combinational logic in topological order
+    fprintf(out, "    // Combinational evaluation (topologically sorted)\n");
+    for (auto *cell : sorted) emit_cell(cell);
+
     fprintf(out, "\n");
     };  // end emit_comb lambda
 
@@ -1701,8 +1818,15 @@ int main(int argc, char **argv)
     // sm_comb: combinational OUTPUTS from the CURRENT register state + inputs,
     // with no side effects (no register/memory commit). The bridge re-runs this
     // on every boundary-input-change delta to settle combinational outputs.
+    // sm_comb's only consumer-visible product is `o` (VERIFY compare, xcheck,
+    // sm_eval and the bridge's settle evals all read outputs only; SMDUMP has
+    // its own full-pass sm_dump_comb) — so evaluate ONLY the output cones:
+    // for VeeR's whole-core chunk that is ~3%% of the network per settle eval.
     fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
-    emit_comb("s");
+    emit_comb_prefix("s");
+    fprintf(out, "    // output cones only\n");
+    for (auto *cell : sorted)
+        if (outcone.count(cell)) emit_cell(cell);
     emit_outputs();
     fprintf(out, "}\n\n");
 
@@ -1740,6 +1864,25 @@ int main(int argc, char **argv)
         emit_comb("s");
         emit_seq("s", false);
         fprintf(out, "}\n\n");
+        fprintf(out, "void sm_clock_out(state_t *s, const inputs_t *in, "
+                     "outputs_t *o, unsigned posedge_mask) {\n");
+        fprintf(out, "    (void)posedge_mask;\n");
+        emit_comb("s");
+        emit_seq("s", false);
+        fprintf(out, "    // refresh committed registers read by the output cones\n");
+        for (auto &rn : outcone_regs) {
+            int w = regwidth.count(rn) ? regwidth[rn] : 1;
+            if (is_wide(w))
+                fprintf(out, "    wcopy(%s, s->%s, %d);\n",
+                        rn.c_str(), rn.c_str(), nlimbs(w));
+            else
+                fprintf(out, "    %s = s->%s;\n", rn.c_str(), rn.c_str());
+        }
+        fprintf(out, "    // output-cone recompute (post-edge values)\n");
+        for (auto *cell : sorted)
+            if (outcone.count(cell)) emit_cell(cell);
+        emit_outputs();
+        fprintf(out, "}\n\n");
     } else {
         // Each clock group advances reading the LIVE state at its own delta. A
         // derived gated clock (free_clk = clk & en) posedges a delta AFTER clk in
@@ -1755,6 +1898,26 @@ int main(int argc, char **argv)
         fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
         fprintf(out, "    sm_clock_masked(s, in, ~0u);\n");
         fprintf(out, "}\n\n");
+        fprintf(out, "void sm_clock_out(state_t *s, const inputs_t *in, "
+                     "outputs_t *o, unsigned posedge_mask) {\n");
+        fprintf(out, "    (void)posedge_mask;\n");
+        emit_comb("s");
+        emit_seq("s", true);
+        fprintf(out, "    // refresh committed registers read by the output cones\n");
+        for (auto &rn : outcone_regs) {
+            int w = regwidth.count(rn) ? regwidth[rn] : 1;
+            if (is_wide(w))
+                fprintf(out, "    wcopy(%s, s->%s, %d);\n",
+                        rn.c_str(), rn.c_str(), nlimbs(w));
+            else
+                fprintf(out, "    %s = s->%s;\n", rn.c_str(), rn.c_str());
+        }
+        fprintf(out, "    // output-cone recompute (post-edge values)\n");
+        for (auto *cell : sorted)
+            if (outcone.count(cell)) emit_cell(cell);
+        emit_outputs();
+        fprintf(out, "}\n\n");
+
         // sm_clock_late: advance ONLY the masked (extra) clock groups, with the
         // combinational cone computed from a PRE-EDGE state snapshot `k` (taken
         // by the bridge at the main posedge, before group 0 advanced) and the
@@ -1768,6 +1931,33 @@ int main(int argc, char **argv)
                      "const inputs_t *in, unsigned posedge_mask) {\n");
         emit_comb("k");
         emit_seq("s", true);
+        fprintf(out, "}\n\n");
+
+        // Fused late commit: only the late-groups' D/EN/ARST cone is
+        // evaluated from the snapshot (a handful of cells when the gated
+        // clocks are internalized), then the committed-state output cones
+        // are recomputed — replacing sm_clock_late's full-network pass AND
+        // the bridge's follow-up full sm_comb.
+        fprintf(out, "void sm_clock_late_out(state_t *s, state_t *k, "
+                     "const inputs_t *in, outputs_t *o, unsigned posedge_mask) {\n");
+        emit_comb_prefix("k");
+        fprintf(out, "    // late-group D/EN/ARST cone only\n");
+        for (auto *cell : sorted)
+            if (latecone.count(cell)) emit_cell(cell);
+        emit_seq("s", true);
+        fprintf(out, "    // refresh committed registers read by the output cones\n");
+        for (auto &rn : outcone_regs) {
+            int w = regwidth.count(rn) ? regwidth[rn] : 1;
+            if (is_wide(w))
+                fprintf(out, "    wcopy(%s, s->%s, %d);\n",
+                        rn.c_str(), rn.c_str(), nlimbs(w));
+            else
+                fprintf(out, "    %s = s->%s;\n", rn.c_str(), rn.c_str());
+        }
+        fprintf(out, "    // output-cone recompute (post-commit values)\n");
+        for (auto *cell : sorted)
+            if (outcone.count(cell)) emit_cell(cell);
+        emit_outputs();
         fprintf(out, "}\n\n");
     }
     // Per-output cone class: an output whose combinational cone reaches a
