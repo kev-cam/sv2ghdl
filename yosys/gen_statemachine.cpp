@@ -109,6 +109,26 @@ static const char *WIDE_RT =
 "static inline uint64_t wslice64(const uint32_t*s,int off,int w,int n){int l=off>>5,b=off&31;uint64_t lo=s[l];if(l+1<n)lo|=(uint64_t)s[l+1]<<32;uint64_t v=lo>>b;if(b&&w+b>64&&l+2<n)v|=(uint64_t)s[l+2]<<(64-b);return w>=64?v:(v&((UINT64_C(1)<<w)-1));}\n"
 "static inline void wplace(uint32_t*d,int off,const uint32_t*s,int w){for(int i=0;i<w;i++){int p=off+i;uint32_t b=(s[i>>5]>>(i&31))&1;d[p>>5]=(d[p>>5]&~(1u<<(p&31)))|(b<<(p&31));}}\n"
 "static inline void wplaceb(uint32_t*d,int off,uint32_t b){d[off>>5]=(d[off>>5]&~(1u<<(off&31)))|((b&1)<<(off&31));}\n"
+"static inline void worbits(uint32_t*d,int doff,const uint32_t*s,int soff,int w){\n"
+"  while(w>0){int db=doff&31,sb=soff&31;int n=32-(db>sb?db:sb);if(n>w)n=w;\n"
+"    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
+"    d[doff>>5]|=((s[soff>>5]>>sb)&m)<<db; doff+=n;soff+=n;w-=n;}}\n"
+"static inline void worbits_s(uint32_t*d,int doff,uint64_t s,int soff,int w){\n"
+"  s>>=soff;\n"
+"  while(w>0){int db=doff&31;int n=32-db;if(n>w)n=w;\n"
+"    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
+"    d[doff>>5]|=((uint32_t)s&m)<<db; s>>=n;doff+=n;w-=n;}}\n"
+"static inline void wplacew_s(uint32_t*d,int doff,uint64_t s,int soff,int w){\n"
+"  s>>=soff;\n"
+"  while(w>0){int db=doff&31;int n=32-db;if(n>w)n=w;\n"
+"    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
+"    d[doff>>5]=(d[doff>>5]&~(m<<db))|(((uint32_t)s&m)<<db);\n"
+"    s>>=n;doff+=n;w-=n;}}\n"
+"static inline void wplacew(uint32_t*d,int doff,const uint32_t*s,int soff,int w){\n"
+"  while(w>0){int db=doff&31,sb=soff&31;int n=32-(db>sb?db:sb);if(n>w)n=w;\n"
+"    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
+"    d[doff>>5]=(d[doff>>5]&~(m<<db))|(((s[soff>>5]>>sb)&m)<<db);\n"
+"    doff+=n;soff+=n;w-=n;}}\n"
 "\n";
 
 // Get a C expression for a SigSpec (wire reference or constant)
@@ -260,15 +280,11 @@ static void emit_materialize(FILE *o, const std::string &dst, int ny,
             // array in emit_wide_cell; a _wb counter would shadow it and the
             // dst[_wk] subscript would hit an int).
             if (is_wide(chunk.wire->width))
-                fprintf(o, "      for(int _wk=0;_wk<%d;_wk++){ uint32_t _wx="
-                        "(%s[(%d+_wk)>>5]>>((%d+_wk)&31))&1;"
-                        " if(_wx) %s[(%d+_wk)>>5]|=1u<<((%d+_wk)&31); }\n",
-                        w, wn.c_str(), off, off, dst.c_str(), pos, pos);
+                fprintf(o, "      worbits(%s,%d,%s,%d,%d);\n",
+                        dst.c_str(), pos, wn.c_str(), off, w);
             else
-                fprintf(o, "      for(int _wk=0;_wk<%d;_wk++){ uint32_t _wx="
-                        "(uint32_t)((%s>>(%d+_wk))&1);"
-                        " if(_wx) %s[(%d+_wk)>>5]|=1u<<((%d+_wk)&31); }\n",
-                        w, wn.c_str(), off, dst.c_str(), pos, pos);
+                fprintf(o, "      worbits_s(%s,%d,%s,%d,%d);\n",
+                        dst.c_str(), pos, wn.c_str(), off, w);
         } else {
             any_const = true;
             for (int i = 0; i < w; i++) {
@@ -328,9 +344,8 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
                     std::string wn = cname(ch.wire->name.str());
                     int w = ch.width, off = ch.offset, ww = ch.wire->width;
                     if (is_wide(ww))   // chunk targets a limb-array wire
-                        fprintf(o, "      for(int _sb=0;_sb<%d;_sb++) wplaceb(%s,%d+_sb,"
-                                "(uint32_t)((_wy[(%d+_sb)>>5]>>((%d+_sb)&31))&1));\n",
-                                w, wn.c_str(), off, pos, pos);
+                        fprintf(o, "      wplacew(%s,%d,_wy,%d,%d);\n",
+                                wn.c_str(), off, pos, w);
                     else if (off == 0 && w == ww)
                         fprintf(o, "      %s = wslice64(_wy,%d,%d,%d);\n",
                                 wn.c_str(), pos, w, ng);
@@ -1583,9 +1598,8 @@ int main(int argc, char **argv)
                     std::string wn = cname(ch.wire->name.str());
                     int w = ch.width, off = ch.offset, ww = ch.wire->width;
                     if (is_wide(ww))   // chunk targets a limb-array wire
-                        fprintf(out, "      for(int _sb=0;_sb<%d;_sb++)"
-                                " wplaceb(%s,%d+_sb,(uint32_t)((_yspl>>(%d+_sb))&1));\n",
-                                w, wn.c_str(), off, pos);
+                        fprintf(out, "      wplacew_s(%s,%d,_yspl,%d,%d);\n",
+                                wn.c_str(), off, pos, w);
                     else if (off == 0 && w == ww)
                         fprintf(out, "      %s = (_yspl >> %d) & %s;\n",
                                 wn.c_str(), pos, mask_lit(w).c_str());
