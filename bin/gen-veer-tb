@@ -364,36 +364,75 @@ print <<'CLK';
     end if;
   end process;
 
-  -- LSU read response: drive rvalid/rdata COMBINATIONALLY from arvalid.
-  -- The bus_buffer's lsu_axi_rdata_ff is gated by a TEC_RV_ICG cell whose
-  -- enable latches on the falling edge — so rvalid must already be high
-  -- *before* the next rising edge for rdata_q to capture this cycle.  If
-  -- we drive rvalid in a clocked process, the `<=` delta delay slips the
-  -- enable past the rising edge and rdata_q lands one cycle too late;
-  -- by then buf_state has already advanced RESP→DONE and the load result
-  -- never makes it into buf_data.  Pure combinational drive matches the
-  -- typical zero-latency-AXI testbench behaviour and lets the data
-  -- propagate during the bus_buffer's RESP cycle.
-  lsu_rd_resp: process(all)
+  -- LSU read response: registered FIFO, LATENCY cycles AR->R -- the same
+  -- pattern as ifu_resp above.  A REAL AXI slave registers its response;
+  -- the earlier zero-latency combinational drive (rvalid <= f(arvalid) in
+  -- the same timestep) created a chunk-output -> tb-comb -> chunk-input
+  -- feedback loop within one timestep, which the interpreter's gated-clock
+  -- delta cascade and an edge-atomic accel model legitimately resolve
+  -- differently (interp held AR two cycles, the accel model one) -- an
+  -- artifact of the unphysical tb, not a design/model divergence.  With
+  -- LATENCY >= 1 the response is stable a full cycle before the consuming
+  -- edge, so the TEC_RV_ICG falling-edge enable latch (the reason the
+  -- combinational drive was introduced) captures rdata correctly too.
+  lsu_rd_resp: process(s_clk)
+    constant DEPTH    : natural := 8;
+    constant LATENCY  : natural := 2;  -- cycles AR->R
+    type q_addr_t is array (0 to DEPTH-1) of natural;
+    type q_id_t   is array (0 to DEPTH-1) of logic3d_vector(3 downto 0);
+    type q_age_t  is array (0 to DEPTH-1) of natural;
+    variable q_addr : q_addr_t;
+    variable q_id   : q_id_t   := (others => (others => L3D_0));
+    variable q_age  : q_age_t  := (others => 0);
+    variable q_valid : std_logic_vector(0 to DEPTH-1) := (others => '0');
     variable a : natural;
     variable d : logic3d_vector(63 downto 0);
+    variable rdata_live : boolean := false;
   begin
-    s_lsu_axi_rdata  <= (others => L3D_0);
-    s_lsu_axi_rid    <= (others => L3D_0);
-    s_lsu_axi_rvalid <= L3D_0;
-    s_lsu_axi_rlast  <= L3D_0;
-    if is_one(s_rst_l) and is_one(s_lsu_axi_arvalid) then
-      a := l3d_to_nat(s_lsu_axi_araddr);
-      d := (others => L3D_0);
-      if a + 7 < MEM_BYTES then
-        for i in 0 to 7 loop
-          d(i*8+7 downto i*8) := nat_to_l3dv(mem(a+i), 8);
+    if rising_edge(s_clk) then
+      -- Drop rvalid once the consumer acks it.
+      if rdata_live and is_one(s_lsu_axi_rready) then
+        s_lsu_axi_rvalid <= L3D_0;
+        s_lsu_axi_rlast  <= L3D_0;
+        rdata_live := false;
+      end if;
+      -- Enqueue a new request on arvalid+arready handshake.
+      if is_one(s_rst_l) and is_one(s_lsu_axi_arvalid)
+         and is_one(s_lsu_axi_arready) then
+        for i in 0 to DEPTH-1 loop
+          if q_valid(i) = '0' then
+            q_valid(i) := '1';
+            q_addr(i) := l3d_to_nat(s_lsu_axi_araddr);
+            q_id(i)   := s_lsu_axi_arid;
+            q_age(i)  := 0;
+            exit;
+          end if;
         end loop;
       end if;
-      s_lsu_axi_rdata  <= d;
-      s_lsu_axi_rid    <= s_lsu_axi_arid;
-      s_lsu_axi_rvalid <= L3D_1;
-      s_lsu_axi_rlast  <= L3D_1;
+      -- Age all pending requests; service the oldest that's reached LATENCY.
+      for i in 0 to DEPTH-1 loop
+        if q_valid(i) = '1' then q_age(i) := q_age(i) + 1; end if;
+      end loop;
+      if not rdata_live then
+        for i in 0 to DEPTH-1 loop
+          if q_valid(i) = '1' and q_age(i) >= LATENCY then
+            a := q_addr(i);
+            d := (others => L3D_0);
+            if a + 7 < MEM_BYTES then
+              for k in 0 to 7 loop
+                d(k*8+7 downto k*8) := nat_to_l3dv(mem(a+k), 8);
+              end loop;
+            end if;
+            s_lsu_axi_rdata  <= d;
+            s_lsu_axi_rid    <= q_id(i);
+            s_lsu_axi_rvalid <= L3D_1;
+            s_lsu_axi_rlast  <= L3D_1;
+            rdata_live := true;
+            q_valid(i) := '0';
+            exit;
+          end if;
+        end loop;
+      end if;
     end if;
   end process;
 

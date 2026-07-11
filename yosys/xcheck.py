@@ -25,9 +25,15 @@ WORK=os.environ.get("XCHECK_WORK","/tmp/xcheck"); os.makedirs(WORK, exist_ok=Tru
 
 # ---- parse top-module port list (name, dir, width), in declaration order ----
 ports=[]; inmod=False
+infunc=False
 for l in open(V).read().splitlines():
     if re.match(r'^module\s+'+re.escape(TOP)+r'\b', l): inmod=True; continue
     if inmod:
+        # yosys write_verilog emits function/task bodies whose local `input`
+        # declarations are NOT module ports — skip those regions.
+        if re.match(r'\s*(function|task)\b', l): infunc=True; continue
+        if re.match(r'\s*end(function|task)\b', l): infunc=False; continue
+        if infunc: continue
         if l.strip().startswith(');') or l.strip()==');': break
         m=re.match(r'\s*(input|output)\s*(?:reg\s+)?(\[(\d+):(\d+)\])?\s*(\w+)', l)
         if m:
