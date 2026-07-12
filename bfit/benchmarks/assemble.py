@@ -56,23 +56,23 @@ def fmt(sec, mu, extra='', dot=''):
     out = s + ('' if mu is None else ' ×%.1f' % mu) + extra
     return (dot + ' ' if dot else '') + out
 
-HDR = ['Model','# Tx','QSPICE','LTspice','ngspice','Xyce','Xyce-MPI',
+HDR = ['Model','# Tx','QSPICE','LTspice','ngspice','Xyce','VACASK','Xyce-MPI',
        'ng+bfit bal','ng+bfit fast','xy+bfit bal','xy+bfit fast']
-lines = ['| ' + ' | '.join(HDR) + ' |', '| :-- | --: ' + '| --: '*9 + '|']
+lines = ['| ' + ' | '.join(HDR) + ' |', '| :-- | --: ' + '| --: '*10 + '|']
 for m in ROWS:
     o = op.get(m, {}); c = cm.get(m, {})
     qs, lt = num(c.get('qspice')), num(c.get('ltspice'))
-    ngb, xyb = num(o.get('ng_base')), num(o.get('xy_base'))
+    ngb, xyb, vc = num(o.get('ng_base')), num(o.get('xy_base')), num(o.get('vc_base'))
     nbal, nfast = num(o.get('ng_bal')), num(o.get('ng_fast'))
     xbal, xfast = num(o.get('xy_bal')), num(o.get('xy_fast'))
     mpi, mnp = num(o.get('mpi_best')), o.get('mpi_np')
-    ref = max([b for b in (qs, lt, ngb, xyb) if b is not None], default=None)  # slowest native
+    ref = max([b for b in (qs, lt, ngb, xyb, vc) if b is not None], default=None)  # slowest native
     comm_min = min([x for x in (qs, lt) if x is not None], default=None)
-    cells = {'qspice':qs,'ltspice':lt,'ngspice':ngb,'xyce':xyb,'mpi':mpi,
+    cells = {'qspice':qs,'ltspice':lt,'ngspice':ngb,'xyce':xyb,'vacask':vc,'mpi':mpi,
              'nbal':nbal,'nfast':nfast,'xbal':xbal,'xfast':xfast}
     fin = {k:v for k,v in cells.items() if v is not None}
     green = min(fin, key=fin.get) if fin else None
-    openk = {'ngspice','xyce','mpi','nbal','nfast','xbal','xfast'}
+    openk = {'ngspice','xyce','vacask','mpi','nbal','nfast','xbal','xfast'}
     if comm_min is not None:
         blue = {k for k in fin if k in openk and fin[k] < comm_min and k != green}
     else:                                  # no commercial finishes -> any open finisher beats them
@@ -80,7 +80,9 @@ for m in ROWS:
     dot = lambda k: '🟢' if k == green else ('🔵' if k in blue else '')
     row = [LABEL[m], str(NTX[m]),
            fmt(qs, mult(ref, qs), dot=dot('qspice')), fmt(lt, mult(ref, lt), dot=dot('ltspice')),
-           fmt(ngb, mult(ref, ngb), dot=dot('ngspice')), fmt(xyb, mult(ref, xyb), dot=dot('xyce'))]
+           fmt(ngb, mult(ref, ngb), dot=dot('ngspice')), fmt(xyb, mult(ref, xyb), dot=dot('xyce')),
+           (str(o.get('vc_base','')).strip() if str(o.get('vc_base','')).strip() == 't/o'
+            else fmt(vc, mult(ref, vc), dot=dot('vacask')))]
     row.append(fmt(mpi, mult(xyb, mpi), ' (np %s)' % mnp if mpi else '', dot('mpi')) if mpi else '—')
     row += [fmt(nbal, mult(ngb, nbal), ' (%s)' % db(o.get('ng_bal_acc')), dot('nbal')) if nbal else '—',
             fmt(nfast, mult(ngb, nfast), ' (%s)' % db(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
@@ -134,6 +136,14 @@ frozen state corrupts slow analog nodes) and is N/A on the diode/BJT rows
 (MOSFET1-only). `XYCE_FROZEN_JAC` is excluded — it segfaults when stacked and
 adds no speed.
 
+**VACASK** (native column) is the new open engine — the same deck, ported to its
+Spectre-style syntax by `gen_models_vacask.py` (MOSFET LEVEL=1 → `sp_mos1`, diode
+→ `sp_diode`, NPN → `sp_bjt`, multitone B-sources → series ideal sines). Models
+compile to OSDI 0.4 via OpenVAF-reloaded. It is a fully adaptive (LTE-driven)
+solver, so its per-deck work lands in the ngspice/Xyce range rather than the
+QSPICE/LTspice stride-and-coast regime; timepoint counts are recorded next to the
+runner. No `-bfit` lane for VACASK yet (no driver).
+
 **Reading it.** bfit swaps device stages for smooth macromodels and coarsens the
 transient, so the solver strides — every accelerated row beats both commercial
 tools. The cleanest win is the **op-amp** (merged diff-pair + current-mirror
@@ -142,10 +152,33 @@ vs `fast` cell); the fast multi-tone amps lose more to undersampling. The
 **breaker** is the other half: at 3000 stiff stages QSPICE, LTspice and ngspice
 all abort — only Xyce solves it, and MPI then nearly halves that.
 
-_Models: `gen_models.py` (+ `gen_amp.py` for the breaker). Open engines:
+_Models: `gen_models.py` (+ `gen_amp.py` for the breaker; `gen_models_vacask.py`
+ports them to VACASK, `c6288_run.sh` runs C6288). Open engines:
 `model_bench.sh` → `open.csv`. Commercial: `win_models.sh` → `commercial.csv`.
 Table: `assemble.py`. Accuracy: `accuracy.py`. Speed/accuracy knob:
 `bfit front --accuracy {exact,balanced,fast}` (or raw `--points/--reltol/--abstol`)._
+
+## C6288 16x16 multiplier (native, transistor-level)
+
+VACASK's flagship benchmark, brought in from its tree: **10112 transistors /
+25380 nodes**, PSP103.4 MOSFETs, 0xFFFF x 0xFFFF as a transistor-level transient
+(~1020 timepoints). Baseline = each engine's native run of the same circuit,
+full-process wall, min of 2. Runner: `c6288_run.sh`; snapshot `c6288-2026-07-12.md`.
+
+| Engine | Wall (s) | Timepoints (acc/rej) | NR iters |
+| :-- | --: | :-- | --: |
+| ngspice-45.2 | 45.98 | 1020 / 1 | 3474 |
+| VACASK 0.3.3 | 70.08 | 1023 / 10 | 3512 |
+| Xyce 7.10 (ours) | n/a | -- | -- |
+
+Xyce, QSPICE and LTspice are absent here: our Xyce build has no built-in PSP103
+(`level=103`) and no OSDI loader, and QSPICE/LTspice have no OSDI/Verilog-A path
+wired for PSP103 on this box. Getting C6288 onto Xyce needs PSP103 via PyMS
+(`.hdl`) or the `-bfit` behavioral lane. VACASK's 1023/10/3512 matches the
+project README's 1021/7/3487, so the port is verified. Note the ordering:
+on the README's Zen4/AVX-512 machine VACASK leads (58 s vs ngspice 72 s); this
+box has no AVX-512, which is where VACASK's OSDI model-eval edge comes from, so
+ngspice leads here instead.
 
 ## Cascade-depth stress runs
 

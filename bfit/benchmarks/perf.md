@@ -16,15 +16,15 @@ actually bought. **bal / fast** are the `bfit front --accuracy` presets
 (`balanced` ≈1000 pts + tight LTE; `fast` ≈300 pts + loose LTE); `exact`
 (no coarsening, not shown) keeps the engine at reference accuracy.
 
-| Model | # Tx | QSPICE | LTspice | ngspice | Xyce | Xyce-MPI | ng+bfit bal | ng+bfit fast | xy+bfit bal | xy+bfit fast |
-| :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: |
-| Bridge rectifier (4 diodes) | 0 | 3.7 ×30.8 | 3.3 ×34.5 | 8.4 ×13.5 | 114 ×1.0 | — | 🟢 0.11 ×76.6 (+10 dB) | 🔵 0.11 ×76.6 (+21 dB) | 9.5 ×12.0 (+25 dB) | 9.4 ×12.1 (+31 dB) |
-| CMOS inverter chain ×100 | 200 | 3.1 ×2.0 | 3.1 ×2.0 | 🔵 1.8 ×3.4 | 6.2 ×1.0 | — | 🔵 0.72 ×2.5 (+12 dB) | 🔵 0.52 ×3.5 (+12 dB) | 🔵 0.52 ×12.0 (+12 dB) | 🟢 0.32 ×19.5 (+12 dB) |
-| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.6 | 🔵 3.5 ×5.6 | 20 ×1.0 | — | 🔵 0.32 ×11.0 (+3 dB) | 🟢 0.11 ×32.0 (+3 dB) | 🔵 0.32 ×61.2 (+3 dB) | 🔵 0.22 ×89.0 (+3 dB) |
-| 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.6 | 4.5 ×23.1 | 6.6 ×15.7 | 104 ×1.0 | — | 🔵 0.12 ×55.2 (+3 dB) | 🟢 0.11 ×60.2 (+2 dB) | 7.4 ×14.0 (+3 dB) | 7.2 ×14.4 (+2 dB) |
-| BJT 3-stage CE amp ‡ | 3 | 3.9 ×52.8 | 7.7 ×26.8 | 5.4 ×38.0 | 206 ×1.0 | — | 🔵 0.72 ×7.5 (-3 dB) | 🔵 0.72 ×7.5 (-3 dB) | 🔵 3.1 ×66.0 (-2 dB) | 🟢 0.22 ×936.5 (0 dB) |
-| 2-stage Miller op-amp | 8 | 3.5 ×22.8 | 4.6 ×17.4 | 38 ×2.1 | 80 ×1.0 | — | 🔵 0.12 ×316.3 (+24 dB) | 🟢 0.11 ×345.0 (+26 dB) | 21 ×3.8 (+25 dB) | 21 ×3.8 (+22 dB) |
-| BJT cascade ×3000 (breaker) | 3000 | brk | brk | brk | 🔵 474 ×1.0 | 🟢 245 ×1.9 (np 4) | — | — | — | — |
+| Model | # Tx | QSPICE | LTspice | ngspice | Xyce | VACASK | Xyce-MPI | ng+bfit bal | ng+bfit fast | xy+bfit bal | xy+bfit fast |
+| :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: |
+| Bridge rectifier (4 diodes) | 0 | 3.7 ×30.8 | 3.3 ×34.5 | 8.4 ×13.5 | 114 ×1.0 | 🔵 2.2 ×51.6 | — | 🟢 0.11 ×76.6 (+10 dB) | 🔵 0.11 ×76.6 (+21 dB) | 9.5 ×12.0 (+25 dB) | 9.4 ×12.1 (+31 dB) |
+| CMOS inverter chain ×100 | 200 | 3.1 ×2.0 | 3.1 ×2.0 | 🔵 1.8 ×3.4 | 6.2 ×1.0 | 5.7 ×1.1 | — | 🔵 0.72 ×2.5 (+12 dB) | 🔵 0.52 ×3.5 (+12 dB) | 🔵 0.52 ×12.0 (+12 dB) | 🟢 0.32 ×19.5 (+12 dB) |
+| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.6 | 🔵 3.5 ×5.6 | 20 ×1.0 | 14 ×1.4 | — | 🔵 0.32 ×11.0 (+3 dB) | 🟢 0.11 ×32.0 (+3 dB) | 🔵 0.32 ×61.2 (+3 dB) | 🔵 0.22 ×89.0 (+3 dB) |
+| 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.6 | 4.5 ×23.1 | 6.6 ×15.7 | 104 ×1.0 | 9.2 ×11.2 | — | 🔵 0.12 ×55.2 (+3 dB) | 🟢 0.11 ×60.2 (+2 dB) | 7.4 ×14.0 (+3 dB) | 7.2 ×14.4 (+2 dB) |
+| BJT 3-stage CE amp ‡ | 3 | 3.9 ×52.8 | 7.7 ×26.8 | 5.4 ×38.0 | 206 ×1.0 | 19 ×11.1 | — | 🔵 0.72 ×7.5 (-3 dB) | 🔵 0.72 ×7.5 (-3 dB) | 🔵 3.1 ×66.0 (-2 dB) | 🟢 0.22 ×936.5 (0 dB) |
+| 2-stage Miller op-amp | 8 | 3.5 ×22.8 | 4.6 ×17.4 | 38 ×2.1 | 80 ×1.0 | 18 ×4.5 | — | 🔵 0.12 ×316.3 (+24 dB) | 🟢 0.11 ×345.0 (+26 dB) | 21 ×3.8 (+25 dB) | 21 ×3.8 (+22 dB) |
+| BJT cascade ×3000 (breaker) | 3000 | brk | brk | brk | 🔵 474 ×1.0 | t/o | 🟢 245 ×1.9 (np 4) | — | — | — | — |
 
 **Accuracy = signal-to-error ratio in dB** (`SER = −20·log₁₀(rel-L2)`); higher is
 better, +25 dB ≈ 6% error, 0 dB = error equals signal. It is **phase-sensitive**,
@@ -51,6 +51,14 @@ frozen state corrupts slow analog nodes) and is N/A on the diode/BJT rows
 (MOSFET1-only). `XYCE_FROZEN_JAC` is excluded — it segfaults when stacked and
 adds no speed.
 
+**VACASK** (native column) is the new open engine — the same deck, ported to its
+Spectre-style syntax by `gen_models_vacask.py` (MOSFET LEVEL=1 → `sp_mos1`, diode
+→ `sp_diode`, NPN → `sp_bjt`, multitone B-sources → series ideal sines). Models
+compile to OSDI 0.4 via OpenVAF-reloaded. It is a fully adaptive (LTE-driven)
+solver, so its per-deck work lands in the ngspice/Xyce range rather than the
+QSPICE/LTspice stride-and-coast regime; timepoint counts are recorded next to the
+runner. No `-bfit` lane for VACASK yet (no driver).
+
 **Reading it.** bfit swaps device stages for smooth macromodels and coarsens the
 transient, so the solver strides — every accelerated row beats both commercial
 tools. The cleanest win is the **op-amp** (merged diff-pair + current-mirror
@@ -59,10 +67,33 @@ vs `fast` cell); the fast multi-tone amps lose more to undersampling. The
 **breaker** is the other half: at 3000 stiff stages QSPICE, LTspice and ngspice
 all abort — only Xyce solves it, and MPI then nearly halves that.
 
-_Models: `gen_models.py` (+ `gen_amp.py` for the breaker). Open engines:
+_Models: `gen_models.py` (+ `gen_amp.py` for the breaker; `gen_models_vacask.py`
+ports them to VACASK, `c6288_run.sh` runs C6288). Open engines:
 `model_bench.sh` → `open.csv`. Commercial: `win_models.sh` → `commercial.csv`.
 Table: `assemble.py`. Accuracy: `accuracy.py`. Speed/accuracy knob:
 `bfit front --accuracy {exact,balanced,fast}` (or raw `--points/--reltol/--abstol`)._
+
+## C6288 16x16 multiplier (native, transistor-level)
+
+VACASK's flagship benchmark, brought in from its tree: **10112 transistors /
+25380 nodes**, PSP103.4 MOSFETs, 0xFFFF x 0xFFFF as a transistor-level transient
+(~1020 timepoints). Baseline = each engine's native run of the same circuit,
+full-process wall, min of 2. Runner: `c6288_run.sh`; snapshot `c6288-2026-07-12.md`.
+
+| Engine | Wall (s) | Timepoints (acc/rej) | NR iters |
+| :-- | --: | :-- | --: |
+| ngspice-45.2 | 45.98 | 1020 / 1 | 3474 |
+| VACASK 0.3.3 | 70.08 | 1023 / 10 | 3512 |
+| Xyce 7.10 (ours) | n/a | -- | -- |
+
+Xyce, QSPICE and LTspice are absent here: our Xyce build has no built-in PSP103
+(`level=103`) and no OSDI loader, and QSPICE/LTspice have no OSDI/Verilog-A path
+wired for PSP103 on this box. Getting C6288 onto Xyce needs PSP103 via PyMS
+(`.hdl`) or the `-bfit` behavioral lane. VACASK's 1023/10/3512 matches the
+project README's 1021/7/3487, so the port is verified. Note the ordering:
+on the README's Zen4/AVX-512 machine VACASK leads (58 s vs ngspice 72 s); this
+box has no AVX-512, which is where VACASK's OSDI model-eval edge comes from, so
+ngspice leads here instead.
 
 ## Cascade-depth stress runs
 
