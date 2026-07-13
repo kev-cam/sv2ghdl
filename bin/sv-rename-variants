@@ -35,12 +35,27 @@ def parse_entities(content):
             content, re.DOTALL | re.IGNORECASE):
         name = m.group(1)
         body = m.group(2)
-        # Exclude tool-emitted attribute lines (nvc_verilog_src/params carry the
-        # batch-specific source path) from the port-signature hash, so variant
-        # names stay stable across translations and depend only on the ports.
+        # Strip tool-emitted attribute lines (nvc_verilog_src carries a
+        # batch-specific source path) from the port-signature so variant names
+        # stay stable across translations.  BUT the port signature ALONE is
+        # identical for every parameterization of a module -- iverilog
+        # monomorphises, baking parameters into the architecture, not the entity
+        # ports -- so two variants that differ ONLY in parameters (e.g.
+        # rvrangecheck for DCCM vs PIC: same ports, different CCM_SADR/CCM_SIZE/
+        # MASK_BITS) would hash identically.  After concat+dedup that collapses
+        # them by name and RE-BINDS instances to the wrong architecture (the
+        # eh2_lsu_addrcheck DCCM<->PIC rangecheck swap).  Fold the
+        # nvc_verilog_params VALUES (CCM_SADR=... etc., but NOT the renamed
+        # entity name) into the signature so different-param variants get
+        # DISTINCT hashes and same-param variants still collapse to one.
         sig_body = re.sub(r'^\s*attribute\b.*$', '', body,
                           flags=re.MULTILINE | re.IGNORECASE)
         sig = re.sub(r'\s+', ' ', sig_body.strip())
+        pm = re.search(
+            r'attribute\s+nvc_verilog_params\s+of\s+\w+\s*:\s*entity\s+is\s*"([^"]*)"',
+            body, re.IGNORECASE)
+        if pm:
+            sig += ' PARAMS:' + re.sub(r'\s+', ' ', pm.group(1).strip())
         entities.append((name, sig, m.start(), m.end()))
     return entities
 
