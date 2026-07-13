@@ -800,9 +800,11 @@ def front(netlist, sim, libroot, cache, points=1000, reltol=0.1, abstol=0.01):
     if gate_hit:      # gate substitution orphans wrapper subckts + device models
         text = prune_unused(text)
     if sim == "xyce":
-        # our Xyce build SILENTLY DROPS subckt instance lines with leading
-        # whitespace (fork parser quirk; upstream accepts them) -- de-indent.
-        # '+' continuations keep their first-column marker.
+        # Xyce's netlist readers historically treated ANY leading-whitespace
+        # line as a comment and silently dropped it (fixed in our fork,
+        # kev-cam/xyce f5cea5f9 -- both readers now parse indented
+        # statements). Keep the de-indent for portability to unfixed Xyce
+        # binaries; '+' continuations keep their first-column marker.
         text = "\n".join(l.lstrip() for l in text.splitlines()) + "\n"
     # The substituted macromodels are smooth signal-flow models: they have no
     # device-level fast transients, so we drop any forced max timestep and
