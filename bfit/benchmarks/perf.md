@@ -85,6 +85,33 @@ ports them to VACASK, `c6288_run.sh` runs C6288). Open engines:
 Table: `assemble.py`. Accuracy: `accuracy.py`. Speed/accuracy knob:
 `bfit front --accuracy {exact,balanced,fast}` (or raw `--points/--reltol/--abstol`)._
 
+
+## VACASK vs ngspice — the replacement case
+
+ngspice's licensing is a patchwork; VACASK is a single clean AGPL-3.0 codebase
+that consumes the **same OpenVAF Verilog-A**. The question is whether switching
+costs performance. In the bfit-accelerated lane — the flow this tooling
+actually runs — it does not: VACASK is **never slower than ngspice** and wins
+the hard (digital / stiff) rows by ×4–7. Seconds head-to-head, same macromodels,
+same methodology:
+
+| Model | ngspice | VACASK | VACASK adv. | ng+bfit bal | vc+bfit bal | VACASK adv. |
+| :-- | --: | --: | --: | --: | --: | --: |
+| Bridge rectifier (4 diodes) | 8.4 | 3.2 | ×2.6 | 0.12 | 0.11 | ×1.1 |
+| CMOS inverter chain ×100 | 1.9 | 6.4 | ×0.3 | 1.5 | 0.21 | ×7.2 |
+| CMOS ring oscillator ×51 | 3.5 | 16 | ×0.2 | 0.92 | 0.21 | ×4.4 |
+| 5T OTA (diff pair + mirror) | 6.7 | 10 | ×0.7 | 0.12 | 0.11 | ×1.1 |
+| BJT 3-stage CE amp ‡ | 5.5 | 20 | ×0.3 | 0.52 | 0.11 | ×4.7 |
+| 2-stage Miller op-amp | 38 | 20 | ×1.9 | 0.12 | 0.11 | ×1.1 |
+
+Accelerated tally: **3 decisive VACASK wins, 3 ties** (within the 10 ms timer
+grain), **0 losses** — the `fast` preset shows the same pattern. Native
+transistor-level is hardware-dependent: on this no-AVX-512 box ngspice leads
+most native rows (VACASK's OSDI model evaluation leans on wide vectors), while
+on the VACASK project's Zen 4 reference machine VACASK leads ngspice natively
+as well (58 s vs 72 s on C6288 — see below). Same portable Verilog-A
+everywhere: `bfit front --sim vacask` vs `--sim ngspice` is a one-flag swap.
+
 ## C6288 16x16 multiplier (native, transistor-level)
 
 VACASK's flagship benchmark, brought in from its tree: **10112 transistors /
