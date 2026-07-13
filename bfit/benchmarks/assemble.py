@@ -57,22 +57,23 @@ def fmt(sec, mu, extra='', dot=''):
     return (dot + ' ' if dot else '') + out
 
 HDR = ['Model','# Tx','QSPICE','LTspice','ngspice','Xyce','VACASK','Xyce-MPI',
-       'ng+bfit bal','ng+bfit fast','xy+bfit bal','xy+bfit fast']
-lines = ['| ' + ' | '.join(HDR) + ' |', '| :-- | --: ' + '| --: '*10 + '|']
+       'ng+bfit bal','ng+bfit fast','xy+bfit bal','xy+bfit fast','vc+bfit bal','vc+bfit fast']
+lines = ['| ' + ' | '.join(HDR) + ' |', '| :-- | --: ' + '| --: '*12 + '|']
 for m in ROWS:
     o = op.get(m, {}); c = cm.get(m, {})
     qs, lt = num(c.get('qspice')), num(c.get('ltspice'))
     ngb, xyb, vc = num(o.get('ng_base')), num(o.get('xy_base')), num(o.get('vc_base'))
     nbal, nfast = num(o.get('ng_bal')), num(o.get('ng_fast'))
     xbal, xfast = num(o.get('xy_bal')), num(o.get('xy_fast'))
+    vbal, vfast = num(o.get('vc_bal')), num(o.get('vc_fast'))
     mpi, mnp = num(o.get('mpi_best')), o.get('mpi_np')
     ref = max([b for b in (qs, lt, ngb, xyb, vc) if b is not None], default=None)  # slowest native
     comm_min = min([x for x in (qs, lt) if x is not None], default=None)
     cells = {'qspice':qs,'ltspice':lt,'ngspice':ngb,'xyce':xyb,'vacask':vc,'mpi':mpi,
-             'nbal':nbal,'nfast':nfast,'xbal':xbal,'xfast':xfast}
+             'nbal':nbal,'nfast':nfast,'xbal':xbal,'xfast':xfast,'vbal':vbal,'vfast':vfast}
     fin = {k:v for k,v in cells.items() if v is not None}
     green = min(fin, key=fin.get) if fin else None
-    openk = {'ngspice','xyce','vacask','mpi','nbal','nfast','xbal','xfast'}
+    openk = {'ngspice','xyce','vacask','mpi','nbal','nfast','xbal','xfast','vbal','vfast'}
     if comm_min is not None:
         blue = {k for k in fin if k in openk and fin[k] < comm_min and k != green}
     else:                                  # no commercial finishes -> any open finisher beats them
@@ -88,6 +89,8 @@ for m in ROWS:
             fmt(nfast, mult(ngb, nfast), ' (%s)' % db(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
             fmt(xbal, mult(xyb, xbal), ' (%s)' % db(o.get('xy_bal_acc')), dot('xbal')) if xbal else '—',
             fmt(xfast, mult(xyb, xfast), ' (%s)' % db(o.get('xy_fast_acc')), dot('xfast')) if xfast else '—']
+    row += [fmt(vbal, mult(vc, vbal), ' (%s)' % db(o.get('vc_bal_acc')), dot('vbal')) if vbal else '—',
+            fmt(vfast, mult(vc, vfast), ' (%s)' % db(o.get('vc_fast_acc')), dot('vfast')) if vfast else '—']
     lines.append('| ' + ' | '.join(row) + ' |')
 TABLE = '\n'.join(lines)
 
@@ -142,7 +145,12 @@ Spectre-style syntax by `gen_models_vacask.py` (MOSFET LEVEL=1 → `sp_mos1`, di
 compile to OSDI 0.4 via OpenVAF-reloaded. It is a fully adaptive (LTE-driven)
 solver, so its per-deck work lands in the ngspice/Xyce range rather than the
 QSPICE/LTspice stride-and-coast regime; timepoint counts are recorded next to the
-runner. No `-bfit` lane for VACASK yet (no driver).
+runner. The **vc+bfit** columns run bfit's macromodels through VACASK too
+(`bfit front --sim vacask`, backed by a VACASK tuner driver -- `sp2vc` +
+`drivers_vacask`): `ce_stage` (bjt_amp) and `bridge` (rectifier) are wired and
+fitted through VACASK itself; `cmos_inv`/`current_mirror` are pending tuning /
+mirror wiring (shown `—`). VACASK (AGPL) is the license-clean, OpenVAF-native
+drop-in for ngspice in the accelerated lane.
 
 **Reading it.** bfit swaps device stages for smooth macromodels and coarsens the
 transient, so the solver strides — every accelerated row beats both commercial

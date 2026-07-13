@@ -88,6 +88,11 @@ try:
     DRIVERS["ngspice"] = NgspiceDriver
 except Exception:
     pass
+try:
+    from drivers_vacask import VacaskDriver
+    DRIVERS["vacask"] = VacaskDriver          # AGPL OpenVAF-native, replaces ngspice
+except Exception:
+    pass
 
 # ----------------------------------------------------------------------------
 # Feature extraction -- signal-flow metrics (steady state). What the fit matches.
@@ -220,6 +225,7 @@ def recognize_ce(netlist):
         ce = [x for x in C if e in (x[1], x[2]) and "0" in (x[1], x[2])]
         matches.append(dict(model="ce_stage",
                             insert="X%s %s %s ce_stage" % (qn, b, c),
+                            vc="x%s (%s %s) cestage" % (qn, b, c),   # VACASK instance
                             drop=[qraw, rcsel[3], rbsel[3]] +
                                  ([re[0][3]] if re else []) + ([ce[0][3]] if ce else [])))
     return matches
@@ -386,7 +392,9 @@ def recognize_inverter(netlist):
                      "*(V(%s)-V(%s)) - ((V(%s)-__h__*(V(%s)-0.5*V(%s)))/(V(%s)*__ron__)+1/__rleak__)*V(%s) }"
                      % (nn, dn, sp, gn, dn, sp, sp, sp, dn, gn, dn, sp, sp, dn)]
                 matches.append(dict(model="cmos_inv", inline=True,
-                                    insert="\n".join(L), drop=[ln_, lp]))  # drop[0]=NMOS (anchor)
+                                    insert="\n".join(L),
+                                    vc="x%s (%s %s %s) cmosinv" % (nn, gn, dn, sp),  # in out vhi
+                                    drop=[ln_, lp]))  # drop[0]=NMOS (anchor)
                 break
     return matches
 
@@ -428,7 +436,9 @@ def recognize_bridge(netlist):
                      "Rleak_%s_a %s 0 __rleak__" % (tag, a),
                      "Rleak_%s_b %s 0 __rleak__" % (tag, b)]
                 matches.append(dict(model="bridge_rect", inline=True,
-                                    insert="\n".join(L), drop=[la, lb, ga, gb]))  # drop[0]=anchor
+                                    insert="\n".join(L),
+                                    vc="x%s (%s %s %s) brm" % (tag, a, b, out),  # a b out
+                                    drop=[la, lb, ga, gb]))  # drop[0]=anchor
                 break
     return matches
 
@@ -633,6 +643,14 @@ def main():
         if a.reltol is not None: rt = a.reltol
         if a.abstol is not None: at = a.abstol
         if pts and rt is None: rt, at = 0.1, 0.01            # coarsening needs an LTE for xyce
+        if a.sim == "vacask":
+            from drivers_vacask import front_vacask
+            net, n = front_vacask(open(a.netlist).read(), cache, a.libroot,
+                                  points=pts, reltol=rt or 0.1)
+            sys.stderr.write("[bfit] VACASK_USE_BFIT=%s -> substituted %d block(s); accuracy=%s (points=%s)\n"
+                             % (mode, n, a.accuracy, pts if pts else "exact"))
+            (open(a.out, "w") if a.out else sys.stdout).write(net)
+            return
         net, n, totune = front(open(a.netlist).read(), a.sim, a.libroot, cache,
                                points=pts, reltol=rt, abstol=at)
         sys.stderr.write("[bfit] %s_USE_BFIT=%s%s -> substituted %d block(s); accuracy=%s (points=%s)%s\n" % (
@@ -643,7 +661,8 @@ def main():
         return
     if a.cmd == "tune":
         spec = json.load(open(os.path.join(a.lib, "fit.json")))
-        template = open(os.path.join(a.lib, "template.cir")).read()
+        tmpl = "template.vc" if a.sim == "vacask" else "template.cir"
+        template = open(os.path.join(a.lib, tmpl)).read()
         ref = open(a.ref).read()
         driver = DRIVERS[a.sim]()
         params, res = tune(ref, template, spec, driver)

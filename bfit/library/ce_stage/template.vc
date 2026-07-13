@@ -1,0 +1,20 @@
+ce_stage tune candidate (VACASK)
+load "@LIB@/ce_stage/ce_stage.osdi"
+load "@DEV@/resistor.osdi"
+load "@DEV@/capacitor.osdi"
+model v vsource
+model r resistor
+model c capacitor
+model cestage ce_stage ( gain=__gain__ vlo=__Vlo__ vhi=__Vhi__ rout=__Rout__ rin=100000 fp=__fp__ )
+vin (in 0) v dc=0 type="sine" ampl=0.01 freq=10k
+cin (in n1) c c=1u
+xq1 (n1 c1) cestage
+cc1 (c1 n2) c c=1u
+xq2 (n2 c2) cestage
+cc2 (c2 n3) c c=1u
+xq3 (n3 c3) cestage
+cout (c3 out) c c=1u
+rload (out 0) r r=10k
+control
+  analysis tran1 tran step=1u stop=2m
+endc

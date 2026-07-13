@@ -1,0 +1,22 @@
+`include "disciplines.vams"
+// bfit bridge_rect macromodel -- Verilog-A form of the SPICE B-source emitted
+// by recognize_bridge() in bfit.py. Full-wave rectified drive
+// Vrect = max(0,|V(a)-V(b)|-2*vdrop) charges `out` through rs one way (diode
+// conduction), with reverse leakage 1/rleak; the two Rleak paths restore the
+// AC nodes' DC path to ground that the four removed diodes provided. One
+// module replaces four exp() diodes.
+module bridge(a, b, out);
+  inout a, b, out;
+  electrical a, b, out;
+  parameter real vdrop = 0.6 from [0:inf);
+  parameter real rs    = 1.0 from (0:inf);
+  parameter real rleak = 1e7 from (0:inf);
+  real vrect, ie;
+  analog begin
+    vrect = max(0.0, abs(V(a)-V(b)) - 2.0*vdrop);
+    ie    = max(0.0, (vrect - V(out))/rs) - V(out)/rleak;
+    I(out) <+ -ie;                 // inject ie into out
+    I(a)   <+ V(a)/rleak;          // Rleak_a: restore AC-node DC path
+    I(b)   <+ V(b)/rleak;          // Rleak_b
+  end
+endmodule
