@@ -2,6 +2,7 @@
   "module": "cmos_inv",
   "pattern": "CMOS logic inverter: complementary NMOS+PMOS sharing gate (in) and drain (out), PMOS to the high rail, NMOS to gnd",
   "ports": ["in", "out", "vhi"],
+  "t0": 2e-7,
   "params": { "cin": [1e-16, 1e-12], "ron": [50, 50000], "rleak": [1e3, 1e7], "h": [0.0, 0.3] },
   "x0":     { "cin": 8e-15,          "ron": 1000,         "rleak": 1e6,        "h": 0.0 },
   "features": [ ["out", "min"], ["out", "max"] ],

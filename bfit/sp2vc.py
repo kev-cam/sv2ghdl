@@ -134,7 +134,8 @@ def translate(spice, extra_loads=None, extra_head=None, extra_body=None):
         if u == "q": body.append("%s (%s %s %s) %s" % (t[0], t[1], t[2], t[3], t[4])); need.add("q"); continue
         if u == "d": body.append("%s (%s %s) %s" % (t[0], t[1], t[2], t[3])); need.add("d"); continue
         if u == "m":
-            extra = " ".join(x for x in t[6:] if "=" in x)
+            extra = " ".join(x.split("=", 1)[0].lower() + "=" + num(x.split("=", 1)[1])
+                             for x in t[6:] if "=" in x)   # sp_mos1 params are lowercase (w l ad ..)
             body.append("%s (%s %s %s %s) %s %s" % (t[0], t[1], t[2], t[3], t[4], t[5], extra)); need.add("m"); continue
         if u == "x":   # subckt instance: X<name> nodes... subckt
             body.append("%s (%s) %s" % (t[0], " ".join(t[1:-1]), t[-1])); continue

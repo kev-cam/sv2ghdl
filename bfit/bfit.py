@@ -665,7 +665,7 @@ def main():
         template = open(os.path.join(a.lib, tmpl)).read()
         ref = open(a.ref).read()
         driver = DRIVERS[a.sim]()
-        params, res = tune(ref, template, spec, driver)
+        params, res = tune(ref, template, spec, driver, t0=spec.get("t0", 1.5e-3))
         print("\nFITTED PARAMETERS:", {k: round(v,4) for k,v in params.items()})
         if a.cache:
             db = json.load(open(a.cache)) if os.path.exists(a.cache) else {}
