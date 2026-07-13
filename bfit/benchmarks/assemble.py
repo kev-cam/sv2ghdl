@@ -117,6 +117,12 @@ for m in ROWS:
         else: hl += 1
     hh.append('| %s | %s | %s | %s | %s | %s | %s |'
               % (LABEL[m], _s(ngb), _s(vcb), _r(rb), _s(ngl), _s(vcl), _r(rl)))
+# C6288 (10112 transistors, PSP103.4): native only -- no bfit lane (the NOR/AND
+# gate recognizers are not implemented). Numbers from c6288_run.sh, this box
+# (see the C6288 section / c6288-2026-07-12.md snapshot).
+C6288_NG, C6288_VC = 45.98, 70.08
+hh.append('| C6288 16x16 multiplier (10112 Tx) | %s | %s | %s | — | — | — |'
+          % (_s(C6288_NG), _s(C6288_VC), _r(_hh(C6288_NG, C6288_VC))))
 VNSEC = """
 
 ## VACASK vs ngspice — the replacement case
@@ -131,12 +137,14 @@ same methodology:
 """ + '\n'.join(hh) + """
 
 Accelerated tally: **%d decisive VACASK wins, %d ties** (within the 10 ms timer
-grain), **%d losses** — the `fast` preset shows the same pattern. Native
-transistor-level is hardware-dependent: on this no-AVX-512 box ngspice leads
-most native rows (VACASK's OSDI model evaluation leans on wide vectors), while
-on the VACASK project's Zen 4 reference machine VACASK leads ngspice natively
-as well (58 s vs 72 s on C6288 — see below). Same portable Verilog-A
-everywhere: `bfit front --sim vacask` vs `--sim ngspice` is a one-flag swap.
+grain), **%d losses** — the `fast` preset shows the same pattern. C6288 is
+native-only (`—`): bfit has no NOR/AND gate recognizers yet, so neither engine
+gets an accelerated lane there. Native transistor-level is hardware-dependent:
+on this no-AVX-512 box ngspice leads most native rows including C6288 (VACASK's
+OSDI model evaluation leans on wide vectors), while on the VACASK project's
+Zen 4 reference machine VACASK leads ngspice natively as well (58 s vs 72 s on
+C6288 — see below). Same portable Verilog-A everywhere: `bfit front --sim
+vacask` vs `--sim ngspice` is a one-flag swap.
 """ % (hw, ht, hl)
 
 print("""# Cross-engine performance

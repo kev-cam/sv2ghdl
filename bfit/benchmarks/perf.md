@@ -103,14 +103,17 @@ same methodology:
 | 5T OTA (diff pair + mirror) | 6.7 | 10 | ×0.7 | 0.12 | 0.11 | ×1.1 |
 | BJT 3-stage CE amp ‡ | 5.5 | 20 | ×0.3 | 0.52 | 0.11 | ×4.7 |
 | 2-stage Miller op-amp | 38 | 20 | ×1.9 | 0.12 | 0.11 | ×1.1 |
+| C6288 16x16 multiplier (10112 Tx) | 46 | 70 | ×0.7 | — | — | — |
 
 Accelerated tally: **3 decisive VACASK wins, 3 ties** (within the 10 ms timer
-grain), **0 losses** — the `fast` preset shows the same pattern. Native
-transistor-level is hardware-dependent: on this no-AVX-512 box ngspice leads
-most native rows (VACASK's OSDI model evaluation leans on wide vectors), while
-on the VACASK project's Zen 4 reference machine VACASK leads ngspice natively
-as well (58 s vs 72 s on C6288 — see below). Same portable Verilog-A
-everywhere: `bfit front --sim vacask` vs `--sim ngspice` is a one-flag swap.
+grain), **0 losses** — the `fast` preset shows the same pattern. C6288 is
+native-only (`—`): bfit has no NOR/AND gate recognizers yet, so neither engine
+gets an accelerated lane there. Native transistor-level is hardware-dependent:
+on this no-AVX-512 box ngspice leads most native rows including C6288 (VACASK's
+OSDI model evaluation leans on wide vectors), while on the VACASK project's
+Zen 4 reference machine VACASK leads ngspice natively as well (58 s vs 72 s on
+C6288 — see below). Same portable Verilog-A everywhere: `bfit front --sim
+vacask` vs `--sim ngspice` is a one-flag swap.
 
 ## C6288 16x16 multiplier (native, transistor-level)
 
