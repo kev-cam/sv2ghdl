@@ -101,6 +101,12 @@ while [[ $# -gt 0 ]]; do
         -V)
             echo "Icarus Verilog version 13.0 (sv2ghdl/nvc)"
             exit 0 ;;
+        --two-state)
+            # Match Verilator's X-free (2-state) semantics: collapse uncertain
+            # logic3d literals in the generated VHDL to clean driven values (see
+            # two_state_clean_vhdl below).  Exported so a downstream/child
+            # iverilog-sv2ghdl invocation honours it too.
+            export SV2VHDL_TWO_STATE=1; shift ;;
         -g*)    shift ;;   # Generation flags - ignored
         -D)     IVL_DEF+=("-D$2"); shift 2 ;;  # Define (separate arg)
         -D*)    IVL_DEF+=("$1");   shift ;;    # Define - forward to iverilog
@@ -126,6 +132,27 @@ while [[ $# -gt 0 ]]; do
             SOURCES+=("$1"); shift ;;
     esac
 done
+
+# In --two-state mode, collapse UNCERTAIN logic3d literals in the generated VHDL
+# to clean driven values (Verilator's X->0 semantics), preserving the value bit:
+#   L3D_X (X, val 0) -> L3D_0   L3D_U (U, val 1) -> L3D_1
+#   L3D_Z (Z, val 0) -> L3D_0   L3D_W (W, val 1) -> L3D_1
+# Rationale: behavioral SRAM models write `Q <= 'x` on read-during-write and read
+# uninitialised entries; iverilog faithfully emits L3D_X for those. In 4-state that
+# X propagates into fetch/control and wedges the pipe (VeeR-EH2 hello froze at
+# cyc85); Verilator (2-state) never sees X because it maps 'x->0. Doing the same
+# here makes --two-state match Verilator. Case-choice lines (`when L3D_x =>`) are
+# skipped so a remap can't create duplicate `when` choices.
+two_state_clean_vhdl() {
+    [[ -n "${SV2VHDL_TWO_STATE:-}" ]] || return 0
+    [[ -s "$1" ]] || return 0
+    sed -i '/[[:space:]]when[[:space:]]/!{
+        s/\bL3D_X\b/L3D_0/g
+        s/\bL3D_U\b/L3D_1/g
+        s/\bL3D_Z\b/L3D_0/g
+        s/\bL3D_W\b/L3D_1/g
+    }' "$1"
+}
 
 if [[ ${#SOURCES[@]} -eq 0 ]]; then
     echo "iverilog-sv2ghdl: no source files" >&2
@@ -212,6 +239,7 @@ if [[ -n "$NORM_SRC" && -x "$SV2VHDL_MODULES" ]]; then
         else
             cp "$_mods" "$VHDL_OUT"
         fi
+        two_state_clean_vhdl "$VHDL_OUT"
         cd "$OUTDIR"
         if $NVC -M 2g -H 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
             IVERILOG_OK=1
@@ -228,6 +256,7 @@ fi
 if [[ $IVERILOG_OK -eq 0 ]] && \
    timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}" 2>/dev/null; then
     if [[ -s "$VHDL_OUT" ]]; then
+        two_state_clean_vhdl "$VHDL_OUT"
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
         if $NVC -M 2g -H 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then

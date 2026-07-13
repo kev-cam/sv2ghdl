@@ -83,6 +83,7 @@ abspath() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --two-state)          export SV2VHDL_TWO_STATE=1; shift ;;
         --binary)             BINARY=1;        shift ;;
         --cc|--exe|--main)    CC=1;            shift ;;
         --build)              shift ;;          # build implied; ignore
@@ -118,6 +119,11 @@ while [[ $# -gt 0 ]]; do
             SOURCES+=("$1"); shift ;;
     esac
 done
+
+# --two-state (SV2VHDL_TWO_STATE=1) is honoured inside iverilog-sv2ghdl, which
+# collapses uncertain logic3d literals in the translated VHDL to clean values
+# (Verilator X->0 semantics). Nothing to do here beyond having exported the env
+# var in the arg parser — the default value-preserving sv2vhdl lib is used.
 
 # ---------------------------------------------------------------------------
 # RTLMeter / --cc compile flow
