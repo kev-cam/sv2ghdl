@@ -26,7 +26,7 @@ column. `n/a` = the engine has no model/path for that circuit (distinct from
 | 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.3 | 4.5 ×22.8 | 6.7 ×15.3 | 103 ×1.0 | 10 ×10.2 | — | 🔵 0.12 ×855.1 (+3 dB) | 🔵 0.12 ×855.1 (+2 dB) | 8 ×12.8 (+3 dB) | 7.2 ×14.2 (+2 dB) | 🟢 0.11 ×932.8 (+3 dB) | 🔵 0.11 ×932.8 (+3 dB) |
 | BJT 3-stage CE amp ‡ | 3 | 3.9 ×53.1 | 7.7 ×26.9 | 5.5 ×37.5 | 207 ×1.0 | 20 ×10.4 | — | 🔵 0.52 ×398.1 (-3 dB) | 🔵 0.52 ×398.1 (-3 dB) | 🔵 2.8 ×73.4 (-3 dB) | 🔵 0.22 ×940.9 (0 dB) | 🟢 0.11 ×1881.8 (0 dB) | 🔵 0.11 ×1881.8 (0 dB) |
 | 2-stage Miller op-amp | 8 | 3.5 ×22.6 | 4.6 ×17.2 | 38 ×2.1 | 79 ×1.0 | 20 ×4.0 | — | 🔵 0.12 ×659.9 (+24 dB) | 🔵 0.12 ×659.9 (+26 dB) | 21 ×3.8 (+25 dB) | 21 ×3.8 (+22 dB) | 🟢 0.11 ×719.9 (+23 dB) | 🔵 0.11 ×719.9 (+27 dB) |
-| C6288 16×16 multiplier (PSP103) | 10112 | n/a | n/a | 🟢 46 ×1.5 | n/a | 🔵 70 ×1.0 | — | — | — | — | — | — | — |
+| C6288 16×16 multiplier (PSP103) | 10112 | n/a | n/a | 🔵 46 ×1.5 | n/a | 🔵 70 ×1.0 | — | 🔵 6.6 ×10.7 (∞ dB) | 🔵 2.5 ×28.6 (∞ dB) | 🔵 4.3 ×16.1 | 🔵 1.9 ×37.9 | 🔵 0.75 ×93.4 (∞ dB) | 🟢 0.35 ×200.2 (∞ dB) |
 | BJT cascade ×3000 (breaker) | 3000 | brk | brk | brk | 🔵 462 ×1.0 | t/o | 🟢 238 ×1.9 (np 4) | — | — | — | — | — | — |
 
 **Accuracy = signal-to-error ratio in dB** (`SER = −20·log₁₀(rel-L2)`); higher is
@@ -106,17 +106,22 @@ same methodology:
 | 5T OTA (diff pair + mirror) | 6.7 | 10 | ×0.7 | 0.12 | 0.11 | ×1.1 |
 | BJT 3-stage CE amp ‡ | 5.5 | 20 | ×0.3 | 0.52 | 0.11 | ×4.7 |
 | 2-stage Miller op-amp | 38 | 20 | ×1.9 | 0.12 | 0.11 | ×1.1 |
-| C6288 16×16 multiplier (PSP103) | 46 | 70 | ×0.7 | — | — | — |
+| C6288 16×16 multiplier (PSP103) | 46 | 70 | ×0.7 | 6.6 | 0.75 | ×8.7 |
 
-Accelerated tally: **3 decisive VACASK wins, 3 ties** (within the 10 ms timer
-grain), **0 losses** — the `fast` preset shows the same pattern. C6288 is
-native-only (`—`): bfit has no NOR/AND gate recognizers yet, so neither engine
-gets an accelerated lane there. Native transistor-level is hardware-dependent:
-on this no-AVX-512 box ngspice leads most native rows including C6288 (VACASK's
-OSDI model evaluation leans on wide vectors), while on the VACASK project's
-Zen 4 reference machine VACASK leads ngspice natively as well (58 s vs 72 s on
-C6288 — see below). Same portable Verilog-A everywhere: `bfit front --sim
-vacask` vs `--sim ngspice` is a one-flag swap.
+Accelerated tally: **4 decisive VACASK wins, 3 ties** (within the 10 ms timer
+grain), **0 losses** — the `fast` preset shows the same pattern. C6288's
+accelerated cells come from the **gate recognizers** (`recognize_gates`): the
+not/nor/and subckts are classified by a switch-level truth table and THREE
+subckt-body substitutions turn all 10112 PSP103 FETs into ~2400 behavioral
+gates — the multiplier still computes 0xFFFF × 0xFFFF = 0xFFFE0001 on every
+engine. The substituted deck contains no transistors at all, so even our
+PSP103-less Xyce runs it (bfit as an *enabler*; Xyce's native cell stays
+`n/a`). Native transistor-level is hardware-dependent: on this no-AVX-512 box
+ngspice leads most native rows including C6288 (VACASK's OSDI model evaluation
+leans on wide vectors), while on the VACASK project's Zen 4 reference machine
+VACASK leads ngspice natively as well (58 s vs 72 s on C6288 — see below).
+Same portable Verilog-A everywhere: `bfit front --sim vacask` vs
+`--sim ngspice` is a one-flag swap.
 
 ## C6288 16x16 multiplier (native, transistor-level)
 
@@ -131,14 +136,21 @@ full-process wall, min of 2. Runner: `c6288_run.sh`; snapshot `c6288-2026-07-12.
 | VACASK 0.3.3 | 70.08 | 1023 / 10 | 3512 |
 | Xyce 7.10 (ours) | n/a | -- | -- |
 
-Xyce, QSPICE and LTspice are absent here: our Xyce build has no built-in PSP103
-(`level=103`) and no OSDI loader, and QSPICE/LTspice have no OSDI/Verilog-A path
-wired for PSP103 on this box. Getting C6288 onto Xyce needs PSP103 via PyMS
-(`.hdl`) or the `-bfit` behavioral lane. VACASK's 1023/10/3512 matches the
-project README's 1021/7/3487, so the port is verified. Note the ordering:
+Xyce, QSPICE and LTspice are absent NATIVELY: our Xyce build has no built-in
+PSP103 (`level=103`) and no OSDI loader, and QSPICE/LTspice have no
+OSDI/Verilog-A path wired for PSP103 on this box. VACASK's 1023/10/3512 matches
+the project README's 1021/7/3487, so the port is verified. Note the ordering:
 on the README's Zen4/AVX-512 machine VACASK leads (58 s vs ngspice 72 s); this
 box has no AVX-512, which is where VACASK's OSDI model-eval edge comes from, so
 ngspice leads here instead.
+
+The **+bfit cells** in the main table come from the gate-recognizer lane
+(`c6288_run.sh`, `BFIT=1` default): `recognize_gates` switch-level-classifies
+the three gate subckts and replaces their BODIES, turning 10112 PSP103 FETs
+into ~2400 behavioral gates with no transistors left — the product is still
+0xFFFE0001 on every engine, and the deck runs on Xyce with no PSP103 at all.
+Accuracy is rel-L2 of p31 vs the engine's own native gold (Xyce has none →
+`-`).
 
 ## Cascade-depth stress runs
 

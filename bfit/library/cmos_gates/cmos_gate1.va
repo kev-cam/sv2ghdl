@@ -1,0 +1,21 @@
+`include "disciplines.vams"
+// bfit generic 1-input CMOS gate macromodel (INV / BUF) -- the cmos_inv v2
+// family: clamped-linear transfer with gain g about the vhi/2 trip point,
+// rail clamp, rout into the load sets the delay, cin loads the input.
+// Piecewise-linear (no tanh) so the solver strides between input edges.
+// inv=1 -> inverting (NOT), inv=0 -> non-inverting (BUF).
+module cmos_gate1(a, out, vhi);
+  inout a, out, vhi;
+  electrical a, out, vhi;
+  parameter real cin  = 6.5e-16 from (0:inf);
+  parameter real g    = 14.71   from (1:1000);
+  parameter real rout = 7571    from (0:inf);
+  parameter integer inv = 1 from [0:1];
+  real vt, vlin;
+  analog begin
+    vt   = 0.5*V(vhi);
+    vlin = inv ? vt - g*(V(a) - vt) : vt + g*(V(a) - vt);
+    I(out) <+ (V(out) - max(0.0, min(V(vhi), vlin))) / rout;
+    I(a)   <+ cin*ddt(V(a));
+  end
+endmodule

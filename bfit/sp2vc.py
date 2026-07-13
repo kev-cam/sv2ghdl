@@ -60,9 +60,12 @@ def _src(name, np_, nn, rest):
     if up.startswith("PULSE"):
         inner = re.sub(r"(?i)^\s*pulse\s*\(?", "", " ".join(rest)).rstrip(") ")
         p = re.findall(_NUM, inner)
-        v0, v1, td, tr, tf, pw, per = (p+["0"]*7)[:7]
-        return ('%s (%s %s) %s type="pulse" val0=%s val1=%s delay=%s rise=%s fall=%s width=%s period=%s'
-                % (name, np_, nn, kind, num(v0), num(v1), num(td), num(tr), num(tf), num(pw), num(per)))
+        # emit only the params given -- SPICE defaults tf=tr, pw/per=stop-ish;
+        # VACASK defaults hold val1 when width/period are absent (a step), which
+        # matches how partial PULSE(v0 v1 td tr) drivers are used.
+        names = ["val0", "val1", "delay", "rise", "fall", "width", "period"]
+        kv = " ".join("%s=%s" % (n, num(v)) for n, v in zip(names, p))
+        return '%s (%s %s) %s type="pulse" %s' % (name, np_, nn, kind, kv)
     return '%s (%s %s) %s dc=%s' % (name, np_, nn, kind, num(t0))
 
 # SPICE .model -> (vacask module, param filter). sp_ models take SPICE param names.
@@ -83,16 +86,31 @@ def _model(line):
     return name, None
 
 def translate(spice, extra_loads=None, extra_head=None, extra_body=None):
-    lines = spice.splitlines()
+    raw_lines = spice.splitlines()
+    lines = []                             # join SPICE '+' continuations first
+    for rl in raw_lines:
+        rs = rl.strip()
+        if rs.startswith("+") and lines:
+            lines[-1] += " " + rs[1:]
+        else:
+            lines.append(rl)
     title = lines[0].strip() if lines and not lines[0].strip().startswith((".", "*")) else "translated circuit"
-    body, models, need, tran, ics, saves = [], [], set(), None, [], []
-    subckt = False
+    body, models, need, tran, ics, saves, globs = [], [], set(), None, [], [], []
+    subckt, inctl = False, False
     for raw in lines[1:]:
         s = raw.strip()
         if not s or s[0] in "*;": continue
+        low0 = s.lower()
+        if inctl:                          # skip .control blocks wholesale
+            if low0.startswith(".endc"): inctl = False
+            continue
+        if low0.startswith(".control"):
+            inctl = True; continue
         if s.startswith("@@VC "):          # pre-formed VACASK line (macromodel insert), verbatim
             body.append(s[5:]); continue
         low = s.lower(); t = s.split(); u = t[0][0].lower()
+        if low.startswith(".global"):
+            globs.append("global " + " ".join(t[1:])); continue
         if low.startswith(".model"):
             nm, out = _model(s)
             if out:
@@ -117,12 +135,17 @@ def translate(spice, extra_loads=None, extra_head=None, extra_body=None):
             continue
         if low == ".end" or low.startswith((".control", ".endc", ".options", ".option")): continue
         if low.startswith(".subckt"):
-            body.append("subckt %s (%s)" % (t[1], " ".join(t[2:]))); subckt = True; continue
+            ports = [x for x in t[2:] if "=" not in x and not x.lower().startswith("params:")]
+            body.append("subckt %s (%s)" % (t[1], " ".join(ports))); subckt = True; continue
         if low.startswith(".ends"):
             body.append("ends"); subckt = False; continue
-        # instances
-        if u == "r": body.append("%s (%s %s) r r=%s" % (t[0], t[1], t[2], num(t[3]))); need.add("r"); continue
-        if u == "c": body.append("%s (%s %s) c c=%s" % (t[0], t[1], t[2], num(t[3]))); need.add("c"); continue
+        # instances ('r=1'/'c=1u' value forms accepted alongside bare values)
+        if u == "r":
+            v = t[3].split("=", 1)[1] if "=" in t[3] else t[3]
+            body.append("%s (%s %s) r r=%s" % (t[0], t[1], t[2], num(v))); need.add("r"); continue
+        if u == "c":
+            v = t[3].split("=", 1)[1] if "=" in t[3] else t[3]
+            body.append("%s (%s %s) c c=%s" % (t[0], t[1], t[2], num(v))); need.add("c"); continue
         if u in "vi":
             if len(t) >= 4 and ("{" in s or "sin(" in low):     # behavioral multitone input
                 ch = _sines(t[1], t[2], s.split("=",1)[-1] if "=" in s else " ".join(t[3:]))
@@ -138,8 +161,11 @@ def translate(spice, extra_loads=None, extra_head=None, extra_body=None):
             extra = " ".join(x.split("=", 1)[0].lower() + "=" + num(x.split("=", 1)[1])
                              for x in t[6:] if "=" in x)   # sp_mos1 params are lowercase (w l ad ..)
             body.append("%s (%s %s %s %s) %s %s" % (t[0], t[1], t[2], t[3], t[4], t[5], extra)); need.add("m"); continue
-        if u == "x":   # subckt instance: X<name> nodes... subckt
-            body.append("%s (%s) %s" % (t[0], " ".join(t[1:-1]), t[-1])); continue
+        if u == "x":   # subckt instance: X<name> nodes... subckt [params]
+            toks = [x for x in t[1:] if "=" not in x and not x.lower().startswith("params:")]
+            if len(toks) >= 2:
+                body.append("%s (%s) %s" % (t[0], " ".join(toks[:-1]), toks[-1]))
+            continue
     # assemble
     load = {"r": '"%s/resistor.osdi"' % DEV, "c": '"%s/capacitor.osdi"' % DEV,
             "q": '"%s/spice/bjt.osdi"' % DEV, "d": '"%s/spice/diode.osdi"' % DEV,
@@ -151,6 +177,7 @@ def translate(spice, extra_loads=None, extra_head=None, extra_body=None):
     for k in ("r", "c", "q", "d", "m"):
         if k in need: _ld("load %s" % load[k])
     for l in (extra_loads or []): _ld('load "%s"' % l)
+    out += globs                      # .global passthrough (global vdd vss)
     out += ["model v vsource", "model i isource"]
     if "r" in need: out.append("model r resistor")
     if "c" in need: out.append("model c capacitor")

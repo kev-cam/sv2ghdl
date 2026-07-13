@@ -448,6 +448,251 @@ def recognize_bridge(netlist):
                 break
     return matches
 
+def _logical_lines(netlist):
+    """Join SPICE '+' continuation lines (analysis only -- never for anchors)."""
+    out = []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        if s.startswith("+") and out:
+            out[-1] += " " + s[1:]
+        else:
+            out.append(s)
+    return out
+
+def _mos_pol(netlist):
+    """.model name -> 'n'/'p', from SPICE nmos/pmos types OR OSDI model cards
+    carrying type=1/type=-1 (e.g. PSP103: .model psp103n psp103va type=1)."""
+    pol = {}
+    for s in _logical_lines(netlist):
+        sl = s.lower()
+        if not sl.startswith(".model") or len(sl.split()) < 3:
+            continue
+        nm = sl.split()[1]
+        if re.search(r"\bpmos\b", sl) or re.search(r"type\s*=\s*-1", sl):
+            pol[nm] = "p"
+        elif re.search(r"\bnmos\b", sl) or re.search(r"type\s*=\s*\+?1", sl):
+            pol[nm] = "n"
+    return pol
+
+def _subckts(netlist):
+    """name -> ports + ORIGINAL body lines (the drop anchors) for each
+    top-level .subckt definition."""
+    subs, stack = {}, []
+    for ln in netlist.splitlines():
+        s = ln.strip()
+        sl = s.lower()
+        if sl.startswith(".subckt") and len(s.split()) >= 2:
+            t = s.split()
+            ports = [x for x in t[2:] if "=" not in x and not x.lower().startswith("params:")]
+            stack.append((t[1].lower(), ports, []))
+        elif sl.startswith(".ends"):
+            if stack:
+                nm, ports, body = stack.pop()
+                if not stack:
+                    subs[nm] = dict(ports=ports, body=body)
+        elif stack and s and s[0] not in "*;+":
+            stack[-1][2].append(ln)
+    return subs
+
+def _fet_wrappers(subs, pol):
+    """Subckts wrapping exactly one FET (raw M or an OSDI instance, e.g.
+    C6288's nmos/pmos around PSP103) -> name: (pol, port positions of d,g,s,b)."""
+    wraps = {}
+    for nm, sc in subs.items():
+        if len(sc["body"]) != 1:
+            continue
+        t = sc["body"][0].split()
+        if t[0][0].lower() not in "mn" or len(t) < 6:
+            continue
+        model = next((x for x in t[5:] if "=" not in x), None)
+        p = pol.get((model or "").lower())
+        if not p:
+            continue
+        try:
+            perm = [sc["ports"].index(x) for x in t[1:5]]   # d g s b positions
+        except ValueError:
+            continue
+        wraps[nm] = (p, perm)
+    return wraps
+
+def _switch_out(fets, hi, lo, fixed, out):
+    """Tiny switch-level solve: logic values propagate from the rails + inputs
+    through ON channels (union-find per sweep, iterated for staged gates like
+    AND = NAND+INV). Returns out's value, or None (floating / rail short)."""
+    val = dict(fixed)
+    val[hi], val[lo] = 1, 0
+    for _ in range(8):
+        parent = {}
+        def find(x):
+            parent.setdefault(x, x)
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        for d, g, s, p in fets:
+            gv = val.get(g)
+            if gv is None:
+                continue
+            if (p == "n" and gv == 1) or (p == "p" and gv == 0):
+                parent[find(d)] = find(s)
+        rh, rl = find(hi), find(lo)
+        if rh == rl:
+            return None                       # pull-up/pull-down contention
+        changed = False
+        for n in list(parent):
+            v = 1 if find(n) == rh else (0 if find(n) == rl else None)
+            if v is not None and val.get(n) is None:
+                val[n] = v
+                changed = True
+        if not changed:
+            break
+    return val.get(out)
+
+# truth table -> (name, inverting, use-min input combiner)
+GATEFN = {(1, 0): ("inv", 1, 0), (0, 1): ("buf", 0, 0),
+          (1, 0, 0, 0): ("nor2", 1, 0), (1, 1, 1, 0): ("nand2", 1, 1),
+          (0, 0, 0, 1): ("and2", 0, 1), (0, 1, 1, 1): ("or2", 0, 1)}
+
+def recognize_gates(netlist):
+    """Static CMOS gate SUBCKTS (INV/BUF/NOR2/NAND2/AND2/OR2): a subckt whose
+    body is only FETs (raw M lines, or x-instances of single-FET wrapper
+    subckts -- C6288's nmos/pmos around PSP103) is classified by a switch-level
+    truth table and its body replaced by ONE behavioral gate (SPICE B-source /
+    cmos_gate VA module). Replacing the definition accelerates every instance:
+    C6288's 10112 FETs are three subckt bodies. Load caps in the body are kept
+    (they set the delay). Params ride the tuned cmos_inv family."""
+    pol = _mos_pol(netlist)
+    subs = _subckts(netlist)
+    wraps = _fet_wrappers(subs, pol)
+    matches = []
+    for nm, sc in subs.items():
+        if nm in wraps:
+            continue
+        fets, drop, ok = [], [], True
+        for ln in sc["body"]:
+            t = ln.split()
+            u = t[0][0].lower()
+            if u == "c":
+                continue                       # keep load caps
+            if u == "m" and len(t) >= 6:
+                model = next((x for x in t[5:] if "=" not in x), t[5])
+                p = pol.get(model.lower())
+                if not p: ok = False; break
+                fets.append((t[1], t[2], t[3], t[4], p)); drop.append(ln)
+            elif u == "x" and len(t) >= 3:
+                toks = [x for x in t[1:] if "=" not in x and not x.lower().startswith("params:")]
+                ref = toks[-1].lower() if toks else ""
+                if ref not in wraps: ok = False; break
+                p, perm = wraps[ref]
+                nodes = toks[:-1]
+                if len(nodes) <= max(perm): ok = False; break
+                fets.append((nodes[perm[0]], nodes[perm[1]], nodes[perm[2]],
+                             nodes[perm[3]], p)); drop.append(ln)
+            else:
+                ok = False; break
+        if not ok or len(fets) < 2:
+            continue
+        from collections import Counter
+        pb = Counter(b for _, _, _, b, p in fets if p == "p")
+        nb = Counter(b for _, _, _, b, p in fets if p == "n")
+        if not pb or not nb:
+            continue
+        hi, lo = pb.most_common(1)[0][0], nb.most_common(1)[0][0]
+        if hi == lo:
+            continue
+        gset = {g for _, g, _, _, _ in fets}
+        cset = {x for d, _, s, _, _ in fets for x in (d, s)}
+        ins = [p for p in sc["ports"] if p in gset and p not in cset]
+        outs = [p for p in sc["ports"] if p in cset]
+        if len(outs) != 1 or not 1 <= len(ins) <= 2:
+            continue
+        if any(p not in (hi, lo) for p in sc["ports"] if p not in ins and p not in outs):
+            continue                           # stray port that is not a rail
+        out = outs[0]
+        fl = [(d, g, s, p) for d, g, s, _, p in fets]
+        combos = [(a,) for a in (0, 1)] if len(ins) == 1 else \
+                 [(a, b) for a in (0, 1) for b in (0, 1)]
+        table = []
+        for cb in combos:
+            v = _switch_out(fl, hi, lo, dict(zip(ins, cb)), out)
+            if v is None:
+                table = None; break
+            table.append(v)
+        fn = GATEFN.get(tuple(table)) if table else None
+        if not fn:
+            continue
+        name, invf, usemin = fn
+        tag = re.sub(r"\W", "_", nm)
+        F = ("V(%s)" % ins[0]) if len(ins) == 1 else \
+            ("%s(V(%s),V(%s))" % ("min" if usemin else "max", ins[0], ins[1]))
+        sgn = "-" if invf else "+"
+        L = ["* --- bfit: cmos gate '%s' (subckt %s, %d FETs) ---" % (name, nm, len(fets))]
+        for k, i_ in enumerate(ins):
+            L.append("Cin_g%d %s 0 __cin__" % (k + 1, i_))
+        L.append("Bo_gate 0 %s I={ (max(0, min(V(%s), 0.5*V(%s) %s __g__*(%s - 0.5*V(%s)))) - V(%s))/__rout__ }"
+                 % (out, hi, hi, sgn, F, hi, out))
+        mod = "cmos_gate%d" % len(ins)
+        extra = " inv=%d" % invf + (" usemin=%d" % usemin if len(ins) == 2 else "")
+        vc = "\n".join(["// bfit gate %s (subckt %s)" % (name, nm),
+                        "model g_%s %s ( cin=__cin__ g=__g__ rout=__rout__%s )" % (tag, mod, extra),
+                        "xg_%s (%s %s %s) g_%s" % (tag, " ".join(ins), out, hi, tag)])
+        matches.append(dict(model="cmos_inv", gate=name, inline=True,
+                            insert="\n".join(L), vc=vc,
+                            va_lib=["@LIB@/cmos_gates/%s.va" % mod],
+                            drop=drop))
+    return matches
+
+def prune_unused(netlist):
+    """Iteratively drop .subckt definitions never instantiated and .model cards
+    (with '+' continuations) never referenced. Gate substitution orphans the
+    FET wrapper subckts; the next pass takes their device model cards too --
+    the substituted deck then needs no device models at all (an engine without
+    PSP103 can run it)."""
+    lines = netlist.splitlines()
+    while True:
+        subs, stack = {}, []
+        for i, ln in enumerate(lines):
+            sl = ln.strip().lower()
+            if sl.startswith(".subckt") and len(sl.split()) >= 2:
+                stack.append((sl.split()[1], i))
+            elif sl.startswith(".ends") and stack:
+                nm, a = stack.pop()
+                if not stack:
+                    subs.setdefault(nm, []).append((a, i))
+        models = {}
+        for i, ln in enumerate(lines):
+            s = ln.strip()
+            if s.lower().startswith(".model") and len(s.split()) >= 2:
+                j = i + 1
+                while j < len(lines) and lines[j].strip().startswith("+"):
+                    j += 1
+                models.setdefault(s.split()[1].lower(), []).append((i, j - 1))
+        subrefs, modrefs = set(), set()
+        for s in _logical_lines("\n".join(lines)):   # join '+' continuations --
+            if not s or s[0] in "*;.":               # x1 <64 ports...> c6288 spans lines
+                continue
+            t = s.split()
+            toks = [x for x in t[1:] if "=" not in x and not x.lower().startswith("params:")]
+            if not toks:
+                continue
+            u = t[0][0].lower()
+            if u == "x":
+                subrefs.add(toks[-1].lower())
+            elif u in "mnqdj":
+                modrefs.add(toks[-1].lower())
+        kill = set()
+        for nm, spans in subs.items():
+            if nm not in subrefs:
+                for a, b in spans:
+                    kill.update(range(a, b + 1))
+        for nm, spans in models.items():
+            if nm not in modrefs:
+                for a, b in spans:
+                    kill.update(range(a, b + 1))
+        if not kill:
+            return "\n".join(lines) + ("\n" if netlist.endswith("\n") else "")
+        lines = [ln for i, ln in enumerate(lines) if i not in kill]
+
 def _subckt_block(template, params):
     L = template.splitlines()
     a = next(i for i, l in enumerate(L) if l.strip().lower().startswith(".subckt"))
@@ -476,9 +721,10 @@ def _relax_tran(mt, points=1000):
     coarse steps and undersamples like ngspice (same accuracy/speed trade)."""
     p = mt.group(0).split()
     if len(p) < 3: return mt.group(0)
+    uic = " uic" if any(x.lower() == "uic" for x in p[3:]) else ""
     tstop = _spice_num(p[2])
-    if not tstop: return ".tran %s %s" % (p[1], p[2])
-    return ".tran %.4g %.4g" % (tstop / float(points), tstop)
+    if not tstop: return ".tran %s %s%s" % (p[1], p[2], uic)
+    return ".tran %.4g %.4g%s" % (tstop / float(points), tstop, uic)
 
 def front(netlist, sim, libroot, cache, points=1000, reltol=0.1, abstol=0.01):
     """Transform a netlist for `sim`, honoring <SIM>_USE_BFIT. Returns
@@ -491,10 +737,15 @@ def front(netlist, sim, libroot, cache, points=1000, reltol=0.1, abstol=0.01):
     if mode == "off":
         return netlist, 0, []
     matches = (recognize_ce(netlist) + recognize_mirror(netlist, sim)
-               + recognize_inverter(netlist) + recognize_bridge(netlist))
+               + recognize_inverter(netlist) + recognize_bridge(netlist)
+               + recognize_gates(netlist))
     drop, insert, to_tune, used, va_files, hit = set(), {}, [], {}, {}, False
+    gate_hit = False
     for m in matches:
         if mode == "auto" or m["model"] in models:
+            if any(d in drop for d in m["drop"]):
+                continue                 # lines already claimed by an earlier match
+            if m.get("gate"): gate_hit = True
             if m.get("va"):              # VA legs bake all params -- nothing to fit/tune
                 p = {}
                 for modname, content in m["va"]: va_files[modname] = content
@@ -546,6 +797,13 @@ def front(netlist, sim, libroot, cache, points=1000, reltol=0.1, abstol=0.01):
             wire.append(".model %smod %s()" % (modname, modname))
         res = ([res[0]] + wire + res[1:]) if res else wire
     text = "\n".join(res) + "\n"
+    if gate_hit:      # gate substitution orphans wrapper subckts + device models
+        text = prune_unused(text)
+    if sim == "xyce":
+        # our Xyce build SILENTLY DROPS subckt instance lines with leading
+        # whitespace (fork parser quirk; upstream accepts them) -- de-indent.
+        # '+' continuations keep their first-column marker.
+        text = "\n".join(l.lstrip() for l in text.splitlines()) + "\n"
     # The substituted macromodels are smooth signal-flow models: they have no
     # device-level fast transients, so we drop any forced max timestep and
     # coarsen the output cadence to ~1000 points. The solver then strides

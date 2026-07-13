@@ -58,6 +58,12 @@ def fmt(sec, mu, extra='', dot=''):
     out = s + ('' if mu is None else ' ×%.1f' % mu) + extra
     return (dot + ' ' if dot else '') + out
 
+def accs(a):
+    """dB suffix for a +bfit cell; no annotation when there is no gold ('-')."""
+    if a is None or str(a).strip() in ('', '-', '—'):
+        return ''
+    return ' (%s)' % db(a)
+
 HDR = ['Model','# Tx','QSPICE','LTspice','ngspice','Xyce','VACASK','Xyce-MPI',
        'ng+bfit bal','ng+bfit fast','xy+bfit bal','xy+bfit fast','vc+bfit bal','vc+bfit fast']
 lines = ['| ' + ' | '.join(HDR) + ' |', '| :-- | --: ' + '| --: '*12 + '|']
@@ -93,12 +99,12 @@ for m in ROWS:
     # every × below is vs the row's slowest native (ref), so multipliers are
     # comparable across ALL columns: the biggest × in a row is its 🟢 cell.
     row.append(fmt(mpi, mult(ref, mpi), ' (np %s)' % mnp if mpi else '', dot('mpi')) if mpi else '—')
-    row += [fmt(nbal, mult(ref, nbal), ' (%s)' % db(o.get('ng_bal_acc')), dot('nbal')) if nbal else '—',
-            fmt(nfast, mult(ref, nfast), ' (%s)' % db(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
-            fmt(xbal, mult(ref, xbal), ' (%s)' % db(o.get('xy_bal_acc')), dot('xbal')) if xbal else '—',
-            fmt(xfast, mult(ref, xfast), ' (%s)' % db(o.get('xy_fast_acc')), dot('xfast')) if xfast else '—']
-    row += [fmt(vbal, mult(ref, vbal), ' (%s)' % db(o.get('vc_bal_acc')), dot('vbal')) if vbal else '—',
-            fmt(vfast, mult(ref, vfast), ' (%s)' % db(o.get('vc_fast_acc')), dot('vfast')) if vfast else '—']
+    row += [fmt(nbal, mult(ref, nbal), accs(o.get('ng_bal_acc')), dot('nbal')) if nbal else '—',
+            fmt(nfast, mult(ref, nfast), accs(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
+            fmt(xbal, mult(ref, xbal), accs(o.get('xy_bal_acc')), dot('xbal')) if xbal else '—',
+            fmt(xfast, mult(ref, xfast), accs(o.get('xy_fast_acc')), dot('xfast')) if xfast else '—']
+    row += [fmt(vbal, mult(ref, vbal), accs(o.get('vc_bal_acc')), dot('vbal')) if vbal else '—',
+            fmt(vfast, mult(ref, vfast), accs(o.get('vc_fast_acc')), dot('vfast')) if vfast else '—']
     lines.append('| ' + ' | '.join(row) + ' |')
 TABLE = '\n'.join(lines)
 
@@ -141,14 +147,19 @@ same methodology:
 """ + '\n'.join(hh) + """
 
 Accelerated tally: **%d decisive VACASK wins, %d ties** (within the 10 ms timer
-grain), **%d losses** — the `fast` preset shows the same pattern. C6288 is
-native-only (`—`): bfit has no NOR/AND gate recognizers yet, so neither engine
-gets an accelerated lane there. Native transistor-level is hardware-dependent:
-on this no-AVX-512 box ngspice leads most native rows including C6288 (VACASK's
-OSDI model evaluation leans on wide vectors), while on the VACASK project's
-Zen 4 reference machine VACASK leads ngspice natively as well (58 s vs 72 s on
-C6288 — see below). Same portable Verilog-A everywhere: `bfit front --sim
-vacask` vs `--sim ngspice` is a one-flag swap.
+grain), **%d losses** — the `fast` preset shows the same pattern. C6288's
+accelerated cells come from the **gate recognizers** (`recognize_gates`): the
+not/nor/and subckts are classified by a switch-level truth table and THREE
+subckt-body substitutions turn all 10112 PSP103 FETs into ~2400 behavioral
+gates — the multiplier still computes 0xFFFF × 0xFFFF = 0xFFFE0001 on every
+engine. The substituted deck contains no transistors at all, so even our
+PSP103-less Xyce runs it (bfit as an *enabler*; Xyce's native cell stays
+`n/a`). Native transistor-level is hardware-dependent: on this no-AVX-512 box
+ngspice leads most native rows including C6288 (VACASK's OSDI model evaluation
+leans on wide vectors), while on the VACASK project's Zen 4 reference machine
+VACASK leads ngspice natively as well (58 s vs 72 s on C6288 — see below).
+Same portable Verilog-A everywhere: `bfit front --sim vacask` vs
+`--sim ngspice` is a one-flag swap.
 """ % (hw, ht, hl)
 
 print("""# Cross-engine performance
@@ -245,14 +256,21 @@ full-process wall, min of 2. Runner: `c6288_run.sh`; snapshot `c6288-2026-07-12.
 | VACASK 0.3.3 | 70.08 | 1023 / 10 | 3512 |
 | Xyce 7.10 (ours) | n/a | -- | -- |
 
-Xyce, QSPICE and LTspice are absent here: our Xyce build has no built-in PSP103
-(`level=103`) and no OSDI loader, and QSPICE/LTspice have no OSDI/Verilog-A path
-wired for PSP103 on this box. Getting C6288 onto Xyce needs PSP103 via PyMS
-(`.hdl`) or the `-bfit` behavioral lane. VACASK's 1023/10/3512 matches the
-project README's 1021/7/3487, so the port is verified. Note the ordering:
+Xyce, QSPICE and LTspice are absent NATIVELY: our Xyce build has no built-in
+PSP103 (`level=103`) and no OSDI loader, and QSPICE/LTspice have no
+OSDI/Verilog-A path wired for PSP103 on this box. VACASK's 1023/10/3512 matches
+the project README's 1021/7/3487, so the port is verified. Note the ordering:
 on the README's Zen4/AVX-512 machine VACASK leads (58 s vs ngspice 72 s); this
 box has no AVX-512, which is where VACASK's OSDI model-eval edge comes from, so
 ngspice leads here instead.
+
+The **+bfit cells** in the main table come from the gate-recognizer lane
+(`c6288_run.sh`, `BFIT=1` default): `recognize_gates` switch-level-classifies
+the three gate subckts and replaces their BODIES, turning 10112 PSP103 FETs
+into ~2400 behavioral gates with no transistors left — the product is still
+0xFFFE0001 on every engine, and the deck runs on Xyce with no PSP103 at all.
+Accuracy is rel-L2 of p31 vs the engine's own native gold (Xyce has none →
+`-`).
 
 ## Cascade-depth stress runs
 

@@ -110,21 +110,35 @@ def front_vacask(spice, cache, libroot, points=1000, reltol=0.1):
     import bfit
     mode = os.environ.get("VACASK_USE_BFIT", "off").strip().lower()
     repl, used, va_files = {}, {}, {}   # spice line -> "@@VC <insert>" (anchor) or None (drop)
+    va_lib, claimed, gate_hit = [], set(), False
     if mode not in ("", "off"):
         matches = (bfit.recognize_ce(spice) + bfit.recognize_inverter(spice)
                    + bfit.recognize_bridge(spice)
-                   + bfit.recognize_mirror(spice, sim="vacask"))
+                   + bfit.recognize_mirror(spice, sim="vacask")
+                   + bfit.recognize_gates(spice))
         for m in matches:
             if "vc" not in m:
                 continue
+            if any(d in claimed for d in m["drop"]):
+                continue                    # lines already claimed by an earlier match
+            claimed.update(m["drop"])
+            txt = m["vc"]
+            if "__" in txt:                 # inline params (gates ride the cmos_inv fit)
+                for k, v in _params(m["model"], cache, libroot).items():
+                    txt = txt.replace("__%s__" % k, "%g" % v)
             # in-place, multi-line safe (stays inside a subckt body)
-            repl[m["drop"][0]] = "@@VC " + m["vc"].replace("\n", "\n@@VC ")
+            repl[m["drop"][0]] = "@@VC " + txt.replace("\n", "\n@@VC ")
             for d in m["drop"][1:]:
                 repl.setdefault(d, None)
+            if m.get("gate"):
+                gate_hit = True
+            for lib in m.get("va_lib", []):
+                if lib not in va_lib:
+                    va_lib.append(lib)
             if m.get("va"):                 # VA legs bake all params -- nothing to fit
                 for modname, content in m["va"]:
                     va_files[modname] = content
-            else:
+            elif not m.get("va_lib"):       # library-module matches carry their own card
                 used[m["model"]] = _params(m["model"], cache, libroot)
     out = []
     for ln in spice.splitlines():
@@ -134,7 +148,7 @@ def front_vacask(spice, cache, libroot, points=1000, reltol=0.1):
         else:
             out.append(ln)
     n_ins = sum(1 for v in repl.values() if v is not None)
-    loads, head = [], []
+    loads, head = list(va_lib), []
     for model, p in used.items():
         iname, vamod, osdi, fmt = _MODCARD[model]
         loads.append(osdi)
@@ -147,8 +161,11 @@ def front_vacask(spice, cache, libroot, points=1000, reltol=0.1):
     if va_files:                                # helper R/C for the mirror sense network
         loads += [sp2vc.DEV + "/resistor.osdi", sp2vc.DEV + "/capacitor.osdi"]
         head += ["model rcm resistor", "model ccm capacitor"]
-    deck = sp2vc.translate("\n".join(out), extra_loads=loads, extra_head=head)
-    if (used or va_files) and points:
+    kept = "\n".join(out)
+    if gate_hit:      # gate substitution orphans wrapper subckts + device models
+        kept = bfit.prune_unused(kept)
+    deck = sp2vc.translate(kept, extra_loads=loads, extra_head=head)
+    if n_ins and points:
         deck = _coarsen(deck, points, libroot)
     deck = deck.replace("@LIB@", libroot).replace("@DEV@", sp2vc.DEV)
     return deck, n_ins
