@@ -1,27 +1,24 @@
 `include "disciplines.vams"
-// bfit cmos_inv macromodel -- Verilog-A form of the SPICE B-source emitted by
-// recognize_inverter() in bfit.py. Programmable pull-up/pull-down conductances
-// set by the (hysteretic) input, each with a leakage floor 1/rleak; the output
-// is the resulting divider into the kept load cap. Ground-referenced current
-// injected into `out`; `cin` decouples the input. Same transfer as the
-// B-source, so ngspice/Xyce/VACASK see the identical macromodel.
+// bfit cmos_inv macromodel v2 -- REGENERATIVE clamped-linear inverter.
+// The old conductance-divider form had trip-point gain ~1/4 (<1), so a chain
+// collapses to mid-rail in ANY engine. This form is a linear inverting
+// transfer with gain g about the vhi/2 trip point, hard-clamped to
+// [0, V(vhi)]; g>1 regenerates rail-to-rail logic levels through arbitrary
+// chain depth. The clamp drives the output through rout into the kept load
+// cap, so rout*Cload sets the propagation delay. Piecewise-linear (no tanh):
+// the solver strides between input edges. Same transfer as the SPICE B-source
+// emitted by recognize_inverter() -- one macromodel, every engine.
 module cmos_inv(in, out, vhi);
   inout in, out, vhi;
   electrical in, out, vhi;
-  parameter real cin   = 8e-15 from (0:inf);
-  parameter real ron   = 1000  from (0:inf);
-  parameter real rleak = 1e6   from (0:inf);
-  parameter real h     = 0.0;
-  parameter real vsup  = 3.3   from (0:inf);   // supply level for conductance
-                                                // normalization (a CONSTANT, so
-                                                // source-stepping V(vhi)->0 can't
-                                                // divide by zero like the B-source)
-  real gup, gdn, ie;
+  parameter real cin  = 8e-15 from (0:inf);      // input loading
+  parameter real g    = 8.0   from (1:1000);     // regenerative gain (>1)
+  parameter real rout = 1000  from (0:inf);      // output resistance -> delay
+  real vt, vlin;
   analog begin
-    gup = (V(vhi)-V(in)+h*(V(vhi)-0.5*V(out)))/(vsup*ron) + 1.0/rleak;
-    gdn = (V(vhi)-h*(V(vhi)-0.5*V(out)))/(vsup*ron) + 1.0/rleak;
-    ie  = gup*(V(vhi)-V(out)) - gdn*V(out);
-    I(out) <+ -ie;                 // SPICE "B 0 out I={ie}" sources ie into out
-    I(in)  <+ cin*ddt(V(in));      // Cin decoupling cap on the input
+    vt   = 0.5*V(vhi);
+    vlin = vt - g*(V(in) - vt);
+    I(out) <+ (V(out) - max(0.0, min(V(vhi), vlin))) / rout;
+    I(in)  <+ cin*ddt(V(in));
   end
 endmodule

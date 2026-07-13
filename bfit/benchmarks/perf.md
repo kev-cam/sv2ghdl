@@ -18,13 +18,13 @@ actually bought. **bal / fast** are the `bfit front --accuracy` presets
 
 | Model | # Tx | QSPICE | LTspice | ngspice | Xyce | VACASK | Xyce-MPI | ng+bfit bal | ng+bfit fast | xy+bfit bal | xy+bfit fast | vc+bfit bal | vc+bfit fast |
 | :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: |
-| Bridge rectifier (4 diodes) | 0 | 3.7 ×30.8 | 3.3 ×34.5 | 8.4 ×13.5 | 114 ×1.0 | 🔵 2.2 ×51.6 | — | 🟢 0.11 ×76.6 (+10 dB) | 🔵 0.11 ×76.6 (+21 dB) | 9.5 ×12.0 (+25 dB) | 9.4 ×12.1 (+31 dB) | 🔵 0.56 ×3.9 (+21 dB) | 🔵 0.45 ×4.9 (+24 dB) |
-| CMOS inverter chain ×100 | 200 | 3.1 ×2.0 | 3.1 ×2.0 | 🔵 1.8 ×3.4 | 6.2 ×1.0 | 5.7 ×1.1 | — | 🔵 0.72 ×2.5 (+12 dB) | 🔵 0.52 ×3.5 (+12 dB) | 🔵 0.52 ×12.0 (+12 dB) | 🟢 0.32 ×19.5 (+12 dB) | — | — |
-| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.6 | 🔵 3.5 ×5.6 | 20 ×1.0 | 14 ×1.4 | — | 🔵 0.32 ×11.0 (+3 dB) | 🟢 0.11 ×32.0 (+3 dB) | 🔵 0.32 ×61.2 (+3 dB) | 🔵 0.22 ×89.0 (+3 dB) | — | — |
-| 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.6 | 4.5 ×23.1 | 6.6 ×15.7 | 104 ×1.0 | 9.2 ×11.2 | — | 🔵 0.12 ×55.2 (+3 dB) | 🟢 0.11 ×60.2 (+2 dB) | 7.4 ×14.0 (+3 dB) | 7.2 ×14.4 (+2 dB) | — | — |
-| BJT 3-stage CE amp ‡ | 3 | 3.9 ×52.8 | 7.7 ×26.8 | 5.4 ×38.0 | 206 ×1.0 | 19 ×11.1 | — | 🔵 0.72 ×7.5 (-3 dB) | 🔵 0.72 ×7.5 (-3 dB) | 🔵 3.1 ×66.0 (-2 dB) | 🟢 0.22 ×936.5 (0 dB) | 🔵 1.3 ×14.7 (-3 dB) | 🔵 0.94 ×19.7 (-3 dB) |
-| 2-stage Miller op-amp | 8 | 3.5 ×22.8 | 4.6 ×17.4 | 38 ×2.1 | 80 ×1.0 | 18 ×4.5 | — | 🔵 0.12 ×316.3 (+24 dB) | 🟢 0.11 ×345.0 (+26 dB) | 21 ×3.8 (+25 dB) | 21 ×3.8 (+22 dB) | — | — |
-| BJT cascade ×3000 (breaker) | 3000 | brk | brk | brk | 🔵 474 ×1.0 | t/o | 🟢 245 ×1.9 (np 4) | — | — | — | — | — | — |
+| Bridge rectifier (4 diodes) | 0 | 3.7 ×31.6 | 3.3 ×35.4 | 8.4 ×13.9 | 117 ×1.0 | 🔵 3.2 ×36.4 | — | 🔵 0.12 ×70.2 (+10 dB) | 🟢 0.11 ×76.6 (+21 dB) | 9.6 ×12.1 (+25 dB) | 9.4 ×12.4 (+31 dB) | 🔵 0.11 ×29.2 (+9 dB) | 🔵 0.11 ×29.2 (0 dB) |
+| CMOS inverter chain ×100 | 200 | 3.1 ×2.2 | 3.1 ×2.2 | 🔵 1.9 ×3.6 | 6.8 ×1.0 | 6.4 ×1.1 | — | 🔵 1.5 ×1.3 (+5 dB) | 🔵 1.5 ×1.3 (+5 dB) | 🔵 0.72 ×9.5 (+1 dB) | 🔵 1.2 ×5.6 (+3 dB) | 🟢 0.21 ×30.5 (+6 dB) | 🔵 0.21 ×30.5 (+6 dB) |
+| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.9 | 🔵 3.5 ×6.0 | 21 ×1.0 | 16 ×1.4 | — | 🔵 0.92 ×3.8 (0 dB) | 🔵 0.92 ×3.8 (0 dB) | 🔵 0.52 ×40.8 (0 dB) | 🔵 1 ×20.8 (0 dB) | 🟢 0.21 ×74.4 (0 dB) | 🔵 0.21 ×74.4 (0 dB) |
+| 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.3 | 4.5 ×22.8 | 6.7 ×15.3 | 103 ×1.0 | 10 ×10.2 | — | 🔵 0.12 ×56.0 (+3 dB) | 🔵 0.12 ×56.0 (+2 dB) | 8 ×12.8 (+3 dB) | 7.2 ×14.2 (+2 dB) | 🟢 0.11 ×91.1 (+3 dB) | 🔵 0.11 ×91.1 (+3 dB) |
+| BJT 3-stage CE amp ‡ | 3 | 3.9 ×53.1 | 7.7 ×26.9 | 5.5 ×37.5 | 207 ×1.0 | 20 ×10.4 | — | 🔵 0.52 ×10.6 (-3 dB) | 🔵 0.52 ×10.6 (-3 dB) | 🔵 2.8 ×73.4 (-3 dB) | 🔵 0.22 ×940.9 (0 dB) | 🟢 0.11 ×181.1 (0 dB) | 🔵 0.11 ×181.1 (0 dB) |
+| 2-stage Miller op-amp | 8 | 3.5 ×22.6 | 4.6 ×17.2 | 38 ×2.1 | 79 ×1.0 | 20 ×4.0 | — | 🔵 0.12 ×320.5 (+24 dB) | 🔵 0.12 ×320.5 (+26 dB) | 21 ×3.8 (+25 dB) | 21 ×3.8 (+22 dB) | 🟢 0.11 ×180.3 (+23 dB) | 🔵 0.11 ×180.3 (+27 dB) |
+| BJT cascade ×3000 (breaker) | 3000 | brk | brk | brk | 🔵 462 ×1.0 | t/o | 🟢 238 ×1.9 (np 4) | — | — | — | — | — | — |
 
 **Accuracy = signal-to-error ratio in dB** (`SER = −20·log₁₀(rel-L2)`); higher is
 better, +25 dB ≈ 6% error, 0 dB = error equals signal. It is **phase-sensitive**,
@@ -57,12 +57,19 @@ Spectre-style syntax by `gen_models_vacask.py` (MOSFET LEVEL=1 → `sp_mos1`, di
 compile to OSDI 0.4 via OpenVAF-reloaded. It is a fully adaptive (LTE-driven)
 solver, so its per-deck work lands in the ngspice/Xyce range rather than the
 QSPICE/LTspice stride-and-coast regime; timepoint counts are recorded next to the
-runner. The **vc+bfit** columns run bfit's macromodels through VACASK too
-(`bfit front --sim vacask`, backed by a VACASK tuner driver -- `sp2vc` +
-`drivers_vacask`): `ce_stage` (bjt_amp) and `bridge` (rectifier) are wired and
-fitted through VACASK itself; `cmos_inv`/`current_mirror` are pending tuning /
-mirror wiring (shown `—`). VACASK (AGPL) is the license-clean, OpenVAF-native
-drop-in for ngspice in the accelerated lane.
+runner. The **vc+bfit** columns run the SAME portable Verilog-A macromodels
+through VACASK (`bfit front --sim vacask`, backed by a VACASK tuner driver --
+`sp2vc` + `drivers_vacask`; `model_bench.sh` runs the lane via `vc_run`, gate it
+with `DO_VC`/`DO_NGXY`). All four macromodels are wired: `ce_stage`, `bridge`,
+`current_mirror` (VA cmout legs), and `cmos_inv` **v2** -- the inverter was
+redesigned as a regenerative clamped-linear transfer (gain>1 at the trip point;
+the old conductance-divider form could not regenerate a chain in ANY engine) and
+retuned through VACASK, which also refreshes the ng/xy digital cells. Striding
+in VACASK needs three knobs (`front --sim vacask` sets them): `tran_ffmax=0`
+(drop the max-input-frequency step cap), `tran_redofactor=0` + huge
+`tran_lteratio` (disarm LTE), `tran_method="gear2"` (trap rings on undersampled
+inputs). VACASK (AGPL) is the license-clean, OpenVAF-native drop-in for ngspice
+in the accelerated lane.
 
 **Reading it.** bfit swaps device stages for smooth macromodels and coarsens the
 transient, so the solver strides — every accelerated row beats both commercial

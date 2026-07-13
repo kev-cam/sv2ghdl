@@ -1,20 +1,20 @@
-cmos_inv tune candidate (VACASK)
+cmos_inv tune candidate (VACASK, 5-stage chain)
 load "@LIB@/cmos_inv/cmos_inv.osdi"
 load "@DEV@/capacitor.osdi"
 model v vsource
 model c capacitor
-model cmosinv cmos_inv ( cin=__cin__ ron=__ron__ rleak=__rleak__ h=__h__ vsup=3.3 )
-vdd (vdd 0) v dc=3.3
+model cmosinv cmos_inv ( cin=__cin__ g=__g__ rout=__rout__ )
+vdd (vhi 0) v dc=3.3
 vin (in 0) v type="pulse" val0=0 val1=3.3 delay=1n rise=0.5n fall=0.5n width=20n period=40n
-xi1 (in n1 vdd) cmosinv
+xi1 (in n1 vhi) cmosinv
 cl1 (n1 0) c c=8f
-xi2 (n1 n2 vdd) cmosinv
+xi2 (n1 n2 vhi) cmosinv
 cl2 (n2 0) c c=8f
-xi3 (n2 n3 vdd) cmosinv
+xi3 (n2 n3 vhi) cmosinv
 cl3 (n3 0) c c=8f
-xi4 (n3 n4 vdd) cmosinv
+xi4 (n3 n4 vhi) cmosinv
 cl4 (n4 0) c c=8f
-xi5 (n4 out vdd) cmosinv
+xi5 (n4 out vhi) cmosinv
 cl5 (out 0) c c=8f
 control
   analysis tran1 tran step=0.1n stop=600n

@@ -145,12 +145,19 @@ Spectre-style syntax by `gen_models_vacask.py` (MOSFET LEVEL=1 → `sp_mos1`, di
 compile to OSDI 0.4 via OpenVAF-reloaded. It is a fully adaptive (LTE-driven)
 solver, so its per-deck work lands in the ngspice/Xyce range rather than the
 QSPICE/LTspice stride-and-coast regime; timepoint counts are recorded next to the
-runner. The **vc+bfit** columns run bfit's macromodels through VACASK too
-(`bfit front --sim vacask`, backed by a VACASK tuner driver -- `sp2vc` +
-`drivers_vacask`): `ce_stage` (bjt_amp) and `bridge` (rectifier) are wired and
-fitted through VACASK itself; `cmos_inv`/`current_mirror` are pending tuning /
-mirror wiring (shown `—`). VACASK (AGPL) is the license-clean, OpenVAF-native
-drop-in for ngspice in the accelerated lane.
+runner. The **vc+bfit** columns run the SAME portable Verilog-A macromodels
+through VACASK (`bfit front --sim vacask`, backed by a VACASK tuner driver --
+`sp2vc` + `drivers_vacask`; `model_bench.sh` runs the lane via `vc_run`, gate it
+with `DO_VC`/`DO_NGXY`). All four macromodels are wired: `ce_stage`, `bridge`,
+`current_mirror` (VA cmout legs), and `cmos_inv` **v2** -- the inverter was
+redesigned as a regenerative clamped-linear transfer (gain>1 at the trip point;
+the old conductance-divider form could not regenerate a chain in ANY engine) and
+retuned through VACASK, which also refreshes the ng/xy digital cells. Striding
+in VACASK needs three knobs (`front --sim vacask` sets them): `tran_ffmax=0`
+(drop the max-input-frequency step cap), `tran_redofactor=0` + huge
+`tran_lteratio` (disarm LTE), `tran_method="gear2"` (trap rings on undersampled
+inputs). VACASK (AGPL) is the license-clean, OpenVAF-native drop-in for ngspice
+in the accelerated lane.
 
 **Reading it.** bfit swaps device stages for smooth macromodels and coarsens the
 transient, so the solver strides — every accelerated row beats both commercial

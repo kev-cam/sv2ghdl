@@ -25,6 +25,7 @@ def _sines(node_p, node_n, expr):
     """A multitone B-source V={amp*(sin(2pi f1 t)+sin(2pi f2 t)+...)} (+dc) ->
     a series string of ideal sine vsources between node_p and node_n. Returns
     (lines, models_needed). Falls back to () if not a recognized multitone."""
+    expr = expr.strip().lstrip("{").rstrip("}").strip()   # V={...} braces would mask the dc term
     amp = re.search(r"([-\d.eE]+)\s*\*\s*\(", expr)
     dc  = re.match(r"\s*([-\d.eE]+)\s*\+", expr)
     freqs = re.findall(r"sin\s*\(\s*6\.?2\d*\s*\*\s*([-\d.eE]+)", expr)
@@ -143,10 +144,13 @@ def translate(spice, extra_loads=None, extra_head=None, extra_body=None):
     load = {"r": '"%s/resistor.osdi"' % DEV, "c": '"%s/capacitor.osdi"' % DEV,
             "q": '"%s/spice/bjt.osdi"' % DEV, "d": '"%s/spice/diode.osdi"' % DEV,
             "m": '"%s/spice/mos1.osdi"' % DEV}
-    out = [title]
+    out, _seen = [title], set()
+    def _ld(line):
+        if line not in _seen:
+            _seen.add(line); out.append(line)
     for k in ("r", "c", "q", "d", "m"):
-        if k in need: out.append("load %s" % load[k])
-    for l in (extra_loads or []): out.append('load "%s"' % l)
+        if k in need: _ld("load %s" % load[k])
+    for l in (extra_loads or []): _ld('load "%s"' % l)
     out += ["model v vsource", "model i isource"]
     if "r" in need: out.append("model r resistor")
     if "c" in need: out.append("model c capacitor")

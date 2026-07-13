@@ -67,7 +67,7 @@ _MODCARD = {
  "ce_stage":    ("cestage", "ce_stage", "@LIB@/ce_stage/ce_stage.osdi",
                  lambda p: "gain=%(gain)g vlo=%(Vlo)g vhi=%(Vhi)g rout=%(Rout)g rin=100000 fp=%(fp)g" % p),
  "cmos_inv":    ("cmosinv", "cmos_inv", "@LIB@/cmos_inv/cmos_inv.osdi",
-                 lambda p: "cin=%(cin)g ron=%(ron)g rleak=%(rleak)g h=%(h)g vsup=3.3" % p),
+                 lambda p: "cin=%(cin)g g=%(g)g rout=%(rout)g" % p),
  "bridge_rect": ("brm", "bridge", "@LIB@/bridge_rect/bridge.osdi",
                  lambda p: "vdrop=%(vdrop)g rs=%(rs)g rleak=%(rleak)g" % p),
 }
@@ -79,36 +79,53 @@ def _params(model, cache, libroot):
     return json.load(open(os.path.join(libroot, model, "fit.json")))["x0"]
 
 def _coarsen(deck, points, libroot):
+    """Coarsen the transient to ~points samples and make VACASK STRIDE at that
+    cadence. Like Xyce, VACASK's LTE control refines BELOW the suggested step to
+    resolve the input, so step= alone never strides: pin maxstep to the cadence
+    and disarm LTE (huge lteratio + redofactor=0 = no LTE rejection) -- the same
+    stride-at-ceiling semantics ngspice gives a coarse .tran, with accuracy then
+    measured honestly against the engine's own gold run."""
     import bfit
-    lteratio = 10.0 if (not points or points >= 800) else 40.0
     def repl(mo):
-        line = mo.group(0)
+        ind, line = mo.group(1), mo.group(0)
         st = re.search(r'stop=(\S+)', line).group(1)
         sv = bfit._spice_num(st)
         step = ("%.4g" % (sv / points)) if (sv and points) else st
-        icm = re.search(r'(icmode="\w+")', line); ic = re.search(r'(ic=\[[^\]]*\])', line)
+        icm = re.search(r'(icmode="\w+")', line)
+        ic = re.search(r'(ic=\[[^\]]*\])', line)
         ex = ((" " + icm.group(1)) if icm else "") + ((" " + ic.group(1)) if ic else "")
-        return "analysis tran1 tran step=%s stop=%s%s" % (step, st, ex)
-    deck = re.sub(r'analysis \w+ tran [^\n]*', repl, deck)
-    return deck.replace("  analysis tran1",
-                        "  options tran_lteratio=%g\n  analysis tran1" % lteratio, 1)
+        # tran_ffmax=0: drop the max-excitation-frequency step cap (default
+        # 0.25/(2*fmax)) -- with the smooth macromodels the coarse cadence IS
+        # the sampling decision, measured against the engine's own gold run.
+        # gear2: damped integration -- trap rings on inputs undersampled by the
+        # coarse stride (rectifier row: 42% -> 35% rel-L2).
+        return ("%soptions tran_method=\"gear2\" tran_lteratio=1e6 tran_redofactor=0 tran_ffmax=0\n"
+                "%sanalysis tran1 tran step=%s stop=%s maxstep=%s%s"
+                % (ind, ind, step, st, step, ex))
+    return re.sub(r'(?m)^([ \t]*)analysis \w+ tran [^\n]*', repl, deck, count=1)
 
 def front_vacask(spice, cache, libroot, points=1000, reltol=0.1):
     """SPICE deck -> accelerated VACASK deck. Recognized stages become VA
     macromodel instances; the rest is translated device-for-device."""
     import bfit
     mode = os.environ.get("VACASK_USE_BFIT", "off").strip().lower()
-    repl, used = {}, {}    # spice line -> "@@VC <insert>" (anchor) or None (drop)
+    repl, used, va_files = {}, {}, {}   # spice line -> "@@VC <insert>" (anchor) or None (drop)
     if mode not in ("", "off"):
         matches = (bfit.recognize_ce(spice) + bfit.recognize_inverter(spice)
-                   + bfit.recognize_bridge(spice))   # mirror: TODO
+                   + bfit.recognize_bridge(spice)
+                   + bfit.recognize_mirror(spice, sim="vacask"))
         for m in matches:
             if "vc" not in m:
                 continue
-            repl[m["drop"][0]] = "@@VC " + m["vc"]          # in-place (stays inside subckt)
+            # in-place, multi-line safe (stays inside a subckt body)
+            repl[m["drop"][0]] = "@@VC " + m["vc"].replace("\n", "\n@@VC ")
             for d in m["drop"][1:]:
                 repl.setdefault(d, None)
-            used[m["model"]] = _params(m["model"], cache, libroot)
+            if m.get("va"):                 # VA legs bake all params -- nothing to fit
+                for modname, content in m["va"]:
+                    va_files[modname] = content
+            else:
+                used[m["model"]] = _params(m["model"], cache, libroot)
     out = []
     for ln in spice.splitlines():
         if ln in repl:
@@ -122,8 +139,16 @@ def front_vacask(spice, cache, libroot, points=1000, reltol=0.1):
         iname, vamod, osdi, fmt = _MODCARD[model]
         loads.append(osdi)
         head.append("model %s %s ( %s )" % (iname, vamod, fmt(p)))
+    for modname, content in va_files.items():
+        with open(modname + ".va", "w") as f:   # beside the emitted deck (cwd)
+            f.write(content)
+        loads.append(modname + ".va")           # VACASK self-compiles + caches the .osdi
+        head.append("model %scard %s" % (modname, modname))   # params baked into the module
+    if va_files:                                # helper R/C for the mirror sense network
+        loads += [sp2vc.DEV + "/resistor.osdi", sp2vc.DEV + "/capacitor.osdi"]
+        head += ["model rcm resistor", "model ccm capacitor"]
     deck = sp2vc.translate("\n".join(out), extra_loads=loads, extra_head=head)
-    if used and points:
+    if (used or va_files) and points:
         deck = _coarsen(deck, points, libroot)
     deck = deck.replace("@LIB@", libroot).replace("@DEV@", sp2vc.DEV)
     return deck, n_ins

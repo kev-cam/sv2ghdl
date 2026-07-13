@@ -1,12 +1,24 @@
-* bfit candidate -- CMOS logic inverter behavioral macromodel (tuner harness).
+* bfit candidate -- CMOS inverter macromodel v2 (tuner harness, 5-stage chain).
 * front() emits this inline (Cin + one B-source) in place of the NMOS+PMOS pair;
-* this .subckt is the reference the tuner fits cin/ron/rleak/h against.
-* No tanh: the (hysteretic) input programs the pull-up / pull-down conductances;
-* the leakage floor 1/rleak stays on (off-path static current -> power match);
-* output is the divider into the load C -- linear between input changes.
-.subckt cmos_inv in out vhi PARAMS: cin=__cin__ ron=__ron__ rleak=__rleak__ h=__h__
+* this .subckt is the realization the tuner fits cin/g/rout against.
+* Regenerative clamped-linear transfer: gain g (>1) about vhi/2, hard rail
+* clamp, rout into the load C sets the delay. Matches cmos_inv.va exactly.
+Vdd vhi 0 3.3
+Vin in 0 PULSE(0 3.3 1n 0.5n 0.5n 20n 40n)
+X1 in n1 vhi cmos_inv
+Cl1 n1 0 8f
+X2 n1 n2 vhi cmos_inv
+Cl2 n2 0 8f
+X3 n2 n3 vhi cmos_inv
+Cl3 n3 0 8f
+X4 n3 n4 vhi cmos_inv
+Cl4 n4 0 8f
+X5 n4 out vhi cmos_inv
+Cl5 out 0 8f
+.subckt cmos_inv in out vhi PARAMS: cin=__cin__ g=__g__ rout=__rout__
 Cin in 0 {cin}
-Bo 0 out I={ ((V(vhi)-V(in)+h*(V(out)-0.5*V(vhi)))/(V(vhi)*ron)+1/rleak)*(V(vhi)-V(out))
-           - ((V(in)-h*(V(out)-0.5*V(vhi)))/(V(vhi)*ron)+1/rleak)*V(out) }
+Bo 0 out I={ (max(0, min(V(vhi), 0.5*V(vhi) - g*(V(in)-0.5*V(vhi)))) - V(out))/rout }
 .ends
+.tran 0.1n 600n
+.print tran format=gnuplot v(out)
 .end

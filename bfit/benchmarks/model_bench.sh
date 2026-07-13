@@ -20,6 +20,10 @@ XYCE_MPI=${XYCE_MPI:-$HOME/xyce-build-mpi/src/Xyce}
 XYCE_MPI_LD=${XYCE_MPI_LD:-$HOME/xyce-build-mpi/src:$HOME/trilinos-mpi/lib:$HOME/trilinos-mpi/lib64}
 MPIRUN=${MPIRUN:-mpirun --allow-run-as-root --oversubscribe}
 OV=${OPENVAF:-/opt/openvaf/openvaf}
+VACASK=${VACASK:-/opt/build.VACASK/Release/simulator/vacask}
+OVR=${OPENVAF_R:-/opt/openvaf-r/openvaf-r}      # OSDI 0.4 (VACASK); $OV is 0.3 (ngspice)
+DO_VC=${DO_VC:-1}                               # VACASK lane (vc_* columns)
+DO_NGXY=${DO_NGXY:-1}                           # ngspice+Xyce lanes; 0 = VACASK-only refresh
 export BFIT_NGSPICE=${BFIT_NGSPICE:-$(command -v ngspice)}
 export PYMS_DIR=${PYMS_DIR:-/usr/local/src/xyce/utils/PyMS}
 export XYCE_SRC=${XYCE_SRC:-/usr/local/src/xyce/src} XYCE_BUILD=${XYCE_BUILD:-/usr/local/src/xyce-build}
@@ -31,6 +35,11 @@ DO_BREAKER=${DO_BREAKER:-1}
 
 python3 "$GENM" "$M" >/dev/null 2>&1
 python3 "$GENA" 3000 | sed 's/^\.tran .*/.tran 20n 200u 0 20n/' > "$M/breaker.cir"
+if [ "$DO_VC" = 1 ]; then   # macromodel OSDI for the VACASK lane -- compile time
+  for _lv in ce_stage/ce_stage cmos_inv/cmos_inv bridge_rect/bridge; do   # stays OUTSIDE the timed runs
+    "$OVR" "$HERE/../library/${_lv}.va" -o "$HERE/../library/${_lv}.osdi" >/dev/null 2>&1
+  done
+fi
 declare -A OUT=( [rectifier]=out [inv_chain]=out [ring_osc]=n0 [ota_5t]=out [bjt_amp]=out [opamp]=no [breaker]=out )
 declare -A FRQ=( [rectifier]=60 [inv_chain]=1e7 [ring_osc]=1e8 [ota_5t]=1e6 [bjt_amp]=1e4 [opamp]=3e5 [breaker]=1e4 )
 
@@ -60,6 +69,14 @@ xy_mpi(){ # deck node np cap -> secs|brk
   local rc=$?; local t1=$(date +%s.%N); rm -f _m$3.cir.csv
   [ $rc -ne 0 ] && { echo brk; return; }
   wall $t0 $t1; }
+vc_run(){ # deck.sim node outfile -> secs|brk|t/o ; deck is already VACASK syntax.
+  # SIM_OPENVAF lets VACASK self-compile any .va the deck loads; the lane
+  # pre-compiles with $OVR so the timed run only loads cached .osdi.
+  local t0=$(date +%s.%N); SIM_OPENVAF=$OVR timeout ${TMO:-700} "$VACASK" -qp --skip-postprocess "$1" >/tmp/vc.log 2>&1; local rc=$?; local t1=$(date +%s.%N)
+  [ $rc -eq 124 ] && { echo "t/o"; return; }
+  { [ $rc -ne 0 ] || grep -qaiE 'error|singular|too small' /tmp/vc.log; } && { echo brk; return; }
+  python3 "$HERE/raw2dat.py" tran1.raw "$2" "$3" >/dev/null 2>&1 || { echo brk; return; }
+  wall $t0 $t1; }
 # best np that beats serial (cap = serial wall-clock + 2s grace). 'mode=small'
 # early-exits when np2 & np4 both lose (more ranks are strictly worse on a tiny
 # circuit); 'mode=full' (breaker) runs all np -- a 1-D cascade can win at high np.
@@ -74,9 +91,13 @@ mpi_sweep(){ local deck=$1 node=$2 base=$3 mode=$4; local best=999999 bnp=0
   [ "$bnp" = 0 ] && best=brk
   echo "$best $bnp"; }
 
-echo "model,ng_base,xy_base,ng_bal,ng_bal_acc,ng_fast,ng_fast_acc,xy_bal,xy_bal_acc,xy_fast,xy_fast_acc,mpi_best,mpi_np" > "$OUTCSV"
+# Rows are MERGED into $OUTCSV per model (csvmerge.py), so the ng/xy and vc
+# lanes can be refreshed independently (DO_NGXY=0 / DO_VC=0) without
+# clobbering the other lane's columns.
 run_row(){ local m=$1 mode=$2 node=${OUT[$m]} F=${FRQ[$m]}
   cp "$M/$m.cir" .; rm -f *.va *.osdi
+  local args=()
+  if [ "$DO_NGXY" = 1 ]; then
   local ngb=$(ng_run $m.cir $node gold.dat)
   local xyb=$(xy_run $m.cir $node xygold.dat)
   local ngbal=- ngbalA=- ngfast=- ngfastA=- xybal=- xybalA=- xyfast=- xyfastA=-
@@ -92,15 +113,47 @@ run_row(){ local m=$1 mode=$2 node=${OUT[$m]} F=${FRQ[$m]}
     else ngfast=$nt; ngfastA=$na; xyfast=$xt; xyfastA=$xa; fi
   done
   local mb mnp; read mb mnp < <(mpi_sweep "$M/$m.cir" $node "$xyb" "$mode")
-  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$m" "$ngb" "$xyb" \
-    "$ngbal" "${ngbalA:-?}" "$ngfast" "${ngfastA:-?}" "$xybal" "${xybalA:-?}" "$xyfast" "${xyfastA:-?}" "$mb" "$mnp" | tee -a "$OUTCSV"
+  args+=(ng_base="$ngb" xy_base="$xyb" \
+         ng_bal="$ngbal" ng_bal_acc="${ngbalA:-?}" ng_fast="$ngfast" ng_fast_acc="${ngfastA:-?}" \
+         xy_bal="$xybal" xy_bal_acc="${xybalA:-?}" xy_fast="$xyfast" xy_fast_acc="${xyfastA:-?}" \
+         mpi_best="$mb" mpi_np="$mnp")
+  fi
+  if [ "$DO_VC" = 1 ]; then
+  rm -f *.va *.osdi tran1.raw
+  python3 "$HERE/../sp2vc.py" $m.cir > vb.sim
+  local vcb=$(vc_run vb.sim $node vcgold.dat)
+  local vcbal=- vcbalA=- vcfast=- vcfastA=-
+  for acc in balanced fast; do
+    rm -f *.va
+    VACASK_USE_BFIT=auto python3 "$BFIT" front $m.cir --sim vacask --accuracy $acc -o v_$acc.sim >/dev/null 2>&1
+    for va in *.va; do [ -e "$va" ] && "$OVR" "$va" -o "${va%.va}.osdi" >/dev/null 2>&1; done
+    rm -f tran1.raw
+    local vt=$(vc_run v_$acc.sim $node vd.dat); local vA=-
+    { [ "$vt" != brk ] && [ "$vt" != "t/o" ] && [ "$vcb" != brk ] && [ "$vcb" != "t/o" ]; } && vA=$(rl2 $F vcgold.dat vd.dat)
+    if [ "$acc" = balanced ]; then vcbal=$vt; vcbalA=$vA; else vcfast=$vt; vcfastA=$vA; fi
+  done
+  args+=(vc_base="$vcb" vc_bal="$vcbal" vc_bal_acc="${vcbalA:-?}" vc_fast="$vcfast" vc_fast_acc="${vcfastA:-?}")
+  fi
+  python3 "$HERE/csvmerge.py" "$OUTCSV" "$m" "${args[@]}"
+  echo "$m: ${args[*]}"
 }
 for m in $ROWS; do run_row $m small; done
 if [ "$DO_BREAKER" = 1 ]; then       # capacity row: native engines only, no bfit
   node=${OUT[breaker]}
-  ngb=$(ng_run "$M/breaker.cir" $node bg.dat)
-  xyb=$(xy_run "$M/breaker.cir" $node bxg.dat)
-  read mb mnp < <(mpi_sweep "$M/breaker.cir" $node "$xyb" full)
-  printf 'breaker,%s,%s,-,-,-,-,-,-,-,-,%s,%s\n' "$ngb" "$xyb" "$mb" "$mnp" | tee -a "$OUTCSV"
+  args=()
+  if [ "$DO_NGXY" = 1 ]; then
+    ngb=$(ng_run "$M/breaker.cir" $node bg.dat)
+    xyb=$(xy_run "$M/breaker.cir" $node bxg.dat)
+    read mb mnp < <(mpi_sweep "$M/breaker.cir" $node "$xyb" full)
+    args+=(ng_base="$ngb" xy_base="$xyb" mpi_best="$mb" mpi_np="$mnp" \
+           ng_bal=- ng_bal_acc=- ng_fast=- ng_fast_acc=- xy_bal=- xy_bal_acc=- xy_fast=- xy_fast_acc=-)
+  fi
+  if [ "$DO_VC" = 1 ]; then
+    python3 "$HERE/../sp2vc.py" "$M/breaker.cir" > vbrk.sim
+    vcb=$(vc_run vbrk.sim $node vbg.dat)
+    args+=(vc_base="$vcb" vc_bal=- vc_bal_acc=- vc_fast=- vc_fast_acc=-)
+  fi
+  python3 "$HERE/csvmerge.py" "$OUTCSV" breaker "${args[@]}"
+  echo "breaker: ${args[*]}"
 fi
 echo "=== DONE -> $OUTCSV ==="

@@ -3,8 +3,8 @@
   "pattern": "CMOS logic inverter: complementary NMOS+PMOS sharing gate (in) and drain (out), PMOS to the high rail, NMOS to gnd",
   "ports": ["in", "out", "vhi"],
   "t0": 2e-7,
-  "params": { "cin": [1e-16, 1e-12], "ron": [50, 50000], "rleak": [1e3, 1e7], "h": [0.0, 0.3] },
-  "x0":     { "cin": 8e-15,          "ron": 1000,         "rleak": 1e6,        "h": 0.0 },
-  "features": [ ["out", "min"], ["out", "max"] ],
-  "note": "no tanh. The (hysteretic) input PROGRAMS the pull-up/pull-down conductances -- Rup low when in low, Rdown low when in high -- each with a leakage floor 1/rleak that stays on, so the off-path draws the static current (power match). A small positive feedback h from the output shifts the threshold with state (light hysteresis) to sharpen switching. Output = the resulting divider into the load C: linear-algebraic, cheap per step, linear between input changes so the solver strides. NAND/NOR = series/parallel conductance programming."
+  "params": { "cin": [1e-16, 1e-12], "g": [1.5, 100], "rout": [50, 100000] },
+  "x0":     { "cin": 6.5e-16,        "g": 14.71,      "rout": 7571 },
+  "features": [ ["out", "min"], ["out", "max"], ["out", "rms"] ],
+  "note": "v2, regenerative: linear inverting transfer with gain g about the vhi/2 trip point, hard rail clamp, rout into the kept load C sets the propagation delay. g>1 regenerates logic levels through arbitrary chain depth (the old conductance-divider form had trip-point gain <1 and collapsed to mid-rail). Piecewise-linear -- no tanh -- so the solver strides between edges. t0=2e-7: gates live at ns scale, not the 1.5ms analog default."
 }

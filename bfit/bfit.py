@@ -323,12 +323,17 @@ def recognize_mirror(netlist, sim="xyce"):
         tag = re.sub(r"\W", "", gr); R = "%.4g" % (smin / wlr)   # = 1 when ref is smallest
         L = ["* --- bfit: current_mirror (VA cmout legs, %s, ref %s, %d output%s) ---"
              % ("NMOS" if p == "n" else "PMOS", gr, len(outs), "s" if len(outs) > 1 else "")]
+        vcL = ["// --- bfit: current_mirror (VA cmout legs, ref %s, %d outputs) ---" % (gr, len(outs))]
         if p == "p":          # rail above gate: vt drops below rail; outputs SOURCE rail->out
             L += ["Vt_%s %s cmv_%s %.7g" % (nr, sr, tag, vth),
                   "R1_%s cmv_%s %s %s" % (nr, tag, gr, R)]
+            vcL += ["vt_%s (%s cmv_%s) v dc=%.7g" % (nr, sr, tag, vth),
+                    "r1_%s (cmv_%s %s) rcm r=%s" % (nr, tag, gr, R)]
         else:                 # rail below gate (gnd): vt rises above rail; outputs SINK out->rail
             L += ["Vt_%s cmv_%s %s %.7g" % (nr, tag, sr, vth),
                   "R1_%s %s cmv_%s %s" % (nr, gr, tag, R)]
+            vcL += ["vt_%s (cmv_%s %s) v dc=%.7g" % (nr, tag, sr, vth),
+                    "r1_%s (%s cmv_%s) rcm r=%s" % (nr, gr, tag, R)]
         va = []
         for no, do, wlo, lo in outs:                  # V->I: one cmout VA leg per output
             claimed.add(no)
@@ -346,9 +351,12 @@ def recognize_mirror(netlist, sim="xyce"):
             # mirror leg a pole (frequency response) and stabilises the high-Z
             # output node for the solver.
             L.append("Ccm_%s %s 0 1f" % (no, do))
+            vcL += ["x_%s (%s %s %s) %scard" % (no, gr, do, sr, mod),
+                    "ccm_%s (%s 0) ccm c=1f" % (no, do)]
         drop = [lr] + [lo for _, _, _, lo in outs]
         matches.append(dict(model="current_mirror", inline=True,
-                            insert="\n".join(L), drop=drop, va=va))  # drop[0]=ref line (anchor)
+                            insert="\n".join(L), vc="\n".join(vcL),
+                            drop=drop, va=va))  # drop[0]=ref line (anchor)
     return matches
 
 def recognize_inverter(netlist):
@@ -378,19 +386,17 @@ def recognize_inverter(netlist):
             if pol.get(mp.lower()) != "p" or npc in claimed: continue
             if gp == gn and dp == dn and sp != "0":         # shared gate+drain, PMOS to high rail
                 claimed.add(nn); claimed.add(npc)
-                # Decoupled logic gate, no tanh: the (hysteretic) input programs the
-                # pull-up / pull-down conductances. Each has a leakage floor 1/rleak that
-                # stays on, so the off-path carries the static current (power match). The
-                # output is the resulting divider into the load C -- linear-algebraic,
-                # cheap per step, and linear between input changes so the solver strides.
-                # No kink/clamp: the leakage floor 1/rleak is sized (>= 0.5*h/ron) to keep
-                # both conductances >= 0 through the hysteresis excursion, so the network
-                # stays passive and smooth -> stable AND large adaptive steps.
+                # Regenerative clamped-linear gate (v2), no tanh: a linear inverting
+                # transfer with gain __g__ about the vhi/2 trip point, hard-clamped to
+                # [0, vhi], driving the kept load C through __rout__ (delay = rout*C).
+                # g>1 regenerates rail-to-rail levels through arbitrary chain depth --
+                # the old conductance-divider form had trip-point gain <1 and collapsed
+                # a chain to mid-rail. Piecewise-linear, so the solver strides between
+                # input edges. Identical transfer to the Verilog-A cmos_inv.va module.
                 L = ["* --- bfit: cmos_inv (in %s, out %s, vhi %s) ---" % (gn, dn, sp),
                      "Cin_%s %s 0 __cin__" % (nn, gn),                       # decouple input (R-C load)
-                     "Bo_%s 0 %s I={ ((V(%s)-V(%s)+__h__*(V(%s)-0.5*V(%s)))/(V(%s)*__ron__)+1/__rleak__)"
-                     "*(V(%s)-V(%s)) - ((V(%s)-__h__*(V(%s)-0.5*V(%s)))/(V(%s)*__ron__)+1/__rleak__)*V(%s) }"
-                     % (nn, dn, sp, gn, dn, sp, sp, sp, dn, gn, dn, sp, sp, dn)]
+                     "Bo_%s 0 %s I={ (max(0, min(V(%s), 0.5*V(%s) - __g__*(V(%s)-0.5*V(%s)))) - V(%s))/__rout__ }"
+                     % (nn, dn, sp, sp, gn, sp, dn)]
                 matches.append(dict(model="cmos_inv", inline=True,
                                     insert="\n".join(L),
                                     vc="x%s (%s %s %s) cmosinv" % (nn, gn, dn, sp),  # in out vhi
