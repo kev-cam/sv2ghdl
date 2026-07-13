@@ -9,21 +9,24 @@ engines can't coast to steady state. 🟢 = fastest cell in the row; 🔵 = an o
 engine/mode beating **both** commercial tools. `brk` = aborted (timestep
 collapse); `—` = no benefit over that engine's own base.
 
-**The `×` reference.** Base-engine `×` is relative to the **slowest native
-engine** in the row (Xyce here → ×1.0). The **+bfit** and **Xyce-MPI** `×` are
-relative to **that engine's own native run** — i.e. what the acceleration
-actually bought. **bal / fast** are the `bfit front --accuracy` presets
+**The `×` reference.** Every `×` — base, **+bfit**, and **Xyce-MPI** — is
+relative to the row's **slowest native engine** (×1.0), so multipliers compare
+directly across ALL columns: the biggest `×` in a row is its 🟢 cell. What an
+acceleration bought a given engine is its `+bfit` seconds against its own base
+column. `n/a` = the engine has no model/path for that circuit (distinct from
+`brk` = tried and aborted). **bal / fast** are the `bfit front --accuracy` presets
 (`balanced` ≈1000 pts + tight LTE; `fast` ≈300 pts + loose LTE); `exact`
 (no coarsening, not shown) keeps the engine at reference accuracy.
 
 | Model | # Tx | QSPICE | LTspice | ngspice | Xyce | VACASK | Xyce-MPI | ng+bfit bal | ng+bfit fast | xy+bfit bal | xy+bfit fast | vc+bfit bal | vc+bfit fast |
 | :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: | --: |
-| Bridge rectifier (4 diodes) | 0 | 3.7 ×31.6 | 3.3 ×35.4 | 8.4 ×13.9 | 117 ×1.0 | 🔵 3.2 ×36.4 | — | 🔵 0.12 ×70.2 (+10 dB) | 🟢 0.11 ×76.6 (+21 dB) | 9.6 ×12.1 (+25 dB) | 9.4 ×12.4 (+31 dB) | 🔵 0.11 ×29.2 (+9 dB) | 🔵 0.11 ×29.2 (0 dB) |
-| CMOS inverter chain ×100 | 200 | 3.1 ×2.2 | 3.1 ×2.2 | 🔵 1.9 ×3.6 | 6.8 ×1.0 | 6.4 ×1.1 | — | 🔵 1.5 ×1.3 (+5 dB) | 🔵 1.5 ×1.3 (+5 dB) | 🔵 0.72 ×9.5 (+1 dB) | 🔵 1.2 ×5.6 (+3 dB) | 🟢 0.21 ×30.5 (+6 dB) | 🔵 0.21 ×30.5 (+6 dB) |
-| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.9 | 🔵 3.5 ×6.0 | 21 ×1.0 | 16 ×1.4 | — | 🔵 0.92 ×3.8 (0 dB) | 🔵 0.92 ×3.8 (0 dB) | 🔵 0.52 ×40.8 (0 dB) | 🔵 1 ×20.8 (0 dB) | 🟢 0.21 ×74.4 (0 dB) | 🔵 0.21 ×74.4 (0 dB) |
-| 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.3 | 4.5 ×22.8 | 6.7 ×15.3 | 103 ×1.0 | 10 ×10.2 | — | 🔵 0.12 ×56.0 (+3 dB) | 🔵 0.12 ×56.0 (+2 dB) | 8 ×12.8 (+3 dB) | 7.2 ×14.2 (+2 dB) | 🟢 0.11 ×91.1 (+3 dB) | 🔵 0.11 ×91.1 (+3 dB) |
-| BJT 3-stage CE amp ‡ | 3 | 3.9 ×53.1 | 7.7 ×26.9 | 5.5 ×37.5 | 207 ×1.0 | 20 ×10.4 | — | 🔵 0.52 ×10.6 (-3 dB) | 🔵 0.52 ×10.6 (-3 dB) | 🔵 2.8 ×73.4 (-3 dB) | 🔵 0.22 ×940.9 (0 dB) | 🟢 0.11 ×181.1 (0 dB) | 🔵 0.11 ×181.1 (0 dB) |
-| 2-stage Miller op-amp | 8 | 3.5 ×22.6 | 4.6 ×17.2 | 38 ×2.1 | 79 ×1.0 | 20 ×4.0 | — | 🔵 0.12 ×320.5 (+24 dB) | 🔵 0.12 ×320.5 (+26 dB) | 21 ×3.8 (+25 dB) | 21 ×3.8 (+22 dB) | 🟢 0.11 ×180.3 (+23 dB) | 🔵 0.11 ×180.3 (+27 dB) |
+| Bridge rectifier (4 diodes) | 0 | 3.7 ×31.6 | 3.3 ×35.4 | 8.4 ×13.9 | 117 ×1.0 | 🔵 3.2 ×36.4 | — | 🔵 0.12 ×973.7 (+10 dB) | 🟢 0.11 ×1062.2 (+21 dB) | 9.6 ×12.1 (+25 dB) | 9.4 ×12.4 (+31 dB) | 🔵 0.11 ×1062.2 (+9 dB) | 🔵 0.11 ×1062.2 (0 dB) |
+| CMOS inverter chain ×100 | 200 | 3.1 ×2.2 | 3.1 ×2.2 | 🔵 1.9 ×3.6 | 6.8 ×1.0 | 6.4 ×1.1 | — | 🔵 1.5 ×4.5 (+5 dB) | 🔵 1.5 ×4.5 (+5 dB) | 🔵 0.72 ×9.5 (+1 dB) | 🔵 1.2 ×5.6 (+3 dB) | 🟢 0.21 ×32.5 (+6 dB) | 🔵 0.21 ×32.5 (+6 dB) |
+| CMOS ring oscillator ×51 | 102 | brk | 5.5 ×3.9 | 🔵 3.5 ×6.0 | 21 ×1.0 | 16 ×1.4 | — | 🔵 0.92 ×23.1 (0 dB) | 🔵 0.92 ×23.1 (0 dB) | 🔵 0.52 ×40.8 (0 dB) | 🔵 1 ×20.8 (0 dB) | 🟢 0.21 ×101.1 (0 dB) | 🔵 0.21 ×101.1 (0 dB) |
+| 5T OTA (diff pair + mirror) | 5 | 3.9 ×26.3 | 4.5 ×22.8 | 6.7 ×15.3 | 103 ×1.0 | 10 ×10.2 | — | 🔵 0.12 ×855.1 (+3 dB) | 🔵 0.12 ×855.1 (+2 dB) | 8 ×12.8 (+3 dB) | 7.2 ×14.2 (+2 dB) | 🟢 0.11 ×932.8 (+3 dB) | 🔵 0.11 ×932.8 (+3 dB) |
+| BJT 3-stage CE amp ‡ | 3 | 3.9 ×53.1 | 7.7 ×26.9 | 5.5 ×37.5 | 207 ×1.0 | 20 ×10.4 | — | 🔵 0.52 ×398.1 (-3 dB) | 🔵 0.52 ×398.1 (-3 dB) | 🔵 2.8 ×73.4 (-3 dB) | 🔵 0.22 ×940.9 (0 dB) | 🟢 0.11 ×1881.8 (0 dB) | 🔵 0.11 ×1881.8 (0 dB) |
+| 2-stage Miller op-amp | 8 | 3.5 ×22.6 | 4.6 ×17.2 | 38 ×2.1 | 79 ×1.0 | 20 ×4.0 | — | 🔵 0.12 ×659.9 (+24 dB) | 🔵 0.12 ×659.9 (+26 dB) | 21 ×3.8 (+25 dB) | 21 ×3.8 (+22 dB) | 🟢 0.11 ×719.9 (+23 dB) | 🔵 0.11 ×719.9 (+27 dB) |
+| C6288 16×16 multiplier (PSP103) | 10112 | n/a | n/a | 🟢 46 ×1.5 | n/a | 🔵 70 ×1.0 | — | — | — | — | — | — | — |
 | BJT cascade ×3000 (breaker) | 3000 | brk | brk | brk | 🔵 462 ×1.0 | t/o | 🟢 238 ×1.9 (np 4) | — | — | — | — | — | — |
 
 **Accuracy = signal-to-error ratio in dB** (`SER = −20·log₁₀(rel-L2)`); higher is
@@ -103,7 +106,7 @@ same methodology:
 | 5T OTA (diff pair + mirror) | 6.7 | 10 | ×0.7 | 0.12 | 0.11 | ×1.1 |
 | BJT 3-stage CE amp ‡ | 5.5 | 20 | ×0.3 | 0.52 | 0.11 | ×4.7 |
 | 2-stage Miller op-amp | 38 | 20 | ×1.9 | 0.12 | 0.11 | ×1.1 |
-| C6288 16x16 multiplier (10112 Tx) | 46 | 70 | ×0.7 | — | — | — |
+| C6288 16×16 multiplier (PSP103) | 46 | 70 | ×0.7 | — | — | — |
 
 Accelerated tally: **3 decisive VACASK wins, 3 ties** (within the 10 ms timer
 grain), **0 losses** — the `fast` preset shows the same pattern. C6288 is

@@ -13,11 +13,13 @@ Multiplier reference: base-engine × is vs the row's SLOWEST native engine; the
 cell in the row; blue = an open engine/mode beating BOTH commercial tools."""
 import sys, os, csv, math
 
-NTX = {'rectifier':0,'inv_chain':200,'ring_osc':102,'ota_5t':5,'bjt_amp':3,'opamp':8,'breaker':3000}
+NTX = {'rectifier':0,'inv_chain':200,'ring_osc':102,'ota_5t':5,'bjt_amp':3,'opamp':8,
+       'c6288':10112,'breaker':3000}
 LABEL = {'rectifier':'Bridge rectifier (4 diodes)','inv_chain':'CMOS inverter chain ×100',
  'ring_osc':'CMOS ring oscillator ×51','ota_5t':'5T OTA (diff pair + mirror)',
- 'bjt_amp':'BJT 3-stage CE amp ‡','opamp':'2-stage Miller op-amp','breaker':'BJT cascade ×3000 (breaker)'}
-ROWS = ['rectifier','inv_chain','ring_osc','ota_5t','bjt_amp','opamp','breaker']
+ 'bjt_amp':'BJT 3-stage CE amp ‡','opamp':'2-stage Miller op-amp',
+ 'c6288':'C6288 16×16 multiplier (PSP103)','breaker':'BJT cascade ×3000 (breaker)'}
+ROWS = ['rectifier','inv_chain','ring_osc','ota_5t','bjt_amp','opamp','c6288','breaker']
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OPEN = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.environ.get('MODELS','.'), 'open.csv')
@@ -79,18 +81,24 @@ for m in ROWS:
     else:                                  # no commercial finishes -> any open finisher beats them
         blue = {k for k in fin if k in openk and k != green}
     dot = lambda k: '🟢' if k == green else ('🔵' if k in blue else '')
+    def base_cell(rawv, secs, key):
+        s = str(rawv or '').strip().lower()   # 't/o'/'n/a' shown verbatim:
+        if s in ('t/o', 'n/a', 'na'):         # didn't finish / has no model-path
+            return 't/o' if s == 't/o' else 'n/a'   # (distinct from 'brk' = aborted)
+        return fmt(secs, mult(ref, secs), dot=dot(key))
     row = [LABEL[m], str(NTX[m]),
-           fmt(qs, mult(ref, qs), dot=dot('qspice')), fmt(lt, mult(ref, lt), dot=dot('ltspice')),
-           fmt(ngb, mult(ref, ngb), dot=dot('ngspice')), fmt(xyb, mult(ref, xyb), dot=dot('xyce')),
-           (str(o.get('vc_base','')).strip() if str(o.get('vc_base','')).strip() == 't/o'
-            else fmt(vc, mult(ref, vc), dot=dot('vacask')))]
-    row.append(fmt(mpi, mult(xyb, mpi), ' (np %s)' % mnp if mpi else '', dot('mpi')) if mpi else '—')
-    row += [fmt(nbal, mult(ngb, nbal), ' (%s)' % db(o.get('ng_bal_acc')), dot('nbal')) if nbal else '—',
-            fmt(nfast, mult(ngb, nfast), ' (%s)' % db(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
-            fmt(xbal, mult(xyb, xbal), ' (%s)' % db(o.get('xy_bal_acc')), dot('xbal')) if xbal else '—',
-            fmt(xfast, mult(xyb, xfast), ' (%s)' % db(o.get('xy_fast_acc')), dot('xfast')) if xfast else '—']
-    row += [fmt(vbal, mult(vc, vbal), ' (%s)' % db(o.get('vc_bal_acc')), dot('vbal')) if vbal else '—',
-            fmt(vfast, mult(vc, vfast), ' (%s)' % db(o.get('vc_fast_acc')), dot('vfast')) if vfast else '—']
+           base_cell(c.get('qspice'), qs, 'qspice'), base_cell(c.get('ltspice'), lt, 'ltspice'),
+           base_cell(o.get('ng_base'), ngb, 'ngspice'), base_cell(o.get('xy_base'), xyb, 'xyce'),
+           base_cell(o.get('vc_base'), vc, 'vacask')]
+    # every × below is vs the row's slowest native (ref), so multipliers are
+    # comparable across ALL columns: the biggest × in a row is its 🟢 cell.
+    row.append(fmt(mpi, mult(ref, mpi), ' (np %s)' % mnp if mpi else '', dot('mpi')) if mpi else '—')
+    row += [fmt(nbal, mult(ref, nbal), ' (%s)' % db(o.get('ng_bal_acc')), dot('nbal')) if nbal else '—',
+            fmt(nfast, mult(ref, nfast), ' (%s)' % db(o.get('ng_fast_acc')), dot('nfast')) if nfast else '—',
+            fmt(xbal, mult(ref, xbal), ' (%s)' % db(o.get('xy_bal_acc')), dot('xbal')) if xbal else '—',
+            fmt(xfast, mult(ref, xfast), ' (%s)' % db(o.get('xy_fast_acc')), dot('xfast')) if xfast else '—']
+    row += [fmt(vbal, mult(ref, vbal), ' (%s)' % db(o.get('vc_bal_acc')), dot('vbal')) if vbal else '—',
+            fmt(vfast, mult(ref, vfast), ' (%s)' % db(o.get('vc_fast_acc')), dot('vfast')) if vfast else '—']
     lines.append('| ' + ' | '.join(row) + ' |')
 TABLE = '\n'.join(lines)
 
@@ -117,12 +125,8 @@ for m in ROWS:
         else: hl += 1
     hh.append('| %s | %s | %s | %s | %s | %s | %s |'
               % (LABEL[m], _s(ngb), _s(vcb), _r(rb), _s(ngl), _s(vcl), _r(rl)))
-# C6288 (10112 transistors, PSP103.4): native only -- no bfit lane (the NOR/AND
-# gate recognizers are not implemented). Numbers from c6288_run.sh, this box
-# (see the C6288 section / c6288-2026-07-12.md snapshot).
-C6288_NG, C6288_VC = 45.98, 70.08
-hh.append('| C6288 16x16 multiplier (10112 Tx) | %s | %s | %s | — | — | — |'
-          % (_s(C6288_NG), _s(C6288_VC), _r(_hh(C6288_NG, C6288_VC))))
+# (c6288 flows through the ROWS loop above from open.csv -- native-only row,
+#  numbers merged from c6288_run.sh via csvmerge.py)
 VNSEC = """
 
 ## VACASK vs ngspice — the replacement case
@@ -158,10 +162,12 @@ engines can't coast to steady state. 🟢 = fastest cell in the row; 🔵 = an o
 engine/mode beating **both** commercial tools. `brk` = aborted (timestep
 collapse); `—` = no benefit over that engine's own base.
 
-**The `×` reference.** Base-engine `×` is relative to the **slowest native
-engine** in the row (Xyce here → ×1.0). The **+bfit** and **Xyce-MPI** `×` are
-relative to **that engine's own native run** — i.e. what the acceleration
-actually bought. **bal / fast** are the `bfit front --accuracy` presets
+**The `×` reference.** Every `×` — base, **+bfit**, and **Xyce-MPI** — is
+relative to the row's **slowest native engine** (×1.0), so multipliers compare
+directly across ALL columns: the biggest `×` in a row is its 🟢 cell. What an
+acceleration bought a given engine is its `+bfit` seconds against its own base
+column. `n/a` = the engine has no model/path for that circuit (distinct from
+`brk` = tried and aborted). **bal / fast** are the `bfit front --accuracy` presets
 (`balanced` ≈1000 pts + tight LTE; `fast` ≈300 pts + loose LTE); `exact`
 (no coarsening, not shown) keeps the engine at reference accuracy.
 
