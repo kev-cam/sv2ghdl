@@ -159,6 +159,18 @@ print <<'CLK';
              & " pc0=" & integer'image(l3d_to_nat(s_trace_rv_i_address_ip(31 downto 0)))
              & " pc1=" & integer'image(l3d_to_nat(s_trace_rv_i_address_ip(63 downto 32)));
       end if;
+      -- Trap-cause probe: on an architectural exception VeeR pulses
+      -- exception_ip with the mcause in ecause_ip and the trap value
+      -- (faulting addr / instr) in tval_ip.  Threads packed low->high.
+      if l3d_to_nat(s_trace_rv_i_exception_ip) /= 0 then
+        report "TRAP cyc=" & integer'image(cycle_cnt)
+             & " exc0=" & integer'image(l3d_to_nat(s_trace_rv_i_exception_ip(1 downto 0)))
+             & " ecause0=" & integer'image(l3d_to_nat(s_trace_rv_i_ecause_ip(4 downto 0)))
+             & " tval0=" & integer'image(l3d_to_nat(s_trace_rv_i_tval_ip(31 downto 0)))
+             & " exc1=" & integer'image(l3d_to_nat(s_trace_rv_i_exception_ip(3 downto 2)))
+             & " ecause1=" & integer'image(l3d_to_nat(s_trace_rv_i_ecause_ip(9 downto 5)))
+             & " tval1=" & integer'image(l3d_to_nat(s_trace_rv_i_tval_ip(63 downto 32)));
+      end if;
     end if;
   end process;
 
