@@ -97,7 +97,10 @@ def run_verilator(src, args, w, top):
         cmd += ["--default-language","1800-2017"]
     if top: cmd += ["--top-module", top]
     cmd += ["-I"+IVLTESTS, src]
-    rc,o,e = run(cmd, w, 180)
+    # Verilator's generated makefile defaults OBJCACHE to ccache; force it empty
+    # so a missing ccache doesn't make every compile fail (spurious VL_NOCOMPILE).
+    vlenv = dict(os.environ); vlenv["OBJCACHE"] = ""
+    rc,o,e = run(cmd, w, 180, vlenv)
     if rc != 0: return None, "compile"
     rc,o,e = run([os.path.join(d,"sim")], w, 60)
     if rc != 0 and not o: return None, "run"
