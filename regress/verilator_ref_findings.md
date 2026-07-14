@@ -252,3 +252,22 @@ pr2219441
 pr2233180
 pr2233192
 ```
+
+---
+
+## Fix campaign (3 batches, 79 recoveries, 0 regressions)
+
+Acting on this report, 3 committed batches fixed the shim (iverilog tgt-vhdl +
+nvc sv2vhdl lib), re-verified by re-sweep each time:
+
+1. **Display** (bare-arg `'image`->sv_dstr, `%d` field width, bit-select width): +51
+2. **Signed display + `>>>` arithmetic shift** (sv_dstr_signed, l3d_sra): +13
+3. **Signed compare/div/mod + SIGN_EXT sign-extension** (l3d_*_s helpers): +15
+
+Post-fix totals: AGREE 859, VL_CONFIRMS_IVL 239,
+VL_CONFIRMS_SHIM 39. (was AGREE 781 / VL_CONFIRMS_IVL 306.)
+
+Remaining VL_CONFIRMS_IVL diagnosed but not yet fixed: expression-level signed
+resize (signed6/7, br917a/b), gate primitives (npmos/pr1703959), $time (returns 0),
+concat compound-assign, and a diverse functional tail (UDP eval, timing/scheduling,
+%m, >32-bit shift). See the diagnosis workflow output for per-family root causes.
