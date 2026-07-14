@@ -255,28 +255,33 @@ pr2233192
 
 ---
 
-## Fix campaign (132 recoveries, 0 regressions; re-swept after every batch)
+## Fix campaign (135 recoveries, 0 regressions; re-swept after every batch)
 
-Post-campaign: **AGREE 908** (was 781), **VL_CONFIRMS_IVL 202** (was 306).
+Post-campaign: **AGREE 911** (was 781), **VL_CONFIRMS_IVL 199** (was 306).
 
 | batch | fix | recovered |
 |---|---|---:|
-| 1 | display: bare-arg 'image->sv_dstr, %d field width, bit-select width | +51 |
-| 2 | signed %d display (sv_dstr_signed), >>> arithmetic shift (l3d_sra) | +13 |
-| 3 | signed compare/div/mod + SIGN_EXT sign-extension (l3d_*_s) | +15 |
-| 4 | gate primitives: logic3d ports on mos/tristate/pull | +2 |
-| 5 | signed widening pad-select sign-extension (translate_select) | +22 |
-| 6 | %s packed-ASCII (sv_sstr) | +3 |
-| 7 | %0b/%0h/%0o leading-zero suppression (sv_strip0) | +3 |
-| 8 | %d unknown chars x/z/X/Z per iverilog convention | +1 |
-| 9 | combinational UDP: matching select? wildcards + row bit-order | +5 |
-| 10 | sequential UDP evaluator (sv_udp_seq: level+edge) | +4 |
-| 11 | scope-keyed store -> \$time (per-scope timescale) + %m (hier name) | +8 |
-| 12 | %t / \$timeformat time formatting (protected-type runtime store) | +6 |
+| 1 | display: bare-arg image->sv_dstr, %d width, bit-select width | +51 |
+| 2 | signed %d display, >>> arithmetic shift | +13 |
+| 3 | signed compare/div/mod + SIGN_EXT sign-extension | +15 |
+| 4 | gate primitives: logic3d ports | +2 |
+| 5 | signed widening pad-select sign-extension | +22 |
+| 6 | %s packed-ASCII | +3 |
+| 7 | %0b/%0h/%0o leading-zero suppression | +3 |
+| 8 | %d unknown chars x/z/X/Z | +1 |
+| 9 | combinational UDP: select? wildcards + bit-order | +5 |
+| 10 | sequential UDP evaluator (level+edge) | +4 |
+| 11 | scope-keyed store -> time + hier-name (%m) | +8 |
+| 12 | %t / timeformat time formatting | +6 |
+| 13 | l3d_shcount: >32-bit shift-count saturation | +3 |
 
-**Remaining VL_CONFIRMS_IVL** (~202): ~105 verdict-only (intentional
-3D-logic X-semantics, not bugs); the rest are individual root causes -- \$monitor,
-uninitialized-reg = x (blocks edge-DFF UDP value-match though the UDP logic is
-correct), inout-net resolution, net-array dynamic index, function default-arg
-call-time timing, >32-bit shift counts, and assorted scheduling/timing (e.g.
-pr1698658/pr1898983 show correct %t/%m but a time value off by one unit).
+**Classifier note:** verilator_ref.py now forces `OBJCACHE=''` for the Verilator
+step -- ccache went missing from the environment mid-campaign and its absence
+made every Verilator compile fail, spuriously reclassifying the validated
+VL_CONFIRMS_SHIM set as VL_NOCOMPILE. Not a shim regression.
+
+**Remaining VL_CONFIRMS_IVL** (~199): ~105 verdict-only (intentional
+3D-logic X-semantics); the rest are individual root causes -- $monitor,
+uninitialized-reg = x, inout-net resolution, net-array dynamic index, function
+default-arg call-time timing, concatenated signed-shift resize, and scheduling/
+timing (some tests show correct %t/%m but a time value off by one unit).
