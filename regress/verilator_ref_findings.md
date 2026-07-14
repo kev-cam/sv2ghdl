@@ -255,11 +255,9 @@ pr2233192
 
 ---
 
-## Fix campaign (114 recoveries, 0 regressions; re-swept after every batch)
+## Fix campaign (126 recoveries, 0 regressions; re-swept after every batch)
 
-Acting on this report, the shim (iverilog `tgt-vhdl` + nvc `sv2vhdl` lib) was
-fixed in verified batches. Post-campaign: **AGREE 894** (was 781),
-**VL_CONFIRMS_IVL 209** (was 306), VL_CONFIRMS_SHIM 39.
+Post-campaign: **AGREE 903** (was 781), **VL_CONFIRMS_IVL 207** (was 306).
 
 | batch | fix | recovered |
 |---|---|---:|
@@ -272,11 +270,12 @@ fixed in verified batches. Post-campaign: **AGREE 894** (was 781),
 | 7 | `%0b/%0h/%0o` leading-zero suppression (sv_strip0) | +3 |
 | 8 | `%d` unknown chars x/z/X/Z per iverilog convention | +1 |
 | 9 | combinational UDP: matching `select?` wildcards + row bit-order | +5 |
+| 10 | sequential UDP evaluator (sv_udp_seq: level+edge, mirrors vvp/udp.cc) | +4 |
+| 11 | scope-keyed store -> `$time` (per-scope timescale) + `%m` (hier name) | +8 |
 
-**Remaining VL_CONFIRMS_IVL** (~209, mostly individual root causes):
-- ~105 verdict-only (shim VALUE == iverilog; only a self-check `===` verdict
-  differs — usually the intentional 3D-logic X-semantics, not a bug).
-- ~63 value-diffs: `$time` returns 0 (needs per-module timescale), `%m`
-  hierarchical name, `$monitor`, sequential-UDP eval, inout-net resolution,
-  net-array dynamic index, function default-arg call-time eval, >32-bit shift
-  count, and assorted timing/scheduling. Each is a distinct root cause.
+**Remaining VL_CONFIRMS_IVL** (~207): ~105 verdict-only (intentional
+3D-logic X-semantics, not bugs); the rest are individual root causes -- `%t`/
+`$timeformat` display, `$monitor`, uninitialized-reg = x (blocks edge-DFF UDP
+value-match though the UDP logic is now correct), inout-net resolution, net-array
+dynamic index, function default-arg call-time timing, >32-bit shift counts, and
+assorted scheduling. Each is a distinct fix.
