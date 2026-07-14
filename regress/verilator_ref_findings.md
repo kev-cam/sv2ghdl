@@ -255,19 +255,28 @@ pr2233192
 
 ---
 
-## Fix campaign (3 batches, 79 recoveries, 0 regressions)
+## Fix campaign (114 recoveries, 0 regressions; re-swept after every batch)
 
-Acting on this report, 3 committed batches fixed the shim (iverilog tgt-vhdl +
-nvc sv2vhdl lib), re-verified by re-sweep each time:
+Acting on this report, the shim (iverilog `tgt-vhdl` + nvc `sv2vhdl` lib) was
+fixed in verified batches. Post-campaign: **AGREE 894** (was 781),
+**VL_CONFIRMS_IVL 209** (was 306), VL_CONFIRMS_SHIM 39.
 
-1. **Display** (bare-arg `'image`->sv_dstr, `%d` field width, bit-select width): +51
-2. **Signed display + `>>>` arithmetic shift** (sv_dstr_signed, l3d_sra): +13
-3. **Signed compare/div/mod + SIGN_EXT sign-extension** (l3d_*_s helpers): +15
+| batch | fix | recovered |
+|---|---|---:|
+| 1 | display: bare-arg `'image`->sv_dstr, `%d` field width, bit-select width | +51 |
+| 2 | signed `%d` display (sv_dstr_signed), `>>>` arithmetic shift (l3d_sra) | +13 |
+| 3 | signed compare/div/mod + SIGN_EXT sign-extension (l3d_*_s) | +15 |
+| 4 | gate primitives: logic3d ports on mos/tristate/pull | +2 |
+| 5 | signed widening pad-select sign-extension (translate_select) | +22 |
+| 6 | `%s` packed-ASCII (sv_sstr) | +3 |
+| 7 | `%0b/%0h/%0o` leading-zero suppression (sv_strip0) | +3 |
+| 8 | `%d` unknown chars x/z/X/Z per iverilog convention | +1 |
+| 9 | combinational UDP: matching `select?` wildcards + row bit-order | +5 |
 
-Post-fix totals: AGREE 859, VL_CONFIRMS_IVL 239,
-VL_CONFIRMS_SHIM 39. (was AGREE 781 / VL_CONFIRMS_IVL 306.)
-
-Remaining VL_CONFIRMS_IVL diagnosed but not yet fixed: expression-level signed
-resize (signed6/7, br917a/b), gate primitives (npmos/pr1703959), $time (returns 0),
-concat compound-assign, and a diverse functional tail (UDP eval, timing/scheduling,
-%m, >32-bit shift). See the diagnosis workflow output for per-family root causes.
+**Remaining VL_CONFIRMS_IVL** (~209, mostly individual root causes):
+- ~105 verdict-only (shim VALUE == iverilog; only a self-check `===` verdict
+  differs — usually the intentional 3D-logic X-semantics, not a bug).
+- ~63 value-diffs: `$time` returns 0 (needs per-module timescale), `%m`
+  hierarchical name, `$monitor`, sequential-UDP eval, inout-net resolution,
+  net-array dynamic index, function default-arg call-time eval, >32-bit shift
+  count, and assorted timing/scheduling. Each is a distinct root cause.
