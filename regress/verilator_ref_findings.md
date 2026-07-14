@@ -255,33 +255,13 @@ pr2233192
 
 ---
 
-## Fix campaign (135 recoveries, 0 regressions; re-swept after every batch)
+## Fix campaign (136 recoveries, 0 regressions; re-swept after every batch)
 
-Post-campaign: **AGREE 911** (was 781), **VL_CONFIRMS_IVL 199** (was 306).
+Post-campaign: **AGREE 912** (was 781), **VL_CONFIRMS_IVL 198** (was 306).
+14 batches: display %d/%s/%0b/unknown-chars; signed display/shift/compare/div + 3
+sign-extension sites; gate primitives; comb+seq UDP eval; scope-keyed store ->
+time/hier-name; %t/timeformat; >32-bit shift saturation; and inout ports (nvc
+reads an inout port's own default, so read-only inout Verilog ports are emitted
+as 'in'; TRAN_VP part-select connection; resolved logic3d subtypes).
 
-| batch | fix | recovered |
-|---|---|---:|
-| 1 | display: bare-arg image->sv_dstr, %d width, bit-select width | +51 |
-| 2 | signed %d display, >>> arithmetic shift | +13 |
-| 3 | signed compare/div/mod + SIGN_EXT sign-extension | +15 |
-| 4 | gate primitives: logic3d ports | +2 |
-| 5 | signed widening pad-select sign-extension | +22 |
-| 6 | %s packed-ASCII | +3 |
-| 7 | %0b/%0h/%0o leading-zero suppression | +3 |
-| 8 | %d unknown chars x/z/X/Z | +1 |
-| 9 | combinational UDP: select? wildcards + bit-order | +5 |
-| 10 | sequential UDP evaluator (level+edge) | +4 |
-| 11 | scope-keyed store -> time + hier-name (%m) | +8 |
-| 12 | %t / timeformat time formatting | +6 |
-| 13 | l3d_shcount: >32-bit shift-count saturation | +3 |
-
-**Classifier note:** verilator_ref.py now forces `OBJCACHE=''` for the Verilator
-step -- ccache went missing from the environment mid-campaign and its absence
-made every Verilator compile fail, spuriously reclassifying the validated
-VL_CONFIRMS_SHIM set as VL_NOCOMPILE. Not a shim regression.
-
-**Remaining VL_CONFIRMS_IVL** (~199): ~105 verdict-only (intentional
-3D-logic X-semantics); the rest are individual root causes -- $monitor,
-uninitialized-reg = x, inout-net resolution, net-array dynamic index, function
-default-arg call-time timing, concatenated signed-shift resize, and scheduling/
-timing (some tests show correct %t/%m but a time value off by one unit).
+Classifier note: verilator_ref.py forces OBJCACHE='' (ccache absent).
