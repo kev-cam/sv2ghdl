@@ -255,27 +255,28 @@ pr2233192
 
 ---
 
-## Fix campaign (126 recoveries, 0 regressions; re-swept after every batch)
+## Fix campaign (132 recoveries, 0 regressions; re-swept after every batch)
 
-Post-campaign: **AGREE 903** (was 781), **VL_CONFIRMS_IVL 207** (was 306).
+Post-campaign: **AGREE 908** (was 781), **VL_CONFIRMS_IVL 202** (was 306).
 
 | batch | fix | recovered |
 |---|---|---:|
-| 1 | display: bare-arg `'image`->sv_dstr, `%d` field width, bit-select width | +51 |
-| 2 | signed `%d` display (sv_dstr_signed), `>>>` arithmetic shift (l3d_sra) | +13 |
+| 1 | display: bare-arg 'image->sv_dstr, %d field width, bit-select width | +51 |
+| 2 | signed %d display (sv_dstr_signed), >>> arithmetic shift (l3d_sra) | +13 |
 | 3 | signed compare/div/mod + SIGN_EXT sign-extension (l3d_*_s) | +15 |
 | 4 | gate primitives: logic3d ports on mos/tristate/pull | +2 |
 | 5 | signed widening pad-select sign-extension (translate_select) | +22 |
-| 6 | `%s` packed-ASCII (sv_sstr) | +3 |
-| 7 | `%0b/%0h/%0o` leading-zero suppression (sv_strip0) | +3 |
-| 8 | `%d` unknown chars x/z/X/Z per iverilog convention | +1 |
-| 9 | combinational UDP: matching `select?` wildcards + row bit-order | +5 |
-| 10 | sequential UDP evaluator (sv_udp_seq: level+edge, mirrors vvp/udp.cc) | +4 |
-| 11 | scope-keyed store -> `$time` (per-scope timescale) + `%m` (hier name) | +8 |
+| 6 | %s packed-ASCII (sv_sstr) | +3 |
+| 7 | %0b/%0h/%0o leading-zero suppression (sv_strip0) | +3 |
+| 8 | %d unknown chars x/z/X/Z per iverilog convention | +1 |
+| 9 | combinational UDP: matching select? wildcards + row bit-order | +5 |
+| 10 | sequential UDP evaluator (sv_udp_seq: level+edge) | +4 |
+| 11 | scope-keyed store -> \$time (per-scope timescale) + %m (hier name) | +8 |
+| 12 | %t / \$timeformat time formatting (protected-type runtime store) | +6 |
 
-**Remaining VL_CONFIRMS_IVL** (~207): ~105 verdict-only (intentional
-3D-logic X-semantics, not bugs); the rest are individual root causes -- `%t`/
-`$timeformat` display, `$monitor`, uninitialized-reg = x (blocks edge-DFF UDP
-value-match though the UDP logic is now correct), inout-net resolution, net-array
-dynamic index, function default-arg call-time timing, >32-bit shift counts, and
-assorted scheduling. Each is a distinct fix.
+**Remaining VL_CONFIRMS_IVL** (~202): ~105 verdict-only (intentional
+3D-logic X-semantics, not bugs); the rest are individual root causes -- \$monitor,
+uninitialized-reg = x (blocks edge-DFF UDP value-match though the UDP logic is
+correct), inout-net resolution, net-array dynamic index, function default-arg
+call-time timing, >32-bit shift counts, and assorted scheduling/timing (e.g.
+pr1698658/pr1898983 show correct %t/%m but a time value off by one unit).
