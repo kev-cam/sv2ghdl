@@ -255,20 +255,21 @@ pr2233192
 
 ---
 
-## Fix campaign (209 recoveries, 1 regression; re-swept after every batch)
+## Fix campaign (220 recoveries, 0 regressions; re-swept after every batch)
 
-Post-campaign: **AGREE 979** (was 781), **VL_CONFIRMS_IVL 152** (was 306). 17 batches.
+Post-campaign: **AGREE 990** (was 781), **VL_CONFIRMS_IVL 144** (was 306). 18 batches.
 
-Two structural finds dominate:
-* nvc silently drops a `<=` on a signal that was already assigned with `:=`, so an
-  initial block depositing a signal at time zero lost every later value. Keeping the
-  deposit consistent recovered ~60 tests.
-* Delays and $time were scaled by two independently-computed rulers. Now both derive
-  from one base: a delay counts DESIGN-precision ticks (not per-scope -- `timescale is
-  sticky across the parse stream, so modules differ), one tick is emitted as one VHDL
-  unit (compressed on purpose: true SI overflows VHDL's 64-bit fs TIME near 9223 s),
-  and $time divides by the scope's unit expressed in that same tick base.
+Three structural finds dominate:
+* nvc silently drops a `<=` on a signal already assigned with `:=`, so an initial
+  block depositing a signal at time zero lost every later value (~60 tests).
+* Delays and $time were scaled by two independently-computed rulers. Both now derive
+  from one base: a delay counts DESIGN-precision ticks, one tick is emitted as one
+  VHDL unit (compressed on purpose -- true SI overflows VHDL's 64-bit fs TIME near
+  9223 s), and $time divides by the scope's unit in that same tick base.
+* The blocking-assignment shadow re-seeded every iteration, re-reading the signal in
+  the same delta its commit was scheduled -- halving every `always #N clk = ~clk`
+  clock. Seeding is initialisation: hoist it out and loop the body. Gated on the body
+  having a top-level wait (a sensitivity-list process's implicit wait is at the END,
+  so a loop would trap it -- applying it unconditionally regressed 94 tests).
 
-Known open: blocking_repeat_ec (repeat-event-control result timing) -- it passed
-originally only because the deposit bug froze its loop count.
 Classifier note: verilator_ref.py forces OBJCACHE='' (ccache absent).
