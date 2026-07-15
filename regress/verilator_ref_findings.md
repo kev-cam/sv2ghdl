@@ -255,17 +255,20 @@ pr2233192
 
 ---
 
-## Fix campaign (205 recoveries, 1 regression; re-swept after every batch)
+## Fix campaign (209 recoveries, 1 regression; re-swept after every batch)
 
-Post-campaign: **AGREE 976** (was 781), **VL_CONFIRMS_IVL 154** (was 306). 16 batches.
-Latest: bidirectional resolved nets + gate strength resolution led to the big one --
-an nvc quirk (a <= on a signal is silently dropped after a := on it) meant initial
-blocks that deposit a signal at time zero then reassign it after a delay lost every
-later value. Fixing the deposit to stay consistent recovered ~60 tests (always_comb/ff,
-basicstate, casesynth/dffsynth/memsynth, ssetclr, udp_dff, resolv1, ...). Plus signed
-repeat count and $simtime.
+Post-campaign: **AGREE 979** (was 781), **VL_CONFIRMS_IVL 152** (was 306). 17 batches.
 
-The one flip (blocking_repeat_ec) was passing only because that deposit bug froze its
-loop count; with the count now correct it exposes pre-existing repeat-event-control +
-no-timescale $simtime-unit issues (a separate deep timescale-mapping bug).
+Two structural finds dominate:
+* nvc silently drops a `<=` on a signal that was already assigned with `:=`, so an
+  initial block depositing a signal at time zero lost every later value. Keeping the
+  deposit consistent recovered ~60 tests.
+* Delays and $time were scaled by two independently-computed rulers. Now both derive
+  from one base: a delay counts DESIGN-precision ticks (not per-scope -- `timescale is
+  sticky across the parse stream, so modules differ), one tick is emitted as one VHDL
+  unit (compressed on purpose: true SI overflows VHDL's 64-bit fs TIME near 9223 s),
+  and $time divides by the scope's unit expressed in that same tick base.
+
+Known open: blocking_repeat_ec (repeat-event-control result timing) -- it passed
+originally only because the deposit bug froze its loop count.
 Classifier note: verilator_ref.py forces OBJCACHE='' (ccache absent).
