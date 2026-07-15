@@ -255,15 +255,17 @@ pr2233192
 
 ---
 
-## Fix campaign (142 recoveries, 0 regressions; re-swept after every batch)
+## Fix campaign (205 recoveries, 1 regression; re-swept after every batch)
 
-Post-campaign: **AGREE 919** (was 781), **VL_CONFIRMS_IVL 197** (was 306). 15 batches:
-display %d/%s/%0b/unknown-chars; signed display/shift/compare/div + 3 sign-ext
-sites; gate primitives; comb+seq UDP; scope-keyed store (time/hier-name); %t;
->32-bit shift saturation; inout ports (nvc reads an inout port's own default ->
-read-only inout emitted as `in`; TRAN_VP connection); and resolved logic3d for
-multiply-driven / bidirectional nets (con_tri, drive_strength2/3, etc.).
+Post-campaign: **AGREE 976** (was 781), **VL_CONFIRMS_IVL 154** (was 306). 16 batches.
+Latest: bidirectional resolved nets + gate strength resolution led to the big one --
+an nvc quirk (a <= on a signal is silently dropped after a := on it) meant initial
+blocks that deposit a signal at time zero then reassign it after a delay lost every
+later value. Fixing the deposit to stay consistent recovered ~60 tests (always_comb/ff,
+basicstate, casesynth/dffsynth/memsynth, ssetclr, udp_dff, resolv1, ...). Plus signed
+repeat count and $simtime.
 
-Remaining bidirectional work: gate STRENGTH resolution (logic3ds `strength`
-architecture) for resolv1-style strong-over-weak driver conflicts.
+The one flip (blocking_repeat_ec) was passing only because that deposit bug froze its
+loop count; with the count now correct it exposes pre-existing repeat-event-control +
+no-timescale $simtime-unit issues (a separate deep timescale-mapping bug).
 Classifier note: verilator_ref.py forces OBJCACHE='' (ccache absent).
