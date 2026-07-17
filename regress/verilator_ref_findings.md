@@ -272,4 +272,19 @@ Three structural finds dominate:
   having a top-level wait (a sensitivity-list process's implicit wait is at the END,
   so a loop would trap it -- applying it unconditionally regressed 94 tests).
 
+## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
+
+First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
+
+| engine | correct / 2553 scoreable | notes |
+|---|---|---|
+| iverilog | 1757 | 4-state reference; it is ivtest's home suite |
+| **Verilator** | **1609** | **473 compile/run errors** on the suite |
+| shim (us) | 1038 | + head-to-head below |
+
+Head-to-head vs Verilator: both correct 842; **we-correct-VL-not 196** (4-state,
+strengths, X-prop -- the dimensions Verilator forecloses); VL-correct-we-not 767;
+neither 748. Net deficit **571** -- the roadmap's top-8 items (~500 nominal
+unlocks, all small/medium) roughly close it; the full roadmap overtakes.
+
 Classifier note: verilator_ref.py forces OBJCACHE='' (ccache absent).
