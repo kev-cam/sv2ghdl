@@ -292,6 +292,16 @@ real arrays element-typed correctly; control chars in folded display strings
 emitted as character'val(N), NULs dropped per IEEE 1364. inf/nan stay
 approximated (nvc range-checks REAL per the LRM).
 
+## force/release (roadmap item 2)
+
++27 recoveries, 0 regressions -- AGREE 1076, scoreboard 1127 vs Verilator 1612
+(deficit 485). Emitted as VHDL-2008 force/release; nvc runtime composes the
+forcing pseudo-source with the deposit extension for IEEE 1364 semantics:
+deposits lost while forced, reg retains on release (net reverts), and force is
+IMMEDIATE in STD_MX (Verilog checks the forced value with no delta in between).
+Procedural continuous assign approximates as force (snapshot) -- tracking
+assigns need a companion re-force process (remaining half of the item).
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
