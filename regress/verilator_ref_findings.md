@@ -332,6 +332,14 @@ static OOB clamps (reads x-fill, writes drop OOB bits), guarded dynamic writes
 x-index = selects-nothing via a sentinel. Residue: array+dynamic-part writes,
 some nonblocking pv variants.
 
+## String literals as packed vectors (roadmap item 3, first slice)
+
++12 recoveries, 0 regressions -- AGREE 1137, SHIM_ERROR 234 -> 178, scoreboard
+1197 vs Verilator 1621 (deficit 424). String literals in value contexts emit
+as packed logic3d vectors; $timeformat's suffix stays a VHDL string (gate
+caught that composition). sv_sstr drops NULs per IEEE. Residue is
+string-VARIABLE machinery (item 18) and per-test value bugs.
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
