@@ -302,6 +302,18 @@ IMMEDIATE in STD_MX (Verilog checks the forced value with no delta in between).
 Procedural continuous assign approximates as force (snapshot) -- tracking
 assigns need a companion re-force process (remaining half of the item).
 
+## Operand coercion batch (roadmap item 5)
+
++28 recoveries, 0 regressions -- AGREE 1104, scoreboard 1155 vs Verilator 1612
+(deficit 457). One normalization pre-pass in translate_binary (boolean/
+std_logic/numeric/integer escapees -> logic3d family; scalar widening); native
+l3d_neg and modular l3d_pow; ternary branch casts. KEY LESSON: the backend's
+C++ type annotations LIE for l3d expressions that crossed numeric-typed paths
+-- acting on them in C++ regressed the multiply family; the fix is the
+overloaded to_l3d(x,w) where VHDL overload resolution sees the real type.
+Residual tail: === on scalar literals, sll from compressed assigns,
+rising_edge-on-vector, case-duplicate-choice (1-3 tests each).
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
