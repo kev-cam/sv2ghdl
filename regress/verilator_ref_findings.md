@@ -348,6 +348,13 @@ get on-demand entity-local homes (sanitized names -- $unit basenames carry
 #/$; initializers recovered from nexus const drivers). Residue: package
 functions/tasks (translate_ufunc module-parent assert).
 
+## Package functions on demand (item 4, second slice)
+
++6 recoveries, 0 regressions -- AGREE 1162, scoreboard 1223 vs Verilator 1622:
+**deficit under 400 (399)**. Package functions draw into the first calling
+entity (draw_function_in_entity, skip-if-declared, guarded remembers);
+zero-arg functions declare without parens. Item 4 subset now 24/56 from 0.
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
