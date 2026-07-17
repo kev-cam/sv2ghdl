@@ -12,7 +12,7 @@ The point is NOT to treat Verilator as ground truth -- `rop` shows that for
 inherently-4-state tests Verilator degenerates (3'b10z -> 3'b000). Instead we
 CLASSIFY each shim-vs-iverilog divergence by what Verilator says:
 
-  AGREE            shim == iverilog             (no divergence; verilator skipped)
+  AGREE            shim == iverilog             (no divergence)
   VL_CONFIRMS_SHIM shim == verilator != iverilog (3D-logic matches 2-state;
                                                    iverilog is x-pessimistic -> EXPECTED/GOOD)
   VL_CONFIRMS_IVL  iverilog == verilator != shim (shim diverges from BOTH -> likely real bug)
@@ -22,11 +22,23 @@ CLASSIFY each shim-vs-iverilog divergence by what Verilator says:
   SHIM_ERROR       shim failed to compile/run (not a value divergence)
   IVL_ERROR        native iverilog failed / produced no output (not usable as reference)
 
+Verilator is run on EVERY test (not just divergences) so all three engines are
+scored on the full suite. Every non-IVL_ERROR result carries vl_status
+('ok'/'compile'/'run'/'no_output') and, when Verilator produced output,
+vl_matches_ivl / vl_matches_shim. The summary includes a 2-of-3 consensus
+scoreboard: an engine is correct on a test when at least one other engine
+produced the same normalized output; all-three-differ counts as no_consensus.
+
+Verilator outputs are cached in out/vl_cache.json keyed by (test, source sha1,
+args) -- Verilator's verdict only changes when the test or Verilator itself
+changes, not when our toolchain does, so after the first full-matrix sweep the
+Verilator leg costs nothing. --no-vl-cache forces a fresh run.
+
 Usage:
   verilator_ref.py [--jobs N] [--limit N] [--tests name,name] [--out report.json]
-                   [--manifest regress-vlg.list,...] [--verbose]
+                   [--manifest regress-vlg.list,...] [--verbose] [--no-vl-cache]
 """
-import argparse, concurrent.futures as cf, json, os, re, shutil, subprocess, sys, tempfile
+import argparse, concurrent.futures as cf, hashlib, json, os, re, shutil, subprocess, sys, tempfile
 
 IVTEST   = "/usr/local/src/iverilog/ivtest"
 IVLTESTS = os.path.join(IVTEST, "ivltests")
@@ -114,6 +126,32 @@ def top_module(src):
     mods = re.findall(r'^\s*module\s+([A-Za-z_]\w*)', txt, re.M)
     return mods[0] if mods else None
 
+# ---- verilator result cache -------------------------------------------------
+# Keyed by (test, source sha1, args). Loaded in main() before the worker pool
+# forks, so workers read it for free; new entries ride back on each result
+# (_vl_cache_add) and main() merges + rewrites the file once.
+VL_CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "out", "vl_cache.json")
+_VL_CACHE = {}
+
+def vl_result(name, src, args, w):
+    """Verilator's raw output for a test: (status, raw_text, cache_add|None).
+    status: 'ok' | 'compile' | 'run'."""
+    try:
+        h = hashlib.sha1(open(src, 'rb').read()).hexdigest()[:16]
+    except Exception:
+        h = "nohash"
+    key = f"{name}:{h}:{','.join(args)}"
+    ent = _VL_CACHE.get(key)
+    if ent is not None:
+        return ent["st"], ent.get("out", ""), None
+    vl, verr = run_verilator(src, args, w, top_module(src))
+    st = "ok" if vl is not None else verr
+    ent = {"st": st}
+    if vl is not None:
+        ent["out"] = vl
+    return st, vl or "", {key: ent}
+
 # ---- per-test classification ---------------------------------------------
 def _snap(res, nivl, nshim, nvl, n=12):
     res["ivl"]  = nivl[:n]
@@ -133,23 +171,33 @@ def classify(test):
         nivl = normalize(ivl)
         if not nivl:
             res["class"]="IVL_ERROR"; res["detail"]="no output"; return res
+
+        # Verilator on EVERY test (full-suite scoreboard), cached across sweeps
+        vst, vraw, cadd = vl_result(tname, src, args, w)
+        if cadd: res["_vl_cache_add"] = cadd
+        nvl = normalize(vraw) if vst == "ok" else None
+        if vst == "ok" and not nvl:
+            vst, nvl = "no_output", None
+        res["vl_status"] = vst
+        if nvl is not None:
+            res["vl_matches_ivl"] = (nvl == nivl)
+
         shim, serr = run_shim(src, args, w)
         if shim is None:
             res["class"]="SHIM_ERROR"; res["detail"]=serr; return res
         nshim = normalize(shim)
         if not nshim:
             res["class"]="SHIM_NO_OUTPUT"; return res      # translation gap, not a value divergence
+        if nvl is not None:
+            res["vl_matches_shim"] = (nvl == nshim)
         if nivl == nshim:
             res["class"]="AGREE"; return res
-        # divergence -> consult verilator
-        top = top_module(src)
-        vl, verr = run_verilator(src, args, w, top)
+        # divergence -> verilator arbitration (result already in hand)
         # record whether the divergence is verdict-only (value lines match iverilog)
         res["value_matches_ivl"] = (value_lines(nivl) == value_lines(nshim))
-        if vl is None:
-            res["class"]="VL_NOCOMPILE"; res["detail"]=verr
+        if nvl is None:
+            res["class"]="VL_NOCOMPILE"; res["detail"]=vst
             _snap(res, nivl, nshim, None); return res
-        nvl = normalize(vl)
         if nvl == nshim:
             res["class"]="VL_CONFIRMS_SHIM"
         elif nvl == nivl:
@@ -200,12 +248,23 @@ def main():
     ap.add_argument("--manifest", default="")
     ap.add_argument("--out", default="/tmp/verilator_ref_report.json")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--no-vl-cache", action="store_true",
+                    help="ignore the cached Verilator results and rerun them all")
     a = ap.parse_args()
     only = set(x for x in a.tests.split(",") if x) or None
     mans = a.manifest.split(",") if a.manifest else MANIFESTS
     tests = parse_manifests(mans, only)
     if a.limit: tests = tests[:a.limit]
-    print(f"[verilator_ref] {len(tests)} tests, jobs={a.jobs}", file=sys.stderr)
+
+    # Load the Verilator cache BEFORE the pool forks so workers inherit it.
+    global _VL_CACHE
+    if not a.no_vl_cache and os.path.exists(VL_CACHE_PATH):
+        try:
+            _VL_CACHE = json.load(open(VL_CACHE_PATH))
+        except Exception:
+            _VL_CACHE = {}
+    print(f"[verilator_ref] {len(tests)} tests, jobs={a.jobs}, "
+          f"vl-cache={len(_VL_CACHE)} entries", file=sys.stderr)
     results = []
     with cf.ProcessPoolExecutor(max_workers=a.jobs) as ex:
         futs = {ex.submit(classify, t): t["name"] for t in tests}
@@ -216,13 +275,56 @@ def main():
                 print(f"  {done}/{len(tests)} {r['name']:28s} {r['class']}", file=sys.stderr)
             elif done % 25 == 0:
                 print(f"  ..{done}/{len(tests)}", file=sys.stderr)
+    # merge new Verilator results into the cache (single writer: main)
+    new_entries = {}
+    for r in results:
+        add = r.pop("_vl_cache_add", None)
+        if add: new_entries.update(add)
+    if new_entries:
+        _VL_CACHE.update(new_entries)
+        os.makedirs(os.path.dirname(VL_CACHE_PATH), exist_ok=True)
+        tmp = VL_CACHE_PATH + ".tmp"
+        json.dump(_VL_CACHE, open(tmp, "w"))
+        os.replace(tmp, VL_CACHE_PATH)
+        print(f"[verilator_ref] vl-cache: +{len(new_entries)} -> "
+              f"{len(_VL_CACHE)} entries", file=sys.stderr)
+
     # summary
     from collections import Counter
     c = Counter(r["class"] for r in results)
     print("\n=== SUMMARY ===", file=sys.stderr)
     for k,v in sorted(c.items(), key=lambda kv:-kv[1]):
         print(f"  {k:20s} {v}", file=sys.stderr)
-    json.dump({"summary":dict(c),"results":sorted(results,key=lambda r:(r['class'],r['name']))},
+
+    # 2-of-3 consensus scoreboard: an engine is correct on a test when at least
+    # one other engine produced the same normalized output. IVL_ERROR tests are
+    # unscoreable (no reference at all).
+    sb = {"scored":0, "shim_correct":0, "vl_correct":0, "ivl_correct":0,
+          "no_consensus":0, "vl_error":0}
+    for r in results:
+        cls = r["class"]
+        if cls in ("MISSING_SRC", "IVL_ERROR"): continue
+        sb["scored"] += 1
+        shim_ok = cls in ("AGREE", "VL_CONFIRMS_SHIM")
+        vmi = r.get("vl_matches_ivl", False)
+        vms = r.get("vl_matches_shim", False)
+        vl_ok  = vmi or vms
+        ivl_ok = (cls == "AGREE") or vmi
+        if r.get("vl_status") != "ok": sb["vl_error"] += 1
+        sb["shim_correct"] += shim_ok
+        sb["vl_correct"]   += vl_ok
+        sb["ivl_correct"]  += ivl_ok
+        if not (shim_ok or vl_ok or ivl_ok): sb["no_consensus"] += 1
+    print("\n=== SCOREBOARD (2-of-3 consensus, "
+          f"{sb['scored']} scoreable tests) ===", file=sys.stderr)
+    print(f"  iverilog  correct: {sb['ivl_correct']}", file=sys.stderr)
+    print(f"  shim      correct: {sb['shim_correct']}", file=sys.stderr)
+    print(f"  verilator correct: {sb['vl_correct']}   "
+          f"(vl compile/run errors: {sb['vl_error']})", file=sys.stderr)
+    print(f"  no consensus (all differ): {sb['no_consensus']}", file=sys.stderr)
+
+    json.dump({"summary":dict(c),"scoreboard":sb,
+               "results":sorted(results,key=lambda r:(r['class'],r['name']))},
               open(a.out,"w"), indent=1)
     print(f"[verilator_ref] wrote {a.out}", file=sys.stderr)
 
