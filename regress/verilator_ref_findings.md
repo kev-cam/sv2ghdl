@@ -340,6 +340,14 @@ as packed logic3d vectors; $timeformat's suffix stays a VHDL string (gate
 caught that composition). sv_sstr drops NULs per IEEE. Residue is
 string-VARIABLE machinery (item 18) and per-test value bugs.
 
+## Package/$unit scope homes (roadmap item 4, first slice)
+
++20 recoveries, 0 regressions -- AGREE 1156, scoreboard 1217 vs Verilator 1622
+(deficit 405). Orphan signals from package/$unit/named-block/generate scopes
+get on-demand entity-local homes (sanitized names -- $unit basenames carry
+#/$; initializers recovered from nexus const drivers). Residue: package
+functions/tasks (translate_ufunc module-parent assert).
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
