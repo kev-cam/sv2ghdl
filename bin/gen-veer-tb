@@ -559,6 +559,18 @@ if ((($ptype{ifu_axi_rid} // $ptype{ifu_axi_arid}) // '') =~ /\((\d+)\s+downto\s
     $TB_OUT =~ s/(array \(0 to DEPTH-1\) of logic3d_vector\()2( downto 0\))/$1$hi$2/g
         if $hi != 2;
 }
+
+# Single-retire-slot configs (newer RTLMeter VeeR snapshots generate 1-slot
+# trace buses: address [31:0], ecause [4:0], tval [31:0]): the template's
+# hardcoded slot-1 debug prints slice past the port -- drop them, terminating
+# the slot-0 fragment with the statement's semicolon.
+my %msb = map { $_->[0] => ($_->[2] =~ /\((\d+)\s+downto/ ? $1 : 0) } @ports;
+if (($msb{trace_rv_i_address_ip} // 0) < 63) {
+    $TB_OUT =~ s/\n\s*& " pc1=[^\n]*\)\)\);/;/;
+}
+if (($msb{trace_rv_i_ecause_ip} // 0) < 9) {
+    $TB_OUT =~ s/\n\s*& " exc1=.*?tval_ip\(63 downto 32\)\)\);/;/s;
+}
 for my $p (@ports) {
     my ($n) = @$p;
     next unless $is_vec{$n};
