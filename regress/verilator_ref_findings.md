@@ -363,6 +363,16 @@ forward declarations drop illegal empty parens. Fresh global census: remaining
 mass = 513 zero-report tests dominated by architectural items (classes ~87,
 fork ~36, sv_port_default crash cluster 24, darray-args 17) + ~30 uninit-x.
 
+## Certainty-0 initialisation + inactive-region #0 (doctrine change)
+
+Net +11 -- AGREE 1197, GOOD 1239, scoreboard 1239 vs Verilator 1603.
+Init flips L3D_0 -> L3D_X (value plane still 0; certainty-aware display/===
+see x). nvc STD_MX zero-waits now resume in the INACTIVE region (true #0).
+By-design/rewrite list (tests checking x by VALUE; candidates for
+certainty-probing variants): always_comb_no_sens, br916b, br_gh19b, br_gh307, br_gh99b, br_gh99h, br_gh99o, br_ml20190806b, memidx, pr1002a, pr1008, pr1603918, pr2085984, pr2470181a, pr2951657, pr2974051, pr298, pr377, udp_output_reg, vector.
+Metric note: VL_CONFIRMS_SHIM 61->42 -- the consensus rule undercounts being
+more 4-state-correct than Verilator's degeneration.
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
