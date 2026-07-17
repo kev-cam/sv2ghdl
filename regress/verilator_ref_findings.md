@@ -323,6 +323,15 @@ one-active-monitor + on/off; strobe counts requests. Formatter fully shared via
 build_display_text. Category residue mostly = the deliberate L3D_0 init choice
 (time-0 x-display), not monitor machinery.
 
+## Array/memory indexing batch (roadmap item 7)
+
++13 recoveries, 0 regressions -- AGREE 1126, scoreboard 1185 vs Verilator 1620
+(deficit 435). Word+part composition (was DROPPING the word index both ways),
+static OOB clamps (reads x-fill, writes drop OOB bits), guarded dynamic writes
+(constant-side outer gate vs INTEGER overflow), signed index conversion, and
+x-index = selects-nothing via a sentinel. Residue: array+dynamic-part writes,
+some nonblocking pv variants.
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
