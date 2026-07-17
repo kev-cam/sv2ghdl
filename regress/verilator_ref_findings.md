@@ -355,6 +355,14 @@ functions/tasks (translate_ufunc module-parent assert).
 entity (draw_function_in_entity, skip-if-declared, guarded remembers);
 zero-arg functions declare without parens. Item 4 subset now 24/56 from 0.
 
+## Impure functions + empty interface lists (quick wins)
+
++5 recoveries, 0 regressions -- AGREE 1167, scoreboard 1228 vs Verilator 1622
+(deficit 394). All generated functions declare impure; zero-arg functions and
+forward declarations drop illegal empty parens. Fresh global census: remaining
+mass = 513 zero-report tests dominated by architectural items (classes ~87,
+fork ~36, sv_port_default crash cluster 24, darray-args 17) + ~30 uninit-x.
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
