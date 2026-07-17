@@ -283,6 +283,15 @@ crashed on large values (64-byte buffer vs 308-digit %f) -- fixed in nvc.
 SHIM_NO_OUTPUT fell 859 -> 726: real tests now run to their NEXT blocker
 (real nets via lpm.cc and real arrays are the following layers).
 
+## REAL nets + arrays (item 1, second slice)
+
++9 recoveries, 0 regressions -- AGREE 1050, scoreboard 1100 vs Verilator 1611
+(deficit 511). Real net-const drivers no longer error (was silently deferring
+WHOLE modules to hollow stubs -- sv2vhdl-modules swallows translator stderr);
+real arrays element-typed correctly; control chars in folded display strings
+emitted as character'val(N), NULs dropped per IEEE 1364. inf/nan stay
+approximated (nvc range-checks REAL per the LRM).
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
