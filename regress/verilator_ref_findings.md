@@ -314,6 +314,15 @@ overloaded to_l3d(x,w) where VHDL overload resolution sees the real type.
 Residual tail: === on scalar literals, sll from compressed assigns,
 rising_edge-on-vector, case-duplicate-choice (1-3 tests each).
 
+## $monitor/$strobe engine (roadmap item 6)
+
++17 recoveries, 0 regressions -- AGREE 1113, VL_CONFIRMS_SHIM 59, scoreboard
+1172 vs Verilator 1620 (deficit 448). Postponed companion processes: postponed
+= end-of-step settled reads = Verilog monitor timing exactly. Arm-signal gives
+one-active-monitor + on/off; strobe counts requests. Formatter fully shared via
+build_display_text. Category residue mostly = the deliberate L3D_0 init choice
+(time-0 x-display), not monitor machinery.
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
