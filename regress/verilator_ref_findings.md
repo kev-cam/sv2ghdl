@@ -272,6 +272,17 @@ Three structural finds dominate:
   having a top-level wait (a sensitivity-list process's implicit wait is at the END,
   so a loop would trap it -- applying it unconditionally regressed 94 tests).
 
+## REAL type, scalar layer (roadmap item 1, first slice)
+
+2026-07-17: +53 recoveries, 0 regressions -- AGREE 990 -> 1041, scoreboard
+1038 -> 1091, deficit vs Verilator 571 -> 520. vhdl_type gained REAL; one
+shared vhdl_type_for_signal() feeds every declaration site; %f/%g/%e ride
+VHDL-2008 to_string (C printf semantics). Collateral: iverilog's '2' cast is
+2-STATE VECTOR semantics (X/Z -> 0), now honoured; nvc to_string(real,"%f")
+crashed on large values (64-byte buffer vs 308-digit %f) -- fixed in nvc.
+SHIM_NO_OUTPUT fell 859 -> 726: real tests now run to their NEXT blocker
+(real nets via lpm.cc and real arrays are the following layers).
+
 ## Full-matrix scoreboard (2-of-3 consensus; Verilator now scored on ALL tests)
 
 First run 2026-07-16 (Verilator leg cached thereafter in out/vl_cache.json):
