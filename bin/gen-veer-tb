@@ -571,6 +571,17 @@ if (($msb{trace_rv_i_address_ip} // 0) < 63) {
 if (($msb{trace_rv_i_ecause_ip} // 0) < 9) {
     $TB_OUT =~ s/\n\s*& " exc1=.*?tval_ip\(63 downto 32\)\)\);/;/s;
 }
+# Dual-thread configs (EH2: trace buses concatenate per-thread halves, so
+# address [127:0] = {t1s1,t1s0,t0s1,t0s0} x 32 and valid [3:0] follows the
+# same order): the 2-slot pc0/pc1 print would label tid0's slot-1 "pc1" and
+# silently drop both of tid1's PCs -- print one field per thread-slot.
+if (($msb{trace_rv_i_address_ip} // 0) >= 127) {
+    my $pc4 = join "\n", map {
+        my ($lbl, $hi, $lo) = @$_;
+        qq{             & " $lbl=" & integer'image(l3d_to_nat(s_trace_rv_i_address_ip($hi downto $lo)))}
+    } ([ 't0s0', 31, 0 ], [ 't0s1', 63, 32 ], [ 't1s0', 95, 64 ], [ 't1s1', 127, 96 ]);
+    $TB_OUT =~ s/\n\s*& " pc0=.*?address_ip\(63 downto 32\)\)\);/\n$pc4;/s;
+}
 for my $p (@ports) {
     my ($n) = @$p;
     next unless $is_vec{$n};
