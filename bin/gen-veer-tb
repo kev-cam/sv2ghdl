@@ -564,6 +564,12 @@ if ((($ptype{ifu_axi_rid} // $ptype{ifu_axi_arid}) // '') =~ /\((\d+)\s+downto\s
 # trace buses: address [31:0], ecause [4:0], tval [31:0]): the template's
 # hardcoded slot-1 debug prints slice past the port -- drop them, terminating
 # the slot-0 fragment with the statement's semicolon.
+# Perf runs: the per-retire trace costs 2 report lines/retire under nvc
+# (whole-EH2 dhry ran ~3 cyc/s wall). Post-hooks only check TEST_PASSED,
+# so GEN_VEER_TB_NOTRACE=1 omits the retire/trap trace process entirely.
+if ($ENV{GEN_VEER_TB_NOTRACE}) {
+    $TB_OUT =~ s/\n  -- Retire trace:.*?\n  end process;\n//s;
+}
 my %msb = map { $_->[0] => ($_->[2] =~ /\((\d+)\s+downto/ ? $1 : 0) } @ports;
 if (($msb{trace_rv_i_address_ip} // 0) < 63) {
     $TB_OUT =~ s/\n\s*& " pc1=[^\n]*\)\)\);/;/;
