@@ -169,7 +169,7 @@ my @BLOCKS = (
       ready  => sub { Regress::Adapter::Rtlmeter::ready() && verilator_bin() ? 1 : 0 } },
 
     { name => 'rtlmeter/verilator-nvc', suite => 'rtlmeter', engine => 'nvc-vl-shim',
-      params => { cases => 'VeeR-EH1:default:hello', shim => 1 },
+      params => { cases => 'VeeR-EH1:default:hello VeeR-EH2:default:hello', shim => 1 },
       ready  => sub { Regress::Adapter::Rtlmeter::ready() && nvc_bin()
                        && shim_bin('verilator-sv2ghdl') ? 1 : 0 } },
 
