@@ -621,6 +621,8 @@ int main(int argc, char **argv)
         std::string src;      // source location "file:line.col"
         int width;
         unsigned __int128 arst_val;
+        unsigned __int128 init_val = 0;  // power-on value (Q wire `init` attr)
+        bool has_init = false;           // distinct from arst_val (RESET value)
         std::string arst_expr; // async-reset ($adff) assert condition; "" = none
         RTLIL::SigSpec arst_sig;  // raw ARST port (for cone inlining)
         bool arst_pol = true;
@@ -730,6 +732,28 @@ int main(int argc, char **argv)
             // limb array); only render the scalar string for narrow regs.
             reg.d_expr = is_wide(reg.width) ? "" : sig_expr(d, sigmap);
             reg.src = cell->get_src_attribute();
+
+            // Power-on init: the Q wire's `init` attribute (from a Verilog reg
+            // initializer, i.e. the VHDL signal default). This is DISTINCT from
+            // the async RESET value (arst_val) -- e.g. `signal r := 0` with an
+            // async reset to DEADBEEF powers on at 0. sm_reset must use this,
+            // not arst_val, or the register starts at its reset value.
+            {
+                RTLIL::SigSpec qs = sigmap(q);
+                unsigned __int128 iv = 0; bool any = false;
+                for (int qi = 0; qi < qs.size() && qi < 128; qi++) {
+                    RTLIL::SigBit b = qs[qi];
+                    if (b.wire && b.wire->attributes.count(ID::init)) {
+                        const RTLIL::Const &wi = b.wire->attributes.at(ID::init);
+                        if (b.offset < wi.size() && wi[b.offset] == RTLIL::S1) {
+                            iv |= ((unsigned __int128)1 << qi); any = true;
+                        }
+                        else if (b.offset < wi.size() && wi[b.offset] == RTLIL::S0)
+                            any = true;
+                    }
+                }
+                if (any) { reg.has_init = true; reg.init_val = iv; }
+            }
 
             // Get async reset value + assert condition if present. $adff resets
             // ASYNCHRONOUSLY (level-sensitive on ARST), so beyond the initial value
@@ -1210,16 +1234,19 @@ int main(int argc, char **argv)
     // Reset function
     fprintf(out, "void sm_reset(state_t *s) {\n");
     for (auto &reg : registers) {
+        // Power-on value: the reg's own init if it has one, else the async
+        // reset value (a reg with an async reset but no explicit init powers on
+        // at its reset value, the prior behavior).
+        unsigned __int128 pov = reg.has_init ? reg.init_val : reg.arst_val;
         if (is_wide(reg.width)) {
-            // arst_val is an __int128 (reset bits >128 are 0 — unsupported, rare).
             int ny = nlimbs(reg.width);
             for (int l = 0; l < ny; l++) {
-                uint32_t lw = (l < 4) ? (uint32_t)(reg.arst_val >> (32 * l)) : 0;
+                uint32_t lw = (l < 4) ? (uint32_t)(pov >> (32 * l)) : 0;
                 fprintf(out, "    s->%s[%d] = 0x%xu;\n", reg.name.c_str(), l, lw);
             }
         } else
             fprintf(out, "    s->%s = %s;\n",
-                    reg.name.c_str(), u128_lit(reg.arst_val).c_str());
+                    reg.name.c_str(), u128_lit(pov).c_str());
     }
     for (auto &m : memories) {
         auto &mem = m.second;
