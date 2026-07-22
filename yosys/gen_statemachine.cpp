@@ -1471,15 +1471,25 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     masks.c_str());
         } else if (type == "$shl") {
-            fprintf(out, "    %s = (%s << %s) & %s;\n",
+            // C `<<` on a 64-bit scalar is UNDEFINED for a count >= 64 (x86
+            // masks it to &63, so `acc sll 65` wrongly yields acc<<1 instead of
+            // 0). yosys shift counts are unsigned and can exceed 63 (variable
+            // `sll shamt`, shamt up to the operand's full range). Guard >=64->0;
+            // the width mask already handles the [width,63] range.
+            fprintf(out, "    { uint64_t _s=(uint64_t)(%s); %s = (_s>=64 ? 0 : "
+                    "((%s) << _s)) & %s; }\n",
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
                     y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
                     masks.c_str());
         } else if (type == "$shr") {
-            fprintf(out, "    %s = %s >> %s;\n", y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
+            // Same C shift-count UB guard as $shl (see above); logical right
+            // shift fills 0, so a count >= 64 (or >= width) yields 0.
+            fprintf(out, "    { uint64_t _s=(uint64_t)(%s); %s = (_s>=64 ? 0 : "
+                    "((%s) >> _s)); }\n",
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
+                    y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str());
         } else if (type == "$shift" || type == "$shiftx") {
             // Dynamic-offset shift / indexed part-select a[b +: w]: Y = A >> B,
             // where B is the (possibly signed) offset — a negative B shifts LEFT
