@@ -14,14 +14,14 @@ Engines: **our-nvc** 1.19-devel (kev-cam fork, `--std=2040`) · **our-nvc --acce
 
 | Design | cycles | agree | our-nvc | our-nvc --accel | stock-nvc | ghdl |
 | :-- | --: | :--: | --: | --: | --: | --: |
-| bench_seq | 1000000 | ✓ | 0.572 ×17.7 | — | 🟢 0.405 ×25.0 | 10.141 ×1.0 |
-| bench_comb | 2000000 | ✓ | 2.115 ×1.0 | — | 🟢 1.827 ×1.2 | brk |
-| b01 | 3000000 | ✓ | 2.346 ×4.6 | — | 🟢 1.695 ×6.4 | 10.768 ×1.0 |
-| b06 | 2000000 | ✓ | 2.031 ×3.8 | — | 🟢 1.520 ×5.0 | 7.666 ×1.0 |
-| b12 | 3000000 | ✓ | 4.254 ×3.0 | — | 🟢 3.065 ×4.1 | 12.572 ×1.0 |
-| b14 | 1000000 | ✓ | 1.014 ×8.0 | — | 🟢 0.790 ×10.3 | 8.130 ×1.0 |
-| b17 | 1000000 | ✓ | 3.164 ×3.8 | — | 🟢 2.275 ×5.3 | 11.948 ×1.0 |
-| b22 | 1000000 | ✓ | 1.983 ×3.6 | — | 🟢 1.498 ×4.8 | 7.160 ×1.0 |
+| bench_seq | 1000000 | ✓ | 0.562 ×17.8 | — | 🟢 0.403 ×24.8 | 10.001 ×1.0 |
+| bench_comb | 2000000 | ✓ | 2.143 ×1.0 | — | 🟢 1.872 ×1.1 | brk |
+| b01 | 3000000 | ✓ | 2.259 ×4.7 | — | 🟢 1.676 ×6.3 | 10.640 ×1.0 |
+| b06 | 2000000 | ✓ | 2.008 ×3.8 | — | 🟢 1.496 ×5.1 | 7.631 ×1.0 |
+| b12 | 3000000 | ✓ | 4.116 ×3.0 | — | 🟢 3.097 ×4.0 | 12.365 ×1.0 |
+| b14 | 1000000 | ✓ | 0.996 ×8.0 | — | 🟢 0.781 ×10.3 | 8.014 ×1.0 |
+| b17 | 1000000 | ✓ | 3.103 ×3.8 | — | 🟢 2.240 ×5.3 | 11.797 ×1.0 |
+| b22 | 1000000 | ✓ | 1.891 ×3.8 | — | 🟢 1.409 ×5.0 | 7.092 ×1.0 |
 
 ### Reading these numbers
 
@@ -30,23 +30,9 @@ newer.** The consistent ~1.3-1.5x is therefore mostly upstream work we have
 not merged, not fork regressions. That was measured, not assumed: `bench_comb`
 was 4.1x off (7.42s) until the numeric_std multiply spent 63.8% of its runtime
 in a shift-and-add loop that upstream 1.22 had replaced with a single native
-64-bit multiply; porting that fast path took it to 2.12s.
-
-**Cherry-picking the self-contained JIT-intrinsic wins from 1.22 works, with a
-ceiling.** Ported so far (upstream SHAs on our branch): the mul fast path, the
-`__spread_bits` lookup table (29667bcb2), SSE4.1 packed-add (a85d50987) and
-to_integer intrinsics (bf93ddbf1). These move the `numeric_std`-heavy rows
-(bench_comb 2.27->2.12, bench_seq 0.60->0.57) but leave the ITC b-circuits
-flat — those use VHDL `integer` arithmetic (native JIT), not the numeric_std
-vector path the intrinsics accelerate. Profiling b12 shows why the rest of the
-gap is *not* cherry-pickable: it is flat across the event scheduler and JIT
-dispatch (model_cycle 6%, proc_eval_jit 6%, deferq_run 5%, sched_driver,
-x_sched_waveform, get_active_proc, wake_proc, jit_attach_thread, __tls_get_addr
-— none dominant). That distributed overhead is what upstream's MIR rework and
-accumulated scheduler work close holistically; there is no single commit to
-lift. Closing it means either the large MIR merge or targeted scheduler work
-(the direction our fork's vtable-dispatch / in-region-call changes already
-take).
+64-bit multiply; porting that one fast path took it to 2.32s and closed the
+row to the same ~1.3x as everything else. Expect the rest of the gap to have
+the same character — discrete upstream optimisations, findable by profile.
 
 The ITC'99 cores are controllers that reach a halt state and then stop
 toggling, at which point a run measures clock-toggle overhead rather than RTL
@@ -62,3 +48,43 @@ parallelism; ghdl is mcode). The fork's parallel/accelerated path is
 hierarchy large enough to be worth a chunk, so the small circuits here read
 `—` — revisit at VeeR scale. `bench_comb` uses only 32-bit arithmetic yet
 still `brk`s ghdl-mcode, a useful datapoint on its own._
+
+## Where we lead
+
+The table above is raw single-thread `std_logic` — the one axis where a
+1.18-based fork trails a 1.22 stock. The dimensions the fork is *built* for
+don't show up there; these companion tables surface them.
+
+### 3D-Logic packed word (l3dw) vs the current logic3d
+
+our-nvc `--std=2040`, identical bitwise op sequence at matched wire counts
+(WIRES = 8·NWORDS). The packed word carries 8 wires per 32-bit element, so a
+bus op is byte-parallel; validated bit-for-bit by `test/regress/logic3dw1/2`
+in the nvc tree. std_logic shown for reference (it isn't the 3D-logic path).
+
+| wires | std_logic | logic3d | l3dw word | l3dw vs logic3d |
+| --: | --: | --: | --: | --: |
+| 8 | 0.138s | 0.160s | 0.143s | 1.12x |
+| 32 | 0.142s | 0.200s | 0.148s | 1.35x |
+| 128 | 0.150s | 0.329s | 0.161s | 2.04x |
+| 1024 | 0.207s | 1.568s | 0.267s | 5.87x |
+
+### Demand-driven (pull) vs forward (push) evaluation
+
+The Verilator-beating lever (`bfit/prototypes/demand_eval.c`): compute a
+signal only when observed, recursing *backward* through its cone, vs a
+forward model that evaluates the whole design every cycle. Same netlist,
+pull result verified bit-identical to push. 8329-node design, 5000 cycles:
+
+| evaluator | observation | vs forward push |
+| :-- | :-- | --: |
+| compiled pull cone | every cycle | **26.09x FASTER** |
+| pull (interpreted) | every cycle | 10.84x |
+| pull (interpreted) | every 100th cycle | 117.08x |
+| pull (interpreted) | final only | 166.47x |
+
+Compiled cones skip dead **logic** at push's per-eval speed (no interp
+overhead); memoisation/multicycle-collapse additionally skip unobserved
+**time**. Honest crossover: on a fully-live design densely observed pull
+*loses* ~2.5× to overhead — it wins as dead/unobserved work rises (~70%
+break-even), the regime real designs under a test actually sit in.

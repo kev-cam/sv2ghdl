@@ -186,4 +186,50 @@ echo "hierarchy large enough to be worth a chunk, so the small circuits here rea
 echo "\`—\` — revisit at VeeR scale. \`bench_comb\` uses only 32-bit arithmetic yet"
 echo "still \`brk\`s ghdl-mcode, a useful datapoint on its own._"
 } > "$OUT"
-echo "== wrote $OUT =="
+
+# ---- companion tables: the axes where the fork LEADS (regenerated in-band so
+# they never get wiped by a re-run of this generator) ----
+{
+echo
+echo "## Where we lead"
+echo
+echo "The table above is raw single-thread \`std_logic\` — the one axis where a"
+echo "1.18-based fork trails a 1.22 stock. The dimensions the fork is *built* for"
+echo "don't show up there; these companion tables surface them."
+echo
+echo "### 3D-Logic packed word (l3dw) vs the current logic3d"
+echo
+echo "our-nvc \`--std=2040\`, identical bitwise op sequence at matched wire counts"
+echo "(WIRES = 8·NWORDS). The packed word carries 8 wires per 32-bit element, so a"
+echo "bus op is byte-parallel; validated bit-for-bit by \`test/regress/logic3dw1/2\`"
+echo "in the nvc tree. std_logic shown for reference (it isn't the 3D-logic path)."
+echo
+bash "$HERE/run_l3dw_perf.sh" 2>/dev/null || echo "_(l3dw benchmark unavailable)_"
+echo
+echo "### Demand-driven (pull) vs forward (push) evaluation"
+echo
+echo "The Verilator-beating lever (\`bfit/prototypes/demand_eval.c\`): compute a"
+echo "signal only when observed, recursing *backward* through its cone, vs a"
+echo "forward model that evaluates the whole design every cycle. Same netlist,"
+echo "pull result verified bit-identical to push. 8329-node design, 5000 cycles:"
+echo
+if cc -O2 -o "$WORK/demand_eval" "$HERE/../../prototypes/demand_eval.c" 2>/dev/null; then
+  DE=$("$WORK/demand_eval" 2>/dev/null)
+  echo "| evaluator | observation | vs forward push |"
+  echo "| :-- | :-- | --: |"
+  printf '%s\n' "$DE" | awk '
+    /COMPILED PULL CONE/ {getline; if(match($0,/[0-9.]+x FASTER/)){r=substr($0,RSTART,RLENGTH); print "| compiled pull cone | every cycle | **"r"** |"}}
+    /^every cycle/    {print "| pull (interpreted) | every cycle | "$(NF-1)" |"}
+    /^every 100th/    {print "| pull (interpreted) | every 100th cycle | "$(NF-1)" |"}
+    /^final only/     {print "| pull (interpreted) | final only | "$(NF-1)" |"}'
+  echo
+  echo "Compiled cones skip dead **logic** at push's per-eval speed (no interp"
+  echo "overhead); memoisation/multicycle-collapse additionally skip unobserved"
+  echo "**time**. Honest crossover: on a fully-live design densely observed pull"
+  echo "*loses* ~2.5× to overhead — it wins as dead/unobserved work rises (~70%"
+  echo "break-even), the regime real designs under a test actually sit in."
+else
+  echo "_(demand_eval prototype did not build)_"
+fi
+} >> "$OUT"
+echo "== wrote $OUT (with companion tables) =="
