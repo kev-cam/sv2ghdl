@@ -103,12 +103,13 @@ def main():
         ent_txt = ent.group(1) if ent else ""
         sig = sig_of(ename, ent_txt, body)
         cached = cache.get(sig)
-        if cached and cached["status"] == "verified":
+        st = cached["status"] if cached else None
+        if st == "verified":                       # correct AND faster: trust it
             decisions.append((ename, sig, True, "verified", cached.get("reason", "")))
-        elif cached and cached["status"] == "rejected":
-            decisions.append((ename, sig, False, "rejected", cached.get("reason", "")))
+        elif st in ("rejected", "nogain", "error"):  # wrong, or not worth it
+            decisions.append((ename, sig, False, st, cached.get("reason", "")))
         else:
-            ok, why = is_packable(body, ent_txt)
+            ok, why = is_packable(body, ent_txt)   # unseen/changed: guess
             decisions.append((ename, sig, ok, "pending" if ok else "skip", why))
 
     all_pack = bool(archs) and all(d[2] for d in decisions)

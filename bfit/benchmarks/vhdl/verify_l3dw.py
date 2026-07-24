@@ -131,6 +131,10 @@ def main():
     (r1, e1) = run(otext, tb1, "%s_l3d_tb" % mod, work + "_a")
     (r2, e2) = run(ptext, tb2, "%s_l3dw_tb" % mod, work + "_b")
 
+    # A technique is only worth applying where it actually pays. Correctness is
+    # necessary but not sufficient: a packing that verifies but is not faster is
+    # recorded "nogain" and left alone, so we throw l3dw only at buses it helps.
+    GAIN = float(os.environ.get("L3DW_MIN_SPEEDUP", "1.05"))
     cache = json.load(open(cache_path)) if os.path.exists(cache_path) else {}
     sig = sig_of_module(otext, mod)
     status, speed = "rejected", None
@@ -138,13 +142,18 @@ def main():
         print("VERIFY %s: original failed to run: %s" % (mod, (e1 or '')[:200])); status="error"
     elif r2 is None or r2[0] is None:
         print("VERIFY %s: packed failed to run: %s" % (mod, (e2 or '')[:200]))
-    elif r1[0].upper() == r2[0].upper():
-        speed = round(r1[1] / r2[1], 3) if r2[1] else None
-        status = "verified"
-        print("VERIFY %s: MATCH chk=%s  logic3d %.3fs -> l3dw %.3fs  (%sx)"
-              % (mod, r1[0], r1[1], r2[1], speed))
-    else:
+    elif r1[0].upper() != r2[0].upper():
         print("VERIFY %s: MISMATCH logic3d=%s l3dw=%s -> REJECT" % (mod, r1[0], r2[0]))
+    else:
+        speed = round(r1[1] / r2[1], 3) if r2[1] else None
+        if speed is not None and speed >= GAIN:
+            status = "verified"
+            print("VERIFY %s: MATCH chk=%s  logic3d %.3fs -> l3dw %.3fs  (%sx) -> PACK"
+                  % (mod, r1[0], r1[1], r2[1], speed))
+        else:
+            status = "nogain"    # correct but not worth packing
+            print("VERIFY %s: MATCH but only %sx (< %.2f) -> leave as logic3d"
+                  % (mod, speed, GAIN))
 
     ent = cache.get(sig, {"module": mod})
     ent.update({"status": status, "speedup": speed})
