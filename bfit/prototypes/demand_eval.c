@@ -105,6 +105,42 @@ static uint64_t run_pull(int out, int stride, uint8_t *outbuf){
    free(M); free(done); return pull_evals;
 }
 
+// ---- COMPILED PULL: static backward cone of the output, evaluated as a tight
+// forward loop over ONLY the cone nodes (push's per-eval cost, no memo/recursion
+// overhead). Skips dead logic; does NOT skip time (evaluates the cone/cycle).
+// This is what "compiling the pull cone" buys: the dead-logic win at full speed.
+static int *cone; static int ncone;
+static void build_cone(int out){
+   cone=malloc(N*sizeof(int)); char *in=calloc(N,1);
+   int *stk=malloc(N*sizeof(int)), sp=0; stk[sp++]=out; in[out]=1;
+   while(sp){ int n=stk[--sp];
+      if(node[n].kind==REG){ int d=node[n].a0; if(!in[d]){in[d]=1;stk[sp++]=d;} }
+      else if(node[n].kind==GATE){
+         if(node[n].op==OP_SUMN) for(int k=0;k<node[n].npred;k++){int d=preds[node[n].poff+k]; if(!in[d]){in[d]=1;stk[sp++]=d;}}
+         else { int a=node[n].a0,b=node[n].a1; if(!in[a]){in[a]=1;stk[sp++]=a;} if(node[n].npred>1&&!in[b]){in[b]=1;stk[sp++]=b;} }
+      }
+   }
+   ncone=0; for(int n=0;n<N;n++) if(in[n]) cone[ncone++]=n;   // index order = topo-ish
+   free(in); free(stk);
+}
+static uint64_t run_cone(int out, uint8_t *outbuf){
+   uint8_t *cur=calloc(N,1), *nxt=calloc(N,1), tmp[64]; uint64_t evals=0;
+   for(int t=0;t<C;t++){
+      for(int ci=0;ci<ncone;ci++){ int n=cone[ci];
+         if(node[n].kind==IN) cur[n]=stim(t,node[n].a0);
+         else if(node[n].kind==GATE){
+            if(node[n].op==OP_SUMN){ for(int k=0;k<node[n].npred;k++) tmp[k]=cur[preds[node[n].poff+k]]; cur[n]=gate_eval(n,0,0,tmp); }
+            else cur[n]=gate_eval(n,cur[node[n].a0],cur[node[n].a1],0);
+            evals++;
+         }
+      }
+      for(int ci=0;ci<ncone;ci++){ int n=cone[ci]; if(node[n].kind==REG) nxt[n]=cur[node[n].a0]; }
+      outbuf[t]=cur[out];
+      for(int ci=0;ci<ncone;ci++){ int n=cone[ci]; if(node[n].kind==REG) cur[n]=nxt[n]; }
+   }
+   free(cur); free(nxt); return evals;
+}
+
 static double now(){ struct timespec s; clock_gettime(CLOCK_MONOTONIC,&s); return s.tv_sec+s.tv_nsec/1e9; }
 
 static void reset_net(){ free(node); free(preds); node=NULL; preds=NULL; N=0; NP=0; }
@@ -140,6 +176,15 @@ int main(){
    printf("design: %d nodes (%d dead regs), %d cycles, pipeline depth %d\n\n", N, dead, C, depth);
    printf("PUSH (forward, all nodes every cycle): %.4fs, %llu node-evals\n\n",
           push_t, (unsigned long long)pe);
+
+   // compiled static cone: dense (every-cycle) observation at push per-eval cost
+   build_cone(out);
+   uint8_t *cb=calloc(C,1);
+   double cs=now(); run_cone(out,cb); double cone_t=now()-cs;
+   int cone_ok=1; for(int t=0;t<C;t++) if(cb[t]!=pb[t]) cone_ok=0;
+   printf("COMPILED PULL CONE (%d of %d nodes live, dead skipped at full speed):\n"
+          "  every cycle: %.4fs  correct=%s  %.2fx FASTER than push  (no interp overhead)\n\n",
+          ncone, N, cone_t, cone_ok?"YES":"NO!!", push_t/cone_t);
    printf("%-20s %12s %10s  %-9s %s\n","PULL observe","evals","wallclock","correct","vs push");
    struct { const char*name; int stride; } obs[] = {
       {"every cycle",1},{"every 10th",10},{"every 100th",100},{"final only",-1} };

@@ -62,6 +62,24 @@ program exercises a fraction of its logic per cycle, most signals don't toggle
 most cycles, and a self-checking testbench observes a handful of outputs. That
 is exactly the regime where pull + collapse beats a forward compiled model.
 
+## Removing the overhead — compiled cones (the Verilator-speed answer)
+
+The 2.5× floor above is *interpretation* overhead (memo probe + recursion), not
+a property of demand-driven eval. Compile the observed output's **static
+backward cone** and evaluate only those nodes as a tight forward loop — push's
+per-eval cost, no memo, no recursion — and the dead-logic win returns at full
+speed:
+
+    COMPILED PULL CONE (329 of 8329 nodes live, dead skipped at full speed):
+      every cycle: correct=YES   27× faster than push   (no interp overhead)
+
+So a **compiled** demand-driven cone beats a **compiled** forward full-design
+eval by the dead fraction (here 8329/329 ≈ 25×), even observing every cycle —
+this is the "beat Verilator's compiled speed" answer. The two techniques stack:
+compiled cones skip dead **logic** at full speed; memoisation / multicycle
+collapse additionally skips unobserved **time** (the 50–169× column). The
+endgame simulator does both.
+
 ## The engineering path (how this becomes a real simulator win)
 
 The prototype **interprets** the pull (dict/array memo + recursion). To push the
