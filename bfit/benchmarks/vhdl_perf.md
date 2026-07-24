@@ -47,8 +47,34 @@ benchmarks; b01 60, b06 128, b12 573, **b14 509, b17 810 (2x b15), b22 1613
 
 ### 3D-Logic
 
-No 3D-Logic column yet, and the reason is a measured blocker rather than a
-missing script. `logic3d` is declared `subtype logic3d is natural range 0 to 7`,
+**Packed word (l3dw), the intended representation, is now built** —
+`run_l3dw_perf.sh` (our-nvc `--std=2040`, same op sequence at matched wire
+counts). One 32-bit word carries three byte-planes (value / driven /
+uncertain), so an element is a *group of 8 wires* and a bus op is a byte-
+parallel formula computing 8 wires per byte-op:
+
+| wires | std_logic | logic3d | l3dw word | l3dw vs logic3d |
+| --: | --: | --: | --: | --: |
+| 8 | 0.144s | 0.167s | 0.149s | 1.12x |
+| 32 | 0.146s | 0.206s | 0.160s | 1.29x |
+| 128 | 0.154s | 0.338s | 0.179s | 1.89x |
+| 1024 | 0.214s | 1.556s | 0.381s | 4.08x |
+
+Near-parity single-bit (single-bit is a wash by design) and a growing win on
+vectors — **up to 4.1x over the current logic3d**, lifting 3D-logic from 0.19x
+std_logic to 0.57x at 1024 wires. Correctness is gated by `test/regress/
+logic3dw1` in the nvc tree (intrinsic == VHDL body; 2-state == std_logic;
+X-propagation == the logic3d LUT). To *beat* std_logic on wide vectors the
+value bytes must be contiguous (a C prototype of the pure value plane hit 9.4x
+that way); the packed word strides them by 4, so SSE gets 4 words/op — the word
+is the storage/semantic unit (narrow bus + mixed-signal), a wide path can
+gather. Next: `iverilog/tgt-vhdl` (`support.cc:72`) should emit `l3dw_vector`
+for a Verilog bus so real designs use it.
+
+The rest of this section is the original analysis of *why* the current
+`logic3d` is slow, which motivated the packed word:
+
+`logic3d` is declared `subtype logic3d is natural range 0 to 7`,
 and nvc sizes a subtype from its *base* type (`type_bit_width`/`lower_type`
 both chase `T_SUBTYPE` to the base), so a logic3d element is **4 bytes against
 std_logic's 1** — visible in the elaborated vcode, where a logic3d port lowers
