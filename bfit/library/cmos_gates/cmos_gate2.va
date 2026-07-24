@@ -1,0 +1,25 @@
+`include "disciplines.vams"
+// bfit generic 2-input CMOS gate macromodel -- cmos_inv v2 family extended to
+// two inputs with a min/max input combiner (piecewise-linear, no tanh):
+//   usemin=1 inv=1 -> NAND2     usemin=1 inv=0 -> AND2
+//   usemin=0 inv=1 -> NOR2      usemin=0 inv=0 -> OR2
+// (pull-down conducts when max(inputs) is high -> NOR uses max; both-high
+//  pulls a series stack -> NAND uses min.)
+module cmos_gate2(a, b, out, vhi);
+  inout a, b, out, vhi;
+  electrical a, b, out, vhi;
+  parameter real cin  = 6.5e-16 from (0:inf);
+  parameter real g    = 14.71   from (1:1000);
+  parameter real rout = 7571    from (0:inf);
+  parameter integer inv    = 1 from [0:1];
+  parameter integer usemin = 0 from [0:1];
+  real vt, f, vlin;
+  analog begin
+    vt   = 0.5*V(vhi);
+    f    = usemin ? min(V(a), V(b)) : max(V(a), V(b));
+    vlin = inv ? vt - g*(f - vt) : vt + g*(f - vt);
+    I(out) <+ (V(out) - max(0.0, min(V(vhi), vlin))) / rout;
+    I(a)   <+ cin*ddt(V(a));
+    I(b)   <+ cin*ddt(V(b));
+  end
+endmodule

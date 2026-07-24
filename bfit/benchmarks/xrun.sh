@@ -19,7 +19,7 @@ export LD_LIBRARY_PATH=$HOME/xyce-libs:$XB:$XB/../utils/XyceCInterface:/usr/loca
 BFIT=/usr/local/src/sv2ghdl/bfit/bfit.py
 CACHE=/tmp/bfit_cache.json
 [ -f "$CACHE" ] || cat > "$CACHE" <<'EOF'
-{"ce_stage": {"params": {"gain": 9.82, "Vlo": 0.45, "Vhi": 9.53, "Rout": 1321.0, "Rin": 100000.0}, "sim": "neutral"}}
+{"ce_stage": {"params": {"gain": 9.82, "Vlo": 0.45, "Vhi": 9.53, "Rout": 1321.0, "Rin": 100000.0, "fp": 6000.0}, "sim": "neutral"}}
 EOF
 
 ng_wrap() { sed '/^\.end$/d' "$1" > "$2"

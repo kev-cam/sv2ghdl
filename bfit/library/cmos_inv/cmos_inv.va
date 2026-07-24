@@ -1,0 +1,24 @@
+`include "disciplines.vams"
+// bfit cmos_inv macromodel v2 -- REGENERATIVE clamped-linear inverter.
+// The old conductance-divider form had trip-point gain ~1/4 (<1), so a chain
+// collapses to mid-rail in ANY engine. This form is a linear inverting
+// transfer with gain g about the vhi/2 trip point, hard-clamped to
+// [0, V(vhi)]; g>1 regenerates rail-to-rail logic levels through arbitrary
+// chain depth. The clamp drives the output through rout into the kept load
+// cap, so rout*Cload sets the propagation delay. Piecewise-linear (no tanh):
+// the solver strides between input edges. Same transfer as the SPICE B-source
+// emitted by recognize_inverter() -- one macromodel, every engine.
+module cmos_inv(in, out, vhi);
+  inout in, out, vhi;
+  electrical in, out, vhi;
+  parameter real cin  = 8e-15 from (0:inf);      // input loading
+  parameter real g    = 8.0   from (1:1000);     // regenerative gain (>1)
+  parameter real rout = 1000  from (0:inf);      // output resistance -> delay
+  real vt, vlin;
+  analog begin
+    vt   = 0.5*V(vhi);
+    vlin = vt - g*(V(in) - vt);
+    I(out) <+ (V(out) - max(0.0, min(V(vhi), vlin))) / rout;
+    I(in)  <+ cin*ddt(V(in));
+  end
+endmodule

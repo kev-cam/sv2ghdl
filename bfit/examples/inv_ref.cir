@@ -1,0 +1,18 @@
+* device-level reference: 5-stage CMOS inverter chain (MOSFET LEVEL=1)
+.model NM NMOS (LEVEL=1 VTO=0.6 KP=150u LAMBDA=0.02 GAMMA=0.4 PHI=0.65)
+.model PM PMOS (LEVEL=1 VTO=-0.6 KP=50u LAMBDA=0.02 GAMMA=0.4 PHI=0.65)
+Vdd vdd 0 3.3
+.subckt inv a y vdd
+Mn y a 0 0 NM W=2u L=0.35u
+Mp y a vdd vdd PM W=5u L=0.35u
+Cl y 0 8f
+.ends
+Vin in 0 PULSE(0 3.3 1n 0.5n 0.5n 20n 40n)
+Xi1 in n1 vdd inv
+Xi2 n1 n2 vdd inv
+Xi3 n2 n3 vdd inv
+Xi4 n3 n4 vdd inv
+Xi5 n4 out vdd inv
+.tran 0.05n 600n 0 0.05n
+.print tran format=gnuplot v(out)
+.end
