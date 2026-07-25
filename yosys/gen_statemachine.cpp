@@ -971,12 +971,24 @@ int main(int argc, char **argv)
             // Clock net (fold through redirect exactly like data reads, so an
             // internal gated clock that `connect`s to \clk -> cname "_clk" -> main
             // group). The bridge advances each flop on ITS clock's posedge.
+            // A VECTOR clock wire (EH2's per-thread active_thread_l2clk[1:0])
+            // must yield one group per BIT: keying on the wire name alone
+            // merged both threads' flops into one group edge-detected on
+            // bit 0, so thread-1 state advanced on thread-0's clock (interp
+            // holds it -- its gated clock never rises) and per-thread state
+            // (lsu_store_stall_any...) diverged.  Encode the bit as a
+            // "__b<N>" suffix; the bridge parses it and extracts that bit
+            // for the group's edge detect.
             reg.clk_name = "_clk";
             if (cell->hasPort(ID::CLK)) {
                 RTLIL::SigBit cb = sigmap(cell->getPort(ID::CLK))[0];
                 auto rit = redirect.find(cb);
                 if (rit != redirect.end()) cb = rit->second;
-                if (cb.wire) reg.clk_name = cname(cb.wire->name.str());
+                if (cb.wire) {
+                    reg.clk_name = cname(cb.wire->name.str());
+                    if (cb.wire->width > 1)
+                        reg.clk_name += "__b" + std::to_string(cb.offset);
+                }
             }
 
             registers.push_back(reg);
@@ -1002,7 +1014,15 @@ int main(int argc, char **argv)
                 // The bridge can only edge-detect a clock that is a boundary INPUT.
                 // An internal generated clock that did not fold to \clk can't be
                 // tracked -> decline (stay interpreted) rather than miscompute.
-                if (!input_cnames.count(reg.clk_name)) {
+                // Strip a per-bit "__b<N>" suffix before the port test: the
+                // PORT is the vector wire; the suffix only selects the bit.
+                std::string port_name = reg.clk_name;
+                size_t bpos = port_name.rfind("__b");
+                if (bpos != std::string::npos &&
+                    port_name.find_first_not_of("0123456789", bpos + 3)
+                        == std::string::npos)
+                    port_name = port_name.substr(0, bpos);
+                if (!input_cnames.count(port_name)) {
                     fprintf(stderr, "gen_statemachine: extra clock %s is not a "
                             "module input — declining\n", reg.clk_name.c_str());
                     exit(1);
