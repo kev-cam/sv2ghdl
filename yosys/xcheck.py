@@ -100,10 +100,10 @@ cd=['#define SM_NO_MAIN 1', f'#include "{C}"',
     '  for(int i=0;i<L;i++){int c=t[L-1-i]; int v=(c>=48&&c<=57)?c-48:(c>=97&&c<=102)?c-87:(c>=65&&c<=70)?c-55:0;',
     '    int bit=i*4; if(bit/32<nl) lm[bit/32]|=(uint32_t)v<<(bit%32);}}',
     'int main(){ state_t s; inputs_t in; outputs_t o; memset(&in,0,sizeof in); sm_reset(&s);',
-    f'  FILE*f=fopen("{WORK}/vecs.txt","r"); char tok[64];',
+    f'  FILE*f=fopen("{WORK}/vecs.txt","r"); char tok[1024];',
     f'  for(int cyc=0;cyc<{N};cyc++){{']
 for n,w in vin:
-    cd.append(f'    if(fscanf(f,"%63s",tok)!=1) return 1;')
+    cd.append(f'    if(fscanf(f,"%1023s",tok)!=1) return 1;')
     if is_wide(w):
         cd.append(f'    rdhex(tok, in._{n}, {limbs(w)});')
     else:
