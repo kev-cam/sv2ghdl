@@ -612,6 +612,29 @@ int main(int argc, char **argv)
     g_redirect = &redirect;
 
     // Collect all wires, identify registers
+    // One slice of a SLICED register: yosys opt_dff splits a wide per-byte-
+    // enable register (VeeR byteen recirculation idiom) into several narrow
+    // $dff-family cells whose Q chunks are disjoint slices of ONE wire
+    // ($auto$ff.cc:NNN:slice$N). Reads resolve by wire cname + wire-relative
+    // offset (sig_expr), so the state variable must span the FULL wire; each
+    // slice cell's clocked commit becomes a masked read-modify-write of its
+    // own bit range under that cell's OWN enable/reset/init semantics.
+    struct RegSlice {
+        std::string d_expr;      // narrow (<=64b) slice D as scalar C expr
+        RTLIL::SigSpec d_sig;    // slice D bits (wide commit / late-cone seed)
+        std::string en_expr;     // empty = always enabled
+        RTLIL::SigSpec en_sig;
+        std::string arst_expr;   // async-reset assert condition; "" = none
+        RTLIL::SigSpec arst_sig;
+        bool arst_pol = true;
+        RTLIL::Const arst_const; // slice-width async-reset value (if has_arst)
+        bool has_arst = false;
+        RTLIL::Const init_const; // slice-width power-on init (if has_init)
+        bool has_init = false;
+        std::string src;         // source location
+        int offset = 0;          // WIRE-relative bit offset of this slice
+        int width  = 0;
+    };
     struct RegInfo {
         std::string name;
         std::string d_expr;       // narrow (<=64b) D as a scalar C expr
@@ -631,6 +654,10 @@ int main(int argc, char **argv)
         std::string raw_qname; // raw Q-wire name (no backslash) for the scan-bench
                                // manifest so json2bench names the PPI to match
                                // this reg's cname()d state_t field
+        std::vector<RegSlice> slices; // non-empty => MERGED sliced register:
+                               // state spans the whole Q wire; d_expr/d_sig/
+                               // en/arst at this level are unused, each slice
+                               // carries its own
     };
     struct MemInfo {
         std::string name;
@@ -695,6 +722,24 @@ int main(int argc, char **argv)
 
     std::set<std::string> reg_names_used;
 
+    // Sliced-register support: count how many $dff-family cells drive (part
+    // of) each raw Q wire. A wire hosting >1 FF cell — or one cell whose Q
+    // chunk is a partial slice of its wire — takes the merged-register path
+    // below instead of the whole-wire assumption.
+    std::map<RTLIL::Wire*, int> qwire_ncells;
+    for (auto &c : mod->cells_) {
+        auto *cell = c.second;
+        auto type = cell->type.str();
+        bool is_reg = (type == "$adff" || type == "$dff" || type == "$adffe"
+                       || type == "$dffe" || type == "$sdff" || type == "$sdffe");
+        if (!is_reg || !cell->hasPort(ID::Q)) continue;
+        std::set<RTLIL::Wire*> seen;
+        for (auto &qc : cell->getPort(ID::Q).chunks())
+            if (qc.wire && seen.insert(qc.wire).second)
+                qwire_ncells[qc.wire]++;
+    }
+    std::map<RTLIL::Wire*, size_t> sliced_reg_idx;  // Q wire -> merged reg index
+
     // Main pass: classify cells
     for (auto &c : mod->cells_) {
         auto *cell = c.second;
@@ -706,9 +751,143 @@ int main(int argc, char **argv)
         bool is_reg = (type == "$adff" || type == "$dff" || type == "$adffe"
                        || type == "$dffe" || type == "$sdff" || type == "$sdffe");
         if (is_reg) {
-            RegInfo reg;
             auto &q = cell->getPort(ID::Q);
             auto &d = cell->getPort(ID::D);
+            // Whole-wire check: the classic path below assumes this cell's Q
+            // spans an ENTIRE wire at offset 0 and no other FF cell shares it.
+            // Anything else (opt_dff slice cells, partial-Q, multi-chunk Q)
+            // takes the merged sliced-register path.
+            std::vector<RTLIL::SigChunk> qch(q.chunks().begin(), q.chunks().end());
+            bool whole_wire = qch.size() == 1 && qch[0].wire != nullptr
+                && qch[0].offset == 0 && qch[0].width == qch[0].wire->width
+                && qwire_ncells[qch[0].wire] == 1;
+            if (!whole_wire) {
+                // --- sliced / partial-Q register path ----------------------
+                // Emit ONE full-wire-width state variable named for the wire;
+                // record each Q chunk as a RegSlice (offset, width, its own
+                // D/EN/ARST/init). The commit becomes a masked RMW at the
+                // slice's offset. (The old code named the state var after the
+                // full wire but committed only the first-seen slice's narrow
+                // D at offset 0, and routed sibling slices through the name-
+                // collision fallback into cell-named vars that were written
+                // every cycle but read zero times — the register collapsed to
+                // one misplaced slice, all other bits constant 0.)
+                RTLIL::SigSpec qs = sigmap(q);
+                std::string cell_clk = "_clk";
+                if (cell->hasPort(ID::CLK)) {
+                    RTLIL::SigBit cb = sigmap(cell->getPort(ID::CLK))[0];
+                    auto rit = redirect.find(cb);
+                    if (rit != redirect.end()) cb = rit->second;
+                    if (cb.wire) cell_clk = cname(cb.wire->name.str());
+                }
+                int pos = 0;
+                for (auto &qc : qch) {
+                    if (qc.wire == nullptr) {
+                        fprintf(stderr, "gen_statemachine: %s cell %s has a "
+                                "non-wire Q chunk — declining\n",
+                                type.c_str(), cell->name.c_str());
+                        exit(1);
+                    }
+                    size_t ri;
+                    auto mit = sliced_reg_idx.find(qc.wire);
+                    if (mit == sliced_reg_idx.end()) {
+                        std::string raw_q = qc.wire->name.str();
+                        std::string wname = cname(raw_q);
+                        if (reg_names_used.count(wname)) {
+                            // A slice must NEVER take the cell-name collision
+                            // fallback: reads resolve by wire cname, so the
+                            // fallback var would be written but never read.
+                            fprintf(stderr, "gen_statemachine: sliced register "
+                                    "wire %s collides with an existing register "
+                                    "name — declining\n", wname.c_str());
+                            exit(1);
+                        }
+                        reg_names_used.insert(wname);
+                        RegInfo nreg;
+                        nreg.name = wname;
+                        nreg.raw_qname = (!raw_q.empty() && raw_q[0] == '\\')
+                                       ? raw_q.substr(1) : raw_q;
+                        nreg.width = qc.wire->width;
+                        nreg.clk_name = cell_clk;
+                        registers.push_back(nreg);
+                        ri = registers.size() - 1;
+                        sliced_reg_idx[qc.wire] = ri;
+                    } else ri = mit->second;
+                    RegInfo &mreg = registers[ri];
+                    if (mreg.clk_name != cell_clk) {
+                        fprintf(stderr, "gen_statemachine: slices of register "
+                                "%s use different clocks (%s vs %s) — "
+                                "declining\n", mreg.name.c_str(),
+                                mreg.clk_name.c_str(), cell_clk.c_str());
+                        exit(1);
+                    }
+                    for (auto &osl : mreg.slices)
+                        if (qc.offset < osl.offset + osl.width
+                            && osl.offset < qc.offset + qc.width) {
+                            fprintf(stderr, "gen_statemachine: overlapping Q "
+                                    "slices on register %s — declining\n",
+                                    mreg.name.c_str());
+                            exit(1);
+                        }
+                    RegSlice sl;
+                    sl.offset = qc.offset;
+                    sl.width  = qc.width;
+                    sl.d_sig  = d.extract(pos, qc.width);
+                    sl.d_expr = is_wide(sl.width) ? "" : sig_expr(sl.d_sig, sigmap);
+                    sl.src    = cell->get_src_attribute();
+                    // Q bit -> (merged reg name, WIRE-relative offset)
+                    for (int qi = 0; qi < qc.width; qi++)
+                        if (qs[pos + qi].wire)
+                            g_regbit[qs[pos + qi]] = { mreg.name, qc.offset + qi };
+                    // power-on init: Q wire `init` attr bits for THIS slice
+                    {
+                        std::vector<RTLIL::State> iv(qc.width, RTLIL::Sx);
+                        bool any = false;
+                        for (int qi = 0; qi < qc.width; qi++) {
+                            RTLIL::SigBit b = qs[pos + qi];
+                            if (b.wire && b.wire->attributes.count(ID::init)) {
+                                const RTLIL::Const &wi = b.wire->attributes.at(ID::init);
+                                if (b.offset < wi.size() &&
+                                    (wi[b.offset] == RTLIL::S0 ||
+                                     wi[b.offset] == RTLIL::S1)) {
+                                    iv[qi] = wi[b.offset]; any = true;
+                                }
+                            }
+                        }
+                        if (any) { sl.has_init = true; sl.init_const = RTLIL::Const(iv); }
+                    }
+                    if (type == "$adff" || type == "$adffe") {
+                        auto av = cell->getParam(ID(ARST_VALUE));
+                        std::vector<RTLIL::State> rv(qc.width, RTLIL::S0);
+                        for (int qi = 0; qi < qc.width; qi++)
+                            if (pos + qi < av.size() && av[pos + qi] == RTLIL::S1)
+                                rv[qi] = RTLIL::S1;
+                        sl.arst_const = RTLIL::Const(rv);
+                        sl.has_arst = true;
+                        if (cell->hasPort(ID::ARST)) {
+                            std::string a = sig_expr(cell->getPort(ID::ARST), sigmap);
+                            bool pol = !cell->hasParam(ID(ARST_POLARITY))
+                                     || cell->getParam(ID(ARST_POLARITY)).as_bool();
+                            sl.arst_expr = pol ? a : ("(!(" + a + "))");
+                            sl.arst_sig = cell->getPort(ID::ARST);
+                            sl.arst_pol = pol;
+                        }
+                    }
+                    if (type == "$dffe" || type == "$adffe" || type == "$sdffe") {
+                        if (cell->hasPort(ID::EN)) {
+                            sl.en_expr = sig_expr(cell->getPort(ID::EN), sigmap);
+                            sl.en_sig  = cell->getPort(ID::EN);
+                            if (cell->hasParam(ID(EN_POLARITY)) &&
+                                !cell->getParam(ID(EN_POLARITY)).as_bool())
+                                sl.en_expr = "(!" + sl.en_expr + ")";
+                        }
+                    }
+                    mreg.slices.push_back(sl);
+                    pos += qc.width;
+                }
+                continue;
+            }
+            RegInfo reg;
             // Use wire name, but fall back to cell name on collision
             std::string raw_q = (*q.chunks().begin()).wire->name.str();
             std::string wname = cname(raw_q);
@@ -1102,20 +1281,27 @@ int main(int argc, char **argv)
         }
         return false;
     };
-    // Pre-render each register's inlined reset condition (empty = fallback)
-    for (auto &reg : registers) {
-        if (reg.arst_expr.empty() || reg.arst_sig.size() == 0) continue;
-        RTLIL::SigSpec as = sigmap(reg.arst_sig);
-        if (as.size() != 1) continue;
+    // Pre-render each register's (and slice's) inlined reset condition
+    // (unchanged expr = fallback)
+    auto inline_arst = [&](std::string &arst_expr, const RTLIL::SigSpec &arst_sig,
+                           bool arst_pol) {
+        if (arst_expr.empty() || arst_sig.size() == 0) return;
+        RTLIL::SigSpec as = sigmap(arst_sig);
+        if (as.size() != 1) return;
         RTLIL::SigBit ab = as[0];
         // direct input/reg/const references are already fine — only DERIVED
         // (comb-driven) reset nets need inlining
         if (ab.wire == nullptr || ab.wire->port_input || g_regbit.count(ab))
-            continue;
+            return;
         std::string s; int budget = 96;
         if (bit_expr(ab, s, budget))
-            reg.arst_expr = reg.arst_pol ? s : ("(!(" + s + "))");
+            arst_expr = arst_pol ? s : ("(!(" + s + "))");
         // else: leave as-is (status quo: chunk declines at compile)
+    };
+    for (auto &reg : registers) {
+        inline_arst(reg.arst_expr, reg.arst_sig, reg.arst_pol);
+        for (auto &sl : reg.slices)
+            inline_arst(sl.arst_expr, sl.arst_sig, sl.arst_pol);
     }
 
     // Helper: emit #line directive from Yosys src attribute
@@ -1231,9 +1417,67 @@ int main(int argc, char **argv)
     }
     fprintf(out, "} outputs_t;\n\n");
 
+    // --- sliced (merged) register emission helpers ---------------------
+    // Power-on limbs for a merged register: per-bit `init` attr if defined,
+    // else the slice's async-reset value, else 0 (bits no slice covers = 0).
+    auto merged_pov = [&](const RegInfo &reg) {
+        std::vector<uint32_t> lv((size_t)nlimbs(reg.width), 0);
+        for (auto &sl : reg.slices)
+            for (int i = 0; i < sl.width; i++) {
+                RTLIL::State st = RTLIL::Sx;
+                if (sl.has_init && i < sl.init_const.size())
+                    st = sl.init_const[i];
+                if (st != RTLIL::S0 && st != RTLIL::S1)
+                    st = (sl.has_arst && i < sl.arst_const.size())
+                       ? sl.arst_const[i] : RTLIL::S0;
+                if (st == RTLIL::S1) {
+                    int p = sl.offset + i;
+                    lv[p >> 5] |= 1u << (p & 31);
+                }
+            }
+        return lv;
+    };
+    // Slice mask/value as 64-bit words (narrow merged registers, width <= 64)
+    auto slice_mv64 = [&](const RegSlice &sl, const RTLIL::Const &c,
+                          uint64_t &m, uint64_t &v) {
+        m = v = 0;
+        for (int i = 0; i < sl.width; i++) {
+            uint64_t bit = 1ull << (sl.offset + i);
+            m |= bit;
+            if (i < c.size() && c[i] == RTLIL::S1) v |= bit;
+        }
+    };
+    // Slice mask/value as per-limb vectors (wide merged registers)
+    auto slice_mvw = [&](const RegInfo &reg, const RegSlice &sl,
+                         const RTLIL::Const &c,
+                         std::vector<uint32_t> &m, std::vector<uint32_t> &v) {
+        m.assign((size_t)nlimbs(reg.width), 0);
+        v.assign((size_t)nlimbs(reg.width), 0);
+        for (int i = 0; i < sl.width; i++) {
+            int p = sl.offset + i;
+            m[p >> 5] |= 1u << (p & 31);
+            if (i < c.size() && c[i] == RTLIL::S1) v[p >> 5] |= 1u << (p & 31);
+        }
+    };
+
     // Reset function
     fprintf(out, "void sm_reset(state_t *s) {\n");
     for (auto &reg : registers) {
+        if (!reg.slices.empty()) {
+            // merged sliced register: compose per-slice init/arst at offsets
+            std::vector<uint32_t> lv = merged_pov(reg);
+            if (is_wide(reg.width)) {
+                for (int l = 0; l < (int)lv.size(); l++)
+                    fprintf(out, "    s->%s[%d] = 0x%xu;\n",
+                            reg.name.c_str(), l, lv[l]);
+            } else {
+                unsigned __int128 pv = lv[0];
+                if (lv.size() > 1) pv |= (unsigned __int128)lv[1] << 32;
+                fprintf(out, "    s->%s = %s;\n",
+                        reg.name.c_str(), u128_lit(pv).c_str());
+            }
+            continue;
+        }
         // Power-on value: the reg's own init if it has one, else the async
         // reset value (a reg with an async reset but no explicit init powers on
         // at its reset value, the prior behavior).
@@ -1366,6 +1610,11 @@ int main(int argc, char **argv)
                 push_sig(r.d_sig);
                 if (r.en_sig.size()) push_sig(r.en_sig);
                 if (r.arst_sig.size()) push_sig(r.arst_sig);
+                for (auto &sl : r.slices) {
+                    push_sig(sl.d_sig);
+                    if (sl.en_sig.size()) push_sig(sl.en_sig);
+                    if (sl.arst_sig.size()) push_sig(sl.arst_sig);
+                }
             }
         while (!wl.empty()) {
             RTLIL::SigBit b = wl.back(); wl.pop_back();
@@ -1748,6 +1997,43 @@ int main(int argc, char **argv)
     {
         bool hdr = false;
         for (auto &reg : registers) {
+            if (!reg.slices.empty()) {
+                // merged sliced register: each slice's async reset forces only
+                // ITS bit range (masked RMW), in both the local snapshot and
+                // the persistent state — same level-sensitive semantics as the
+                // whole-wire path below.
+                for (auto &sl : reg.slices) {
+                    if (sl.arst_expr.empty()) continue;
+                    if (!hdr) { fprintf(out, "    // Async reset overrides\n"); hdr = true; }
+                    if (is_wide(reg.width)) {
+                        std::vector<uint32_t> m, v;
+                        slice_mvw(reg, sl, sl.arst_const, m, v);
+                        fprintf(out, "    if (%s) {", sl.arst_expr.c_str());
+                        for (int l = 0; l < (int)m.size(); l++) {
+                            if (!m[l]) continue;
+                            fprintf(out, " %s[%d]=(%s[%d]&~0x%xu)|0x%xu;"
+                                         " %s->%s[%d]=(%s->%s[%d]&~0x%xu)|0x%xu;",
+                                    reg.name.c_str(), l, reg.name.c_str(), l,
+                                    m[l], v[l],
+                                    sp, reg.name.c_str(), l,
+                                    sp, reg.name.c_str(), l, m[l], v[l]);
+                        }
+                        fprintf(out, " }\n");
+                    } else {
+                        uint64_t m, v;
+                        slice_mv64(sl, sl.arst_const, m, v);
+                        fprintf(out, "    if (%s) { %s = (%s & ~UINT64_C(0x%llx))"
+                                     " | UINT64_C(0x%llx); %s->%s = (%s->%s & "
+                                     "~UINT64_C(0x%llx)) | UINT64_C(0x%llx); }\n",
+                                sl.arst_expr.c_str(),
+                                reg.name.c_str(), reg.name.c_str(),
+                                (unsigned long long)m, (unsigned long long)v,
+                                sp, reg.name.c_str(), sp, reg.name.c_str(),
+                                (unsigned long long)m, (unsigned long long)v);
+                    }
+                }
+                continue;
+            }
             if (reg.arst_expr.empty()) continue;
             if (!hdr) { fprintf(out, "    // Async reset overrides\n"); hdr = true; }
             if (is_wide(reg.width)) {
@@ -1812,6 +2098,59 @@ int main(int argc, char **argv)
     auto emit_seq = [&](const char *sp, bool masked) {
     fprintf(out, "    // Register updates (next state)\n");
     for (auto &reg : registers) {
+        if (!reg.slices.empty()) {
+            // merged sliced register: each slice commits as a masked RMW of
+            // its own bit range under ITS OWN [group-bit &&] enable && !arst
+            // gating. Slices are disjoint, so commit order is irrelevant; D
+            // reads the local (pre-edge) aliases, so NBA semantics hold.
+            for (auto &sl : reg.slices) {
+                if (!sl.src.empty()) {
+                    auto colon = sl.src.rfind(':');
+                    if (colon != std::string::npos) {
+                        std::string file = sl.src.substr(0, colon);
+                        int line = 0;
+                        sscanf(sl.src.c_str() + colon + 1, "%d", &line);
+                        if (line > 0)
+                            fprintf(out, "#line %d \"%s\"\n", line, file.c_str());
+                    }
+                }
+                std::string dst = std::string(sp) + "->" + reg.name;
+                std::string cond;
+                if (masked) {
+                    char g[40];
+                    snprintf(g, sizeof g, "(posedge_mask & (1u<<%d))", reg.clk_group);
+                    cond = g;
+                    if (!sl.en_expr.empty()) cond += " && (" + sl.en_expr + ")";
+                } else cond = sl.en_expr;
+                if (!sl.arst_expr.empty()) {
+                    std::string g2 = "!(" + sl.arst_expr + ")";
+                    cond = cond.empty() ? g2 : (g2 + " && " + cond);
+                }
+                if (is_wide(reg.width)) {
+                    if (!cond.empty()) fprintf(out, "    if (%s) {\n", cond.c_str());
+                    if (is_wide(sl.width)) {
+                        int nw = nlimbs(sl.width);
+                        fprintf(out, "      { uint32_t _wsl[%d];\n", nw);
+                        emit_materialize(out, "_wsl", nw, sl.d_sig, sigmap, false, 0);
+                        fprintf(out, "      wplacew(%s, %d, _wsl, 0, %d); }\n",
+                                dst.c_str(), sl.offset, sl.width);
+                    } else
+                        fprintf(out, "      wplacew_s(%s, %d, (uint64_t)(%s), 0, %d);\n",
+                                dst.c_str(), sl.offset, sl.d_expr.c_str(), sl.width);
+                    if (!cond.empty()) fprintf(out, "    }\n");
+                } else {
+                    uint64_t m = (sl.width >= 64) ? ~0ull
+                               : (((1ull << sl.width) - 1) << sl.offset);
+                    if (!cond.empty())
+                        fprintf(out, "    if (%s)\n    ", cond.c_str());
+                    fprintf(out, "    %s = (%s & ~UINT64_C(0x%llx)) | "
+                                 "(((uint64_t)(%s) << %d) & UINT64_C(0x%llx));\n",
+                            dst.c_str(), dst.c_str(), (unsigned long long)m,
+                            sl.d_expr.c_str(), sl.offset, (unsigned long long)m);
+                }
+            }
+            continue;
+        }
         // Emit source location for register assignment
         if (!reg.src.empty()) {
             auto colon = reg.src.rfind(':');
