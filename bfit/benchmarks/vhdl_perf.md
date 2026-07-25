@@ -4,35 +4,48 @@ Single-thread RTL simulation, **same source + same LFSR stimulus on every
 engine**; a 64-bit checksum printed by each run is compared across engines — a
 row's **agree** is ✓ only if every *running* engine matches. Each cell is
 `seconds ×speedup` (base `×` vs the **slowest running engine** in the row);
-🟢 = fastest engine in the row. `brk` = exceeded the 150s wall cap;
-`—` = `--accel` declined (design too small / no synthesizable hierarchy —
-revisit at VeeR scale). Run-phase wall-clock, best of 2. DUTs are plain
-`bit`/`std_logic` (no 3D-logic).
+🟢 = fastest engine in the row. `brk` = exceeded the 45s wall cap;
+`—` = engine not applicable (`--accel` declined the design as too small;
+l3d not run for the self-contained syn benches). Run-phase wall-clock, best
+of 3. **size** = non-blank DUT source lines / process count.
 
-Engines: **our-nvc** 1.19-devel (kev-cam fork, `--std=2040`) · **our-nvc --accel**
-(yosys front-end) · **stock-nvc** 1.22.0 (Nick's release .deb) · **ghdl** 5.0.1 (mcode).
+Engines: **our-nvc** 1.19-devel (kev-cam fork, `--std=2040`) · **our-l3d** (same
+engine, DUT mechanically promoted to 3D-Logic by `promote_3dlogic.py`, same
+stimulus, outputs folded by exact L3D_1 match — its trailing `=`/`≠` says
+whether the checksum matched the std_logic engines; ≠ is the documented
+3D-logic semantic difference, not a failure) · **our-nvc --accel** (yosys
+front-end) · **stock-nvc** 1.22.0 (Nick's release .deb) · **ghdl** 5.0.1 (mcode).
 
-| Design | cycles | agree | our-nvc | our-nvc --accel | stock-nvc | ghdl |
-| :-- | --: | :--: | --: | --: | --: | --: |
-| bench_seq | 1000000 | ✓ | 0.562 ×17.8 | — | 🟢 0.403 ×24.8 | 10.001 ×1.0 |
-| bench_comb | 2000000 | ✓ | 2.143 ×1.0 | — | 🟢 1.872 ×1.1 | brk |
-| b01 | 3000000 | ✓ | 2.259 ×4.7 | — | 🟢 1.676 ×6.3 | 10.640 ×1.0 |
-| b06 | 2000000 | ✓ | 2.008 ×3.8 | — | 🟢 1.496 ×5.1 | 7.631 ×1.0 |
-| b12 | 3000000 | ✓ | 4.116 ×3.0 | — | 🟢 3.097 ×4.0 | 12.365 ×1.0 |
-| b14 | 1000000 | ✓ | 0.996 ×8.0 | — | 🟢 0.781 ×10.3 | 8.014 ×1.0 |
-| b17 | 1000000 | ✓ | 3.103 ×3.8 | — | 🟢 2.240 ×5.3 | 11.797 ×1.0 |
-| b22 | 1000000 | ✓ | 1.891 ×3.8 | — | 🟢 1.409 ×5.0 | 7.092 ×1.0 |
+| Design | style | size | cycles | agree | our-nvc | our-l3d | our-nvc --accel | stock-nvc | ghdl |
+| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: |
+| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.504 ×19.8 | — | — | 🟢 0.401 ×24.9 | 9.989 ×1.0 |
+| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.937 ×1.0 | — | — | 🟢 1.795 ×1.1 | brk |
+| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 1.915 ×5.5 | 2.041 ×5.2 = | — | 🟢 1.653 ×6.4 | 10.513 ×1.0 |
+| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.647 ×4.6 | 1.747 ×4.3 = | — | 🟢 1.483 ×5.1 | 7.508 ×1.0 |
+| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 3.276 ×3.8 | 3.628 ×3.4 = | — | 🟢 3.010 ×4.1 | 12.341 ×1.0 |
+| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 0.821 ×9.7 | 0.880 ×9.1 = | — | 🟢 0.768 ×10.4 | 7.986 ×1.0 |
+| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 2.516 ×4.7 | 2.635 ×4.4 = | — | 🟢 2.249 ×5.2 | 11.712 ×1.0 |
+| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 1.588 ×4.4 | 1.603 ×4.4 = | — | 🟢 1.376 ×5.1 | 7.028 ×1.0 |
 
 ### Reading these numbers
 
 **our-nvc is a 1.18.0-based fork; stock-nvc here is 1.22.0 — four releases
-newer.** The consistent ~1.3-1.5x is therefore mostly upstream work we have
-not merged, not fork regressions. That was measured, not assumed: `bench_comb`
-was 4.1x off (7.42s) until the numeric_std multiply spent 63.8% of its runtime
-in a shift-and-add loop that upstream 1.22 had replaced with a single native
-64-bit multiply; porting that one fast path took it to 2.32s and closed the
-row to the same ~1.3x as everything else. Expect the rest of the gap to have
-the same character — discrete upstream optimisations, findable by profile.
+newer.** The gap has been closed by profiling, one discrete cause at a time:
+`bench_comb` was 4.1x off until the numeric_std shift-and-add multiply was
+replaced with upstream's native 64-bit multiply; the remaining ~1.3x fell to
+~1.1x when the libnvc build switched from global-dynamic TLS to initial-exec
++ -fno-plt (nvc 8a4180adb: every JIT'd-function entry had paid a
+__tls_get_addr PLT call — also −4.2% wall on VeeR-EH2). What remains is
+scheduler/MIR-level divergence, not a single hot spot.
+
+The **our-l3d** column is the fork's native 4-state/mixed-signal type system
+on the SAME RTL: the cost over the std_logic column is the price of carrying
+value+strength+certainty per wire scalar-wise. `=` marks rows where the
+3D-logic checksum matched the 2-state engines exactly — promoted ITC
+controllers are reset-defined, so agreement is the expected result and a
+per-design correctness sweep of the promotion path comes free with the
+benchmark. The packed-word (l3dw) representation that removes most of the
+scalar-carry cost is benchmarked in the companion table below.
 
 The ITC'99 cores are controllers that reach a halt state and then stop
 toggling, at which point a run measures clock-toggle overhead rather than RTL
@@ -64,10 +77,10 @@ in the nvc tree. std_logic shown for reference (it isn't the 3D-logic path).
 
 | wires | std_logic | logic3d | l3dw word | l3dw vs logic3d |
 | --: | --: | --: | --: | --: |
-| 8 | 0.138s | 0.160s | 0.143s | 1.12x |
-| 32 | 0.142s | 0.200s | 0.148s | 1.35x |
-| 128 | 0.150s | 0.329s | 0.161s | 2.04x |
-| 1024 | 0.207s | 1.568s | 0.267s | 5.87x |
+| 8 | 0.126s | 0.148s | 0.130s | 1.14x |
+| 32 | 0.130s | 0.185s | 0.136s | 1.36x |
+| 128 | 0.139s | 0.316s | 0.149s | 2.12x |
+| 1024 | 0.198s | 1.524s | 0.253s | 6.02x |
 
 ### Demand-driven (pull) vs forward (push) evaluation
 
@@ -78,10 +91,10 @@ pull result verified bit-identical to push. 8329-node design, 5000 cycles:
 
 | evaluator | observation | vs forward push |
 | :-- | :-- | --: |
-| compiled pull cone | every cycle | **26.09x FASTER** |
-| pull (interpreted) | every cycle | 10.84x |
-| pull (interpreted) | every 100th cycle | 117.08x |
-| pull (interpreted) | final only | 166.47x |
+| compiled pull cone | every cycle | **26.45x FASTER** |
+| pull (interpreted) | every cycle | 11.18x |
+| pull (interpreted) | every 100th cycle | 118.39x |
+| pull (interpreted) | final only | 167.35x |
 
 Compiled cones skip dead **logic** at push's per-eval speed (no interp
 overhead); memoisation/multicycle-collapse additionally skip unobserved

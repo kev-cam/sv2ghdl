@@ -52,23 +52,40 @@ def promote(text):
         (r"\bbit\b",               "logic3d"),
     ]:
         text = re.sub(pat, rep, text, flags=re.I)
-    # 2) scalar logic literals
+    # 2) scalar logic literals.  The source may butt a literal against a
+    # keyword with no space (`if x = '0'then` -- b17 does this); the L3D_*
+    # replacement would fuse into one identifier, so pad when a word
+    # character follows.
+    text = re.sub(r"'[01XZULHW-]'(?=\w)",
+                  lambda m: LIT.get(m.group(0)[:3].upper(), m.group(0)) + " ", text)
     text = re.sub(r"'[01XZULHW-]'", lambda m: LIT.get(m.group(0).upper(), m.group(0)), text)
-    # 3) context clause: comment std_logic_1164, inject logic3d uses once per file
+    # 3) context clause: comment std_logic_1164, inject logic3d uses.  A VHDL
+    # context clause binds ONLY to the design unit that follows it, and the
+    # ITC'99 files hold several entities under one header (legal pre-promotion
+    # because bit/integer need no imports) -- so inject before EVERY primary
+    # unit; architectures inherit their entity's context (LRM 11.3).
     text = re.sub(r"(?im)^([ \t]*use\s+ieee\.std_logic_1164\.all\s*;)",
                   r"-- \1  -- (types promoted to 3D-Logic)", text)
-    # inject after the first `library ieee;` or at the top of the first context clause
     if "logic3d_types_pkg" not in text:
-        m = re.search(r"(?im)^[ \t]*library\s+ieee\s*;[ \t]*$", text)
-        if m:
-            text = text[:m.end()] + "\n" + USE_BLOCK + text[m.end():]
-        else:
-            text = USE_BLOCK + text
-    # 4) flag likely gate-level operators on (now) logic3d signals: `<= ... and/or/xor ...`
+        text = re.sub(r"(?im)^(entity\s+|package\s+|configuration\s+)",
+                      USE_BLOCK + r"\1", text)
+    # 4) vector string literals -> positional aggregates. logic3d is an integer
+    # subtype, so logic3d_vector is not a character-array type and "01" has no
+    # meaning; "01" -> (L3D_0, L3D_1) preserves the left-to-right positional
+    # mapping of a string literal exactly. Length-1 strings can't be positional
+    # aggregates (parenthesized expr) -> left alone and warned. Only bare
+    # 01XZULHW- strings are touched, so report/assert text is safe unless it
+    # happens to look like a logic vector (warned implicitly by conversion).
+    def strlit(m):
+        return "(" + ", ".join(LIT["'%s'" % c.upper()] for c in m.group(1)) + ")"
+    text = re.sub(r'"([01XZULHW-]{2,})"', strlit, text)
+    for m in re.finditer(r'"([01XZULHW-])"', text):
+        warns.append("length-1 vector string literal not converted: " + m.group(0))
+    # 5) flag likely gate-level operators on (now) logic3d signals: `<= ... and/or/xor ...`
+    # (scalar+vector infix gate operators exist in logic3d_types_pkg since nvc
+    # 756a8ef35, so these are informational for review, not failures)
     for m in re.finditer(r"(?im)<=\s*[^;]*\b(and|or|xor|nand|nor|xnor|not)\b[^;]*;", text):
-        warns.append("gate operator in assignment (needs l3d_* by hand): " + m.group(0).strip()[:70])
-    for m in re.finditer(r'"[01XZULHW-]{2,}"', text):
-        warns.append("vector string literal not converted: " + m.group(0))
+        warns.append("gate operator in assignment (review): " + m.group(0).strip()[:70])
     return text, warns
 
 def main():

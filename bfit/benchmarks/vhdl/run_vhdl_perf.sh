@@ -28,20 +28,22 @@ OUR_VER=$($OUR --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head 
 STOCK_VER=$(LD_LIBRARY_PATH=$STOCKLD $STOCK --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)
 GHDL_VER=$(ghdl --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)
 
-# "name kind top cycles"; kind = syn (single .vhd) | itc (I99T + generated TB)
+# "name kind top cycles style..."; kind = syn (single .vhd) | itc (I99T +
+# generated TB). style = free text (rest of line), the documented function of
+# the circuit (ITC'99 descriptions; bench_* are ours).
 DESIGNS=(
-  "bench_seq  syn bench_seq  1000000"
-  "bench_comb syn bench_comb 2000000"
-  "b01 itc b01_tb 3000000"
-  "b06 itc b06_tb 2000000"
-  "b12 itc b12_tb 3000000"
-  "b14 itc b14_tb 1000000"
-  "b17 itc b17_tb 1000000"
-  "b22 itc b22_tb 1000000"
+  "bench_seq  syn bench_seq  1000000 seq: LFSR + register chain"
+  "bench_comb syn bench_comb 2000000 comb: 32-bit mul/add datapath"
+  "b01 itc b01_tb 3000000 FSM: serial flow comparator"
+  "b06 itc b06_tb 2000000 FSM: interrupt handler"
+  "b12 itc b12_tb 3000000 ctrl+datapath: 1-player game"
+  "b14 itc b14_tb 1000000 CPU: Viper processor subset"
+  "b17 itc b17_tb 1000000 3x CPU: three b14-class cores"
+  "b22 itc b22_tb 1000000 3x CPU: b14-class pipeline copy"
 )
 
 mkdir -p "$WORK"; cd "$WORK"
-declare -A T CHK       # T[name,engine]=seconds|brk ; CHK[name,engine]=checksum|""
+declare -A T CHK SIZE STYLE  # T[name,engine]=seconds|brk ; CHK=checksum ; SIZE="LoC/procs"
 
 # timed best-of-REPS with a wall timeout, WARM (one discarded warm-up run first
 # to page in the .so / warm caches). echoes "<seconds|brk> <CHK=..|none>"
@@ -72,8 +74,13 @@ prep_sources() {       # -> SRCS
 }
 
 for row in "${DESIGNS[@]}"; do
-  read -r name kind top cyc <<<"$row"
+  read -r name kind top cyc style <<<"$row"
   prep_sources "$name" "$kind"
+  STYLE[$name]="$style"
+  # size: DUT source lines + process count (TB excluded for itc; the syn
+  # benches are single-file DUT+TB so their numbers include the harness)
+  dutf=$([ "$kind" = syn ] && echo "$HERE/$name.vhd" || echo "$ITC/$name/$name.vhd")
+  SIZE[$name]="$(grep -cve '^\s*$' "$dutf")/$(grep -ciE '\bprocess\b' "$dutf")"
   echo ">> $name (cycles=$cyc)"
 
   # our-nvc  (--std=2040, default AOT single-thread)
@@ -93,6 +100,23 @@ for row in "${DESIGNS[@]}"; do
   fi
   unset NVC_ACCEL NVC_ACCEL_JIT NVC_ACCEL_FROM_VHDL NVC_ACCEL_CC NVC_ACCEL_SYNTH_TIMEOUT
 
+  # our-nvc 3D-logic: promote_3dlogic.py rewrites the DUT bit->logic3d, a --l3d
+  # testbench replays the IDENTICAL LFSR stimulus and folds outputs by exact
+  # L3D_1 match. Requires the gate-operator overloads in logic3d_types_pkg.
+  # The syn benches embed their own std_logic TB machinery (unsigned arithmetic
+  # the mechanical promoter must not touch) -> itc designs only.
+  if [ "$kind" = itc ]; then
+    d="$WORK/l3d_$name"; rm -rf "$d"; mkdir -p "$d/src"
+    cp "$ITC/$name/$name.vhd" "$d/src/"
+    python3 "$HERE/promote_3dlogic.py" "$d/src" "$d/prom" >/dev/null 2>&1
+    python3 "$GEN" "$ITC/$name/$name.vhd" "$name" --l3d > "$d/${name}_l3d_tb.vhd" 2>/dev/null
+    $OUR -L $OURL --work="$d/w" --std=$STD -a "$d/prom/$name.vhd" "$d/${name}_l3d_tb.vhd" >/dev/null 2>&1
+    $OUR -L $OURL --work="$d/w" --std=$STD -e -gCYCLES=$cyc $top >/dev/null 2>&1
+    read -r T[$name,l3d] CHK[$name,l3d] < <(best_of $OUR -L $OURL --work="$d/w" --std=$STD -r $top)
+  else
+    T[$name,l3d]="na"; CHK[$name,l3d]="none"
+  fi
+
   # stock-nvc
   d="$WORK/stk_$name"; rm -rf "$d"; mkdir -p "$d"
   export LD_LIBRARY_PATH=$STOCKLD
@@ -106,7 +130,7 @@ for row in "${DESIGNS[@]}"; do
     ghdl -a --std=08 -fsynopsys $SRCS >/dev/null 2>&1; ghdl -e --std=08 -fsynopsys $top >/dev/null 2>&1 )
   read -r T[$name,ghdl] CHK[$name,ghdl] < <(cd "$d" && best_of ghdl -r --std=08 -fsynopsys $top -gCYCLES=$cyc)
 
-  echo "   our=${T[$name,our]} accel=${T[$name,accel]} stock=${T[$name,stock]} ghdl=${T[$name,ghdl]}"
+  echo "   our=${T[$name,our]} l3d=${T[$name,l3d]} accel=${T[$name,accel]} stock=${T[$name,stock]} ghdl=${T[$name,ghdl]}"
 done
 
 # ---- emit markdown ----
@@ -121,39 +145,50 @@ echo "engine**; a 64-bit checksum printed by each run is compared across engines
 echo "row's **agree** is ✓ only if every *running* engine matches. Each cell is"
 echo "\`seconds ×speedup\` (base \`×\` vs the **slowest running engine** in the row);"
 echo "🟢 = fastest engine in the row. \`brk\` = exceeded the ${TIMEOUT}s wall cap;"
-echo "\`—\` = \`--accel\` declined (design too small / no synthesizable hierarchy —"
-echo "revisit at VeeR scale). Run-phase wall-clock, best of $REPS. DUTs are plain"
-echo "\`bit\`/\`std_logic\` (no 3D-logic)."
+echo "\`—\` = engine not applicable (\`--accel\` declined the design as too small;"
+echo "l3d not run for the self-contained syn benches). Run-phase wall-clock, best"
+echo "of $REPS. **size** = non-blank DUT source lines / process count."
 echo
-echo "Engines: **our-nvc** $OUR_VER (kev-cam fork, \`--std=2040\`) · **our-nvc --accel**"
-echo "(yosys front-end) · **stock-nvc** $STOCK_VER (Nick's release .deb) · **ghdl** $GHDL_VER (mcode)."
+echo "Engines: **our-nvc** $OUR_VER (kev-cam fork, \`--std=2040\`) · **our-l3d** (same"
+echo "engine, DUT mechanically promoted to 3D-Logic by \`promote_3dlogic.py\`, same"
+echo "stimulus, outputs folded by exact L3D_1 match — its trailing \`=\`/\`≠\` says"
+echo "whether the checksum matched the std_logic engines; ≠ is the documented"
+echo "3D-logic semantic difference, not a failure) · **our-nvc --accel** (yosys"
+echo "front-end) · **stock-nvc** $STOCK_VER (Nick's release .deb) · **ghdl** $GHDL_VER (mcode)."
 echo
-echo "| Design | cycles | agree | our-nvc | our-nvc --accel | stock-nvc | ghdl |"
-echo "| :-- | --: | :--: | --: | --: | --: | --: |"
+echo "| Design | style | size | cycles | agree | our-nvc | our-l3d | our-nvc --accel | stock-nvc | ghdl |"
+echo "| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: |"
 for row in "${DESIGNS[@]}"; do
-  read -r name kind top cyc <<<"$row"
-  # agreement over running engines
+  read -r name kind top cyc style <<<"$row"
+  # agreement over running engines (l3d deliberately excluded: separate marker)
   ref=""; agree="✓"
   for e in our stock ghdl accel; do
     c=${CHK[$name,$e]}; [ "$c" = "none" ] && continue; [ -z "$c" ] && continue
     if [ -z "$ref" ]; then ref=$c; elif [ "$c" != "$ref" ]; then agree="✗"; fi
   done
-  awk -v n="$name" -v cyc="$cyc" -v ag="$agree" \
-      -v o="${T[$name,our]}" -v a="${T[$name,accel]}" -v s="${T[$name,stock]}" -v g="${T[$name,ghdl]}" '
+  lmark=""
+  if [ "${CHK[$name,l3d]}" != "none" ] && [ -n "${CHK[$name,l3d]}" ]; then
+    if [ "${CHK[$name,l3d]}" = "$ref" ]; then lmark=" ="; else lmark=" ≠"; fi
+  fi
+  awk -v n="$name" -v st="${STYLE[$name]}" -v sz="${SIZE[$name]}" -v cyc="$cyc" -v ag="$agree" \
+      -v o="${T[$name,our]}" -v l="${T[$name,l3d]}" -v lm="$lmark" \
+      -v a="${T[$name,accel]}" -v s="${T[$name,stock]}" -v g="${T[$name,ghdl]}" '
     function num(x){ return (x ~ /^[0-9.]+$/) }
     BEGIN{
       slow=0; split("",v);
-      v["our"]=o; v["stock"]=s; v["ghdl"]=g; if(num(a))v["accel"]=a;
+      v["our"]=o; v["stock"]=s; v["ghdl"]=g;
+      if(num(a))v["accel"]=a; if(num(l))v["l3d"]=l;
       for(k in v){ if(num(v[k]) && v[k]+0>slow) slow=v[k]+0 }
       fast=1e18; for(k in v){ if(num(v[k]) && v[k]+0<fast) fast=v[k]+0 }
-      printf "| %s | %d | %s ", n, cyc, ag;
-      # column order: our, accel, stock, ghdl
-      split("o a s g", ord, " "); nm["o"]=o; nm["a"]=a; nm["s"]=s; nm["g"]=g;
-      for(i=1;i<=4;i++){ x=nm[ord[i]];
+      printf "| %s | %s | %s | %d | %s ", n, st, sz, cyc, ag;
+      # column order: our, l3d, accel, stock, ghdl
+      split("o l a s g", ord, " ");
+      nm["o"]=o; nm["l"]=l; nm["a"]=a; nm["s"]=s; nm["g"]=g;
+      for(i=1;i<=5;i++){ x=nm[ord[i]]; sfx=(ord[i]=="l")?lm:"";
         if(x=="brk"){ printf "| brk "; }
         else if(x=="fail"){ printf "| fail "; }
         else if(x=="na"){ printf "| — "; }
-        else if(num(x)){ mark=(x+0==fast)?"🟢 ":""; printf "| %s%.3f ×%.1f ", mark, x+0, slow/(x+0); }
+        else if(num(x)){ mark=(x+0==fast)?"🟢 ":""; printf "| %s%.3f ×%.1f%s ", mark, x+0, slow/(x+0), sfx; }
         else { printf "| ? "; }
       }
       print "|";
@@ -163,13 +198,22 @@ echo
 echo "### Reading these numbers"
 echo
 echo "**our-nvc is a 1.18.0-based fork; stock-nvc here is 1.22.0 — four releases"
-echo "newer.** The consistent ~1.3-1.5x is therefore mostly upstream work we have"
-echo "not merged, not fork regressions. That was measured, not assumed: \`bench_comb\`"
-echo "was 4.1x off (7.42s) until the numeric_std multiply spent 63.8% of its runtime"
-echo "in a shift-and-add loop that upstream 1.22 had replaced with a single native"
-echo "64-bit multiply; porting that one fast path took it to 2.32s and closed the"
-echo "row to the same ~1.3x as everything else. Expect the rest of the gap to have"
-echo "the same character — discrete upstream optimisations, findable by profile."
+echo "newer.** The gap has been closed by profiling, one discrete cause at a time:"
+echo "\`bench_comb\` was 4.1x off until the numeric_std shift-and-add multiply was"
+echo "replaced with upstream's native 64-bit multiply; the remaining ~1.3x fell to"
+echo "~1.1x when the libnvc build switched from global-dynamic TLS to initial-exec"
+echo "+ -fno-plt (nvc 8a4180adb: every JIT'd-function entry had paid a"
+echo "__tls_get_addr PLT call — also −4.2% wall on VeeR-EH2). What remains is"
+echo "scheduler/MIR-level divergence, not a single hot spot."
+echo
+echo "The **our-l3d** column is the fork's native 4-state/mixed-signal type system"
+echo "on the SAME RTL: the cost over the std_logic column is the price of carrying"
+echo "value+strength+certainty per wire scalar-wise. \`=\` marks rows where the"
+echo "3D-logic checksum matched the 2-state engines exactly — promoted ITC"
+echo "controllers are reset-defined, so agreement is the expected result and a"
+echo "per-design correctness sweep of the promotion path comes free with the"
+echo "benchmark. The packed-word (l3dw) representation that removes most of the"
+echo "scalar-carry cost is benchmarked in the companion table below."
 echo
 echo "The ITC'99 cores are controllers that reach a halt state and then stop"
 echo "toggling, at which point a run measures clock-toggle overhead rather than RTL"
