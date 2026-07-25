@@ -18,20 +18,21 @@ front-end) · **stock-nvc** 1.22.0 (Nick's release .deb) · **ghdl** 5.0.1 (mcod
 
 | Design | style | size | cycles | agree | our-nvc | our-l3d | our-nvc --accel | stock-nvc | ghdl |
 | :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: |
-| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.470 ×21.4 | — | — | 🟢 0.397 ×25.4 | 10.065 ×1.0 |
-| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.885 ×1.0 | — | — | 🟢 1.780 ×1.1 | brk |
-| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 1.830 ×5.7 | 2.008 ×5.2 = | — | 🟢 1.658 ×6.3 | 10.511 ×1.0 |
-| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.559 ×4.8 | 1.690 ×4.5 = | — | 🟢 1.477 ×5.1 | 7.546 ×1.0 |
-| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 🟢 2.965 ×4.1 | 3.285 ×3.7 = | — | 3.050 ×4.0 | 12.247 ×1.0 |
-| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 0.790 ×10.1 | 0.842 ×9.5 = | — | 🟢 0.769 ×10.4 | 7.964 ×1.0 |
-| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 🟢 2.222 ×5.3 | 2.299 ×5.1 = | — | 2.255 ×5.2 | 11.678 ×1.0 |
-| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 1.484 ×4.7 | 1.519 ×4.6 = | — | 🟢 1.465 ×4.8 | 6.990 ×1.0 |
+| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.469 ×21.7 | — | — | 🟢 0.405 ×25.1 | 10.176 ×1.0 |
+| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.878 ×1.0 | — | — | 🟢 1.799 ×1.0 | brk |
+| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 1.823 ×5.8 | 2.013 ×5.3 = | — | 🟢 1.688 ×6.3 | 10.623 ×1.0 |
+| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.573 ×4.8 | 1.704 ×4.4 = | — | 🟢 1.479 ×5.1 | 7.561 ×1.0 |
+| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 3.040 ×4.1 | 3.379 ×3.6 = | — | 🟢 3.014 ×4.1 | 12.323 ×1.0 |
+| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 0.794 ×10.1 | 0.851 ×9.5 = | — | 🟢 0.773 ×10.4 | 8.042 ×1.0 |
+| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 2.282 ×5.2 | 2.455 ×4.8 = | — | 🟢 2.246 ×5.3 | 11.861 ×1.0 |
+| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 1.552 ×4.5 | 1.574 ×4.5 = | — | 🟢 1.479 ×4.7 | 7.011 ×1.0 |
 
 ### Reading these numbers
 
 **our-nvc is a 1.18.0-based fork; stock-nvc here is 1.22.0 — four releases
 newer.** The gap has been closed by profiling, one discrete cause at a time,
-and on the two largest ITC designs the fork now LEADS stock: `bench_comb`
+to PARITY within run-to-run noise on the two largest ITC designs (b12/b17
+trade the lead across regenerations at <2% deltas): `bench_comb`
 was 4.1x off until the numeric_std shift-and-add multiply was replaced with
 upstream's native 64-bit multiply; the remaining ~1.3x fell to ~1.1x when
 the libnvc build switched from global-dynamic TLS to initial-exec +
@@ -39,8 +40,9 @@ the libnvc build switched from global-dynamic TLS to initial-exec +
 __tls_get_addr PLT call — also −4.2% wall on VeeR-EH2); and direct vtable
 eval entries for static-sensitivity processes (nvc 10626274f: the
 scheduler's megamorphic JIT-entry dispatch chain collapsed, b12 branch
-misses −46%) pushed b12 and b17 PAST stock. The residual few percent
-elsewhere is scheduler/MIR-level divergence, not a single hot spot.
+misses −46%) brought b12 and b17 to parity with stock. The residual few
+percent elsewhere is scheduler/MIR-level divergence, not a single hot
+spot.
 
 The **our-l3d** column is the fork's native 4-state/mixed-signal type system
 on the SAME RTL: the cost over the std_logic column is the price of carrying
@@ -81,10 +83,10 @@ in the nvc tree. std_logic shown for reference (it isn't the 3D-logic path).
 
 | wires | std_logic | logic3d | l3dw word | l3dw vs logic3d |
 | --: | --: | --: | --: | --: |
-| 8 | 0.121s | 0.144s | 0.126s | 1.14x |
-| 32 | 0.125s | 0.184s | 0.130s | 1.42x |
-| 128 | 0.133s | 0.319s | 0.142s | 2.25x |
-| 1024 | 0.192s | 1.536s | 0.249s | 6.17x |
+| 8 | 0.120s | 0.140s | 0.124s | 1.13x |
+| 32 | 0.122s | 0.180s | 0.127s | 1.42x |
+| 128 | 0.131s | 0.309s | 0.142s | 2.18x |
+| 1024 | 0.190s | 1.524s | 0.247s | 6.17x |
 
 ### Demand-driven (pull) vs forward (push) evaluation
 
@@ -95,10 +97,10 @@ pull result verified bit-identical to push. 8329-node design, 5000 cycles:
 
 | evaluator | observation | vs forward push |
 | :-- | :-- | --: |
-| compiled pull cone | every cycle | **27.42x FASTER** |
-| pull (interpreted) | every cycle | 10.64x |
-| pull (interpreted) | every 100th cycle | 123.84x |
-| pull (interpreted) | final only | 175.52x |
+| compiled pull cone | every cycle | **26.52x FASTER** |
+| pull (interpreted) | every cycle | 10.25x |
+| pull (interpreted) | every 100th cycle | 116.47x |
+| pull (interpreted) | final only | 164.89x |
 
 Compiled cones skip dead **logic** at push's per-eval speed (no interp
 overhead); memoisation/multicycle-collapse additionally skip unobserved
