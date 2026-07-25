@@ -27,6 +27,15 @@ using namespace Yosys;
 static std::map<RTLIL::SigBit, RTLIL::SigBit> *g_redirect = nullptr;
 
 // Sanitize RTLIL names to valid C identifiers
+// FSM per-state specialization (GSM_FSM_SPEC). When g_spec_value >= 0 the
+// register-alias for g_spec_regname is emitted as that literal constant, so the
+// state's muxes/selects const-fold in the compiler — the "vtable" per-state
+// specialized eval. sm_comb/sm_clock become a switch on the real state field
+// dispatching to N folded bodies.
+static std::string g_spec_regname;
+static long        g_spec_value   = -1;
+static int         g_spec_nstates = 0;
+
 static std::string cname(const std::string &s) {
     std::string r;
     for (char c : s) {
@@ -1104,6 +1113,22 @@ int main(int argc, char **argv)
         }
     }
 
+    // GSM_FSM_SPEC: pick ONE primary FSM to per-state specialize — the smallest
+    // reachable state space (fewest emitted copies), capped at 64 states. Only
+    // the single-clock emission path specializes (checked at the emit site).
+    if (getenv("GSM_FSM_SPEC") && !fsms.empty()) {
+        FsmInfo *best = nullptr;
+        for (auto &f : fsms)
+            if (f.max_states <= 64 && (!best || f.max_states < best->max_states))
+                best = &f;
+        if (best) {
+            g_spec_regname = best->name;
+            g_spec_nstates = best->max_states;
+            fprintf(stderr, "FSM-SPEC: per-state specializing on %s (%d states)\n",
+                    best->name.c_str(), best->max_states);
+        }
+    }
+
     // Build dependency graph for topological sort. Map output wire -> the
     // cell(s) producing it. A wire driven in several sub-slices (common for a
     // wide register's D input, each slice a separate cell) has MULTIPLE drivers;
@@ -1352,7 +1377,7 @@ int main(int argc, char **argv)
     bool any_wide = false;
     for (auto &w : mod->wires_)
         if (is_wide(w.second->width)) { any_wide = true; break; }
-    if (any_wide) fprintf(out, "%s", WIDE_RT);
+    (void)any_wide; fprintf(out, "%s", WIDE_RT);  // always: wide-mux path uses limb helpers even for <=64b
     // Dead-output pruning mask: bit i = output i (sm_output_order[]) is live.
     // The bridge clears bits for outputs whose consumer nexus has no readers;
     // cone cells exclusive to dead outputs are skipped at run time.
@@ -2002,6 +2027,10 @@ int main(int argc, char **argv)
         if (is_wide(reg.width))
             fprintf(out, "    uint32_t %s[%d]; wcopy(%s,%s->%s,%d);\n",
                     reg.name.c_str(), nlimbs(reg.width), reg.name.c_str(), sp, reg.name.c_str(), nlimbs(reg.width));
+        else if (g_spec_value >= 0 && reg.name == g_spec_regname)
+            // FSM-SPEC: this state reg is a compile-time constant in this variant
+            fprintf(out, "    %s %s = %ldu;  // FSM-SPEC state constant\n",
+                    ctype(reg.width), reg.name.c_str(), g_spec_value);
         else
             fprintf(out, "    %s %s = %s->%s;\n", ctype(reg.width), reg.name.c_str(), sp, reg.name.c_str());
     }
@@ -2302,12 +2331,33 @@ int main(int argc, char **argv)
     // sm_eval and the bridge's settle evals all read outputs only; SMDUMP has
     // its own full-pass sm_dump_comb) — so evaluate ONLY the output cones:
     // for VeeR's whole-core chunk that is ~3%% of the network per settle eval.
-    fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
-    emit_comb_prefix("s");
-    fprintf(out, "    // output cones only\n");
-    emit_outcone_cells();
-    emit_outputs();
-    fprintf(out, "}\n\n");
+    // FSM-SPEC only specializes the single-clock path (multi-clock uses masked
+    // seq and is left general for now).
+    bool fsm_spec = !g_spec_regname.empty() && extra_clocks.empty();
+    if (fsm_spec) {
+        for (int k = 0; k < g_spec_nstates; k++) {
+            g_spec_value = k;
+            fprintf(out, "static void sm_comb_%d(state_t *s, const inputs_t *in, outputs_t *o) {\n", k);
+            emit_comb_prefix("s");
+            emit_outcone_cells();
+            emit_outputs();
+            fprintf(out, "}\n");
+        }
+        g_spec_value = -1;
+        fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+        fprintf(out, "    switch((unsigned)(s->%s) & %uu) {\n",
+                g_spec_regname.c_str(), (unsigned)(g_spec_nstates - 1));
+        for (int k = 0; k < g_spec_nstates; k++)
+            fprintf(out, "    case %d: sm_comb_%d(s,in,o); return;\n", k, k);
+        fprintf(out, "    }\n}\n\n");
+    } else {
+        fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+        emit_comb_prefix("s");
+        fprintf(out, "    // output cones only\n");
+        emit_outcone_cells();
+        emit_outputs();
+        fprintf(out, "}\n\n");
+    }
 
     // Debug: dump EVERY combinational wire + register (for a net-level differential
     // against a reference sim — pinpoints the deepest miscompiled net, not just a
@@ -2339,10 +2389,27 @@ int main(int argc, char **argv)
     // (posedge_mask), reading the pre-edge snapshot `src` (so coincident edges and
     // the cross-delta clock race both sample one frozen pre-edge state).
     if (extra_clocks.empty()) {
-        fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
-        emit_comb("s");
-        emit_seq("s", false);
-        fprintf(out, "}\n\n");
+        if (fsm_spec) {
+            for (int k = 0; k < g_spec_nstates; k++) {
+                g_spec_value = k;
+                fprintf(out, "static void sm_clock_%d(state_t *s, const inputs_t *in) {\n", k);
+                emit_comb("s");
+                emit_seq("s", false);
+                fprintf(out, "}\n");
+            }
+            g_spec_value = -1;
+            fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
+            fprintf(out, "    switch((unsigned)(s->%s) & %uu) {\n",
+                    g_spec_regname.c_str(), (unsigned)(g_spec_nstates - 1));
+            for (int k = 0; k < g_spec_nstates; k++)
+                fprintf(out, "    case %d: sm_clock_%d(s,in); return;\n", k, k);
+            fprintf(out, "    }\n}\n\n");
+        } else {
+            fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
+            emit_comb("s");
+            emit_seq("s", false);
+            fprintf(out, "}\n\n");
+        }
         fprintf(out, "void sm_clock_out(state_t *s, const inputs_t *in, "
                      "outputs_t *o, unsigned posedge_mask) {\n");
         fprintf(out, "    (void)posedge_mask;\n");
