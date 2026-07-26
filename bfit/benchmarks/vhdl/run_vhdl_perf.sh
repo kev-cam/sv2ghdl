@@ -66,6 +66,27 @@ best_of() {
   echo "$(awk "BEGIN{printf \"%.3f\", $best/1e9}") $chk"
 }
 
+# Single timed run for the INTERLEAVED section: echoes "<secs|brk|fail> <chk|none>".
+# Interleaving rationale: stock's run-to-run spread measured 13% on b12 —
+# consecutive per-engine best-of sampling produced coin-flip our-vs-stock
+# verdicts; rep-major interleaving lands machine drift on every engine equally.
+timed_once() {
+  local t0 t1 out rc
+  t0=$(date +%s%N); out=$(timeout "$TIMEOUT" "$@" 2>&1); rc=$?; t1=$(date +%s%N)
+  if [ "$rc" = 124 ]; then echo "brk none"; return; fi
+  local chk; chk=$(printf '%s' "$out" | grep -oE 'CHK=[0-9A-Fa-f]+' | head -1)
+  if [ -z "$chk" ]; then echo "fail none"; return; fi
+  echo "$(awk "BEGIN{printf \"%.3f\", ($t1-$t0)/1e9}") $chk"
+}
+
+# keep the running best of an interleaved engine: best_upd <cur> <new> -> echoed best
+best_upd() {
+  local cur=$1 secs=$2
+  case "$secs" in brk|fail) [ -z "$cur" ] && echo "$secs" || echo "$cur"; return;; esac
+  case "$cur" in ""|brk|fail) echo "$secs"; return;; esac
+  awk "BEGIN{print ($secs < $cur) ? \"$secs\" : \"$cur\"}"
+}
+
 prep_sources() {       # -> SRCS
   local name=$1 kind=$2
   if [ "$kind" = syn ]; then SRCS="$HERE/$name.vhd"
@@ -83,11 +104,10 @@ for row in "${DESIGNS[@]}"; do
   SIZE[$name]="$(grep -cve '^\s*$' "$dutf")/$(grep -ciE '\bprocess\b' "$dutf")"
   echo ">> $name (cycles=$cyc)"
 
-  # our-nvc  (--std=2040, default AOT single-thread)
+  # our-nvc  (--std=2040, default AOT single-thread) — elaborate now, TIME LATER
   d="$WORK/our_$name"; rm -rf "$d"; mkdir -p "$d"
   $OUR -L $OURL --work="$d/w" --std=$STD -a $SRCS >/dev/null 2>&1
   $OUR -L $OURL --work="$d/w" --std=$STD -e -gCYCLES=$cyc $top >/dev/null 2>&1
-  read -r T[$name,our] CHK[$name,our] < <(best_of $OUR -L $OURL --work="$d/w" --std=$STD -r $top)
 
   # our-nvc --accel  (best effort: only counts if it installs AND matches)
   rm -rf /home/claude/.cache/nvc/accel/* 2>/dev/null
@@ -112,18 +132,35 @@ for row in "${DESIGNS[@]}"; do
     python3 "$GEN" "$ITC/$name/$name.vhd" "$name" --l3d > "$d/${name}_l3d_tb.vhd" 2>/dev/null
     $OUR -L $OURL --work="$d/w" --std=$STD -a "$d/prom/$name.vhd" "$d/${name}_l3d_tb.vhd" >/dev/null 2>&1
     $OUR -L $OURL --work="$d/w" --std=$STD -e -gCYCLES=$cyc $top >/dev/null 2>&1
-    read -r T[$name,l3d] CHK[$name,l3d] < <(best_of $OUR -L $OURL --work="$d/w" --std=$STD -r $top)
-  else
-    T[$name,l3d]="na"; CHK[$name,l3d]="none"
   fi
 
-  # stock-nvc
+  # stock-nvc — elaborate now, time in the interleaved section
   d="$WORK/stk_$name"; rm -rf "$d"; mkdir -p "$d"
   export LD_LIBRARY_PATH=$STOCKLD
   $STOCK -L $STOCKL --work="$d/w" -a $SRCS >/dev/null 2>&1
   $STOCK -L $STOCKL --work="$d/w" -e -gCYCLES=$cyc $top >/dev/null 2>&1
-  read -r T[$name,stock] CHK[$name,stock] < <(best_of $STOCK -L $STOCKL --work="$d/w" -r $top)
   unset LD_LIBRARY_PATH
+
+  # INTERLEAVED timing: our / l3d / stock, rep-major, one warm-up each first
+  ourcmd=($OUR -L $OURL --work=$WORK/our_$name/w --std=$STD -r $top)
+  l3dcmd=($OUR -L $OURL --work=$WORK/l3d_$name/w --std=$STD -r $top)
+  timeout "$TIMEOUT" "${ourcmd[@]}" >/dev/null 2>&1
+  [ "$kind" = itc ] && timeout "$TIMEOUT" "${l3dcmd[@]}" >/dev/null 2>&1
+  LD_LIBRARY_PATH=$STOCKLD timeout "$TIMEOUT" $STOCK -L $STOCKL --work=$WORK/stk_$name/w -r $top >/dev/null 2>&1
+  T[$name,our]="";  CHK[$name,our]="none"
+  T[$name,l3d]="";  CHK[$name,l3d]="none"
+  T[$name,stock]=""; CHK[$name,stock]="none"
+  for rep in $(seq "$REPS"); do
+    read -r secs chk < <(timed_once "${ourcmd[@]}")
+    T[$name,our]=$(best_upd "${T[$name,our]}" "$secs"); [ "$chk" != none ] && CHK[$name,our]=$chk
+    if [ "$kind" = itc ]; then
+      read -r secs chk < <(timed_once "${l3dcmd[@]}")
+      T[$name,l3d]=$(best_upd "${T[$name,l3d]}" "$secs"); [ "$chk" != none ] && CHK[$name,l3d]=$chk
+    fi
+    read -r secs chk < <(LD_LIBRARY_PATH=$STOCKLD timed_once $STOCK -L $STOCKL --work=$WORK/stk_$name/w -r $top)
+    T[$name,stock]=$(best_upd "${T[$name,stock]}" "$secs"); [ "$chk" != none ] && CHK[$name,stock]=$chk
+  done
+  [ "$kind" = itc ] || { T[$name,l3d]="na"; CHK[$name,l3d]="none"; }
 
   # ghdl (mcode; own dir). brk on timeout.
   d="$WORK/ghdl_$name"; rm -rf "$d"; mkdir -p "$d"; ( cd "$d"
