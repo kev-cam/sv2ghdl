@@ -116,7 +116,7 @@ for row in "${DESIGNS[@]}"; do
   if printf '%s' "$aout" | grep -qE 'accel-jit:.*(installed|driving)'; then
     read -r T[$name,accel] CHK[$name,accel] < <(best_of $OUR -L $OURL --work="$d/w" --std=$STD -r $top)
   else
-    T[$name,accel]="na"; CHK[$name,accel]="${CHK[$name,our]}"   # accel declined -> no benefit
+    T[$name,accel]="na"; CHK[$name,accel]="none"   # accel declined -> excluded from agree
   fi
   unset NVC_ACCEL NVC_ACCEL_JIT NVC_ACCEL_FROM_VHDL NVC_ACCEL_CC NVC_ACCEL_SYNTH_TIMEOUT
 
@@ -236,8 +236,9 @@ echo "### Reading these numbers"
 echo
 echo "**our-nvc is a 1.18.0-based fork; stock-nvc here is 1.22.0 — four releases"
 echo "newer.** The gap has been closed by profiling, one discrete cause at a time,"
-echo "to PARITY within run-to-run noise on the two largest ITC designs (b12/b17"
-echo "trade the lead across regenerations at <2% deltas): \`bench_comb\`"
+echo "and with the fused fast-clk dispatch now DEFAULT-ON (probation-classified"
+echo "members, interleaved sampling in this harness) the fork LEADS stock on b12"
+echo "by ~6% stably; b17 is a dead heat: \`bench_comb\`"
 echo "was 4.1x off until the numeric_std shift-and-add multiply was replaced with"
 echo "upstream's native 64-bit multiply; the remaining ~1.3x fell to ~1.1x when"
 echo "the libnvc build switched from global-dynamic TLS to initial-exec +"
@@ -245,9 +246,11 @@ echo "-fno-plt (nvc 8a4180adb: every JIT'd-function entry had paid a"
 echo "__tls_get_addr PLT call — also −4.2% wall on VeeR-EH2); and direct vtable"
 echo "eval entries for static-sensitivity processes (nvc 10626274f: the"
 echo "scheduler's megamorphic JIT-entry dispatch chain collapsed, b12 branch"
-echo "misses −46%) brought b12 and b17 to parity with stock. The residual few"
-echo "percent elsewhere is scheduler/MIR-level divergence, not a single hot"
-echo "spot."
+echo "misses −46%) plus the default-on fused block (59db0b647/eab523ed6:"
+echo "one straight-line activation per clock domain, members verified by a"
+echo "64-event probation before posedge-only dispatch) put b12 ahead and b17"
+echo "level. The residual few percent elsewhere is scheduler/MIR-level"
+echo "divergence, not a single hot spot."
 echo
 echo "The **our-l3d** column is the fork's native 4-state/mixed-signal type system"
 echo "on the SAME RTL: the cost over the std_logic column is the price of carrying"
