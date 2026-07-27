@@ -35,6 +35,10 @@ static std::map<RTLIL::SigBit, RTLIL::SigBit> *g_redirect = nullptr;
 static std::string g_spec_regname;
 static long        g_spec_value   = -1;
 static int         g_spec_nstates = 0;
+// Mealy-output classification, captured as the C emitter computes it so the
+// CXXRTL adapter emits a byte-identical sm_comb_outputs[] table (the bridge
+// scrapes it to choose the deposit region -- ACTIVE vs staged).
+static std::vector<std::string> g_comb_out_names;
 
 static std::string cname(const std::string &s) {
     std::string r;
@@ -51,6 +55,50 @@ static std::string cname(const std::string &s) {
         r = "w_" + r;
     return r;
 }
+
+// ---------------------------------------------------------------------------
+// VALUE-PLANE ENGINE (GSM_CXXRTL=1)
+//
+// nvc's 3D-logic carries value / driven / uncertain planes that are INDEPENDENT
+// by design. yosys's CXXRTL backend emits fast 2-state C++ over exactly one
+// densely packed plane of bits -- which IS the l3d value plane. So under
+// GSM_CXXRTL we ALSO run `write_cxxrtl` on the same RTLIL and emit a thin
+// ADAPTER that implements nvc's model-side contract (state_t / inputs_t /
+// outputs_t + sm_reset/sm_comb/sm_clock/sm_clock_out) on top of the generated
+// CXXRTL object.  CXXRTL's own output is never rewritten -- it is #included.
+//
+// cxx_mangle replicates yosys's cxxrtl_backend.cc mangle_name() exactly:
+//   leading '\' -> "p_", leading '$' -> "i_", alnum verbatim, '_' -> "__",
+//   anything else -> "_<hexlo><hexhi>_" (lower-case hex, high nibble first).
+static std::string cxx_mangle(const std::string &name) {
+    std::string mangled;
+    bool first = true;
+    for (char c : name) {
+        if (first) {
+            first = false;
+            if (c == '\\')      mangled += "p_";
+            else if (c == '$')  mangled += "i_";
+            else                return std::string();   // unexpected: caller declines
+        } else if (isalnum((unsigned char)c)) {
+            mangled += c;
+        } else if (c == '_') {
+            mangled += "__";
+        } else {
+            char l = c & 0xf, h = (c >> 4) & 0xf;
+            mangled += '_';
+            mangled += (h < 10 ? '0' + h : 'a' + h - 10);
+            mangled += (l < 10 ? '0' + l : 'a' + l - 10);
+            mangled += '_';
+        }
+    }
+    return mangled;
+}
+
+// A member CXXRTL declared in the generated header: kind is "value" (unbuffered
+// -- read/write directly) or "wire" (buffered -- .curr / .next).  Parsed out of
+// the generated .h rather than assumed, because at -O6 an output that takes part
+// in a feedback arc is emitted as wire<N> while most are value<N>.
+struct CxxMember { std::string kind; int width; };
 
 // Wide-signal support: signals up to 64 bits use uint64_t (byte-identical to the
 // pre-wide codegen); 65..128 bits use unsigned __int128 so big datapath chunks
@@ -599,6 +647,25 @@ int main(int argc, char **argv)
     // sm_reset. Without this the codegen drops sync resets (q_next = d only).
     Yosys::run_pass("dffunmap");
     Yosys::run_pass("opt_clean");   // tidy WITHOUT opt_dff re-absorbing the reset into $dff SRST
+
+    // ---- VALUE-PLANE ENGINE: emit CXXRTL from the SAME RTLIL ---------------
+    // Run here, immediately after the netlist the hand-written C emitter is
+    // about to analyse, so both engines see bit-identical logic.  -O6 (input
+    // ports become value<N>, direct write) and -g0 (debug_info is dead weight:
+    // eval() machine code is byte-identical at every -g level, so -g0 costs
+    // nothing at run time and is 12x smaller source / 5x faster to compile).
+    const bool cxx_mode = getenv("GSM_CXXRTL") != NULL;
+    std::string cxx_base = output_file;
+    if (cxx_base.size() > 2 && cxx_base.compare(cxx_base.size() - 2, 2, ".c") == 0)
+        cxx_base = cxx_base.substr(0, cxx_base.size() - 2);
+    const std::string cxx_cc = cxx_base + "_cxx.cc";
+    const std::string cxx_h  = cxx_base + "_cxx.h";
+    if (cxx_mode) {
+        const char *opt = getenv("GSM_CXXRTL_OPT");
+        Yosys::run_pass("write_cxxrtl -header " + std::string(opt ? opt : "-O6 -g0")
+                        + " " + cxx_cc);
+        fprintf(stderr, "  value-plane: wrote %s\n", cxx_cc.c_str());
+    }
 
     auto *design = Yosys::yosys_get_design();
     auto *mod = design->top_module();
@@ -1371,8 +1438,13 @@ int main(int argc, char **argv)
             fprintf(f, "#line %d \"%s\"\n", line, file.c_str());
     };
 
-    // Generate C code
-    FILE *out = fopen(output_file, "w");
+    // Generate C code.  In value-plane mode the hand-written C emitter still
+    // runs, UNCHANGED, but writes to "<base>.ref.c": it stays the ABI reference
+    // and the fallback engine, and `output_file` (the model nvc's bridge
+    // #includes) is written by the CXXRTL adapter emitter at the end of main.
+    const std::string model_file = cxx_mode ? (std::string(output_file) + ".ref.c")
+                                            : std::string(output_file);
+    FILE *out = fopen(model_file.c_str(), "w");
     fprintf(out, "// Auto-generated cycle-based state machine from %s%s\n",
             inputs[0].c_str(), inputs.size() > 1 ? " (+more)" : "");
     fprintf(out, "// Generated by gen_statemachine via Yosys RTLIL\n\n");
@@ -2597,6 +2669,7 @@ int main(int argc, char **argv)
             std::string nm = cname(wire->name.str());
             if (!nm.empty() && nm[0] == '_') nm = nm.substr(1);
             fprintf(out, "\"%s\", ", nm.c_str());
+            g_comb_out_names.push_back(nm);   // reused verbatim by the CXXRTL adapter
         }
         fprintf(out, "0};\n\n");
     }
@@ -2699,12 +2772,12 @@ int main(int argc, char **argv)
 
     fclose(out);
     fprintf(stderr, "Generated %s: %zu comb cells, %zu registers\n",
-            output_file, sorted.size(), registers.size());
+            model_file.c_str(), sorted.size(), registers.size());
 
     // --- Generate NVC-mapped version ---
     // Wraps the standalone sm_eval with signal bridge code.
     // Compiled as .so, loaded by cycle_sim plugin.
-    std::string mapped_file = std::string(output_file);
+    std::string mapped_file = model_file;
     auto dot = mapped_file.rfind('.');
     if (dot != std::string::npos)
         mapped_file = mapped_file.substr(0, dot) + "_nvc.c";
@@ -2717,7 +2790,7 @@ int main(int argc, char **argv)
 
     // Include the standalone version (minus main, added via #define guard)
     fprintf(mout, "#define SM_NO_MAIN 1\n");
-    fprintf(mout, "#include \"%s\"\n\n", output_file);
+    fprintf(mout, "#include \"%s\"\n\n", model_file.c_str());
 
     // Signal bridge
     fprintf(mout, "static state_t sm_state;\n");
@@ -2795,6 +2868,498 @@ int main(int argc, char **argv)
 
     fclose(mout);
     fprintf(stderr, "Generated %s (NVC-mapped version)\n", mapped_file.c_str());
+
+    // =======================================================================
+    // VALUE-PLANE ADAPTER (GSM_CXXRTL=1)
+    //
+    // Emit `output_file` -- the model nvc's bridge #includes -- as a thin C++
+    // adapter over the CXXRTL object written above.  CXXRTL's source is never
+    // rewritten, only #included.  The adapter supplies exactly what nvc's
+    // model-side contract needs:
+    //   * inputs_t / state_t / outputs_t laid out EXACTLY as the C emitter
+    //     lays them out (the bridge text-scrapes state_t for the demote
+    //     writeback table and probes `uint64_t _<pin>;` per boundary pin);
+    //   * sm_reset / sm_comb / sm_clock / sm_clock_out with the same
+    //     no-register-advance / advance-and-recompute split;
+    //   * sm_comb_outputs / sm_output_order / sm_extra_clocks verbatim.
+    // Registers are MIRRORED from CXXRTL's .curr into state_t so nvc's
+    // existing aj_chunk_demote writeback keeps working unchanged.
+    //
+    // The whole .so must then be compiled as C++:
+    //     NVC_ACCEL_CC="g++ -x c++ -fpermissive -w -O2"
+    // (-fpermissive because nvc's generated bridge is C and assigns void* to
+    // typed pointers).  The extern "C" block below re-declares every symbol
+    // the bridge defines AFTER this file is included, so they keep C linkage
+    // and nvc's dlsym still finds them.
+    // =======================================================================
+    if (cxx_mode) {
+        std::string decline;
+
+        // ---- read back the generated header and index its members ----------
+        std::map<std::string, CxxMember> members;
+        std::string cxx_class;
+        {
+            FILE *hf = fopen(cxx_h.c_str(), "r");
+            if (hf == NULL)
+                decline = "cannot read generated header " + cxx_h;
+            else {
+                char ln[8192];
+                while (fgets(ln, sizeof ln, hf)) {
+                    std::string l(ln);
+                    if (cxx_class.empty()) {
+                        size_t sp = l.find("struct p_");
+                        if (sp != std::string::npos
+                            && l.find(": public module") != std::string::npos) {
+                            size_t b = sp + 7, e = b;
+                            while (e < l.size() && (isalnum((unsigned char)l[e]) || l[e] == '_')) e++;
+                            cxx_class = l.substr(b, e - b);
+                        }
+                    }
+                    // "<kind><W> <name>;"  with kind in {value, wire}
+                    for (const char *kind : { "value<", "wire<" }) {
+                        size_t k = l.find(kind);
+                        if (k == std::string::npos) continue;
+                        size_t wb = k + strlen(kind);
+                        size_t we = l.find('>', wb);
+                        if (we == std::string::npos) continue;
+                        size_t nb = l.find_first_not_of(" \t", we + 1);
+                        if (nb == std::string::npos) continue;
+                        size_t ne = nb;
+                        while (ne < l.size() && (isalnum((unsigned char)l[ne]) || l[ne] == '_')) ne++;
+                        if (ne == nb || ne >= l.size() || l[ne] != ';') continue;
+                        CxxMember m;
+                        m.kind  = std::string(kind).substr(0, strlen(kind) - 1);
+                        m.width = atoi(l.substr(wb, we - wb).c_str());
+                        members[l.substr(nb, ne - nb)] = m;
+                        break;
+                    }
+                }
+                fclose(hf);
+                if (cxx_class.empty())
+                    decline = "no `struct p_... : public module` in " + cxx_h;
+            }
+        }
+
+        // ---- structural preconditions for this (deliberately simple) cut ----
+        if (decline.empty() && !extra_clocks.empty())
+            decline = "multi-clock design (" + std::to_string(extra_clocks.size())
+                    + " extra clock group(s)): the bridge drives sm_clock_masked/"
+                      "sm_clock_late, which the value-plane adapter does not yet emit";
+        if (decline.empty() && !memories.empty())
+            decline = "design has " + std::to_string(memories.size())
+                    + " memory(ies): the state_t memory mirror is not implemented";
+
+        // clock/reset ports.  gen_statemachine keys the main flop group on the
+        // wire whose cname is "_clk" and keeps it out of inputs_t; nvc likewise
+        // strips a pin literally named clk/rst.  So the adapter has to drive the
+        // CXXRTL clock port itself.
+        RTLIL::Wire *clk_wire = NULL;
+        bool has_rst_port = false;
+        for (auto &w : mod->wires_) {
+            const std::string cn = cname(w.second->name.str());
+            if (cn == "_clk") clk_wire = w.second;
+            else if (cn == "_rst" && w.second->port_input) has_rst_port = true;
+        }
+        if (decline.empty() && has_rst_port)
+            decline = "module has a port literally named `rst`: the bridge drives "
+                      "reset out of band (AJB[5]) and the adapter does not model it";
+        if (decline.empty() && (clk_wire == NULL || !clk_wire->port_input))
+            decline = "no boundary input wire whose cname is `_clk` -- the adapter "
+                      "cannot synthesise the CXXRTL clock edge";
+
+        std::string clk_mem, clk_prev;
+        if (decline.empty()) {
+            clk_mem  = cxx_mangle(clk_wire->name.str());
+            clk_prev = "prev_" + clk_mem;
+            if (!members.count(clk_mem))
+                decline = "CXXRTL has no member `" + clk_mem + "` for the clock port";
+            else if (!members.count(clk_prev))
+                decline = "CXXRTL has no `" + clk_prev + "` edge shadow (the clock "
+                          "does not clock anything in the CXXRTL netlist)";
+        }
+
+        // Every register / boundary pin must exist as a CXXRTL member of the
+        // SAME width, or the mirror and the marshalling would silently diverge.
+        // (A register whose gen_statemachine name fell back to the CELL name on
+        // a cname collision has no wire member -- caught right here.)
+        std::map<std::string, std::string> reg_member;    // state_t field -> member
+        if (decline.empty()) {
+            for (auto &reg : registers) {
+                const std::string rid = (!reg.raw_qname.empty() && reg.raw_qname[0] == '$')
+                                      ? reg.raw_qname : ("\\" + reg.raw_qname);
+                const std::string mm = cxx_mangle(rid);
+                auto it = members.find(mm);
+                if (it == members.end()) {
+                    decline = "register `" + reg.name + "` has no CXXRTL member `"
+                            + mm + "`";
+                    break;
+                }
+                if (it->second.width != reg.width) {
+                    decline = "register `" + reg.name + "` width " + std::to_string(reg.width)
+                            + " vs CXXRTL " + std::to_string(it->second.width);
+                    break;
+                }
+                reg_member[reg.name] = mm;
+            }
+        }
+        std::map<std::string, std::string> port_member;   // cname -> member
+        if (decline.empty()) {
+            for (auto &w : mod->wires_) {
+                RTLIL::Wire *wire = w.second;
+                if (!wire->port_input && !wire->port_output) continue;
+                const std::string cn = cname(wire->name.str());
+                if (cn == "_clk" || cn == "_rst") continue;
+                const std::string mm = cxx_mangle(wire->name.str());
+                auto it = members.find(mm);
+                if (it == members.end() || it->second.width != wire->width) {
+                    decline = "port `" + cn + "` has no matching CXXRTL member `"
+                            + mm + "`";
+                    break;
+                }
+                port_member[cn] = mm;
+            }
+        }
+
+        if (!decline.empty()) {
+            // Fall back to the hand-written C engine: it is the reference and
+            // the fallback, so put it back where nvc expects the model.
+            fprintf(stderr, "gen_statemachine: value-plane DECLINED -- %s\n",
+                    decline.c_str());
+            remove(output_file);
+            if (rename(model_file.c_str(), output_file) != 0) {
+                fprintf(stderr, "gen_statemachine: could not restore C model to %s\n",
+                        output_file);
+                Yosys::yosys_shutdown();
+                return 1;
+            }
+            fprintf(stderr, "gen_statemachine: using the C engine for this chunk\n");
+        }
+        else {
+        // ---- lvalue / rvalue helpers for a CXXRTL member -------------------
+        // value<N> is unbuffered (read and write it directly); wire<N> is
+        // double-buffered.  A register is read from .curr; an externally
+        // written buffered signal must have BOTH halves written or the stale
+        // .next is latched back over it by the next commit (the promote trap).
+        auto rd = [&](const std::string &m) {
+            return members[m].kind == "wire" ? ("d->" + m + ".curr") : ("d->" + m);
+        };
+
+        FILE *a = fopen(output_file, "w");
+        if (a == NULL) {
+            fprintf(stderr, "gen_statemachine: cannot write %s\n", output_file);
+            Yosys::yosys_shutdown();
+            return 1;
+        }
+        // CXXRTL's generated header opens with `#include <cxxrtl/cxxrtl.h>`, so
+        // the runtime include dir has to reach the compiler on the command line
+        // (the .so is built by nvc, from NVC_ACCEL_CC).  Resolve it here and
+        // spell out the exact setting rather than making the caller guess.
+        std::string rt_inc;
+        {
+            const char *env = getenv("GSM_CXXRTL_RUNTIME");
+            if (env != NULL) rt_inc = env;
+            else {
+                // library-mode yosys cannot auto-locate share/, and
+                // proc_share_dirname() log_error()s when it fails -- so probe
+                // the known roots directly (same convention as the scan-JSON
+                // techmap path below).
+                const char *sd = getenv("YOSYS_SHARE");
+                std::string share = sd ? std::string(sd)
+                                       : (Yosys::yosys_share_dirname.empty()
+                                          ? std::string("/usr/local/src/yosys-build/share/")
+                                          : Yosys::yosys_share_dirname);
+                if (!share.empty() && share.back() != '/') share += '/';
+                const std::string cand[] = {
+                    share + "include/backends/cxxrtl/runtime",
+                    "/usr/local/src/yosys-build/share/include/backends/cxxrtl/runtime",
+                    "/usr/local/src/yosys/backends/cxxrtl/runtime"
+                };
+                for (auto &c : cand) {
+                    std::string probe = c + "/cxxrtl/cxxrtl.h";
+                    if (FILE *pf = fopen(probe.c_str(), "r")) { fclose(pf); rt_inc = c; break; }
+                }
+            }
+        }
+        const std::string cc_line = "g++ -x c++ -fpermissive -w -O2 -I" + rt_inc;
+        fprintf(a, "// VALUE-PLANE model: nvc chunk ABI over yosys CXXRTL.\n"
+                   "// Generated by gen_statemachine (GSM_CXXRTL=1) from %s\n"
+                   "// CXXRTL engine: %s (class cxxrtl_design::%s)\n"
+                   "// Reference/fallback C engine: %s\n"
+                   "// COMPILE AS C++:  NVC_ACCEL_CC=\"%s\"\n\n",
+                inputs[0].c_str(), cxx_cc.c_str(), cxx_class.c_str(),
+                model_file.c_str(), cc_line.c_str());
+        fprintf(a, "#ifndef __cplusplus\n"
+                   "#error \"value-plane model needs a C++ compiler: set "
+                   "NVC_ACCEL_CC='g++ -x c++ -fpermissive -w -O2'\"\n#endif\n");
+        fprintf(a, "#include <stdint.h>\n#include <stdio.h>\n#include <string.h>\n"
+                   "#include <stddef.h>\n#include <new>\n\n");
+        // Keep C linkage for every symbol nvc's bridge defines BELOW this
+        // include -- in C++ they would otherwise be mangled (functions) or get
+        // internal linkage (the const demote tables) and dlsym would miss them.
+        fprintf(a, "extern \"C\" {\n"
+                   "extern const char *aj_reg_name[];\n"
+                   "extern const unsigned long aj_reg_off[];\n"
+                   "extern const int aj_reg_width[];\n"
+                   "extern const int aj_reg_depth[];\n"
+                   "extern int aj_n_regs;\n"
+                   "unsigned long aj_demote_state_off(void);\n"
+                   "unsigned long accel_state_size(void);\n"
+                   "void accel_reset(void *);\n"
+                   "void accel_eval(void *, void **);\n"
+                   "void *accel_in_addr(void *, int, unsigned long *);\n"
+                   "void accel_dump(void *);\n"
+                   "}\n\n");
+        fprintf(a, "#include \"%s\"\n\n", cxx_cc.c_str());
+        fprintf(a, "typedef cxxrtl_design::%s vp_design_t;\n\n", cxx_class.c_str());
+        fprintf(a, "extern \"C\" uint64_t sm_live_outputs[4] ="
+                   " {~0ull,~0ull,~0ull,~0ull};\n\n");
+
+        // ---- inputs_t : byte-identical to the C emitter ---------------------
+        fprintf(a, "typedef struct {\n");
+        bool has_in = false;
+        for (auto &w : mod->wires_) {
+            RTLIL::Wire *wire = w.second;
+            if (!wire->port_input) continue;
+            const std::string wn = cname(wire->name.str());
+            if (wn == "_clk" || wn == "_rst") continue;
+            if (is_wide(wire->width))
+                fprintf(a, "    uint32_t %s[%d];  // %d bits\n",
+                        wn.c_str(), nlimbs(wire->width), wire->width);
+            else
+                fprintf(a, "    %s %s;  // %d bits\n",
+                        ctype(wire->width), wn.c_str(), wire->width);
+            has_in = true;
+        }
+        if (!has_in) fprintf(a, "    int _dummy;\n");
+        fprintf(a, "} inputs_t;\n\n");
+
+        // ---- state_t : the register MIRROR + the CXXRTL object -------------
+        // nvc scrapes this struct for the demote writeback table, matching only
+        // `uint64_t <n>;  // <W> bits` / `uint32_t <n>[NL];  // <W> bits` lines,
+        // so the raw design storage below is skipped by construction.
+        fprintf(a, "typedef struct {\n");
+        for (auto &reg : registers) {
+            if (is_wide(reg.width))
+                fprintf(a, "    uint32_t %s[%d];  // %d bits\n",
+                        reg.name.c_str(), nlimbs(reg.width), reg.width);
+            else
+                fprintf(a, "    %s %s;  // %d bits\n",
+                        ctype(reg.width), reg.name.c_str(), reg.width);
+        }
+        fprintf(a, "    // --- value-plane engine storage (NOT a register: the\n"
+                   "    //     state_t scraper only matches uint64_t/uint32_t) ---\n");
+        fprintf(a, "    unsigned char vp_raw[sizeof(vp_design_t)]"
+                   " __attribute__((aligned(16)));\n");
+        fprintf(a, "    unsigned char vp_live;\n");
+        fprintf(a, "} state_t;\n\n");
+
+        // ---- outputs_t : byte-identical to the C emitter ---------------------
+        fprintf(a, "typedef struct {\n");
+        for (auto &w : mod->wires_) {
+            RTLIL::Wire *wire = w.second;
+            if (!wire->port_output) continue;
+            const std::string wn = cname(wire->name.str());
+            if (is_wide(wire->width))
+                fprintf(a, "    uint32_t %s[%d];  // %d bits\n",
+                        wn.c_str(), nlimbs(wire->width), wire->width);
+            else
+                fprintf(a, "    %s %s;  // %d bits\n",
+                        ctype(wire->width), wn.c_str(), wire->width);
+        }
+        fprintf(a, "} outputs_t;\n\n");
+
+        fprintf(a, "static inline vp_design_t *vp_d(state_t *s)"
+                   " { return (vp_design_t *)(void *)s->vp_raw; }\n\n");
+
+        // ---- boundary marshalling ------------------------------------------
+        // nvc packs a vector so that packed bit i == RTL bit i (its logic3d
+        // element 0 is the MSB and the bridge shifts by W-1-b), and CXXRTL packs
+        // value<N>::data[b>>5] bit (b&31).  Both are therefore plain LSB-first
+        // little-endian bit planes: narrow fields are a shift/mask, and a wide
+        // (>64b) field is a straight limb-for-limb copy.  Bits above W in the
+        // top chunk MUST be left zero (CXXRTL's msb_mask invariant).
+        fprintf(a, "static inline void vp_put_inputs(vp_design_t *d, const inputs_t *in) {\n");
+        for (auto &w : mod->wires_) {
+            RTLIL::Wire *wire = w.second;
+            if (!wire->port_input) continue;
+            const std::string wn = cname(wire->name.str());
+            if (wn == "_clk" || wn == "_rst") continue;
+            const std::string mm = port_member[wn];
+            const int wd = wire->width;
+            const bool buf = members[mm].kind == "wire";
+            const char *suf1 = buf ? ".curr" : "";
+            const char *suf2 = buf ? ".next" : "";
+            for (int l = 0; l < nlimbs(wd); l++) {
+                const int top = (wd - l * 32 >= 32) ? 32 : (wd - l * 32);
+                char msk[64];
+                msk[0] = '\0';
+                if (top < 32)
+                    snprintf(msk, sizeof msk, " & 0x%xu", (1u << top) - 1u);
+                char src[256];
+                if (is_wide(wd))
+                    snprintf(src, sizeof src, "in->%s[%d]", wn.c_str(), l);
+                else if (l == 0)
+                    snprintf(src, sizeof src, "(uint32_t)(in->%s)", wn.c_str());
+                else
+                    snprintf(src, sizeof src, "(uint32_t)((in->%s) >> %d)",
+                             wn.c_str(), l * 32);
+                fprintf(a, "    d->%s%s.data[%d] = %s%s;\n", mm.c_str(), suf1, l, src, msk);
+                if (buf)
+                    fprintf(a, "    d->%s%s.data[%d] = d->%s%s.data[%d];\n",
+                            mm.c_str(), suf2, l, mm.c_str(), suf1, l);
+            }
+        }
+        fprintf(a, "}\n\n");
+
+        fprintf(a, "static inline void vp_get_outputs(vp_design_t *d, outputs_t *o) {\n");
+        for (auto &w : mod->wires_) {
+            RTLIL::Wire *wire = w.second;
+            if (!wire->port_output) continue;
+            const std::string wn = cname(wire->name.str());
+            const std::string mm = port_member[wn];
+            const int wd = wire->width;
+            const std::string r = rd(mm);
+            if (is_wide(wd)) {
+                for (int l = 0; l < nlimbs(wd); l++)
+                    fprintf(a, "    o->%s[%d] = %s.data[%d];\n",
+                            wn.c_str(), l, r.c_str(), l);
+            }
+            else if (wd > 32)
+                fprintf(a, "    o->%s = (uint64_t)%s.data[0]"
+                           " | ((uint64_t)%s.data[1] << 32);\n",
+                        wn.c_str(), r.c_str(), r.c_str());
+            else
+                fprintf(a, "    o->%s = (uint64_t)%s.data[0];\n", wn.c_str(), r.c_str());
+        }
+        fprintf(a, "}\n\n");
+
+        // ---- register mirror ------------------------------------------------
+        // nvc's aj_chunk_demote reads the registers straight out of state_t at
+        // offsetof(state_t, <field>) to write them back into the interpreter's
+        // signals, so the mirror must be live whenever a demote can happen --
+        // i.e. after every eval that could have moved a register.
+        fprintf(a, "static inline void vp_sync_regs(state_t *s, vp_design_t *d) {\n");
+        for (auto &reg : registers) {
+            const std::string r = rd(reg_member[reg.name]);
+            if (is_wide(reg.width)) {
+                for (int l = 0; l < nlimbs(reg.width); l++)
+                    fprintf(a, "    s->%s[%d] = %s.data[%d];\n",
+                            reg.name.c_str(), l, r.c_str(), l);
+            }
+            else if (reg.width > 32)
+                fprintf(a, "    s->%s = (uint64_t)%s.data[0]"
+                           " | ((uint64_t)%s.data[1] << 32);\n",
+                        reg.name.c_str(), r.c_str(), r.c_str());
+            else
+                fprintf(a, "    s->%s = (uint64_t)%s.data[0];\n",
+                        reg.name.c_str(), r.c_str());
+        }
+        fprintf(a, "}\n\n");
+
+        // A register can move OUTSIDE a clock edge only through an async reset
+        // (CXXRTL emits `if (rst) q.next = ...` after the posedge block, so it
+        // fires on any eval).  With no async reset in the design, sm_comb cannot
+        // change state and the mirror refresh there is pure overhead.
+        bool any_arst = false;
+        for (auto &reg : registers) {
+            if (!reg.arst_expr.empty()) any_arst = true;
+            for (auto &sl : reg.slices) if (sl.has_arst) any_arst = true;
+        }
+        fprintf(a, "// async reset present: %s\n", any_arst ? "yes" : "no");
+
+        // ---- the nvc model-side entry points --------------------------------
+        // CXXRTL detects its own clock edges from prev_p_<clk>, which commit()
+        // refreshes -- so instead of a posedge_mask the adapter simply presents
+        // the clock level the bridge says this eval has, with the shadow forced
+        // low so the edge is exactly one-shot and history-independent.
+        fprintf(a, "extern \"C\" void sm_reset(state_t *s) {\n");
+        fprintf(a, "    vp_design_t *d;\n");
+        fprintf(a, "    if (!s->vp_live) { d = new (s->vp_raw) vp_design_t(); s->vp_live = 1; }\n");
+        fprintf(a, "    else { d = vp_d(s); d->reset(); }\n");
+        fprintf(a, "    vp_sync_regs(s, d);\n");
+        fprintf(a, "}\n\n");
+
+        // SETTLE.  step() is eval();commit(); repeated to a fixpoint.  With no
+        // clock edge in play, commit() can only move something if the design has
+        // buffered comb wires or feedback arcs -- and that is exactly what
+        // eval()'s `converged` return reports.  So a converging design settles
+        // in one eval() and pays no commit sweep at all; a non-converging one
+        // falls back to the full step() loop.  (An ASYNC reset is the one thing
+        // that can move a register outside an edge: CXXRTL emits it as an
+        // unconditional post-posedge override, so such designs must commit.)
+        const char *settle = any_arst ? "d->step();"
+                                      : "if (!d->eval()) d->step();";
+        fprintf(a, "extern \"C\" void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+        fprintf(a, "    vp_design_t *d = vp_d(s);\n");
+        fprintf(a, "    vp_put_inputs(d, in);\n");
+        fprintf(a, "    d->%s.data[0] = 0u;  d->%s.data[0] = 0u;   // no edge\n",
+                clk_prev.c_str(), clk_mem.c_str());
+        fprintf(a, "    %s\n", settle);
+        fprintf(a, "    vp_get_outputs(d, o);\n");
+        if (any_arst)
+            fprintf(a, "    vp_sync_regs(s, d);   // async reset can move state here\n");
+        fprintf(a, "}\n\n");
+
+        // sm_clock_out is the bridge's FUSED entry: advance the registers AND
+        // hand back POST-edge outputs (that is what the C engine's
+        // "refresh committed registers / output-cone recompute" tail does).
+        // CXXRTL evaluates the output cone from the PRE-commit .curr, so the
+        // advance needs a second settle after commit or every output lags the
+        // registers by exactly one clock.  For a converging design that is one
+        // extra eval(); for a non-converging one step() re-settles properly.
+        // (The extra pass is skipped when no output cone reads a register --
+        // then the pre- and post-edge outputs are identical by construction.)
+        bool out_reads_reg = !outcone_regs.empty();
+        fprintf(a, "extern \"C\" void sm_clock_out(state_t *s, const inputs_t *in,"
+                   " outputs_t *o, unsigned posedge_mask) {\n");
+        fprintf(a, "    (void)posedge_mask;\n");
+        fprintf(a, "    vp_design_t *d = vp_d(s);\n");
+        fprintf(a, "    vp_put_inputs(d, in);\n");
+        fprintf(a, "    d->%s.data[0] = 0u;  d->%s.data[0] = 1u;   // synthesise posedge\n",
+                clk_prev.c_str(), clk_mem.c_str());
+        fprintf(a, "    d->step();                 // advance registers\n");
+        if (out_reads_reg)
+            fprintf(a, "    %s   // post-edge output cone (the clock shadow is now"
+                       " high, so no second edge)\n", settle);
+        fprintf(a, "    vp_get_outputs(d, o);\n");
+        fprintf(a, "    vp_sync_regs(s, d);\n");
+        fprintf(a, "}\n\n");
+
+        fprintf(a, "extern \"C\" void sm_clock(state_t *s, const inputs_t *in) {\n");
+        fprintf(a, "    outputs_t _o; sm_clock_out(s, in, &_o, 1u);\n");
+        fprintf(a, "}\n\n");
+
+        fprintf(a, "extern \"C\" void sm_eval(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+        fprintf(a, "    sm_comb(s, in, o); sm_clock(s, in);\n}\n\n");
+        fprintf(a, "extern \"C\" void sm_dump_comb(state_t *s, const inputs_t *in, FILE *f) {\n"
+                   "    (void)s; (void)in;\n"
+                   "    fprintf(f, \"#AJSM value-plane engine: internal nets are not"
+                   " named at -g0\\n\");\n}\n\n");
+
+        // ---- cross-file tables the bridge text-scrapes ----------------------
+        fprintf(a, "const char *sm_comb_outputs[] = {");
+        for (auto &n : g_comb_out_names) fprintf(a, "\"%s\", ", n.c_str());
+        fprintf(a, "0};\n");
+        fprintf(a, "const char *sm_output_order[] = {");
+        for (auto *ow : out_order) {
+            std::string nm = cname(ow->name.str());
+            if (!nm.empty() && nm[0] == '_') nm = nm.substr(1);
+            fprintf(a, "\"%s\", ", nm.c_str());
+        }
+        fprintf(a, "0};\n");
+        fprintf(a, "const char *sm_extra_clocks[] = {0};\n");
+        fprintf(a, "#define SM_NUM_EXTRA_CLOCKS 0\n");
+        fclose(a);
+        fprintf(stderr, "Generated %s: VALUE-PLANE engine (CXXRTL class %s,"
+                        " %zu registers mirrored, %zu comb cells in the C reference)\n",
+                output_file, cxx_class.c_str(), registers.size(), sorted.size());
+        if (rt_inc.empty())
+            fprintf(stderr, "gen_statemachine: WARNING could not locate the CXXRTL "
+                            "runtime headers (set GSM_CXXRTL_RUNTIME)\n");
+        fprintf(stderr, "gen_statemachine: value-plane needs NVC_ACCEL_CC=\"%s\"\n",
+                cc_line.c_str());
+        }
+    }
 
     // --- Optional: emit a full-scan ISCAS89-source JSON of THIS design -------
     // With GSM_SCAN_JSON set, dump the design (post dffunmap/opt_clean, the same
