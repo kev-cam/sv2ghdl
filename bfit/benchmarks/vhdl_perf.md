@@ -6,8 +6,9 @@ row's **agree** is ✓ only if every *running* engine matches. Each cell is
 `seconds ×speedup` (base `×` vs the **slowest running engine** in the row);
 🟢 = fastest engine in the row. `brk` = exceeded the 45s wall cap;
 `—` = engine not applicable (`--accel` declined the design as too small;
-l3d not run for the self-contained syn benches). Run-phase wall-clock, best
-of 3. **size** = non-blank DUT source lines / process count.
+l3d not run for the self-contained syn benches; `∥` when no thread count
+beat serial). Run-phase wall-clock, best of 3. **size** = non-blank DUT
+source lines / process count.
 
 Engines: **our-nvc** 1.19-devel (kev-cam fork, `--std=2040`) · **our-l3d** (same
 engine, DUT mechanically promoted to 3D-Logic by `promote_3dlogic.py`, same
@@ -16,16 +17,36 @@ whether the checksum matched the std_logic engines; ≠ is the documented
 3D-logic semantic difference, not a failure) · **our-nvc --accel** (yosys
 front-end) · **stock-nvc** 1.22.0 (Nick's release .deb) · **ghdl** 5.0.1 (mcode).
 
-| Design | style | size | cycles | agree | our-nvc | our-l3d | our-nvc --accel | stock-nvc | ghdl |
-| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: |
-| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.434 ×24.2 | — | — | 🟢 0.413 ×25.4 | 10.482 ×1.0 |
-| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 🟢 1.826 ×1.0 | — | — | 1.873 ×1.0 | brk |
-| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 🟢 1.659 ×6.6 | 1.743 ×6.3 = | — | 1.742 ×6.3 | 10.985 ×1.0 |
-| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 🟢 1.498 ×5.2 | 1.576 ×5.0 = | — | 1.551 ×5.1 | 7.851 ×1.0 |
-| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 🟢 2.531 ×5.1 | 2.883 ×4.5 = | — | 3.176 ×4.0 | 12.842 ×1.0 |
-| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 🟢 0.752 ×11.1 | 0.791 ×10.5 = | — | 0.799 ×10.4 | 8.324 ×1.0 |
-| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 🟢 1.716 ×7.1 | 1.789 ×6.8 = | — | 2.321 ×5.3 | 12.246 ×1.0 |
-| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 🟢 1.255 ×5.8 | 1.276 ×5.7 = | — | 1.444 ×5.0 | 7.290 ×1.0 |
+**our-nvc ∥** is the runtime parallel-delta scheduler
+(`NVC_PARALLEL_PROCS=<threads>`).  The sweep over 2/4/8 threads and both
+gate settings only NOMINATES a configuration; the nominee is then re-timed
+best-of-3 interleaved against serial on identical footing, because a
+best-of-many column compared against a best-of-3 column wins by sampling
+bias alone.  A cell is filled only if the nominee beats serial by >2% AND
+reaches 50% parallel efficiency (speedup / CPU multiplier); otherwise it
+reads `—` and the measured CPU cost is noted below.
+
+That second test is load-bearing.  The scheduler gates on delta DEPTH — how
+many processes are runnable in one delta — because dispatching a shallow
+delta across workers costs more than it saves, and these circuits run 1-11
+processes per delta against a default gate of 64, so the parallel evaluator
+never engages.  Four threads on b22 nevertheless cut the wall ~8%, while
+executing 6% MORE instructions and burning 3.6x the cycles: no work is
+saved, the extra threads spin.  (A control run with three dummy spinners
+made serial SLOWER, so the wall gain is not a CPU-frequency artefact; it
+is thread placement.)  Reporting that as a parallel speed-up would be
+false, so the efficiency test rejects it.
+
+| Design | style | size | cycles | agree | our-nvc | our-nvc ∥ | our-l3d | our-nvc --accel | stock-nvc | ghdl |
+| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: | --: |
+| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.435 ×24.1 | — | — | — | 🟢 0.419 ×25.0 | 10.483 ×1.0 |
+| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.959 ×1.0 | 🟢 1.875 ×1.0 2t/min4 1.9×cpu | — | — | 1.876 ×1.0 | brk |
+| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 🟢 1.690 ×6.5 | — | 1.812 ×6.1 = | — | 1.755 ×6.3 | 11.065 ×1.0 |
+| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 🟢 1.522 ×5.2 | — | 1.607 ×4.9 = | — | 1.613 ×4.9 | 7.926 ×1.0 |
+| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 🟢 2.648 ×4.9 | — | 2.955 ×4.4 = | — | 3.399 ×3.8 | 13.081 ×1.0 |
+| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 0.743 ×11.3 | 🟢 0.718 ×11.7 2t/min4 1.9×cpu | 0.845 ×9.9 = | — | 0.806 ×10.4 | 8.367 ×1.0 |
+| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 🟢 1.788 ×6.9 | — | 1.817 ×6.8 = | — | 2.354 ×5.2 | 12.265 ×1.0 |
+| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 🟢 1.187 ×6.2 | — | 1.201 ×6.1 = | — | 1.435 ×5.1 | 7.306 ×1.0 |
 
 ### Reading these numbers
 
@@ -106,10 +127,10 @@ in the nvc tree. std_logic shown for reference (it isn't the 3D-logic path).
 
 | wires | std_logic | logic3d | l3dw word | l3dw vs logic3d |
 | --: | --: | --: | --: | --: |
-| 8 | 0.109s | 0.132s | 0.113s | 1.17x |
-| 32 | 0.112s | 0.170s | 0.117s | 1.45x |
-| 128 | 0.122s | 0.307s | 0.131s | 2.34x |
-| 1024 | 0.182s | 1.572s | 0.243s | 6.47x |
+| 8 | 0.114s | 0.135s | 0.117s | 1.15x |
+| 32 | 0.116s | 0.175s | 0.122s | 1.43x |
+| 128 | 0.125s | 0.313s | 0.134s | 2.34x |
+| 1024 | 0.187s | 1.581s | 0.246s | 6.43x |
 
 ### Demand-driven (pull) vs forward (push) evaluation
 
@@ -120,10 +141,10 @@ pull result verified bit-identical to push. 8329-node design, 5000 cycles:
 
 | evaluator | observation | vs forward push |
 | :-- | :-- | --: |
-| compiled pull cone | every cycle | **26.70x FASTER** |
-| pull (interpreted) | every cycle | 11.19x |
-| pull (interpreted) | every 100th cycle | 118.72x |
-| pull (interpreted) | final only | 168.72x |
+| compiled pull cone | every cycle | **26.46x FASTER** |
+| pull (interpreted) | every cycle | 10.09x |
+| pull (interpreted) | every 100th cycle | 116.47x |
+| pull (interpreted) | final only | 167.99x |
 
 Compiled cones skip dead **logic** at push's per-eval speed (no interp
 overhead); memoisation/multicycle-collapse additionally skip unobserved

@@ -43,7 +43,7 @@ DESIGNS=(
 )
 
 mkdir -p "$WORK"; cd "$WORK"
-declare -A T CHK SIZE STYLE  # T[name,engine]=seconds|brk ; CHK=checksum ; SIZE="LoC/procs"
+declare -A T CHK SIZE STYLE PARCFG PARCPU  # T[name,engine]=seconds|brk ; CHK=checksum ; SIZE="LoC/procs"
 
 # timed best-of-REPS with a wall timeout, WARM (one discarded warm-up run first
 # to page in the .so / warm caches). echoes "<seconds|brk> <CHK=..|none>"
@@ -162,12 +162,82 @@ for row in "${DESIGNS[@]}"; do
   done
   [ "$kind" = itc ] || { T[$name,l3d]="na"; CHK[$name,l3d]="none"; }
 
+  # our-nvc PARALLEL (∥): runtime parallel-delta scheduler
+  # (NVC_PARALLEL_PROCS=<threads>).  METHODOLOGY, learned the hard way: a
+  # sweep that keeps the best of N configurations and compares it against a
+  # best-of-$REPS serial number is BIASED — with more samples it wins by
+  # noise even when no parallel work happens at all.  So the sweep only
+  # NOMINATES a configuration; the nominee is then re-timed best-of-$REPS
+  # in the SAME interleaved loop as every other engine, and is reported
+  # only if it beats serial by more than $PAR_MARGIN.  We also record the
+  # CPU multiplier (user time / serial user time): the scheduler gates on
+  # delta DEPTH, and below the gate its workers spin without doing any of
+  # the delta's work, which costs several cores for nothing — a fact a
+  # wall-clock-only column would hide.
+  PAR_MARGIN=${PAR_MARGIN:-0.98}
+  T[$name,par]="na"; CHK[$name,par]="none"; PARCFG[$name]=""; PARCPU[$name]=""
+  bestcfg=""; bestsecs=""
+  for pt in 2 4 8; do
+    for pmin in "" 4; do
+      pcmd=(env NVC_PARALLEL_PROCS=$pt)
+      [ -n "$pmin" ] && pcmd+=(NVC_PARALLEL_MIN=$pmin)
+      pcmd+=($OUR -L $OURL --work=$WORK/our_$name/w --std=$STD -r $top)
+      timeout "$TIMEOUT" "${pcmd[@]}" >/dev/null 2>&1 || continue
+      read -r psecs pchk < <(timed_once "${pcmd[@]}")
+      case "$psecs" in brk|fail) continue;; esac
+      [ "$pchk" != "${CHK[$name,our]}" ] && continue      # wrong answer: reject
+      if [ -z "$bestsecs" ] || awk "BEGIN{exit !($psecs < $bestsecs)}"; then
+        bestsecs=$psecs; bestcfg="$pt ${pmin}"
+      fi
+    done
+  done
+  if [ -n "$bestcfg" ]; then
+    read -r pt pmin <<<"$bestcfg"
+    pcmd=(env NVC_PARALLEL_PROCS=$pt)
+    [ -n "$pmin" ] && pcmd+=(NVC_PARALLEL_MIN=$pmin)
+    pcmd+=($OUR -L $OURL --work=$WORK/our_$name/w --std=$STD -r $top)
+    # equal-footing re-time: best of $REPS, interleaved against serial
+    pbest=""; sbest=""
+    for rep in $(seq "$REPS"); do
+      read -r secs chk < <(timed_once "${pcmd[@]}")
+      pbest=$(best_upd "$pbest" "$secs"); [ "$chk" != none ] && CHK[$name,par]=$chk
+      read -r secs chk < <(timed_once $OUR -L $OURL --work=$WORK/our_$name/w --std=$STD -r $top)
+      sbest=$(best_upd "$sbest" "$secs")
+    done
+    # CPU multiplier: user seconds parallel vs serial (one sample each)
+    TIMEFORMAT=%U
+    pu=$( { time "${pcmd[@]}" >/dev/null 2>&1; } 2>&1 | tail -1 )
+    su=$( { time $OUR -L $OURL --work=$WORK/our_$name/w --std=$STD -r $top >/dev/null 2>&1; } 2>&1 | tail -1 )
+    unset TIMEFORMAT
+    case "$pu$su" in *[!0-9.]*) pu=""; su="";; esac
+    [ -n "$pu" ] && [ -n "$su" ] && awk "BEGIN{exit !($su>0)}" && \
+      PARCPU[$name]=$(awk "BEGIN{printf \"%.1f\", $pu/$su}")
+    # A wall gain is only a PARALLEL SPEED-UP if it comes with parallel
+    # efficiency: speedup / cpu-multiplier.  Below $PAR_MIN_EFF the run is
+    # spending cores without doing less work (measured on b22: 4 threads
+    # cut the wall 8% while executing 6% MORE instructions and burning
+    # 3.6x the cycles, because the delta-depth gate is never reached and
+    # the extra threads only spin), so it is resource burn, not a speed-up,
+    # and the cell reads `—`.
+    PAR_MIN_EFF=${PAR_MIN_EFF:-0.5}
+    eff=""
+    [ -n "${PARCPU[$name]}" ] && awk "BEGIN{exit !(${PARCPU[$name]}>0)}" && \
+      eff=$(awk "BEGIN{printf \"%.3f\", ($sbest/$pbest)/${PARCPU[$name]}}")
+    if awk "BEGIN{exit !($pbest < $sbest * $PAR_MARGIN)}" && \
+       { [ -z "$eff" ] || awk "BEGIN{exit !($eff >= $PAR_MIN_EFF)}"; }; then
+      T[$name,par]=$pbest; PARCFG[$name]="${pt}t${pmin:+/min$pmin}"
+    else
+      T[$name,par]="na"; CHK[$name,par]="none"
+      [ -n "$eff" ] && PARCPU[$name]="${PARCPU[$name]}/eff$eff"
+    fi
+  fi
+
   # ghdl (mcode; own dir). brk on timeout.
   d="$WORK/ghdl_$name"; rm -rf "$d"; mkdir -p "$d"; ( cd "$d"
     ghdl -a --std=08 -fsynopsys $SRCS >/dev/null 2>&1; ghdl -e --std=08 -fsynopsys $top >/dev/null 2>&1 )
   read -r T[$name,ghdl] CHK[$name,ghdl] < <(cd "$d" && best_of ghdl -r --std=08 -fsynopsys $top -gCYCLES=$cyc)
 
-  echo "   our=${T[$name,our]} l3d=${T[$name,l3d]} accel=${T[$name,accel]} stock=${T[$name,stock]} ghdl=${T[$name,ghdl]}"
+  echo "   our=${T[$name,our]} l3d=${T[$name,l3d]} accel=${T[$name,accel]} par=${T[$name,par]}${PARCFG[$name]:+ (${PARCFG[$name]})}${PARCPU[$name]:+ cpux${PARCPU[$name]}} stock=${T[$name,stock]} ghdl=${T[$name,ghdl]}"
 done
 
 # ---- emit markdown ----
@@ -182,9 +252,10 @@ echo "engine**; a 64-bit checksum printed by each run is compared across engines
 echo "row's **agree** is ✓ only if every *running* engine matches. Each cell is"
 echo "\`seconds ×speedup\` (base \`×\` vs the **slowest running engine** in the row);"
 echo "🟢 = fastest engine in the row. \`brk\` = exceeded the ${TIMEOUT}s wall cap;"
-echo "\`—\` = engine not applicable (\`--accel\` declined the design as too small;"
-echo "l3d not run for the self-contained syn benches). Run-phase wall-clock, best"
-echo "of $REPS. **size** = non-blank DUT source lines / process count."
+echo "\`—\` = engine not applicable (\`--accel\` declined the design — see below;"
+echo "l3d not run for the self-contained syn benches; \`∥\` when no thread count"
+echo "beat serial). Run-phase wall-clock, best of $REPS. **size** = non-blank DUT"
+echo "source lines / process count."
 echo
 echo "Engines: **our-nvc** $OUR_VER (kev-cam fork, \`--std=2040\`) · **our-l3d** (same"
 echo "engine, DUT mechanically promoted to 3D-Logic by \`promote_3dlogic.py\`, same"
@@ -193,8 +264,28 @@ echo "whether the checksum matched the std_logic engines; ≠ is the documented"
 echo "3D-logic semantic difference, not a failure) · **our-nvc --accel** (yosys"
 echo "front-end) · **stock-nvc** $STOCK_VER (Nick's release .deb) · **ghdl** $GHDL_VER (mcode)."
 echo
-echo "| Design | style | size | cycles | agree | our-nvc | our-l3d | our-nvc --accel | stock-nvc | ghdl |"
-echo "| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: |"
+echo "**our-nvc ∥** is the runtime parallel-delta scheduler"
+echo "(\`NVC_PARALLEL_PROCS=<threads>\`).  The sweep over 2/4/8 threads and both"
+echo "gate settings only NOMINATES a configuration; the nominee is then re-timed"
+echo "best-of-$REPS interleaved against serial on identical footing, because a"
+echo "best-of-many column compared against a best-of-$REPS column wins by sampling"
+echo "bias alone.  A cell is filled only if the nominee beats serial by >2% AND"
+echo "reaches 50% parallel efficiency (speedup / CPU multiplier); otherwise it"
+echo "reads \`—\` and the measured CPU cost is noted below."
+echo
+echo "That second test is load-bearing.  The scheduler gates on delta DEPTH — how"
+echo "many processes are runnable in one delta — because dispatching a shallow"
+echo "delta across workers costs more than it saves, and these circuits run 1-11"
+echo "processes per delta against a default gate of 64, so the parallel evaluator"
+echo "never engages.  Four threads on b22 nevertheless cut the wall ~8%, while"
+echo "executing 6% MORE instructions and burning 3.6x the cycles: no work is"
+echo "saved, the extra threads spin.  (A control run with three dummy spinners"
+echo "made serial SLOWER, so the wall gain is not a CPU-frequency artefact; it"
+echo "is thread placement.)  Reporting that as a parallel speed-up would be"
+echo "false, so the efficiency test rejects it."
+echo
+echo "| Design | style | size | cycles | agree | our-nvc | our-nvc ∥ | our-l3d | our-nvc --accel | stock-nvc | ghdl |"
+echo "| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: | --: |"
 for row in "${DESIGNS[@]}"; do
   read -r name kind top cyc style <<<"$row"
   # agreement over running engines (l3d deliberately excluded: separate marker)
@@ -209,19 +300,20 @@ for row in "${DESIGNS[@]}"; do
   fi
   awk -v n="$name" -v st="${STYLE[$name]}" -v sz="${SIZE[$name]}" -v cyc="$cyc" -v ag="$agree" \
       -v o="${T[$name,our]}" -v l="${T[$name,l3d]}" -v lm="$lmark" \
+      -v p="${T[$name,par]}" -v pc="${PARCFG[$name]}" -v pcpu="${PARCPU[$name]}" \
       -v a="${T[$name,accel]}" -v s="${T[$name,stock]}" -v g="${T[$name,ghdl]}" '
     function num(x){ return (x ~ /^[0-9.]+$/) }
     BEGIN{
       slow=0; split("",v);
       v["our"]=o; v["stock"]=s; v["ghdl"]=g;
-      if(num(a))v["accel"]=a; if(num(l))v["l3d"]=l;
+      if(num(a))v["accel"]=a; if(num(l))v["l3d"]=l; if(num(p))v["par"]=p;
       for(k in v){ if(num(v[k]) && v[k]+0>slow) slow=v[k]+0 }
       fast=1e18; for(k in v){ if(num(v[k]) && v[k]+0<fast) fast=v[k]+0 }
       printf "| %s | %s | %s | %d | %s ", n, st, sz, cyc, ag;
-      # column order: our, l3d, accel, stock, ghdl
-      split("o l a s g", ord, " ");
-      nm["o"]=o; nm["l"]=l; nm["a"]=a; nm["s"]=s; nm["g"]=g;
-      for(i=1;i<=5;i++){ x=nm[ord[i]]; sfx=(ord[i]=="l")?lm:"";
+      # column order: our, parallel, l3d, accel, stock, ghdl
+      split("o p l a s g", ord, " ");
+      nm["o"]=o; nm["p"]=p; nm["l"]=l; nm["a"]=a; nm["s"]=s; nm["g"]=g;
+      for(i=1;i<=6;i++){ x=nm[ord[i]]; sfx=(ord[i]=="l")?lm:((ord[i]=="p" && pc!="")?" "pc (pcpu!=""?" "pcpu"×cpu":""):"");
         if(x=="brk"){ printf "| brk "; }
         else if(x=="fail"){ printf "| fail "; }
         else if(x=="na"){ printf "| — "; }
@@ -291,10 +383,21 @@ echo
 echo "_Generated by \`bfit/benchmarks/vhdl/run_vhdl_perf.sh\`. Base nvc/ghdl RTL"
 echo "simulation is single-threaded (nvc JIT is a codegen mode, not runtime"
 echo "parallelism; ghdl is mcode). The fork's parallel/accelerated path is"
-echo "\`--accel\` (yosys front-end); it declines designs with no synthesizable"
-echo "hierarchy large enough to be worth a chunk, so the small circuits here read"
-echo "\`—\` — revisit at VeeR scale. \`bench_comb\` uses only 32-bit arithmetic yet"
-echo "still \`brk\`s ghdl-mcode, a useful datapoint on its own._"
+echo "\`--accel\` (yosys front-end).  Its \`—\` cells were long attributed to the"
+echo "size pre-gate (\`NVC_ACCEL_MIN_MODULES\`, default 8 instances), but lowering"
+echo "that gate to 1 on a separate machine showed the real blocker is TRANSLATOR"
+echo "COVERAGE: all six ITC designs get past the gate and are then declined by"
+echo "vhdl2vlog, which marks each unhandled construct in the Verilog it emits."
+echo "The blockers are \`T_ATTR_REF\` (attribute reference — in ALL six designs,"
+echo "fatal on its own), the \`mod\`/\`*\` operator functions (74 sites in b14"
+echo "alone) and non-architecture block scopes (b17/b22).  Nothing installs, so"
+echo "every accel run here is pure interpretation — and lowering the gate is"
+echo "actively harmful, costing 8-12% on b17/b22 in repeated failed synth"
+echo "attempts.  These designs ARE worth accelerating (CPU-class datapaths);"
+echo "they are simply unreachable through the current translator."
+echo
+echo "\`bench_comb\` uses only 32-bit arithmetic yet still \`brk\`s ghdl-mcode, a"
+echo "useful datapoint on its own._"
 } > "$OUT"
 
 # ---- companion tables: the axes where the fork LEADS (regenerated in-band so
