@@ -109,48 +109,88 @@ NET**, each holding up to 64 RTL bits — not one per bit. The claimed 75:1
 declaration-to-assignment ratio does not reproduce either: ours 1:2.34, CXXRTL
 1:2.16.
 
-**What is actually wrong is code shape, and one item is 85% of it.** A 992-bit
-result is assigned with `wplace(dst,0,src,992)`, which gcc `-O2` inlines as an
-**18-instruction-per-bit read-modify-write loop running 992 times** — 17,856
-instructions to move 124 bytes. The `wand()` on the line above does the same 992
-bits in **186 instructions**. So our *operators* are already word-parallel; only
-the *assignment* is bit-serial, **96× more expensive than it needs to be**. 1,686
-such sites execute per eval, giving ~30.1 M of 35.4 M instructions; `perf` agrees
-(sm_clock 81.3%, sm_comb 14.5%). **Replacing it with a 31-limb `wcopy` is ~6.7× on
-this module from one peephole.** Behind it: 23,613 calls to `worbits_s` — a
-while-loop function called to deposit a *single* bit — 9,931 `rep-stos` zeroing
-temporaries, and three copies of the comb cone (`sm_comb`/`sm_clock`/
-`sm_clock_out`).
+### ⚠ A 963× figure previously stood here. It was wrong — retracted below
 
-**Head to head on one module**, same Verilog, same stimulus, both producing
-checksum `0x00000001` so functionally equivalent, and both input-independent to
-0.02%:
+An earlier revision of this file reported a **963×** instruction-count gap on
+`eh2_dec_gpr_ctl`, attributed **85% of it to a bit-serial `wplace`**, and
+projected **~6.7× from one peephole** with "~144× architectural" remaining. A
+purpose-built 19-design suite, every row checksum-verified
+`interp == accel == Verilator`, refuted all of it. The corrections matter more
+than the original claim, so they are recorded rather than quietly deleted.
 
-| engine | insn / cycle | ratio |
-| :-- | --: | --: |
-| Verilator | 36,731 | 1.0× |
-| ours | 35,376,321 | **963×** |
-| CXXRTL (same shape, smaller netlist) | — | **2.30× vs ours** |
+**The measurement used a STALE binary.** `gen_statemachine.cpp:167-175` already
+emits a **word-chunked `wplace`**, carrying a comment about "the bit-at-a-time
+form cost 24k bit-iterations" that it replaced. The 963× run used the *installed*
+`accel_bin/gen_statemachine`, which lags its source. **Always check that binary's
+mtime against the `.cpp` before trusting a codegen measurement.** The peephole is
+worth 1.06–1.15×, not 6.7×, because it is already done.
 
-So we are **~2.3× off CXXRTL, not 2000×** — the earlier framing was wrong.
-CXXRTL earns its 2.3× purely because `slice<K>`/`and_uu<992>` are compile-time
-template parameters that constant-fold to chunk-parallel code, where ours is a
-runtime bit loop. Its storage is not cleverer.
+**Every accel number in that revision was `-O0`.** The harness sets
+`NVC_ACCEL_CC=cc`, and the compile line (`src/rt/model.c:1602`) adds no `-O` flag,
+against nvc's `-O3` default. The penalty is shape-dependent (1.07× on `deep`,
+4.53× on `regf`), so it distorted the comparison *between shapes*, not just the
+level. In particular "some rows lose to the interpreter" was purely this
+artifact: **`--accel` is not a pessimisation on any row.**
 
-**Verilator is in a different class for an architectural reason**, not a tuning
-one: it works from **RTL, not the flattened yosys netlist**. It keeps 32-bit
-lanes as `IData` scalars and materialises only **two** `VlWide<31>` objects in the
-entire design, with one `VL_ASSIGN_W` in the whole generated file. It never builds
-a 992-bit intermediate per cell; our flattened path builds one per cell. On
-`.text`: ours 1.66 MB against Verilator's 24,960 B of design code — 66×, and 86×
-on the hot path.
+**Two further premises failed.** gcc **already auto-vectorises** the limb loops
+(1,510 XMM at `-O3`, 1,896 YMM at `-march=native`, confirmed by disassembly), so
+AVX2 is worth **1.02–1.07×**, not the ~8× estimated from limb counts. And the
+netlist-shape hypothesis — that we do 992-bit work for logic that is really 31
+independent 32-bit lanes — is **disproved three ways**, decisively by the fact
+that after the codegen fixes **the wide shapes are the best performers in the
+suite**. No yosys reshaping pass changes anything.
 
-Order of attack by measured payoff: (1) the `wplace` peephole, ~6.7× for a
-localised change; (2) inline `worbits_s` and kill the single-bit call sites;
-(3) stop emitting three copies of the comb cone; (4) the deep one — avoid
-materialising full-width intermediates per cell. **Even a perfect (1)–(3) leaves
-~144×**, so Verilator parity is not reachable by peepholes on the
-flattened-netlist path.
+The real cost was `worbits` being **out-of-line with a data-dependent trip count
+and no constprop clone at all** despite literal arguments, where `wplace` got
+five clones. **1,116 of 2,505 `worbits` calls are one bit wide**; only 186 are
+1024.
+
+### Measured gap to Verilator, corrected
+
+Instructions/cycle, slope between CYC=2000 and 22000; every row verified
+`interp == accel@-O0 == accel@-O3 == accel@native == verilator`:
+
+| shape | vs Verilator, instructions |
+| :-- | --: |
+| `deep_*` (comb chains) | **5.69× – 6.18×** |
+| `wide_*` (256–2048 bit datapaths) | 6.48× – 6.75× |
+| `act_*` (low activity) | 6.59× – 8.41× |
+| `fsm_*` (narrow control) | 7.32× – 13.74× |
+| `regf_*` | 10.25× – 14.49× |
+| `many_k12/k24` (12/24 chunks) | 23.00× – 29.15× |
+
+With two levers implemented and measured rather than estimated, the **geomean
+gap falls 15.6× → 8.8× instructions** (16.8× → 9.8× CPU cycles). Best single row
+is `deep_d32` at **5.70×**. The wide shapes being *best* and the narrow control
+shapes *worst* is the reverse of the earlier prediction — width was an emitter
+defect, not a property of the netlist.
+
+**CXXRTL, for reference, is only 2.30× better than us** on a matched netlist —
+so the gap to Verilator is not a gap to "CXXRTL-quality code". Verilator's
+remaining margin comes from working on RTL rather than the flattened netlist,
+keeping 32-bit lanes as `IData` scalars.
+
+### Why small designs are declined — it is a COUNTER, not a size
+
+Worth stating plainly because it explains the empty `--accel` column above, and
+it is not what "too small" implies. Admission runs eight gates; the two that
+reject small designs are **pure counters, both defaulting to 8**:
+`aj_count_instances(scope) < 8` (model.c:5177, **silent** — prints nothing), and
+distinct `(entity,generics)` variant count `< 8` (model.c:5233).
+
+Measured against gold on a generated chain: the knee is **exactly 8**, and the
+counters are blind to work. **64 copies of one leaf — 65 instances, 128 comb
+cells, 64 registers — is DECLINED**, while 33 distinct modules totalling 64 cells
+and 32 registers is **ACCEPTED**. Twice the logic, half the names, refused. **A
+flat monolithic design of any size never installs**, having one instance scope.
+
+Two further admission facts: **component instantiation declines the parent**
+(`vhdl2vlog.c:1843` emits `/*?block k=60*/` because the elaborated `T_HIER`'s
+`tree_ref` is a `T_COMPONENT`, not a `T_ARCH`) — this is what kills b17 and b22,
+and `test/accel` never hits it because it uses 101 direct instantiations and zero
+components. And `block_types_synth` (`vhdl2vlog.c:2420`) declines **silently
+before anything is written** — no marker in the emitted file; only `GSM_LOG=1`
+reveals it.
 
 ## Where the time goes
 
