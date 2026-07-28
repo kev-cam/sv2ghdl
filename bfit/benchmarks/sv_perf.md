@@ -1,0 +1,132 @@
+# SystemVerilog simulation performance: nvc vs Verilator
+
+Companion to `vhdl_perf.md`, which covers the VHDL cross-simulator comparison
+(our-nvc / stock-nvc / ghdl). **This doc covers the SystemVerilog path**, where
+the competition is Verilator.
+
+The two engines do genuinely different work, and the comparison is only fair if
+that is stated up front:
+
+| | our flow | Verilator |
+| :-- | :-- | :-- |
+| front end | SV → `sv2vhdl` → VHDL → nvc | SV compiled directly to C++ |
+| value model | 4-state + Z + strength (3D-Logic), multi-driver resolution | 2-state (`--x-assign` approximates) |
+| scheduling | event-driven, delta cycles | levelised, whole-design eval per cycle |
+| accel path | `--accel`: yosys front end → generated C, per-chunk | n/a — always compiled |
+
+Verilator is the speed reference *because* it discards what we keep. The
+[north-star](../../..) position is that we beat it on 4-state values, Z,
+multi-driver resolution and low-activity event-driven work — not on raw
+gate-toggle throughput. Nothing here contradicts that; this doc measures the
+axis where we are behind, because that is the axis with a number on it.
+
+## The one fully-valid measured row
+
+**VeeR-EH2, `hello`, 3000 ns window.** Both arms `TEST_PASSED cycles=2519`, so
+the workloads are provably identical.
+
+| engine | cycles/s | vs Verilator | wall (best of 3) |
+| :-- | --: | --: | --: |
+| Verilator | **30,195** | 1.00x | — |
+| our-nvc, interpreted | **12.65** | **0.00042x** (2,387x slower) | 199.132 s |
+| our-nvc `--accel` | **12.58** | 0.00042x | 200.280 s |
+
+Method: 3 interleaved reps per arm, alternating so neither engine owns the
+colder slot; the machine was shared throughout (other agents plus a 98%-CPU
+daemon), which is exactly why the arms were interleaved rather than run in
+blocks — contention becomes a common-mode error. Runs were **not** pinned; never
+whole-process `taskset` an nvc run. Raw walls: interp 202.452 / 200.639 /
+199.132, accel 203.681 / 203.278 / 200.280. Arithmetic: 2519/199.132 = 12.650,
+2519/200.280 = 12.577, ratio 0.994x.
+
+This reproduces earlier independent measurements (12.53 / 12.32) within noise,
+on a different binary and a different day.
+
+## Why `--accel` buys nothing here
+
+**Because the chunks that install are all cold.** The five ACTIVE chunks in
+every accel run above are `dbg`, `dma_ctrl`, `exu_div_ctl`, `exu_mul_ctl` and
+`pic_ctrl`. None is on the hot path of a `hello` workload — so the accelerated
+fraction of the design is nearly all idle, and 0.994x is the expected result
+rather than a disappointing one.
+
+The hot blocks — `eh2_dec` and `eh2_ifu` — do not install. As of 2026-07-27 the
+reason is understood and it is **not** what it appeared to be:
+
+* They used to decline at synthesis because of a dangling-pointer bug in the
+  translator: `vid()` returns one of 8 ROTATING STATIC buffers, and
+  `emit_function` borrowed that pointer across a body emission issuing far more
+  than 8 `vid()` calls, so the trailing `return` printed whatever identifier
+  last landed in the slot. **22 of 22 emitted functions had the wrong return
+  target.**
+* Fixing that is two lines and it does unblock synthesis: `eh2_dec` (16511 comb
+  cells / 346 registers) and `eh2_ifu` (30680 / 1949) then emit, synthesise,
+  compile and install.
+* **And they are functionally wrong.** `eh2_dec` derails at cycle 77 — 125
+  retires under the interpreter against 42 under accel, identical for the first
+  16 retires, then `0x2E000000` garbage and a repeating illegal-instruction
+  trap. `NVC_ACCEL_VERIFY` (which drives the chunk from the interpreter's own
+  inputs, so this is compute, not a boundary race) localises the first
+  divergence at `215ns+101 DEC_I0_BR_IMMED_D`. `eh2_ifu` installs and then
+  SIGSEGVs on an 8.33 MiB `sm_comb` stack frame against an 8 MiB limit.
+
+So the hot blocks were never *correct but declined* — **they were wrong and
+failing safe.** The translator fix removes that fail-safe, converting a safe
+decline into a silent wrong answer, and is therefore not landed. No accel number
+for those configurations appears here, because the only numbers available come
+from runs that compute the wrong answer.
+
+## Where the time goes
+
+`perf record -F 499`, normalised to the sim thread (other tids are LLVM tier-up
+workers), on the **dec-installed** configuration:
+
+| | share of sim thread |
+| :-- | --: |
+| generated accel code (`aj_eh2_dec__e826_*.so`) | 32.4% |
+| libnvc.so | 31.8% |
+| libc.so.6 | 23.9% |
+| JIT'd interpreted design | 5.2% |
+| kernel | 3.6% |
+| libzstd | 3.0% |
+
+**Read this as structural evidence only, not as a validated measurement.** The
+profile comes from the 42-retire trap-loop run — the core is executing, but it
+is executing the wrong program. It shows what coverage *would* look like with
+the hot blocks installed; it does not show the cost profile of a correct run.
+
+A frequently-quoted "0.09% of sim time" figure for baseline accel coverage
+appears in older notes. **It was never actually measured** and should not be
+cited as a number; the honest statement is that baseline coverage was small
+enough that accel and interp were within noise, which the 0.994x above does
+establish.
+
+## Not yet measured
+
+Stated explicitly so absences are not read as zeros:
+
+* **iverilog / vvp** on the same workload — the third engine in the correctness
+  differential (`regress/verilator_ref.py`) has no perf row here.
+* **VeeR-EH1** — passes under nvc, never timed against Verilator.
+* **VeeR-EL2** — blocked in translation, so no row is possible.
+* **Any design but VeeR-EH2 `hello`.** One workload is not a benchmark suite. In
+  particular a *low-activity* design is where the event-driven model should win,
+  and nothing here tests that — so this doc currently measures only our worst
+  axis.
+* **A correct `--accel` number**, which requires the `eh2_dec` compute
+  divergence fixed first.
+
+## Correctness parity is tracked elsewhere
+
+This doc is performance only. For how the SV path compares to Verilator on
+*results* rather than speed:
+
+* `regress/verilator_parity_roadmap.md` — the 1112 translation gaps, diagnosed
+  and ranked.
+* `regress/verilator_ref_findings.md` — the 3-engine differential
+  (iverilog / shim / Verilator) findings.
+
+_Numbers dated 2026-07-27. Re-measure on a quiet machine before quoting: every
+timing above was taken on a contended box, and while interleaving makes that a
+common-mode error for the interp-vs-accel ratio, it does not make the absolute
+cycles/s figures precise._
