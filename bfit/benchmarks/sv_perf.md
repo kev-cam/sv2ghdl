@@ -71,10 +71,86 @@ reason is understood and it is **not** what it appeared to be:
   SIGSEGVs on an 8.33 MiB `sm_comb` stack frame against an 8 MiB limit.
 
 So the hot blocks were never *correct but declined* — **they were wrong and
-failing safe.** The translator fix removes that fail-safe, converting a safe
-decline into a silent wrong answer, and is therefore not landed. No accel number
-for those configurations appears here, because the only numbers available come
-from runs that compute the wrong answer.
+failing safe.**
+
+**UPDATE — the correctness half is fixed and landed (nvc `f251009c0`).** The
+wrongness was a second silent mistranslation, independent of the first: Verilog
+**self-determined width**. `l3d_bit_read` returns a 1-bit scalar but was emitted
+as `((a >> i) & 1'b1)`, which Verilog widths from its *left operand*. The two
+Verilog contexts that do not resize their parts — a concatenation element and a
+replication operand — were both fed such reads, so `{32 × bit_read(v_w0v,…)}`
+with `width(v_w0v)=31` became 992 bits whose low 32 are `0x80000001`: **only bits
+0 and 31 of every GPR write survived**, exactly the `accel == interp &
+0x80000001` signature. `eh2_dec` now produces **125 RETIRE lines byte-identical
+to the interpreter**.
+
+Two blockers remain before a VeeR accel number is publishable: `eh2_ifu` still
+SIGSEGVs on its 8.33 MiB `sm_comb` frame, and the 215ns family turned out to be a
+*separate* defect — extra-clock-group advance scheduling, not compute, which
+collapses `eh2_dec_decode_ctl`'s 62 divergences to 2 under `NVC_ACCEL_CK_LATE=1`.
+Two independent defects were being conflated.
+
+## The gap is code shape, not representation — measured
+
+This is the section that answers "why is `--accel` slow", and it overturns the
+obvious hypothesis. Our generated C was suspected of being **bit-scalar** where
+CXXRTL packs bits. It is not. Measured on the real `eh2_dec_gpr_ctl` netlist
+(3017 wires / 1.47 M wire bits / 2122 cells), storage per RTL bit is:
+
+| | ours | CXXRTL |
+| :-- | --: | --: |
+| 992-bit net | `uint32_t[31]` = 124 B | `value<992>` = 124 B — **identical** |
+| 32-bit register | `uint64_t` = 8 B | `wire<32>` = 8 B — **identical** |
+| 1-bit port | 8 B | 4 B (ours 2× worse) |
+| total persistent | 528 B | 408 B (1.29×) |
+
+The 5.8 M `uint64_t _x = 0;` lines that prompted the hypothesis are **one per
+NET**, each holding up to 64 RTL bits — not one per bit. The claimed 75:1
+declaration-to-assignment ratio does not reproduce either: ours 1:2.34, CXXRTL
+1:2.16.
+
+**What is actually wrong is code shape, and one item is 85% of it.** A 992-bit
+result is assigned with `wplace(dst,0,src,992)`, which gcc `-O2` inlines as an
+**18-instruction-per-bit read-modify-write loop running 992 times** — 17,856
+instructions to move 124 bytes. The `wand()` on the line above does the same 992
+bits in **186 instructions**. So our *operators* are already word-parallel; only
+the *assignment* is bit-serial, **96× more expensive than it needs to be**. 1,686
+such sites execute per eval, giving ~30.1 M of 35.4 M instructions; `perf` agrees
+(sm_clock 81.3%, sm_comb 14.5%). **Replacing it with a 31-limb `wcopy` is ~6.7× on
+this module from one peephole.** Behind it: 23,613 calls to `worbits_s` — a
+while-loop function called to deposit a *single* bit — 9,931 `rep-stos` zeroing
+temporaries, and three copies of the comb cone (`sm_comb`/`sm_clock`/
+`sm_clock_out`).
+
+**Head to head on one module**, same Verilog, same stimulus, both producing
+checksum `0x00000001` so functionally equivalent, and both input-independent to
+0.02%:
+
+| engine | insn / cycle | ratio |
+| :-- | --: | --: |
+| Verilator | 36,731 | 1.0× |
+| ours | 35,376,321 | **963×** |
+| CXXRTL (same shape, smaller netlist) | — | **2.30× vs ours** |
+
+So we are **~2.3× off CXXRTL, not 2000×** — the earlier framing was wrong.
+CXXRTL earns its 2.3× purely because `slice<K>`/`and_uu<992>` are compile-time
+template parameters that constant-fold to chunk-parallel code, where ours is a
+runtime bit loop. Its storage is not cleverer.
+
+**Verilator is in a different class for an architectural reason**, not a tuning
+one: it works from **RTL, not the flattened yosys netlist**. It keeps 32-bit
+lanes as `IData` scalars and materialises only **two** `VlWide<31>` objects in the
+entire design, with one `VL_ASSIGN_W` in the whole generated file. It never builds
+a 992-bit intermediate per cell; our flattened path builds one per cell. On
+`.text`: ours 1.66 MB against Verilator's 24,960 B of design code — 66×, and 86×
+on the hot path.
+
+Order of attack by measured payoff: (1) the `wplace` peephole, ~6.7× for a
+localised change; (2) inline `worbits_s` and kill the single-bit call sites;
+(3) stop emitting three copies of the comb cone; (4) the deep one — avoid
+materialising full-width intermediates per cell. **Even a perfect (1)–(3) leaves
+~144×**, so Verilator parity is not reachable by peepholes on the
+flattened-netlist path.
 
 ## Where the time goes
 

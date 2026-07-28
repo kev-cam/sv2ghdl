@@ -140,10 +140,29 @@ SIGSEGVs, its generated `sm_comb` stack frame being 8.33 MiB against an 8 MiB
 limit.
 
 So the earlier reading that the hot blocks were "correct but declined" was
-wrong: **they were wrong and failing safe.** The translator fix removes that
-fail-safe, converting a safe decline into a silent wrong answer, and is
-therefore NOT landed. The column stays empty rather than carrying a number
-produced by code that computes the wrong result.
+wrong: **they were wrong and failing safe.**
+
+**UPDATE — the correctness half is now fixed and landed (nvc `f251009c0`).** The
+wrongness was a second, independent silent mistranslation: Verilog
+**self-determined width**. `l3d_bit_read` returns a 1-bit scalar but was emitted
+as `((a >> i) & 1'b1)`, which Verilog widths from its *left operand*. Verilog has
+exactly two contexts that do not resize their parts — a concatenation element and
+a replication operand — and both were fed such reads. In `eh2_dec_gpr_ctl`,
+`{32 × bit_read(v_w0v,…)}` with `width(v_w0v)=31` became 992 bits whose low 32
+are `0x80000001`, so **only bits 0 and 31 of every GPR write survived**. A second
+instance was predicted from the base width and then measured exactly. With that
+fixed, **`eh2_dec` now produces 125 RETIRE lines byte-identical to the
+interpreter** under `--accel`.
+
+**The column still stays empty, for two separate reasons.** First and unchanged:
+every design in this table is far too small to be worth a chunk, so `--accel`
+declines them all — that is a property of the designs, not a defect. Second, at
+VeeR scale `eh2_ifu` still installs and then SIGSEGVs on an 8.33 MiB `sm_comb`
+stack frame, and a separate extra-clock-group scheduling defect remains (it
+collapses `eh2_dec_decode_ctl`'s 62 divergences to 2 under
+`NVC_ACCEL_CK_LATE=1`). So VeeR is closer to correct but not yet a number worth
+publishing. See `sv_perf.md` for where the throughput gap actually lives — it is
+not representation.
 
 ## Where we lead
 
