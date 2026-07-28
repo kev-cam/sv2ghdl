@@ -109,8 +109,41 @@ simulation is single-threaded (nvc JIT is a codegen mode, not runtime
 parallelism; ghdl is mcode). The fork's parallel/accelerated path is
 `--accel` (yosys front-end); it declines designs with no synthesizable
 hierarchy large enough to be worth a chunk, so the small circuits here read
-`—` — revisit at VeeR scale. `bench_comb` uses only 32-bit arithmetic yet
+`—`. `bench_comb` uses only 32-bit arithmetic yet
 still `brk`s ghdl-mcode, a useful datapoint on its own._
+
+### Why the `--accel` column is empty — measured at VeeR scale
+
+This column used to say "revisit at VeeR scale". That has now been done, and the
+answer is that **`--accel` currently buys nothing on VeeR-EH2: 12.58 cycles/s
+against 12.02 interpreted, 0.99x.** Verilator on the same workload: 30195
+cycles/s. Two measured reasons, in order.
+
+**Coverage, not codegen.** The generated native code covered ~0.09% of VeeR sim
+time because the hot blocks declined to translate — and that turned out to be a
+dangling pointer rather than a missing feature. `vid()` returns one of 8
+ROTATING STATIC buffers; `emit_function` borrowed that pointer across a body
+emission issuing far more than 8 `vid()` calls, so the trailing `return` printed
+whatever identifier last landed in the slot. **22 of 22 emitted functions had
+the wrong return target.**
+
+**Correctness, which is the real blocker.** Fixing that is a two-line change and
+it does unblock synthesis: `eh2_dec` (16511 comb cells / 346 registers) and
+`eh2_ifu` (30680 / 1949) now emit, synthesise, compile and install where both
+previously printed `synth failed`. But the unblocked chunks are FUNCTIONALLY
+WRONG. `eh2_dec` derails at cycle 77 — 125 retires under the interpreter against
+42 under accel, identical for the first 16 retires, then garbage (0x2E000000)
+and a repeating illegal-instruction trap. `NVC_ACCEL_VERIFY`, which drives the
+chunk from the interpreter's own inputs, localises it as a COMPUTE divergence,
+first report at `215ns+101 DEC_I0_BR_IMMED_D`. `eh2_ifu` installs and then
+SIGSEGVs, its generated `sm_comb` stack frame being 8.33 MiB against an 8 MiB
+limit.
+
+So the earlier reading that the hot blocks were "correct but declined" was
+wrong: **they were wrong and failing safe.** The translator fix removes that
+fail-safe, converting a safe decline into a silent wrong answer, and is
+therefore NOT landed. The column stays empty rather than carrying a number
+produced by code that computes the wrong result.
 
 ## Where we lead
 
