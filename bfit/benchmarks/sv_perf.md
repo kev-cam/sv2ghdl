@@ -116,6 +116,52 @@ Stated explicitly so absences are not read as zeros:
 * **A correct `--accel` number**, which requires the `eh2_dec` compute
   divergence fixed first.
 
+## How much can low activity actually buy? — an estimate, not a measurement
+
+The event-driven case is that we do work proportional to what *changed*, while
+Verilator levelises and evaluates regardless. That is true, and it is worth
+knowing how far it goes. Crude model: Verilator costs `c_vl · N` per cycle
+(activity-independent), we cost `c_nvc · α · N`. We win when `α < c_vl / c_nvc`.
+The measured 2387x gap on VeeR-EH2 fixes that ratio at `α₀ / 2387`, where `α₀`
+is VeeR-hello's own activity factor:
+
+| assumed α₀ | crossover α* | = 1 node active in |
+| --: | --: | --: |
+| 30% | 0.0126% | 7,957 |
+| 10% | 0.0042% | 23,870 |
+| 2% | 0.0008% | 119,348 |
+
+**So at interpreted speed the low-activity lever cannot close the gap** — it
+would need roughly one node in 24,000 toggling per cycle, which is not a regime
+real designs under test sit in. The lever that matters is `c_nvc`, the per-unit-
+work constant, not `α`. That is exactly what `--accel` attacks, and it moves the
+crossover into plausible territory only when it is working:
+
+| if accel is… | effective gap | crossover α* at α₀=10% |
+| :-- | --: | --: |
+| 5x faster | 477x | 0.021% |
+| 20x faster | 119x | 0.084% |
+| 50x faster | 48x | 0.209% |
+
+Caveats, because this is arithmetic on one measurement rather than an
+experiment: the model assumes our work scales linearly in α and Verilator's not
+at all (both are approximations — we carry per-event overhead that does not
+scale down, and Verilator is not perfectly activity-blind once caches and
+branches are involved); and **α₀ for VeeR hello has not been measured**, so the
+table is parameterised rather than solved.
+
+**The honest reading of our existing "we win" evidence.** The demand-driven
+prototype's 8-169x and the compiled-pull-cone 26.46x are measured against *our
+own forward-push baseline*, not against Verilator. They demonstrate that pull
+beats push **within our engine**; they do not establish a win over Verilator,
+and this doc should not be read as if they did. Combining them with the constant
+above is the open question, and it needs the experiment in "Not yet measured",
+not more arithmetic.
+
+None of this touches the capability argument, which is separate and not a speed
+claim at all: 4-state values, Z, strength and multi-driver resolution are things
+Verilator does not do, at any activity factor.
+
 ## Correctness parity is tracked elsewhere
 
 This doc is performance only. For how the SV path compares to Verilator on
