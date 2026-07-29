@@ -77,7 +77,10 @@ REPOS=(
 # the code generator is otherwise ungated: 8c8e1c1ba landed on origin/master
 # with a clean 3011-test ivtest run while silently producing wrong values on
 # 16 of the 19 accel designs. Matched against the branch's changed paths.
-ACCEL_PATHS='^(src/rt/model\.c|src/vhdl2vlog\.c|yosys/gen_statemachine\.cpp|regress/accel/)'
+# lib/sv2vhdl/logic3d*.vhd is in the list because the bridge marshals LOGIC3D
+# VALUE BITS directly (elem=4, bit0 = value): a change to that encoding can
+# break --accel even though it is 'just' a VHDL support package.
+ACCEL_PATHS='^(src/rt/model\.c|src/vhdl2vlog\.c|yosys/gen_statemachine\.cpp|regress/accel/|lib/sv2vhdl/logic3d)'
 
 while [ $# -gt 0 ]; do
   case "$1" in
