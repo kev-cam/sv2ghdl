@@ -67,10 +67,17 @@ TIMEOUT_MS=29000        # >= this on a FAIL == clock-jump noise
 # tracked files our commits are expected to change (used for the rebase-preserve
 # hash check). Format: repo:default:file[,file...]
 REPOS=(
-  "sv2ghdl:main:bin/sv-normalize,bin/iverilog-sv2ghdl,bin/verilator-sv2ghdl,bin/gen-veer-tb"
+  "sv2ghdl:main:bin/sv-normalize,bin/iverilog-sv2ghdl,bin/verilator-sv2ghdl,bin/gen-veer-tb,yosys/gen_statemachine.cpp"
   "iverilog:main:PExpr.cc,PExpr.h,elab_expr.cc,elab_lval.cc,netmisc.cc,netmisc.h,tgt-vhdl/stmt.cc,tgt-vhdl/support.cc,ivtest/ivltests/genvar_inline_port_select.v,ivtest/ivltests/var_prefix_index.v,ivtest/regress-sv.list"
-  "nvc:master:lib/sv2vhdl/logic3d_types_pkg.vhd,lib/sv2vhdl/sv_display_pkg.vhd"
+  "nvc:master:lib/sv2vhdl/logic3d_types_pkg.vhd,lib/sv2vhdl/sv_display_pkg.vhd,src/rt/model.c,src/vhdl2vlog.c"
 )
+
+# Paths that make an --accel correctness run MANDATORY before merging. The
+# ivtest block does not exercise --accel at all, so a change to the bridge or
+# the code generator is otherwise ungated: 8c8e1c1ba landed on origin/master
+# with a clean 3011-test ivtest run while silently producing wrong values on
+# 16 of the 19 accel designs. Matched against the branch's changed paths.
+ACCEL_PATHS='^(src/rt/model\.c|src/vhdl2vlog\.c|yosys/gen_statemachine\.cpp|regress/accel/)'
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -95,6 +102,7 @@ echo "=== coord-gate: branch=$BRANCH block=$BLOCK push=$DO_PUSH  $(date -u) ==="
 
 # ---- 1. which repos actually carry this branch + are ahead of origin? --------
 TOUCHED=()
+ACCEL_NEEDED=0
 for spec in "${REPOS[@]}"; do
   IFS=: read -r repo def files <<<"$spec"
   d="$SRC/$repo"
@@ -105,6 +113,11 @@ for spec in "${REPOS[@]}"; do
   if [ "$bsha" = "$osha" ]; then echo "  $repo: branch == origin/$def (nothing to merge) — skip"; continue; fi
   ahead=$(GE "$repo" rev-list --count "origin/$def..$BRANCH" 2>/dev/null)
   echo "  $repo: $ahead commit(s) ahead of origin/$def ($files)"
+  if GE "$repo" diff --name-only "origin/$def..$BRANCH" 2>/dev/null \
+       | grep -qE "$ACCEL_PATHS"; then
+    ACCEL_NEEDED=1
+    echo "    ^ touches the --accel path — accel-gate is required to merge"
+  fi
   TOUCHED+=("$spec")
 done
 [ ${#TOUCHED[@]} -eq 0 ] && { echo "VERDICT: nothing to gate (no touched repos)"; exit 0; }
@@ -167,16 +180,38 @@ while IFS= read -r t; do
 done < <(printf '%s\n' "$REGR")
 REAL=$(echo $REAL | xargs -n1 2>/dev/null | sort -u | xargs)
 
+# ---- 4b. --accel correctness (only when the branch touches that path) -------
+# The ivtest block cannot see this: it never runs --accel. Kept conditional so
+# the common branch (translator / support-package work) pays nothing.
+ACCEL_FAIL=""
+if [ "$ACCEL_NEEDED" = 1 ]; then
+  echo "[accel] branch touches the --accel path — running accel-gate.sh"
+  "$REG/accel-gate.sh" 2>&1 | sed 's/^/    /'
+  arc=${PIPESTATUS[0]}
+  case "$arc" in
+    0) echo "  accel-gate: CLEAN";;
+    2) ACCEL_FAIL="setup error (exit 2)";;
+    *) ACCEL_FAIL="design mismatch (exit $arc)";;
+  esac
+else
+  echo "[accel] branch does not touch the --accel path — skipped"
+fi
+
 # ---- 5. verdict + (optional) coordinated FF-merge --------------------------
-if [ -n "$REAL" ]; then
-  echo "VERDICT: HELD — real regressions: $REAL"
+if [ -n "$REAL" ] || [ -n "$ACCEL_FAIL" ]; then
+  echo "VERDICT: HELD${REAL:+ — real regressions:$REAL}${ACCEL_FAIL:+ — accel-gate $ACCEL_FAIL}"
   echo "----8<---- PROBLEMS (paste to Simulator net-chat) ----8<----"
-  echo "@DESKTOP-3SRS8MD coord-gate HELD $BRANCH on $BLOCK: pass->fail = $REAL"
-  echo "(ref run #$REFRUN pass=$rp -> candidate #$CAND pass=$cp; +$NFIX fixes but the above regressed)"
+  [ -n "$REAL" ] && \
+    echo "@DESKTOP-3SRS8MD coord-gate HELD $BRANCH on $BLOCK: pass->fail = $REAL"
+  [ -n "$ACCEL_FAIL" ] && \
+    echo "@DESKTOP-3SRS8MD coord-gate HELD $BRANCH: --accel correctness gate $ACCEL_FAIL (regress/accel-gate.sh)"
+  echo "(ref run #$REFRUN pass=$rp -> candidate #$CAND pass=$cp; +$NFIX fixes)"
   echo "----8<-------------------------------------------------8<----"
   exit 1
 fi
-echo "VERDICT: CLEAN — 0 pass->fail, +$NFIX fixes (ref #$REFRUN -> cand #$CAND)"
+ACCEL_NOTE=""
+[ "$ACCEL_NEEDED" = 1 ] && ACCEL_NOTE=", accel-gate clean"
+echo "VERDICT: CLEAN — 0 pass->fail, +$NFIX fixes (ref #$REFRUN -> cand #$CAND)$ACCEL_NOTE"
 [ "$DO_PUSH" = 0 ] && { echo "(--push not given: not merging)"; exit 0; }
 
 # clean + --push: rebase each touched repo onto origin/<default>, FF-merge
