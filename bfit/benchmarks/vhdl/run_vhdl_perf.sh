@@ -21,7 +21,7 @@ STD=2040                                           # our fork's native standard
 STOCK=/home/claude/nvc-stock/deb24/usr/bin/nvc
 STOCKLD=/home/claude/nvc-stock/llvm18/usr/lib/x86_64-linux-gnu
 STOCKL=/home/claude/nvc-stock/deb24/usr/lib/x86_64-linux-gnu/nvc
-ACCEL_ENV="NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1 NVC_ACCEL_CC=cc NVC_ACCEL_SYNTH_TIMEOUT=60"
+ACCEL_ENV='NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1 NVC_ACCEL_CC="gcc -O2" NVC_ACCEL_SYNTH_TIMEOUT=60'
 
 ver(){ "$@" --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+[.0-9a-z-]*' | head -1; }
 OUR_VER=$($OUR --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -1)
@@ -111,7 +111,7 @@ for row in "${DESIGNS[@]}"; do
 
   # our-nvc --accel  (best effort: only counts if it installs AND matches)
   rm -rf /home/claude/.cache/nvc/accel/* 2>/dev/null
-  export NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1 NVC_ACCEL_CC=cc NVC_ACCEL_SYNTH_TIMEOUT=60
+  export NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1 NVC_ACCEL_CC="gcc -O2" NVC_ACCEL_SYNTH_TIMEOUT=60
   aout=$($OUR -L $OURL --work="$d/w" --std=$STD -r $top 2>&1)   # warm-up + detect
   if printf '%s' "$aout" | grep -qE 'accel-jit:.*(installed|driving)'; then
     read -r T[$name,accel] CHK[$name,accel] < <(best_of $OUR -L $OURL --work="$d/w" --std=$STD -r $top)
