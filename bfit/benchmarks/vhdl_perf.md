@@ -41,8 +41,8 @@ false, so the efficiency test rejects it.
 | :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: | --: | --: |
 | bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.435 ×24.1 | — | — | — | -0.2% | 🟢 0.419 ×25.0 | 10.483 ×1.0 |
 | bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.959 ×1.0 | 🟢 1.875 ×1.0 2t/min4 1.9×cpu | — | — | **-4.0%** | 1.876 ×1.0 | brk |
-| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 🟢 1.690 ×6.5 | — | 1.812 ×6.1 = | — | **-15.3%** | 1.755 ×6.3 | 11.065 ×1.0 |
-| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 🟢 1.522 ×5.2 | — | 1.607 ×4.9 = | — | **-13.2%** | 1.613 ×4.9 | 7.926 ×1.0 |
+| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 🟢 1.690 ×6.5 | — | 1.812 ×6.1 = | 0.92× interp | **-15.3%** | 1.755 ×6.3 | 11.065 ×1.0 |
+| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 🟢 1.522 ×5.2 | — | 1.607 ×4.9 = | 0.93× interp | **-13.2%** | 1.613 ×4.9 | 7.926 ×1.0 |
 | b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 🟢 2.648 ×4.9 | — | 2.955 ×4.4 = | — | **-13.2%** | 3.399 ×3.8 | 13.081 ×1.0 |
 | b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 0.743 ×11.3 | 🟢 0.718 ×11.7 2t/min4 1.9×cpu | 0.845 ×9.9 = | — | **-12.7%** | 0.806 ×10.4 | 8.367 ×1.0 |
 | b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 🟢 1.788 ×6.9 | — | 1.817 ×6.8 = | — | **-6.9%** | 2.354 ×5.2 | 12.265 ×1.0 |
@@ -139,7 +139,41 @@ hierarchy large enough to be worth a chunk, so the small circuits here read
 `—`. `bench_comb` uses only 32-bit arithmetic yet
 still `brk`s ghdl-mcode, a useful datapoint on its own._
 
-### Why the `--accel` column is empty — measured at VeeR scale
+### The `--accel` column — two cells now fill, and they are SLOWER
+
+The size gate is gone (nvc `8c8e1c1ba`: it counted instance scopes, which is
+blind to work — a flat entity counted 1 at any size). With it off, **b01 and
+b06 now install and produce checksums identical to the interpreter** — the
+first `--accel` results this table has ever carried. Measured on identical
+footing, warm cache:
+
+| | interp | accel | ratio | instructions |
+| :-- | --: | --: | --: | --: |
+| b01 | 1.425 s | 1.555 s | **0.92×** | 0.908× |
+| b06 | 1.817 s | 1.947 s | **0.93×** | 0.913× |
+
+**They are 8–9% slower, and that is the honest result.** Wall-clock and
+instruction counts agree, so it is not a measurement artefact. The cause is
+structural rather than a missing optimisation: profiling accelerated b01 puts
+only **7.87%** of the run in generated code against **61%** in libnvc, while
+`accel_eval` + `aj_out` cost 5.36% — i.e. the bridge costs **68% of what the
+compute it enables costs**. These are single-process FSMs, so the chunk
+collapses no process or instance boundaries and there is no 63% boundary
+overhead to recover. It pays the crossing and gets nothing back.
+
+That is the target: make the bridge cheaper than the process it displaces.
+Until then, acceleration pays only where there are boundaries to collapse.
+
+The four remaining rows still decline, for two different reasons. **b12 and
+b14** decline in the translator. **b17 and b22** now reach synthesis and fail
+there (3 errors each) — component instantiation, `vhdl2vlog.c:1843`, where an
+elaborated `T_HIER` whose `tree_ref` is a `T_COMPONENT` rather than a `T_ARCH`
+emits `/*?block k=60*/`. Those two are the only rows with real hierarchy, so
+they are also the two most likely to actually benefit.
+
+_Historic note, kept because the reasoning was wrong in an instructive way._
+
+### Why the `--accel` column was empty — measured at VeeR scale
 
 This column used to say "revisit at VeeR scale". That has now been done, and the
 answer is that **`--accel` currently buys nothing on VeeR-EH2: 12.58 cycles/s
