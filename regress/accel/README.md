@@ -102,85 +102,108 @@ Breaking any one of these makes the chunk decline (often silently):
    not caused by bit-select port binding (reproduces with named signals).
    `fsm` and `many` are written as chains partly because of this.
 
-## What the first full run measured
+## What the suite measures
 
-> **★ CORRECTION (2026-07-29) — THE TIMING TABLE BELOW WAS MEASURED AT -O0 AND
-> ITS HEADLINE CONCLUSION IS WITHDRAWN.** The harness used to hardcode
-> `NVC_ACCEL_CC=cc`, i.e. plain `cc` with no `-O` flag, where nvc's own default
-> is `gcc -g -O3` (`src/rt/model.c`). So every `accel/cyc` number below is an
-> unoptimised build being compared against `verilator -O3`.
->
-> The artifact is shape-dependent (1.07x on `deep`, 4.53x on `regf_n16d32`), so
-> it distorted the comparison BETWEEN shapes and not merely the overall level.
-> Specifically: **point 2 is false — `--accel` is not a pessimisation anywhere**
-> once the bridge is built as it ships. Re-measured at -O3, the gap to Verilator
-> is **~9x geomean instructions (best 5.70x on `deep_d32`, worst ~28x)**, not the
-> 6.8x-87.9x spread tabulated here.
->
-> Point 3 (accel does a fixed amount of work per cycle regardless of activity)
-> is a *shape* result, not a *level* one, and still stands.
->
-> `run.sh` now uses nvc's default; set `ACCEL_CC=cc` to reproduce the old table.
-
-nvc @ `f251009c0`, Verilator 5.051 (`v5.050-60-g4262aea87`), i7-10875H (AVX2, no
-AVX-512). **All 19 cases: interp == accel == perinst == Verilator.**
-
-`./perf.sh` -- instructions per simulated cycle, with process start / elaboration
-load / dlopen differenced out by measuring each engine at 2000 and 22000 cycles and
-taking the slope. This is the honest table; a single `perf stat` at a low cycle count
-credits `--accel` with speedups that are pure startup (`wide_n8w256` reads 1.91x
-single-point and **0.71x** differenced).
+nvc @ `3370154`, Verilator 5.051 (`v5.050-60-g4262aea87`), i7-10875H.
+`./perf.sh` — instructions per simulated cycle, with process start / elaboration
+load / dlopen differenced out by measuring each engine at 2000 and 22000 cycles
+and taking the slope.  Both sides at -O3: nvc's bridge uses its own default
+(`gcc -g -O3`) and Verilator is built `-CFLAGS -O3`.  Instruction counts, not
+wall clock — wall clock on these boxes swings with load and cache state.
 
 ```
 CASE            interp/cyc  accel/cyc   vltr/cyc    acc:int acc:vltr
 ----------------------------------------------------------------------
-wide_n8w256         100580     141314       3455      0.71x    40.9x
-wide_n8w1024        268331     505584       7297      0.53x    69.3x
-wide_n16w1024       489125     828903      12159      0.59x    68.2x
-wide_n8w2048        488578     991861      12526      0.49x    79.2x
-fsm_n8               40417      18661       2211      2.17x     8.4x
-fsm_n32             168865      34965       2728      4.83x    12.8x
-fsm_n128            655344      97223       4757      6.74x    20.4x
-deep_d8              40493      15076       2052      2.69x     7.3x
-deep_d32            125398      14789       2160      8.48x     6.8x
-deep_d128           465328      21038       2603     22.12x     8.1x
-regf_n8d16           42956      51600       2095      0.83x    24.6x
-regf_n8d32           61916      81793       2100      0.76x    39.0x
-regf_n16d32         179898     147951       2163      1.22x    68.4x
-many_k12            506636     143306       4645      3.54x    30.8x
-many_k24           1026221     275363       6948      3.73x    39.6x
-act_lo_n8w256        51245     155564       3032      0.33x    51.3x
-act_hi_n8w256       119467     156129       3456      0.77x    45.2x
-act_lo_n16w512      118185     485570       5525      0.24x    87.9x
-act_hi_n16w512      323888     486232       7148      0.67x    68.0x
+wide_n8w256         100037      24604       2727      4.07x     9.0x
+wide_n8w1024        268043      93691       6869      2.86x    13.6x
+wide_n16w1024       488996     162735      11380      3.00x    14.3x
+wide_n8w2048        489907     167265      11864      2.93x    14.1x
+fsm_n8               51141      17172       2065      2.98x     8.3x
+fsm_n32             194687      26067       2583      7.47x    10.1x
+fsm_n128            565799      65338       4611      8.66x    14.2x
+deep_d8              39638      12903       1907      3.07x     6.8x
+deep_d32            124543      13909       2014      8.95x     6.9x
+deep_d128           464560      15212       2459     30.54x     6.2x
+regf_n8d16           42057      21811       1950      1.93x    11.2x
+regf_n8d32           73136      23640       1954      3.09x    12.1x
+regf_n16d32         147300      33072       2017      4.45x    16.4x
+many_k12            438582     106765       4445      4.11x    24.0x
+many_k24            807574     202599       6747      3.99x    30.0x
+act_lo_n8w256        66604      26822       2544      2.48x    10.5x
+act_hi_n8w256       118234      27364       2728      4.32x    10.0x
+act_lo_n16w512      125394      82230       4462      1.52x    18.4x
+act_hi_n16w512      324633      82900       5330      3.92x    15.6x
 ```
 
-Four things fall straight out of the shape contrast, which is what the suite is for.
+**vs Verilator: geomean 12.2x, best 6.2x (`deep_d128`), worst 30.0x (`many_k24`).**
+**vs the interpreter: geomean 4.1x, worst 1.52x — nothing loses.**
+By shape vs Verilator: deep 6.3x, fsm 10.5x, regf 12.8x, wide 12.7x, act 13.4x,
+many 26.8x.
 
-1. **Operand width is the axis, and it is worth ~9x.** Normalising to instructions
-   per design-bit per cycle, `wide` costs ~50-69 and `deep_d128` costs ~5.1;
-   Verilator is 0.6-0.9 on both. So we are ~70x off Verilator on wide logic and
-   ~8x off on narrow logic, with the same generated-code path, the same bridge and
-   the same testbench. `deep_d32` at **6.8x** is the closest anything here gets.
+### How this table got here, because two earlier versions of it were wrong
 
-2. **`--accel` is currently a *pessimisation* for 8 of 19 cases.** Every `wide`,
-   every `regf` except the largest, and every `act` case runs **fewer** instructions
-   in the interpreter (0.24x-0.83x). Only narrow/control (`fsm`), deep-comb (`deep`)
-   and fragmented (`many`) designs win. That is not visible without differencing.
+**The first published table was measured at -O0** and its headline conclusion —
+"`--accel` is a pessimisation for 8 of 19 cases" — is WITHDRAWN.  `perf.sh`
+hardcoded `NVC_ACCEL_CC=cc`, i.e. plain `cc` with no `-O` flag, against
+`verilator -O3`.  The artifact is shape-dependent (1.07x on `deep`, 4.53x on
+`regf_n16d32`), so it distorted the comparison BETWEEN shapes, not just the
+level.  A second asymmetry ran the other way: Verilator was built `-CFLAGS -O2`
+against our bridge's -O3, flattering us by one optimisation level.  Isolated by
+experiment, that one is worth only ~5-6%.
 
-3. **Accel does a fixed amount of work per cycle regardless of activity.** `act_lo`
-   and `act_hi` are the *same netlist* (`mode` is an input port, not a generic,
-   precisely so yosys cannot specialise them). Interpreter cost tracks activity:
-   51245 -> 119467 insn/cyc (2.3x) and 118185 -> 323888 (2.7x). Accel does not:
-   155564 -> 156129 (**0.4% apart**) and 485570 -> 486232 (**0.1% apart**). In the
-   1-of-16 regime accel is 4.1x slower than the interpreter it replaces. The
-   event-driven advantage is being thrown away, and there was previously no
-   evidence either way.
+**A recorded 9.0x geomean does not reproduce and should not be quoted.**  It was
+a BEST-OF-ARMS envelope rather than any single build: `deep_d32` reproduces
+(5.70x recorded vs 6.3x measured on the same basis) but `wide_n8w1024` was 11.2x
+recorded against 30.1x measured.  The arm the wide shapes needed was a `worbits`
+constprop clone that had been measured but never landed.
 
-4. **Compiled cones do scale; chunk count is not the bottleneck.** `deep` accel cost
-   is nearly flat in depth (15076 -> 14789 -> 21038 for D=8/32/128) while interp is
-   linear (40493 -> 125398 -> 465328). And `many_k24` installs 24 chunks and still
-   returns 3.73x, so boundary crossings are not what is costing the wide cases.
+**Landing it is what produced the table above** (`3370154`): profiling showed
+`worbits` + `worbits_s` were **71% of all instructions** in the accelerated wide
+run against 10% for `sm_clock_out`, the actual model, because of ~5,500 call
+sites of which 2,754 copied ONE BIT.  Folding single-word copies to a single
+statement took the geomean from **17.3x to 12.2x**, and took the two rows that
+still lost to the interpreter (0.60x, 0.80x) above 1.0.  `deep` is unchanged at
+~6.2x, which is the control: it was never `worbits`-bound.
+
+**Caveat that matters more than the table.**  These are SYNTHETIC shapes.  On the
+real VeeR-EH2 core, full `--accel` is **70x SLOWER than the interpreter** (2,604s
+warm vs 37s) and diverges — because 1,366 chunks get installed, over a thousand
+of them individual flip-flop primitives, each paying a bridge crossing per cycle.
+Nothing in this table predicts that, because none of these designs is fragmented
+enough to expose it.  See `many_k24` at 30.0x, the worst row here, whose profile
+is entirely nvc scheduler with no generated code in the top 12 — that is the same
+mechanism, two orders of magnitude smaller.
+3. **Accel does a fixed amount of work per cycle regardless of activity, and
+   that is still true.** `act_lo` and `act_hi` are the *same netlist* (`mode` is
+   an input port, not a generic, precisely so yosys cannot specialise them).
+   Interpreter cost tracks activity: 66604 -> 118234 insn/cyc (1.8x). Accel does
+   not: 26822 -> 27364 (**2% apart**). The event-driven advantage is thrown away
+   inside a chunk. Unlike the -O0 era this no longer makes `act_lo` a loss —
+   2.48x over the interpreter — but the shape result stands, and it is why
+   `act_lo_n16w512` remains one of the worst rows against Verilator.
+
+4. **CHUNK COUNT IS THE BOTTLENECK. The earlier version of this point said the
+   opposite and was wrong.** It read: "compiled cones do scale; chunk count is
+   not the bottleneck... `many_k24` installs 24 chunks and still returns 3.73x,
+   so boundary crossings are not what is costing the wide cases." The premise was
+   sound — `deep` accel cost IS nearly flat in depth (12903 -> 13909 -> 15212 for
+   D=8/32/128 against interp's linear 39638 -> 124543 -> 464560) — but the
+   conclusion did not follow, and two later measurements refute it:
+
+   * `many_k24` is now the **worst row in the suite at 30.0x**, and profiling it
+     shows the top 12 symbols are *entirely nvc kernel* — `procq_do`,
+     `wakeup_all`, `run_process`, `wake_proc`, `aj_proc_eval`, `run_trigger`,
+     `deferq_run`, `sched_driver` — with **no generated model code at all**. The
+     generated cone is already free there; the boundaries are the cost.
+   * On the real VeeR-EH2 core, full `--accel` installs **1,366 chunks, over a
+     thousand of them individual flip-flop primitives**, and runs **70x SLOWER
+     than the interpreter** (2,604s warm vs 37s).
+
+   What was true is that *cone depth* scales well. What is false is that chunk
+   COUNT is free: the accel currently ADDS a layer rather than replacing one —
+   full scheduler plus one bridge crossing per chunk per cycle. No design in this
+   suite is fragmented enough to expose that; `many` is the only hint, and it is
+   two orders of magnitude milder than VeeR.
 
 Raw logs: `RESULTS_percycle.txt` (differenced) and `RESULTS_verify_and_time.txt`
 (verification table plus single-point counts).
