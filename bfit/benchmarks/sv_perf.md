@@ -42,53 +42,85 @@ whole-process `taskset` an nvc run. Raw walls: interp 202.452 / 200.639 /
 This reproduces earlier independent measurements (12.53 / 12.32) within noise,
 on a different binary and a different day.
 
-## Why `--accel` buys nothing here
+## Why `--accel` bought nothing here — and what changed on 2026-07-30
 
-**Because the chunks that install are all cold.** The five ACTIVE chunks in
-every accel run above are `dbg`, `dma_ctrl`, `exu_div_ctl`, `exu_mul_ctl` and
-`pic_ctrl`. None is on the hot path of a `hello` workload — so the accelerated
-fraction of the design is nearly all idle, and 0.994x is the expected result
-rather than a disappointing one.
+**The explanation this section used to give is now WRONG, and is kept below only
+so the correction is legible.** It said: the five chunks that install (`dbg`,
+`dma_ctrl`, `exu_div_ctl`, `exu_mul_ctl`, `pic_ctrl`) are all cold, none is on
+the hot path of a `hello` workload, and the hot blocks `eh2_dec` / `eh2_ifu`
+**do not install** — so 0.994x was the expected result rather than a
+disappointing one.
 
-The hot blocks — `eh2_dec` and `eh2_ifu` — do not install. As of 2026-07-27 the
-reason is understood and it is **not** what it appeared to be:
+**All three premises have since been falsified.**
 
-* They used to decline at synthesis because of a dangling-pointer bug in the
-  translator: `vid()` returns one of 8 ROTATING STATIC buffers, and
-  `emit_function` borrowed that pointer across a body emission issuing far more
-  than 8 `vid()` calls, so the trailing `return` printed whatever identifier
-  last landed in the slot. **22 of 22 emitted functions had the wrong return
-  target.**
-* Fixing that is two lines and it does unblock synthesis: `eh2_dec` (16511 comb
-  cells / 346 registers) and `eh2_ifu` (30680 / 1949) then emit, synthesise,
-  compile and install.
-* **And they are functionally wrong.** `eh2_dec` derails at cycle 77 — 125
-  retires under the interpreter against 42 under accel, identical for the first
-  16 retires, then `0x2E000000` garbage and a repeating illegal-instruction
-  trap. `NVC_ACCEL_VERIFY` (which drives the chunk from the interpreter's own
-  inputs, so this is compute, not a boundary race) localises the first
-  divergence at `215ns+101 DEC_I0_BR_IMMED_D`. `eh2_ifu` installs and then
-  SIGSEGVs on an 8.33 MiB `sm_comb` stack frame against an 8 MiB limit.
+`eh2_dec` and `eh2_ifu` **both install now**. The `vid()` funcret defect that
+made them decline was fixed in `f251009c0`, and the remaining `eh2_dec` COMPUTE
+divergence was fixed by the same commit's self-determined-width work. Measured
+2026-07-30: `eh2_dec` installed, VeeR-EH2 `hello` to 3000 ns, **125 RETIRE/TRAP
+lines byte-identical to the interpreter**. `eh2_ifu` builds and runs to exit 0
+(its 8.33 MiB `sm_comb` stack frame was an -O0 artifact; at -O2 the frame is
+8,040 bytes).
 
-So the hot blocks were never *correct but declined* — **they were wrong and
-failing safe.**
+And the full core does not install five chunks. **It installs 1,366.**
 
-**UPDATE — the correctness half is fixed and landed (nvc `f251009c0`).** The
-wrongness was a second silent mistranslation, independent of the first: Verilog
-**self-determined width**. `l3d_bit_read` returns a 1-bit scalar but was emitted
-as `((a >> i) & 1'b1)`, which Verilog widths from its *left operand*. The two
-Verilog contexts that do not resize their parts — a concatenation element and a
-replication operand — were both fed such reads, so `{32 × bit_read(v_w0v,…)}`
-with `width(v_w0v)=31` became 992 bits whose low 32 are `0x80000001`: **only bits
-0 and 31 of every GPR write survived**, exactly the `accel == interp &
-0x80000001` signature. `eh2_dec` now produces **125 RETIRE lines byte-identical
-to the interpreter**.
+### The measured full-core result, 2026-07-30
 
-Two blockers remain before a VeeR accel number is publishable: `eh2_ifu` still
-SIGSEGVs on its 8.33 MiB `sm_comb` frame, and the 215ns family turned out to be a
-*separate* defect — extra-clock-group advance scheduling, not compute, which
-collapses `eh2_dec_decode_ctl`'s 62 divergences to 2 under `NVC_ACCEL_CK_LATE=1`.
-Two independent defects were being conflated.
+Whole core, no `NVC_ACCEL_ONLY` / `NVC_ACCEL_SKIP`, `hello` image, 3000 ns:
+
+| | |
+| :-- | --: |
+| interpreter | **37 s**, 125 RETIRE/TRAP lines, correct |
+| `--accel` cold (synth + compile everything) | 4,612 s (77 min) |
+| `--accel` warm | **2,604 s — 70x SLOWER than the interpreter** |
+| chunks installed | **1,366** |
+| synth failures / declined / timed out | 0 / 23 / 4 |
+| correctness | **DIVERGES** — wrong from the first retirement, 62 lines vs 125 |
+
+So `--accel` on the full core is no longer "neutral because the hot blocks are
+missing". It is **actively catastrophic, and wrong**.
+
+### Both halves have one cause: chunk granularity
+
+`NVC_ACCEL_VERIFY` (interpreter drives, compiled model checked per net per step)
+reports **exactly one** divergence across the whole run:
+
+```
+accel-verify: 5ns+48  L1CLK  interp=0x1 accel=0x0
+```
+
+`L1CLK` is a **gated clock**. The chunks reporting it are all clock-gated flop
+primitives — `rvdffe6` (530 instances), `rvdffs_fpga` (512), `rvdff1` (66),
+`rvdffe` (51), and so on. A gated clock stuck low stops every flop behind it,
+which is precisely "wrong from the first retirement, then half the trace". One
+bug, not 1,366 — and both `eh2_dec` and `eh2_ifu` are byte-identical *in
+isolation*, so this is **cross-chunk interaction, not per-chunk codegen**.
+
+The 70x has the same root. The emitted core references `sv_and` 23,640 times,
+`sv_or` 11,130, `rvdffe6` 2,120, `rvdffs_fpga` 2,048 — single gates and single
+flops. **Over a thousand of the 1,366 installed chunks are individual
+flip-flops**, each a separate `.so` paying a bridge crossing every cycle. One
+flop behind a bridge is unambiguously slower than interpreting that flop.
+
+This is the same mechanism visible in the synthetic suite at two orders of
+magnitude less severity: `many_k24` is the worst row there (30.0x vs Verilator),
+and profiling it shows the top twelve symbols are *entirely nvc kernel* —
+`procq_do`, `wakeup_all`, `run_process`, `wake_proc`, `aj_proc_eval`,
+`run_trigger`, `deferq_run`, `sched_driver` — with **no generated model code at
+all**. The generated cone is already free; the boundaries are the cost.
+
+**The structural statement: `--accel` currently ADDS a layer instead of
+REPLACING one.** Verilator is fast in large part because it has no event
+scheduler. With 1,366 chunks we pay nvc's full scheduler *plus* 1,366 bridge
+crossings per cycle — strictly more machinery than interpreting. A chunk only
+pays for itself when it **subsumes** the scheduling for its region, which is why
+the older measurements found benefit tracking *boundaries removed* rather than
+cells or instances, boundaries adding 63% on top of the logic, and the bridge
+costing ~2.8x the interpreted flop process it replaces.
+
+The fix is therefore to chunk **coarsely** — one chunk per clock domain rather
+than per module — which is the inverse of current admission behaviour and
+removes both the bridge storm and most of the surface where a gated clock has to
+be handed between chunks.
 
 ## The gap is code shape, not representation — measured
 
@@ -144,6 +176,39 @@ The real cost was `worbits` being **out-of-line with a data-dependent trip count
 and no constprop clone at all** despite literal arguments, where `wplace` got
 five clones. **1,116 of 2,505 `worbits` calls are one bit wide**; only 186 are
 1024.
+
+**✅ FIXED 2026-07-30 (sv2ghdl `3370154`), and it was the single largest accel
+win to date.** Profiling the accelerated `wide_n8w1024` run put `worbits` at
+**58.7%** and `worbits_s` at **12.5%** — **71% of all instructions** — against
+**10.4%** for `sm_clock_out`, the actual model. `static inline` was not helping:
+with thousands of call sites gcc declines to inline at any `-O` level, which is
+exactly why `wplace` ended up with clones and `worbits` with none.
+
+Since the destination offset, source offset and width are all **compile-time
+constants at the call site**, a copy landing inside one 32-bit word on both
+sides folds to a single statement with every operand an immediate:
+
+```c
+d[K] |= ((s[J] >> SB) & MASK) << DB;
+```
+
+Emitting that directly removes gcc's discretion rather than hoping for it. Wide
+copies keep the call, where the loop is already one word-op per 32 bits.
+
+**Proved, not sampled, in both available ways.** `yosys/prove_worbits_peephole.c`
+is exhaustive over all 32×32×32 shapes — 3,440,640 comparisons, zero mismatches
+inside the guard, and all 21,328 shapes *outside* it do differ, so the guard is
+exactly necessary and the fallback is not dead code.
+`yosys/prove_worbits_z3.py` then discharges the one assumption that harness
+leans on (that agreeing on 33 basis patterns implies agreement everywhere,
+because both forms are bitwise-linear): for each of the **11,440** guarded
+shapes z3 proves the negation `unsat`, i.e. equivalence over **all 2³² source
+and 2³² destination words simultaneously**.
+
+Result on the 19-design suite: **geomean vs Verilator 17.3× → 12.2×**, and the
+two rows that still lost to the interpreter (0.60×, 0.80×) moved above 1.0 —
+nothing loses now. `deep` is unchanged at ~6.2×, which is the control: it was
+never `worbits`-bound.
 
 ### Measured gap to Verilator, corrected
 
