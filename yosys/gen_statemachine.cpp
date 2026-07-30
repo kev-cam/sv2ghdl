@@ -343,12 +343,57 @@ static void emit_materialize(FILE *o, const std::string &dst, int ny,
             // Loop var is _wk (NOT _wb — that name is used for an operand temp
             // array in emit_wide_cell; a _wb counter would shadow it and the
             // dst[_wk] subscript would hit an int).
-            if (is_wide(chunk.wire->width))
-                fprintf(o, "      worbits(%s,%d,%s,%d,%d);\n",
-                        dst.c_str(), pos, wn.c_str(), off, w);
-            else
-                fprintf(o, "      worbits_s(%s,%d,%s,%d,%d);\n",
-                        dst.c_str(), pos, wn.c_str(), off, w);
+            // PEEPHOLE: fold a single-word bit-range OR into one statement.
+            //
+            // pos, off and w are all COMPILE-TIME CONSTANTS here, so whenever
+            // the range lands inside one 32-bit word on both sides, worbits'
+            // entire `while` loop collapses to
+            //     d[K] |= ((s[J] >> SB) & MASK) << DB;
+            // with every operand an immediate.  Emitting that directly instead
+            // of a call matters far more than it looks:
+            //
+            // MEASURED on wide_n8w1024 (perf, 200k cycles): worbits 58.7% +
+            // worbits_s 12.5% = 71% OF ALL INSTRUCTIONS in the accelerated run,
+            // against 10% for sm_clock_out -- the actual model.  The width
+            // distribution is why: of ~5,500 call sites in that design, 2,754
+            // copy ONE BIT, 1,314 copy two, 750 three, 303 four, and only 202
+            // are 1024 wide.  A one-bit copy was paying a function call, loop
+            // setup and a runtime mask computation.
+            //
+            // `static inline` did NOT save us: with thousands of call sites gcc
+            // declines to inline at any -O level (worbits appears as a real
+            // symbol in the .so), which is exactly why wplace got constprop
+            // clones and worbits got none.  Emitting the folded form removes
+            // gcc's discretion instead of hoping for it.
+            //
+            // Wide copies (w=1024) keep the call: the loop is already one
+            // word-op per 32 bits there, which is what we want.
+            const int dw = pos & 31, sw = off & 31;
+            const bool one_word_dst = dw + w <= 32;
+            if (is_wide(chunk.wire->width)) {
+                if (one_word_dst && sw + w <= 32) {
+                    const unsigned mask =
+                        (w >= 32) ? 0xffffffffu : ((1u << w) - 1u);
+                    fprintf(o, "      %s[%d] |= ((%s[%d] >> %d) & 0x%xu) << %d;\n",
+                            dst.c_str(), pos >> 5, wn.c_str(), off >> 5,
+                            sw, mask, dw);
+                }
+                else
+                    fprintf(o, "      worbits(%s,%d,%s,%d,%d);\n",
+                            dst.c_str(), pos, wn.c_str(), off, w);
+            }
+            else {
+                // scalar source: a uint64 value, shifted then masked
+                if (one_word_dst && off + w <= 64) {
+                    const unsigned mask =
+                        (w >= 32) ? 0xffffffffu : ((1u << w) - 1u);
+                    fprintf(o, "      %s[%d] |= ((uint32_t)((%s) >> %d) & 0x%xu) << %d;\n",
+                            dst.c_str(), pos >> 5, wn.c_str(), off, mask, dw);
+                }
+                else
+                    fprintf(o, "      worbits_s(%s,%d,%s,%d,%d);\n",
+                            dst.c_str(), pos, wn.c_str(), off, w);
+            }
         } else {
             any_const = true;
             for (int i = 0; i < w; i++) {
