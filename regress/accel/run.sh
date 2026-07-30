@@ -64,7 +64,11 @@ printf "%-15s %-9s %-7s %-6s %-11s %-11s %-11s %-11s %s\n" \
   CASE CHUNKS CELLS REGS INTERP ACCEL PERINST VERILATOR VERDICT
 printf '%.0s-' {1..104}; echo
 
-[ "${KEEPCACHE:-0}" = "1" ] || rm -rf "$WORKROOT/.cache/nvc/accel"
+# Cache persists by default so re-runs cost no synth.  Staleness is handled by
+# the key, not by deletion: model.c hashes a cache-version byte, gen_statemachine's
+# mtime, the top module name and the emitted Verilog into the .so name.  Set
+# FRESHCACHE=1 to force a cold build (KEEPCACHE=1 is accepted for compatibility).
+[ "${FRESHCACHE:-0}" = "1" ] && rm -rf "$WORKROOT/.cache/nvc/accel"
 
 fails=0; suite_ok=(); suite_bad=()
 for row in "${CASES[@]}"; do

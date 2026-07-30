@@ -110,7 +110,20 @@ for row in "${DESIGNS[@]}"; do
   $OUR -L $OURL --work="$d/w" --std=$STD -e -gCYCLES=$cyc $top >/dev/null 2>&1
 
   # our-nvc --accel  (best effort: only counts if it installs AND matches)
-  rm -rf /home/claude/.cache/nvc/accel/* 2>/dev/null
+  #
+  # The accel cache is DELIBERATELY NOT WIPED.  It used to be `rm -rf`'d before
+  # every design, which made each benchmark invocation pay a full cold
+  # synth+compile for every row and defeated the persistent code cache
+  # outright.  Reported times were warm either way -- the detect run below
+  # repopulates and best_of times cached runs -- but the point of the cache is
+  # that the compile bill goes to zero on RE-RUNS, and wiping threw that away.
+  #
+  # It is safe to keep, because the cache key already covers staleness:
+  # model.c mixes a cache-version byte, **gen_statemachine's mtime**, the top
+  # module name and the full emitted Verilog text into the .so's name hash, so
+  # a codegen change or a source change yields a different file and forces a
+  # fresh synth.  Set ACCEL_FRESH=1 to wipe anyway when that is what you want.
+  [ "${ACCEL_FRESH:-0}" = "1" ] && rm -rf /home/claude/.cache/nvc/accel/* 2>/dev/null
   export NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1 NVC_ACCEL_CC="gcc -O2" NVC_ACCEL_SYNTH_TIMEOUT=60
   aout=$($OUR -L $OURL --work="$d/w" --std=$STD -r $top 2>&1)   # warm-up + detect
   if printf '%s' "$aout" | grep -qE 'accel-jit:.*(installed|driving)'; then
