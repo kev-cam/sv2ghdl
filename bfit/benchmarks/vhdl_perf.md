@@ -5,7 +5,7 @@ engine**; a 64-bit checksum printed by each run is compared across engines — a
 row's **agree** is ✓ only if every *running* engine matches. Each cell is
 `seconds ×speedup` (base `×` vs the **slowest running engine** in the row);
 🟢 = fastest engine in the row. `brk` = exceeded the 45s wall cap;
-`—` = engine not applicable (`--accel` declined the design as too small;
+`—` = engine not applicable (`--accel` declined the design — see below;
 l3d not run for the self-contained syn benches; `∥` when no thread count
 beat serial). Run-phase wall-clock, best of 3. **size** = non-blank DUT
 source lines / process count.
@@ -37,16 +37,16 @@ made serial SLOWER, so the wall gain is not a CPU-frequency artefact; it
 is thread placement.)  Reporting that as a parallel speed-up would be
 false, so the efficiency test rejects it.
 
-| Design | style | size | cycles | agree | our-nvc | our-nvc ∥ | our-l3d | our-nvc --accel | JIT-opt Δinsn | stock-nvc | ghdl |
-| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: | --: | --: |
-| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.435 ×24.1 | — | — | — | -0.2% | 🟢 0.419 ×25.0 | 10.483 ×1.0 |
-| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.959 ×1.0 | 🟢 1.875 ×1.0 2t/min4 1.9×cpu | — | — | **-4.0%** | 1.876 ×1.0 | brk |
-| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 🟢 1.690 ×6.5 | — | 1.812 ×6.1 = | 0.92× interp | **-15.3%** | 1.755 ×6.3 | 11.065 ×1.0 |
-| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 🟢 1.522 ×5.2 | — | 1.607 ×4.9 = | 0.93× interp | **-13.2%** | 1.613 ×4.9 | 7.926 ×1.0 |
-| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 🟢 2.648 ×4.9 | — | 2.955 ×4.4 = | — | **-13.2%** | 3.399 ×3.8 | 13.081 ×1.0 |
-| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 0.743 ×11.3 | 🟢 0.718 ×11.7 2t/min4 1.9×cpu | 0.845 ×9.9 = | — | **-12.7%** | 0.806 ×10.4 | 8.367 ×1.0 |
-| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 🟢 1.788 ×6.9 | — | 1.817 ×6.8 = | — | **-6.9%** | 2.354 ×5.2 | 12.265 ×1.0 |
-| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 🟢 1.187 ×6.2 | — | 1.201 ×6.1 = | — | **-7.7%** | 1.435 ×5.1 | 7.306 ×1.0 |
+| Design | style | size | cycles | agree | our-nvc | our-nvc ∥ | our-l3d | our-nvc --accel | stock-nvc | ghdl |
+| :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: | --: |
+| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.735 ×14.4 | — | — | — | 🟢 0.418 ×25.4 | 10.616 ×1.0 |
+| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 2.269 ×1.0 | — | — | — | 🟢 1.879 ×1.2 | brk |
+| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 1.914 ×5.7 | — | 2.035 ×5.4 = | 2.169 ×5.0 | 🟢 1.690 ×6.4 | 10.896 ×1.0 |
+| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.761 ×4.5 | — | 1.856 ×4.2 = | 1.915 ×4.1 | 🟢 1.531 ×5.1 | 7.846 ×1.0 |
+| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 🟢 2.902 ×4.5 | — | 3.229 ×4.1 = | — | 3.111 ×4.2 | 13.135 ×1.0 |
+| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 1.040 ×8.2 | — | 1.134 ×7.5 = | — | 🟢 0.823 ×10.3 | 8.509 ×1.0 |
+| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 🟢 2.147 ×5.7 | — | 2.178 ×5.6 = | — | 2.384 ×5.1 | 12.144 ×1.0 |
+| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 🟢 1.487 ×5.0 | — | 1.504 ×4.9 = | — | 1.507 ×4.9 | 7.437 ×1.0 |
 
 ### Reading these numbers
 
@@ -104,126 +104,24 @@ testbenches re-pulse reset every 512 cycles so the DUT keeps executing for the
 whole run. b20 is excluded: its two b14 cores form a closed loop whose
 top-level outputs never leave 0, so its checksum cannot detect divergence.
 
-**JIT-opt Δinsn** is the first entry in the optimiser's technique catalogue,
-measured on the path these designs actually take. `--accel` never runs on any
-row here (see below), but every design goes through the JIT — so this column
-reports what a JIT-path technique buys, in **instructions**, which is the
-metric that survives machine and cache variation.
-
-The technique is `NVC_JIT_ASYNC=0` — compile synchronously at the tier-up
-threshold instead of continuing to interpret while a background thread
-compiles. All eight checksums are identical to the async run (verified, not
-assumed). It is reported as Δinstructions rather than seconds because **it
-costs single-run wall-clock and wins throughput**, and only one of those is
-visible in the seconds columns:
-
-| p_tb, 16 cores | async (default) | sync |
-| :-- | --: | --: |
-| one sim, idle box | **0.379 s** | 0.454 s |
-| one sim, all cores busy | **0.747 s** | 0.931 s |
-| **16 concurrent sims** | 1.700 s | **1.076 s** |
-
-Async spends 7–44% extra instructions to hide compile latency on a spare core,
-so it wins whenever a spare core exists. Under a regression run every "spare"
-core is another job, and the extra instructions come straight off aggregate
-throughput — **sync is 37% faster for 16 concurrent sims**. So the applicability
-condition is explicit: use it for farm and CI runs and on few-core laptops;
-leave it off for a single interactive run. Note that single-run wall-clock
-predicts this backwards — instructions predicted it correctly.
-
 _Generated by `bfit/benchmarks/vhdl/run_vhdl_perf.sh`. Base nvc/ghdl RTL
 simulation is single-threaded (nvc JIT is a codegen mode, not runtime
 parallelism; ghdl is mcode). The fork's parallel/accelerated path is
-`--accel` (yosys front-end); it declines designs with no synthesizable
-hierarchy large enough to be worth a chunk, so the small circuits here read
-`—`. `bench_comb` uses only 32-bit arithmetic yet
-still `brk`s ghdl-mcode, a useful datapoint on its own._
+`--accel` (yosys front-end).  Its `—` cells were long attributed to the
+size pre-gate (`NVC_ACCEL_MIN_MODULES`, default 8 instances), but lowering
+that gate to 1 on a separate machine showed the real blocker is TRANSLATOR
+COVERAGE: all six ITC designs get past the gate and are then declined by
+vhdl2vlog, which marks each unhandled construct in the Verilog it emits.
+The blockers are `T_ATTR_REF` (attribute reference — in ALL six designs,
+fatal on its own), the `mod`/`*` operator functions (74 sites in b14
+alone) and non-architecture block scopes (b17/b22).  Nothing installs, so
+every accel run here is pure interpretation — and lowering the gate is
+actively harmful, costing 8-12% on b17/b22 in repeated failed synth
+attempts.  These designs ARE worth accelerating (CPU-class datapaths);
+they are simply unreachable through the current translator.
 
-### The `--accel` column — two cells now fill, and they are SLOWER
-
-The size gate is gone (nvc `8c8e1c1ba`: it counted instance scopes, which is
-blind to work — a flat entity counted 1 at any size). With it off, **b01 and
-b06 now install and produce checksums identical to the interpreter** — the
-first `--accel` results this table has ever carried. Measured on identical
-footing, warm cache:
-
-| | interp | accel | ratio | instructions |
-| :-- | --: | --: | --: | --: |
-| b01 | 1.425 s | 1.555 s | **0.92×** | 0.908× |
-| b06 | 1.817 s | 1.947 s | **0.93×** | 0.913× |
-
-**They are 8–9% slower, and that is the honest result.** Wall-clock and
-instruction counts agree, so it is not a measurement artefact. The cause is
-structural rather than a missing optimisation: profiling accelerated b01 puts
-only **7.87%** of the run in generated code against **61%** in libnvc, while
-`accel_eval` + `aj_out` cost 5.36% — i.e. the bridge costs **68% of what the
-compute it enables costs**. These are single-process FSMs, so the chunk
-collapses no process or instance boundaries and there is no 63% boundary
-overhead to recover. It pays the crossing and gets nothing back.
-
-That is the target: make the bridge cheaper than the process it displaces.
-Until then, acceleration pays only where there are boundaries to collapse.
-
-The four remaining rows still decline, for two different reasons. **b12 and
-b14** decline in the translator. **b17 and b22** now reach synthesis and fail
-there (3 errors each) — component instantiation, `vhdl2vlog.c:1843`, where an
-elaborated `T_HIER` whose `tree_ref` is a `T_COMPONENT` rather than a `T_ARCH`
-emits `/*?block k=60*/`. Those two are the only rows with real hierarchy, so
-they are also the two most likely to actually benefit.
-
-_Historic note, kept because the reasoning was wrong in an instructive way._
-
-### Why the `--accel` column was empty — measured at VeeR scale
-
-This column used to say "revisit at VeeR scale". That has now been done, and the
-answer is that **`--accel` currently buys nothing on VeeR-EH2: 12.58 cycles/s
-against 12.02 interpreted, 0.99x.** Verilator on the same workload: 30195
-cycles/s. Two measured reasons, in order.
-
-**Coverage, not codegen.** The generated native code covered ~0.09% of VeeR sim
-time because the hot blocks declined to translate — and that turned out to be a
-dangling pointer rather than a missing feature. `vid()` returns one of 8
-ROTATING STATIC buffers; `emit_function` borrowed that pointer across a body
-emission issuing far more than 8 `vid()` calls, so the trailing `return` printed
-whatever identifier last landed in the slot. **22 of 22 emitted functions had
-the wrong return target.**
-
-**Correctness, which is the real blocker.** Fixing that is a two-line change and
-it does unblock synthesis: `eh2_dec` (16511 comb cells / 346 registers) and
-`eh2_ifu` (30680 / 1949) now emit, synthesise, compile and install where both
-previously printed `synth failed`. But the unblocked chunks are FUNCTIONALLY
-WRONG. `eh2_dec` derails at cycle 77 — 125 retires under the interpreter against
-42 under accel, identical for the first 16 retires, then garbage (0x2E000000)
-and a repeating illegal-instruction trap. `NVC_ACCEL_VERIFY`, which drives the
-chunk from the interpreter's own inputs, localises it as a COMPUTE divergence,
-first report at `215ns+101 DEC_I0_BR_IMMED_D`. `eh2_ifu` installs and then
-SIGSEGVs, its generated `sm_comb` stack frame being 8.33 MiB against an 8 MiB
-limit.
-
-So the earlier reading that the hot blocks were "correct but declined" was
-wrong: **they were wrong and failing safe.**
-
-**UPDATE — the correctness half is now fixed and landed (nvc `f251009c0`).** The
-wrongness was a second, independent silent mistranslation: Verilog
-**self-determined width**. `l3d_bit_read` returns a 1-bit scalar but was emitted
-as `((a >> i) & 1'b1)`, which Verilog widths from its *left operand*. Verilog has
-exactly two contexts that do not resize their parts — a concatenation element and
-a replication operand — and both were fed such reads. In `eh2_dec_gpr_ctl`,
-`{32 × bit_read(v_w0v,…)}` with `width(v_w0v)=31` became 992 bits whose low 32
-are `0x80000001`, so **only bits 0 and 31 of every GPR write survived**. A second
-instance was predicted from the base width and then measured exactly. With that
-fixed, **`eh2_dec` now produces 125 RETIRE lines byte-identical to the
-interpreter** under `--accel`.
-
-**The column still stays empty, for two separate reasons.** First and unchanged:
-every design in this table is far too small to be worth a chunk, so `--accel`
-declines them all — that is a property of the designs, not a defect. Second, at
-VeeR scale `eh2_ifu` still installs and then SIGSEGVs on an 8.33 MiB `sm_comb`
-stack frame, and a separate extra-clock-group scheduling defect remains (it
-collapses `eh2_dec_decode_ctl`'s 62 divergences to 2 under
-`NVC_ACCEL_CK_LATE=1`). So VeeR is closer to correct but not yet a number worth
-publishing. See `sv_perf.md` for where the throughput gap actually lives — it is
-not representation.
+`bench_comb` uses only 32-bit arithmetic yet still `brk`s ghdl-mcode, a
+useful datapoint on its own._
 
 ## Where we lead
 
@@ -240,10 +138,41 @@ in the nvc tree. std_logic shown for reference (it isn't the 3D-logic path).
 
 | wires | std_logic | logic3d | l3dw word | l3dw vs logic3d |
 | --: | --: | --: | --: | --: |
-| 8 | 0.114s | 0.135s | 0.117s | 1.15x |
-| 32 | 0.116s | 0.175s | 0.122s | 1.43x |
-| 128 | 0.125s | 0.313s | 0.134s | 2.34x |
-| 1024 | 0.187s | 1.581s | 0.246s | 6.43x |
+| 8 | 0.408s | 0.416s | 0.421s | 0.99x |
+| 32 | 0.419s | 0.447s | 0.402s | 1.11x |
+| 128 | 0.417s | 0.509s | 0.395s | 1.29x |
+| 1024 | 0.412s | 1.662s | 0.464s | 3.58x |
+
+**Do not compare those wall-clock figures against an earlier run of this table.**
+The previous revision recorded 1.15 / 1.43 / 2.34 / 6.43x, which looks like a
+large regression and is not evidence of one: `std_logic`, which nothing has
+touched, moved 2.2x between the two runs (0.187s -> 0.412s at 1024 wires), so
+box state dominates the comparison. Instruction counts on the same builds, which
+are contention-robust and are the project's stated metric:
+
+| wires | logic3d insn | l3dw insn | l3dw vs logic3d |
+| --: | --: | --: | --: |
+| 8 | 5,523,079,971 | 5,012,855,732 | 1.10x |
+| 32 | 6,023,674,293 | 5,061,567,122 | 1.19x |
+| 128 | 7,369,096,270 | 5,188,974,108 | 1.42x |
+| 1024 | 24,628,166,076 | 6,384,000,795 | **3.86x** |
+
+**A before/after for the certainty enum is still OUTSTANDING** (task #52). That
+change (`a6cc3b749`) moved plane access from `mod`/`div` to slices — faster — and
+added a 2-bit `kmax` magnitude compare to every gate op — slower. Net sign
+unmeasured, because establishing it needs the pre-change package rebuilt and
+measured on the same metric. If `kmax` proves expensive it only needs to run when
+an operand is uncertain, which after reset is never, so an `if (Ua | Ub)` guard
+would restore the old certain-path cost.
+
+**THE STRUCTURAL POINT THIS TABLE UNDERSTATES.** `logic3d`'s vector operators are
+SCALAR — `L3D_BINOP_BODY` in `src/jit/jit-intrin.c` processes one `int32` per
+loop iteration — while `std_logic`'s run SIXTEEN values per 128-bit op via three
+`PSHUFB` lookups (`ieee_and_vector_sse41`). std_logic *needs* a table, because a
+9-value enum has no arithmetic structure; logic3d needs none, its ops are pure
+bitwise formulas with no cross-lane dependency. The representation with the
+better algebra is the one that never got vectorised, which is why `our-l3d` loses
+to `our-nvc` in the main table above (b14: 1.134 vs 1.040). Tracked as task #54.
 
 ### Demand-driven (pull) vs forward (push) evaluation
 
@@ -254,10 +183,10 @@ pull result verified bit-identical to push. 8329-node design, 5000 cycles:
 
 | evaluator | observation | vs forward push |
 | :-- | :-- | --: |
-| compiled pull cone | every cycle | **26.46x FASTER** |
-| pull (interpreted) | every cycle | 10.09x |
-| pull (interpreted) | every 100th cycle | 116.47x |
-| pull (interpreted) | final only | 167.99x |
+| compiled pull cone | every cycle | **26.96x FASTER** |
+| pull (interpreted) | every cycle | 9.65x |
+| pull (interpreted) | every 100th cycle | 107.49x |
+| pull (interpreted) | final only | 164.63x |
 
 Compiled cones skip dead **logic** at push's per-eval speed (no interp
 overhead); memoisation/multicycle-collapse additionally skip unobserved
