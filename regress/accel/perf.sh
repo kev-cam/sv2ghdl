@@ -72,7 +72,15 @@ for row in "${CASES[@]}"; do
   W="$D/work"; A=(-M 512m -H 512m --std=2008 --work="$W" -L "$VLIB")
   ok=1; for f in $order; do $NVC "${A[@]}" -a "$D/$f" >/dev/null 2>&1 || ok=0; done
   [ $ok -eq 0 ] && { echo "$name ANALYSE FAIL"; continue; }
-  AE=(NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1 NVC_ACCEL_CC=cc)
+  # The bridge is compiled with nvc's OWN default (`gcc -g -O3`, model.c) unless
+  # ACCEL_CC overrides.  This used to be hardcoded `NVC_ACCEL_CC=cc` -- plain cc
+  # with NO -O flag -- which measured an unoptimised accel build against
+  # `verilator -O3` and produced the withdrawn table in README.md.  The artifact
+  # is shape-dependent (1.07x on deep, 4.53x on regf_n16d32), so it distorted the
+  # comparison BETWEEN shapes, not just the overall level.  Set ACCEL_CC=cc to
+  # reproduce the old numbers.
+  AE=(NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1)
+  [ -n "${ACCEL_CC:-}" ] && AE+=("NVC_ACCEL_CC=$ACCEL_CC")
 
   declare -A I A_ V
   for C in $LO $HI; do
@@ -80,7 +88,9 @@ for row in "${CASES[@]}"; do
     # warm the accel cache (compile) before timing
     env "${AE[@]}" $NVC "${A[@]}" -r "$tb" >/dev/null 2>&1
     VD="$D/v$C"
-    $VERILATOR --binary -j 4 -Wno-fatal -O3 -CFLAGS -O2 --Mdir "$VD" -o vsim \
+    # -CFLAGS -O3 to match what nvc gives its own bridge (`gcc -g -O3`).  At
+    # -CFLAGS -O2 the comparison quietly favoured us by one optimisation level.
+    $VERILATOR --binary -j 4 -Wno-fatal -O3 -CFLAGS "${VLCFLAGS:--O3}" --Mdir "$VD" -o vsim \
         --top-module "$tb" $sgen -GCYC=$C "$D/$sv" >/dev/null 2>&1 || { ok=0; break; }
     # interleaved arms, same case, back to back
     I[$C]=$(perf stat -e instructions $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
