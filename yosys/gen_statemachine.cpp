@@ -1125,6 +1125,33 @@ int main(int argc, char **argv)
         }
     }
 
+    // --- COMB-ONLY CHUNKS ARE DECLINED, LOUDLY -------------------------------
+    // A chunk with ZERO registers (and no memories) has no state to advance: it
+    // is a pure function the interpreter already evaluates in one delta.  The
+    // bridge cannot make it faster -- it can only add a call and a DELTA HOP on
+    // every input change -- and when the wire it carries is a CLOCK that hop is
+    // a correctness disaster.
+    //
+    // MEASURED, full VeeR-EH2 2026-07-31: rvoclkhdr__63cc is literally
+    // `assign l1clk = clk;` (the FPGA build's clock gate collapses to a wire).
+    // Installed 7x as an accel chunk, it put a bridge in the clock path of its
+    // whole downstream cone; NVC_ACCEL_VERIFY's single divergence across the
+    // entire run was that chunk's L1CLK reading 0 at the first clk rising edge
+    // (5ns+48, interp=1 accel=0).  In the driving run every flop behind the
+    // gated clock therefore never clocked -- wrong from the first retirement.
+    // The comb-chain c1c output-drop defect is the same family; declining
+    // comb-only chunks quarantines both.
+    //
+    // Zero benefit, real hazard, and a decline structurally cannot create a
+    // wrong answer.  GSM_ALLOW_COMB=1 overrides for experiments.
+    if (registers.empty() && memories.empty() && !getenv("GSM_ALLOW_COMB")) {
+        fprintf(stderr, "gen_statemachine: declining '%s': comb-only "
+                "(0 registers, 0 memories) -- nothing to accelerate, and a "
+                "bridged pure-comb path adds a delta hop (clock-path hazard; "
+                "see rvoclkhdr/L1CLK)\n", mod->name.c_str());
+        return 1;
+    }
+
     // --- Multi-clock grouping ---
     // Group registers by their clock net. Group 0 = the main clk (cname "_clk",
     // which the bridge drives the posedge from). Each DISTINCT other clock (e.g.

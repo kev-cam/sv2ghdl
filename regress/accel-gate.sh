@@ -127,6 +127,18 @@ if [ "$rc" -ne 0 ]; then
   echo "VERDICT: HELD — $rc design(s) mismatched (see EXCLUDED above)"
   exit 1
 fi
+
+# ---- 3. optimization assertions --------------------------------------------
+# Correctness above; EXISTENCE here.  opt_asserts.sh proves each landed
+# optimization actually FIRES (worbits peephole shape, comb-only decline,
+# two-tier cache key, synth timeout, instruction budget).  Reverting one keeps
+# every checksum green -- only these assertions notice.  Validated against the
+# pre-peephole Jul-27 binary: it fails exactly the three checks it should.
+echo "  running opt_asserts.sh"
+if ! "$HERE/accel/opt_asserts.sh" | sed 's/^/    /'; then
+  echo "VERDICT: HELD — an optimization stopped firing (see FAIL lines above)"
+  exit 1
+fi
 echo "VERDICT: CLEAN — all designs interp == accel == perinst == Verilator"
 echo "         ($installed chunks installed)"
 exit 0
