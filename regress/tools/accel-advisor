@@ -1,0 +1,560 @@
+#!/usr/bin/env python3
+"""accel-advisor — what stands between your design and known-correct acceleration.
+
+The nvc --accel path runs RTL through yosys synthesis (gen_statemachine) plus
+equivalence checking, so a chunk that installs and verifies is KNOWN-CORRECT:
+proven equivalent to the interpreted semantics, not "probably right".  This
+tool reports, per module, exactly which catalog class blocks / degrades /
+risks that guarantee, with the evidence and the change that fixes it.
+
+Stages (see regress/tools/README-advisor.md and the campaign log):
+  0  environment + flow audit                     (always)
+  1  static source scan                           (always)
+  2  yosys quick-synth diagnostics per module     (always; memory pre-gate)
+  3  nvc accel dry-run, stderr classification     (--run)
+  4  correctness probes: VERIFY / X-detect        (--verify)
+
+Exit codes: 0 all candidates ACCELERABLE; 1 BLOCKED present; 2 RISK present
+on an installed chunk; 3 tool/flow error.
+"""
+
+import argparse, json, os, re, shutil, subprocess, sys, tempfile
+from collections import defaultdict
+
+# --------------------------------------------------------------------------
+# THE CATALOG — single source of truth (id, severity, note regexes for the
+# stage-3 stderr parser, and the advice text).  Severities: B = blocks-accel,
+# C = correctness-risk (denies the known-correct verdict), D = degrades,
+# S = informational.
+# --------------------------------------------------------------------------
+CATALOG = {
+ "B1":  ("blocks", "clocking-contract violation (derived/gated/absent clock)",
+   [r"DERIVED clock \(comb-driven\)", r"no clk port found",
+    r"extra clock .* not a (marshalled|module) input"],
+   "Give every accelerable subtree a primary clock input port (ideally named "
+   "clk) driven by a real timed clock generator. Express gating as clock "
+   "enables (if (en) q <= d), not gated clock nets; push ICG cells fully "
+   "inside the chunk or draw the boundary above them. MEASURED HAZARD: a "
+   "chunk-published clock consumed by an interp ICG latch must be a real-time "
+   "waveform — compressed rise+fall in one instant opens the latch early and "
+   "emits runt gated clocks (missed reset captures downstream). Keep each ICG "
+   "and its consumers on the same side of a chunk boundary."),
+ "B2":  ("blocks", "vhdl2vlog non-translatable construct",
+   [r"not fully translatable"],
+   "Inside accelerable subtrees use direct entity instantiation, no "
+   "component/configuration; flatten for..generate; keep assert/report/"
+   "procedures/PSL in the testbench. Declines are often silent: verify "
+   "installation, never assume it."),
+ "B3":  ("blocks", "boundary marshalling limit (port type/width/pin count)",
+   [r"not value-bit marshallable", r"exceeds .* boundary pins"],
+   "Keep boundary ports std_logic/bit/boolean/logic3d scalars or vectors, "
+   "<=4096 bits each, <=4096 pins total. Flatten records; encode integers as "
+   "vectors; prefer fewer wide buses; or chunk one level lower."),
+ "B4":  ("blocks", "latch inference / exotic storage cell",
+   [r"unhandled cell type \$(a?dlatch|dffsr|aldff|sr)\b"],
+   "Give every combinational if/case a complete else/default so no latch is "
+   "inferred. Avoid flops with both async set and reset; restructure to a "
+   "single (preferably synchronous) reset."),
+ "B5":  ("blocks", "unsupported cell operation",
+   [r"unhandled cell type"],
+   "Keep division, modulo, power, and signed arithmetic-right-shift out of "
+   "accel-target RTL (strength-reduce or move outside the chunk). >64-bit "
+   "buses support only the arith/logic/shift/mux/compare/reduce subset."),
+ "B6":  ("blocks", "large/flattened memory — synthesis wall-clock",
+   [r"synth for .* exceeded"],
+   "Keep big RAMs out of accelerated chunks (draw the boundary around the "
+   "SRAM wrapper) or write memories in a yosys-inferable style (single "
+   "clocked write port, complete branches). Always run with "
+   "NVC_ACCEL_SYNTH_TIMEOUT set."),
+ "B7":  ("blocks", "memory word wider than 64 bits",
+   [r"memory .* ?> ?64"],
+   "Keep memory words <=64 bits; split wider words into parallel banks."),
+ "B8":  ("blocks", "sliced/partial-Q register merge failure",
+   [r"sliced register", r"overlapping slices", r"mixed clocks across"],
+   "Never drive different bit ranges of one register from different clocks; "
+   "avoid register names that sanitize to the same C identifier. An "
+   "overlapping-slices decline on a byte-enable register may be a real "
+   "double-drive — investigate."),
+ "B9":  ("blocks", "comb-only / zero-register chunk (deliberate policy)",
+   [r"has no registers", r"comb-only"],
+   "Never target pure-comb leaves; pick a granularity containing the state "
+   "the comb feeds. A bridged wire in a clock path delays every downstream "
+   "flop by a delta — measured correctness disaster."),
+ "B10": ("blocks", "yosys synthesis / frontend failure",
+   [r"synth failed for"],
+   "Read the chunk's log in the accel cache: every yosys ERROR lands there. "
+   "Keep accelerable RTL synthesizable. A frontend error on generated "
+   "Verilog is a vhdl2vlog bug — file it."),
+ "B11": ("blocks", "no synthesizable source for subtree",
+   [r"no verilog source", r"nvc_verilog_src"],
+   "For VHDL/sv2ghdl designs NVC_ACCEL_FROM_VHDL=1 is mandatory. For native "
+   "Verilog, preserve the nvc_verilog_src attribute through analysis."),
+ "B12": ("blocks", "toolchain/cache failure",
+   [r"compile failed", r"dlopen", r"missing accel_eval"],
+   "Not a design property. After rebuilding the toolchain clear the accel "
+   "cache (or NVC_ACCEL_NO_CACHE=1 once); check NVC_ACCEL_CC and cache-dir "
+   "writability."),
+ "B13": ("blocks", "structural admission gate (min modules/instances)",
+   [r"below instance gate"],
+   "Structure the datapath under one chunkable instance boundary. If a small "
+   "design is refused, set NVC_ACCEL_MIN_MODULES=1 explicitly."),
+ "B14": ("blocks", "legacy path partial register mapping",
+   [r"registers mapped .* not activating"],
+   "Prefer the subtree JIT path (NVC_ACCEL_JIT). On the legacy path give "
+   "every state element an explicit named signal."),
+ "C1":  ("risk", "combinational loop (silently broken by topo order)",
+   [],
+   "Break every comb loop with a register or restructure the handshake. Any "
+   "yosys SCC with more than one cell disqualifies the module — the accel "
+   "model reads stale values where the interpreter iterates to convergence."),
+ "C2":  ("risk", "reset-name protocol: port literally named rst",
+   [],
+   "Reserve the exact name rst for active-HIGH SYNCHRONOUS whole-state "
+   "resets; name anything else rst_n/rst_l/resetn. An active-low or async "
+   "reset named rst is admitted and silently mismodelled."),
+ "C3":  ("risk", "X/Z at the accel boundary",
+   [r"X/Z at accel boundary", r"not driven-certain"],
+   "Drive every accel-boundary input to a certain value out of reset: full "
+   "reset coverage, no floating/tri-state boundary nets. Gate CI with "
+   "NVC_ACCEL_XDEMOTE_AFTER just past reset; on sightings run "
+   "NVC_ACCEL_VERIFY as the oracle."),
+ "C4":  ("risk", "wide-register reset/init truncation above bit 127",
+   [],
+   "Keep async-reset registers <=128 bits or reset wide state to zeros; "
+   "split wider registers with nonzero high reset patterns."),
+ "C5":  ("risk", "memory write port on a secondary clock",
+   [],
+   "Clock all memory write ports in a chunk from the chunk's main clock. "
+   "$memwr commits are owned by clock group 0; other-edge writes fire wrong "
+   "with no diagnostic."),
+ "C6":  ("risk", "signed-compare width mismatch residue",
+   [],
+   "Never compare signed and unsigned expressions of different widths; cast "
+   "to a common signed width. Run the xcheck.py differential before trusting "
+   "signed-arithmetic modules."),
+ "C7":  ("risk", "expression as port-map actual (interp buffer bug)",
+   [],
+   "Hoist every port-map expression into a named signal. Treat as a hard "
+   "style rule until the interpreter conversion-buffer bug is fixed."),
+ "C8":  ("risk", "non-canonical flop style",
+   [],
+   "Standardize on: if rising_edge(clk) then if rst='1' then ... else ... . "
+   "Synchronous resets impose zero accel restrictions; async resets buy the "
+   "ARST-cone limits."),
+ "C9":  ("risk", "per-instance chunking on parallel fan-out",
+   [],
+   "NVC_ACCEL_PER_INSTANCE=1 is a debug mode only; on parallel topologies it "
+   "has a known correctness bug."),
+ "C10": ("risk", "demote declined — no interpreter fallback",
+   [r"demote .* declined"],
+   "If XDEMOTE/DEMOTE_AT is your safety net, keep memories out of those "
+   "chunks and leave NVC_ACCEL_HANDOFF off — both make a chunk one-way."),
+ "C11": ("risk", "auto dead-output pruning vs time-waiting readers",
+   [],
+   "Prefer the explicit NVC_ACCEL_PRUNE name list; =auto cannot see wait-for "
+   "pollers and zeroes their sampled outputs."),
+ "C12": ("risk", "case/equality dispatch on possibly-X control vectors",
+   [],
+   "A case or equality over a vector carrying X matches no choice and falls "
+   "to OTHERS — a value flip, not just pessimism (MEASURED: an X-marked CSR "
+   "address classified a postsync CSR write as ordinary; the pipeline skipped "
+   "a mandatory stall). Ensure every control vector consumed by case/equality "
+   "dispatch is reset-driven certain before first use."),
+ "C13": ("risk", "logic dependent on the X->certain event timeline",
+   [],
+   "Settle cascades that rely on re-drive EVENTS of unchanged values (X-> "
+   "certain transitions waking readers) are engine-timing dependent: any "
+   "publisher that elides byte-equal updates skips those wakes (MEASURED: a "
+   "reset-settle cascade never completed and a stale-X island recirculated). "
+   "Make settle behavior depend on VALUES sampled at clock edges, never on "
+   "event occurrence of unchanged nets."),
+ "D1":  ("degrades", "$adff derived ARST cone beyond the inliner",
+   [r"ARST cone"],
+   "Drive async resets from a dedicated pin or register with at most trivial "
+   "gating — or use synchronous resets (no restrictions)."),
+ "D2":  ("degrades", "MERGE limits (oversized member, rim/group caps)",
+   [r"MERGE group .* rim too wide", r"oversized", r"falling back to per-chunk"],
+   "Fewer distinct clock roots = bigger fusable groups. Keep big memories "
+   "behind wrappers; preview grouping with MERGE_DRYRUN before paying for "
+   "synthesis."),
+ "D3":  ("degrades", "handoff kept on deposit path (non-chunk reader)",
+   [],
+   "Waveform probes on chunk boundaries cost the fast handoff path. Probe "
+   "inside chunks (NVC_ACCEL_SMDUMP) or accept the cost during debug."),
+ "D4":  ("degrades", "output bank-switch declined",
+   [r"bank decline"],
+   "Whole unsliced vector outputs feeding one consumer through a plain port "
+   "map bank-switch best. Nothing is wrong when this declines."),
+ "D5":  ("degrades", "fast-clk table admission/eviction",
+   [r"fast-clk .* (dissolve|stall|evict)"],
+   "Write clocked processes with static sensitivity (plain process(clk)); "
+   "keep force/release and timed waits off hot clocked processes."),
+ "D6":  ("degrades", "fused-block size budget",
+   [],
+   "Many small uniform clk-only processes fuse best; beyond ~20k members use "
+   "MERGE-level chunking instead."),
+ "D7":  ("degrades", "value-plane (CXXRTL) decline — C engine fallback",
+   [],
+   "For value-plane speed: single clock domain, no memories in the chunk, no "
+   "port named rst, no name collisions after sanitization."),
+ "D8":  ("degrades", "environment hygiene (SKIP notes, ONLY is silent)",
+   [r"skipped \(NVC_ACCEL_SKIP\)", r"skipped .*SKIP_SCOPE"],
+   "NVC_ACCEL_ONLY declines SILENTLY. When expected chunks are missing, the "
+   "exported environment is the first suspect — this tool echoes it."),
+ "S1":  ("info", "VERIFY companions are deliberately non-accelerating",
+   [r"VERIFY companion"],
+   "A VERIFY run pays both engines; never benchmark it. Classify runs "
+   "three-way: ACTIVE / VERIFY / declined."),
+}
+
+SEV_ORDER = {"blocks": 0, "risk": 1, "degrades": 2, "info": 3}
+
+# Cell whitelists for the stage-2 histogram diff (design doc, B5).
+NARROW_OK = set("""add sub mul neg and or xor xnor not shl shr shift shiftx
+ eq eqx ne nex lt le gt ge logic_not reduce_or reduce_and reduce_xor
+ reduce_bool mux pmux memrd dff adff dffe adffe sdff sdffe memwr meminit
+ memrd_v2 memwr_v2 meminit_v2 scopeinfo print check""".split())
+WIDE_OK = set("""add sub and or xor xnor not shl shr eq ne lt le gt ge mux
+ pmux reduce_or reduce_and dff adff dffe adffe sdff sdffe""".split())
+REG_CELLS = {"dff", "adff", "dffe", "adffe", "sdff", "sdffe"}
+BAD_STORAGE = {"dlatch", "adlatch", "dffsr", "aldff", "sr", "adlatchsr",
+               "dlatchsr"}
+
+
+def which_yosys():
+    for c in (os.environ.get("YOSYS"), shutil.which("yosys"),
+              "/usr/local/src/yosys-build/yosys"):
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
+def run(cmd, timeout, env=None):
+    try:
+        return subprocess.run(["/usr/bin/timeout", "-k", "5", str(timeout)]
+                              + cmd, capture_output=True, text=True, env=env)
+    except FileNotFoundError:
+        # no /usr/bin/timeout: refuse unbounded synthesis
+        print("FATAL: /usr/bin/timeout not found — refusing unbounded runs",
+              file=sys.stderr)
+        sys.exit(3)
+
+
+class Report:
+    def __init__(self):
+        self.env_audit = []
+        self.modules = defaultdict(lambda: {"classes": [], "risks": [],
+                                            "verdict": None})
+        self.blocker_counts = defaultdict(int)
+        self.chunk_inventory = {"active": 0, "verify": 0, "declined": 0}
+        self.notes = []
+
+    def add(self, module, cid, evidence):
+        sev = CATALOG[cid][0]
+        entry = {"id": cid, "severity": sev, "evidence": evidence,
+                 "advice": CATALOG[cid][3]}
+        m = self.modules[module]
+        if sev == "risk":
+            if cid not in [r["id"] for r in m["risks"]]:
+                m["risks"].append(entry)
+        else:
+            if (cid, evidence) not in [(c["id"], c["evidence"])
+                                       for c in m["classes"]]:
+                m["classes"].append(entry)
+        if sev == "blocks":
+            self.blocker_counts[cid] += 1
+
+    def finalize(self):
+        worst = 0
+        for name, m in self.modules.items():
+            blocks = [c for c in m["classes"] if c["severity"] == "blocks"]
+            degrades = [c for c in m["classes"] if c["severity"] == "degrades"]
+            if blocks:
+                m["verdict"] = "BLOCKED:%s" % blocks[0]["id"]
+                worst = max(worst, 1)
+            elif degrades:
+                m["verdict"] = "DEGRADED:%s" % ",".join(c["id"]
+                                                       for c in degrades)
+            else:
+                m["verdict"] = "ACCELERABLE"
+            if m["risks"]:
+                # a RISK denies known-correct until the stage-4 probe passes
+                if m["verdict"] == "ACCELERABLE":
+                    worst = max(worst, 2)
+        return worst
+
+    def print_text(self):
+        print("=" * 72)
+        print("accel-advisor report")
+        print("=" * 72)
+        for line in self.env_audit:
+            print("  env:", line)
+        inv = self.chunk_inventory
+        if any(inv.values()):
+            print("  chunks: %d ACTIVE, %d VERIFY, %d declined"
+                  % (inv["active"], inv["verify"], inv["declined"]))
+        if self.blocker_counts:
+            print("  blocker ranking:")
+            for cid, n in sorted(self.blocker_counts.items(),
+                                 key=lambda kv: -kv[1]):
+                print("    %4d  %s  %s" % (n, cid, CATALOG[cid][1]))
+        print("-" * 72)
+        for name in sorted(self.modules):
+            m = self.modules[name]
+            verdict = m["verdict"] or "UNKNOWN"
+            if verdict == "ACCELERABLE" and not m["risks"]:
+                verdict = "ACCELERABLE (known-correct candidate)"
+            risky = ",".join("RISK:%s" % r["id"] for r in m["risks"])
+            print("%-40s %s %s" % (name, verdict, risky))
+            for c in m["classes"] + m["risks"]:
+                print("    [%s] %s" % (c["id"], CATALOG[c["id"]][1]))
+                print("        evidence: %s" % c["evidence"])
+                print("        advice:   %s" % c["advice"])
+        for n in self.notes:
+            print("  note:", n)
+
+    def to_json(self):
+        return {
+            "env": self.env_audit,
+            "chunks": self.chunk_inventory,
+            "blocker_ranking": [{"class": k, "count": v} for k, v
+                                in sorted(self.blocker_counts.items(),
+                                          key=lambda kv: -kv[1])],
+            "modules": [{"name": k, **v} for k, v in
+                        sorted(self.modules.items())],
+        }
+
+
+# ---------------------------------------------------------------- stage 0 --
+def stage0(rep, args):
+    for k, v in sorted(os.environ.items()):
+        if k.startswith(("NVC_ACCEL", "GSM_", "NVC_LEVELIZE")):
+            flag = ""
+            if k == "NVC_ACCEL_ONLY":
+                flag = "  << SILENT declines: first suspect for missing chunks"
+            elif k in ("NVC_ACCEL_SKIP", "NVC_ACCEL_SKIP_SCOPE"):
+                flag = "  << skips leave notes; check them"
+            rep.env_audit.append("%s=%s%s" % (k, v, flag))
+    if not os.path.isfile("/usr/bin/timeout"):
+        rep.notes.append("NO /usr/bin/timeout — synthesis would be UNBOUNDED")
+    cache = os.environ.get("NVC_ACCEL_CACHE_DIR",
+                           os.path.expanduser("~/.cache/nvc/accel"))
+    if os.path.isdir(cache) and not os.access(cache, os.W_OK):
+        rep.notes.append("accel cache dir not writable: %s" % cache)
+    if args.src and any(s.endswith((".vhd", ".vhdl")) for s in args.src):
+        if os.environ.get("NVC_ACCEL_FROM_VHDL") != "1":
+            rep.notes.append("VHDL input: NVC_ACCEL_FROM_VHDL=1 is MANDATORY "
+                             "for the accel path (stage 3 sets it)")
+
+
+# ---------------------------------------------------------------- stage 1 --
+RE_GENFOR   = re.compile(r"\bfor\b.*\bgenerate\b", re.I)
+RE_COMPONENT= re.compile(r"^\s*component\s+\w+", re.I | re.M)
+RE_ASSERT   = re.compile(r"^\s*(assert\b|report\b)", re.I | re.M)
+RE_RSTPORT  = re.compile(r"^\s*rst\s*:\s*in\b", re.I | re.M)
+RE_PORTEXPR = re.compile(r"port\s+map\s*\([^;]*(\bxor\b|\band\b|\bor\b|\bnot\b"
+                         r"|[+\-*/&])", re.I | re.S)
+RE_ENTITY   = re.compile(r"^\s*entity\s+(\w+)\s+is", re.I | re.M)
+RE_ARRAYMEM = re.compile(r"array\s*\(\s*0?\s*to\s*(\d+)|array\s*\(\s*(\d+)\s*"
+                         r"downto", re.I)
+RE_EDGE     = re.compile(r"rising_edge|falling_edge|'event", re.I)
+RE_CASE     = re.compile(r"^\s*case\b", re.I | re.M)
+
+def stage1(rep, args):
+    for path in args.src or []:
+        try:
+            text = open(path, errors="replace").read()
+        except OSError as e:
+            rep.notes.append("cannot read %s: %s" % (path, e))
+            continue
+        ents = RE_ENTITY.findall(text) or [os.path.basename(path)]
+        mod = ents[0]
+        if RE_GENFOR.search(text):
+            rep.add(mod, "B2", "for..generate in %s" % path)
+        if RE_COMPONENT.search(text):
+            rep.add(mod, "B2", "component instantiation in %s" % path)
+        if RE_ASSERT.search(text):
+            rep.add(mod, "B2", "assert/report inside DUT source %s" % path)
+        if RE_RSTPORT.search(text):
+            rep.add(mod, "C2", "port literally named rst in %s" % path)
+        if RE_PORTEXPR.search(text):
+            rep.add(mod, "C7", "expression as port-map actual in %s" % path)
+        # crude flattened-memory estimate
+        for m in RE_ARRAYMEM.finditer(text):
+            depth = int(m.group(1) or m.group(2) or 0) + 1
+            if depth >= 1024:
+                rep.add(mod, "B6", "array depth %d in %s (pre-gates stage 2 "
+                        "if bits exceed --mem-bit-limit)" % (depth, path))
+                break
+        if RE_CASE.search(text) and RE_EDGE.search(text):
+            # informational pointer to the measured C12 class
+            rep.add(mod, "C12", "case dispatch present in %s — confirm every "
+                    "selector is reset-driven certain" % path)
+
+
+# ---------------------------------------------------------------- stage 2 --
+YOSYS_SCRIPT = """read_verilog {src}
+hierarchy -auto-top
+proc; flatten; opt -keepdc; dffunmap; opt_clean
+stat
+scc
+"""
+
+def stage2(rep, args, yosys):
+    if not yosys:
+        rep.notes.append("yosys not found (set YOSYS) — stage 2 skipped")
+        return
+    for src in args.verilog or []:
+        mod = os.path.basename(src).rsplit(".", 1)[0]
+        rep.modules[mod]  # register even when clean -> ACCELERABLE row
+        with tempfile.NamedTemporaryFile("w", suffix=".ys",
+                                         delete=False) as f:
+            f.write(YOSYS_SCRIPT.format(src=src))
+            ys = f.name
+        r = run([yosys, "-s", ys], timeout=120)
+        os.unlink(ys)
+        out = r.stdout + r.stderr
+        if r.returncode in (124, 137):
+            rep.add(mod, "B6", "yosys diagnostic pass exceeded 120 s")
+            continue
+        for line in out.splitlines():
+            if line.startswith("ERROR:"):
+                rep.add(mod, "B10", line.strip())
+            if "Latch inferred" in line:
+                rep.add(mod, "B4", line.strip())
+        # cell histogram
+        cells = defaultdict(int)
+        for m in re.finditer(r"^\s+(\d+)\s+\$(\w+)\s*$", out, re.M):
+            cells[m.group(2)] += int(m.group(1))
+        for c in cells:
+            if c in BAD_STORAGE:
+                rep.add(mod, "B4", "$%s x%d in netlist" % (c, cells[c]))
+            elif c not in NARROW_OK:
+                rep.add(mod, "B5", "$%s x%d outside whitelist" % (c, cells[c]))
+        if not any(c in REG_CELLS for c in cells) and cells:
+            rep.add(mod, "B9", "zero register cells — comb-only netlist")
+        # SCCs: yosys prints "Found N SCCs"
+        m = re.search(r"Found (\d+) SCCs", out)
+        if m and int(m.group(1)) > 0:
+            rep.add(mod, "C1", "%s combinational SCC(s) — loop nets in yosys "
+                    "scc output" % m.group(1))
+
+
+# ---------------------------------------------------------------- stage 3 --
+def stage3(rep, args):
+    env = dict(os.environ)
+    env.update({"NVC_ACCEL": "1", "NVC_ACCEL_JIT": "1",
+                "NVC_ACCEL_JIT_DEBUG": "1", "NVC_ACCEL_MIN_MODULES": "1",
+                "NVC_ACCEL_SYNTH_TIMEOUT": "600"})
+    if args.src and any(s.endswith((".vhd", ".vhdl")) for s in args.src):
+        env["NVC_ACCEL_FROM_VHDL"] = "1"
+    cmd = [args.nvc, "--std=2008"]
+    if args.lib:
+        cmd += ["-L", args.lib]
+    if args.work:
+        cmd += ["--work=" + args.work]
+    cmd += ["-r", args.top, "--stop-time=" + args.stop_time]
+    r = run(cmd, timeout=args.run_timeout, env=env)
+    out = r.stdout + r.stderr
+    chunk_re = re.compile(r"accel-jit:.*?'([^']+)'")
+    for line in out.splitlines():
+        if "accel-jit" not in line and "accel-verify" not in line:
+            continue
+        m = chunk_re.search(line)
+        mod = m.group(1) if m else "(run)"
+        # match ahead of the em-dash: its UTF-8 bytes are mangled when the
+        # subprocess pipe decodes under a C locale
+        if re.search(r"accel-jit: VERIFY\b", line):
+            rep.chunk_inventory["verify"] += 1
+            rep.add(mod, "S1", line.strip())
+        elif re.search(r"accel-jit: (MERGE )?ACTIVE\b", line):
+            rep.chunk_inventory["active"] += 1
+        else:
+            matched = False
+            for cid, (_, _, regexes, _) in CATALOG.items():
+                for rx in regexes:
+                    if re.search(rx, line):
+                        rep.add(mod, cid, line.strip())
+                        matched = True
+                        break
+                if matched:
+                    break
+            if not matched and ("declin" in line or "leaving in nvc" in line):
+                rep.chunk_inventory["declined"] += 1
+                rep.add(mod, "B10", "unclassified decline: " + line.strip())
+            elif matched and ("declin" in line or "leaving" in line):
+                rep.chunk_inventory["declined"] += 1
+    if rep.chunk_inventory["active"] == 0 \
+            and rep.chunk_inventory["declined"] == 0:
+        if os.environ.get("NVC_ACCEL_ONLY"):
+            rep.add("(run)", "D8", "no chunks installed and no declines — "
+                    "NVC_ACCEL_ONLY is exported (silent declines)")
+
+
+# ---------------------------------------------------------------- stage 4 --
+def stage4(rep, args):
+    env = dict(os.environ)
+    env.update({"NVC_ACCEL": "1", "NVC_ACCEL_JIT": "1",
+                "NVC_ACCEL_VERIFY": "1", "NVC_ACCEL_MIN_MODULES": "1"})
+    if args.src and any(s.endswith((".vhd", ".vhdl")) for s in args.src):
+        env["NVC_ACCEL_FROM_VHDL"] = "1"
+    cmd = [args.nvc, "--std=2008"]
+    if args.lib:
+        cmd += ["-L", args.lib]
+    if args.work:
+        cmd += ["--work=" + args.work]
+    cmd += ["-r", args.top, "--stop-time=" + args.stop_time]
+    r = run(cmd, timeout=args.run_timeout, env=env)
+    out = r.stdout + r.stderr
+    for line in out.splitlines():
+        if "accel-verify" in line and \
+                ("diverge" in line or re.search(r"interp=0x\S+ +accel=0x", line)):
+            rep.add("(verify)", "C3", "VERIFY divergence: " + line.strip())
+        if "not driven-certain" in line or "X/Z at accel boundary" in line:
+            rep.add("(verify)", "C3", line.strip())
+
+
+# ------------------------------------------------------------------- main --
+def main():
+    ap = argparse.ArgumentParser(prog="accel-advisor",
+                                 description=__doc__.splitlines()[0])
+    ap.add_argument("--src", nargs="*", help="VHDL sources for static scan")
+    ap.add_argument("--verilog", nargs="*",
+                    help="emitted/original Verilog for yosys diagnostics")
+    ap.add_argument("--work", help="nvc work library")
+    ap.add_argument("--lib", help="nvc -L library path")
+    ap.add_argument("--top", help="elaborated top unit (stage 3/4)")
+    ap.add_argument("--nvc", default="nvc", help="nvc binary")
+    ap.add_argument("--run", action="store_true", help="stage 3 dry-run")
+    ap.add_argument("--verify", action="store_true", help="stage 4 probes")
+    ap.add_argument("--stop-time", default="500ns")
+    ap.add_argument("--run-timeout", type=int, default=1800)
+    ap.add_argument("--json", help="write machine-readable report")
+    ap.add_argument("--mem-bit-limit", type=int, default=65536)
+    args = ap.parse_args()
+
+    rep = Report()
+    stage0(rep, args)
+    stage1(rep, args)
+    stage2(rep, args, which_yosys())
+    if args.run:
+        if not args.top:
+            print("--run requires --top", file=sys.stderr)
+            return 3
+        stage3(rep, args)
+    if args.verify:
+        if not args.top:
+            print("--verify requires --top", file=sys.stderr)
+            return 3
+        stage4(rep, args)
+
+    rc = rep.finalize()
+    rep.print_text()
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(rep.to_json(), f, indent=2)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
