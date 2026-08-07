@@ -59,9 +59,14 @@ RST_HOLD catastrophe — is withdrawn with it.
   re-ran its strstr search every pass — 71% of warm startup), fused warm
   start dropped 266s -> 43.5s and fused hello now wins END-TO-END too
   (~178s vs interp 211s). The ~1,340x gap to Verilator is coverage/perf:
-  chunks are <0.6% of steady-state sim time; the interp side (deposit
-  path 13%, l3d kernels ~17%) and coverage expansion are the standing
-  levers. Correctness is no longer the blocker.
+  chunks are <0.6% of steady-state sim time. Two interp-side levers
+  have since landed: l3d_addsub word-packing (4d6af7710) and the
+  T_DEPOSIT inline byte-equal gates (4435e2558: 93.1% of 77.26M deposit
+  visits were no-ops; calls cut 14.3x, deposit_signal_impl off the
+  top-10 profile, top steady symbol now ~3%). Protocol lesson from that
+  campaign: lowering changes are invisible until prebuilt work
+  libraries are RE-ELABORATED. Remaining levers: scheduler shares
+  (~4.6%), coverage expansion. Correctness is no longer the blocker.
 - Shipped accel-vs-interp on the 19-design accelbench: 17.3x geomean
   (accel_real_numbers_corrected), gate-protected by accel-gate.sh.
 
