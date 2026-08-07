@@ -53,8 +53,12 @@ RST_HOLD catastrophe — is withdrawn with it.
 - Interp VeeR hello: plain 11.0 cyc/s, sweep 10.4 cyc/s (valid,
   retire-exact); Verilator baseline 22,086 cyc/s (speedcmp.sh
   marginal-wall method).
-- Fused accel: NOT eligible for a parity number until the residual lands
-  (a run that misses a required stall is not the same workload).
+- Fused accel (2026-08-07, first honest number on the retire-exact
+  config): 16.5 cyc/s by the marginal-wall method (2,227 cycles between
+  the 3000ns and 25275ns horizons in 134.9s of warm wall) — 1.5x over
+  interp. The ~1,340x gap to Verilator is now a pure coverage/perf
+  problem: the 14 merged flop-primitive chunks cover a small fraction
+  of whole-core eval time. Correctness is no longer the blocker.
 - Shipped accel-vs-interp on the 19-design accelbench: 17.3x geomean
   (accel_real_numbers_corrected), gate-protected by accel-gate.sh.
 
