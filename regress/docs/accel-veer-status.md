@@ -9,10 +9,12 @@
 - **Correctness**: retire-stream byte-exact against the interp reference
   through cyc85 (~1090ns). Thread 1 starts on time, gated clocks sustain,
   reset captures land, waveform-class clock outputs publish real-time.
-- **Residual**: 25 retires vs 9 diff lines at 1100ns — the fused run misses
-  the 4-cycle pipeline pause after the mhartstart CSR write (cyc86-89).
-  Fused hello does NOT reach TEST_PASSED. Parity measurement (#64) stays
-  blocked on this.
+- **Residual**: retires=30 diff=14 at 1100ns under the corrected protocol
+  (see the baseline-correction section; fused runs 4 retires AHEAD of
+  interp's 26 — a first-of-burst +4 signature — and the cyc86-89
+  mhartstart-pause analysis from the earlier era needs re-verification
+  against this baseline). Fused hello does NOT reach TEST_PASSED. Parity
+  measurement (#64) stays blocked on this.
 
 ## The residual, mechanized
 
@@ -35,14 +37,14 @@ timeline was not.
 | topo-ordered X settle | NVC_ACCEL_XCONS (12e7ca849) | neutral: island X is flop-held |
 | byte-equal deposit force-events | NVC_ACCEL_FORCEEV (cc7fe7a53) | neutral: readers recompute the same X |
 | alias-extra region timing | landed rules (4959c5d33) | 30/14 -> 26/10, then plateau |
-| reset-window publication hold | NVC_ACCEL_RST_HOLD (1d25f703d) | retires 25 -> 5: the reset window carries real AXI/boot transactions |
+| reset-window publication hold | NVC_ACCEL_RST_HOLD (1d25f703d) | CORRECTED: neutral (30/14 = baseline). The commit message's "25 -> 5" was a measurement artifact — the probe ran outside the program.hex directory and the core booted empty |
 
-The last two bracket the problem: restoring the events without the values
-does nothing; restoring the value timeline starves 30ns of real behavior.
-No runtime publication policy closes the hole. The settle cascade must
-stay fully interp — the subtree emitter must stop internalizing nets that
-have readers outside the reroute set (emit-time boundary reduction; the
-task list carries this as the successor item).
+Under the corrected protocol every knob measures NEUTRAL: the residual
+is insensitive to publication timing altogether. That still points away
+from runtime repairs and toward the boundary itself (emit-time
+reduction; the task list carries this as the successor item), but the
+earlier "bracket" argument — which leaned on the now-retracted
+RST_HOLD catastrophe — is withdrawn with it.
 
 ## Numbers that stand today
 
@@ -54,10 +56,23 @@ task list carries this as the successor item).
 - Shipped accel-vs-interp on the 19-design accelbench: 17.3x geomean
   (accel_real_numbers_corrected), gate-protected by accel-gate.sh.
 
+## Baseline correction (2026-08-07)
+
+A measurement-protocol audit found the retire probe is only valid when
+run from a directory containing program.hex (the tb readmem is
+CWD-relative and FAILS WITH ONLY A WARNING — the core boots empty and
+retires one bubble per 17 cycles). Re-measured under the clean protocol,
+the standing fused baseline is retires=30 diff=14 (installs=14,
+deterministic; interp = 26 retires, window-exact), and RST_HOLD/XCONS
+are neutral against it. The earlier 25/9 figure belongs to a
+measurement regime whose exact cache/source micro-state is no longer
+reproducible.
+
 ## Reproduction
 
-Retire probe: run veer_eh1_tb to 1100ns with the standard fused env, grep
-RETIRE, diff against the first 22 lines of probe_ref3000 (see
-regress/docs + the campaign log in the session memory for exact
-commands). Always 2>&1 (notes go to stderr); always double-run warm;
-always verify installs==14.
+Retire probe: run veer_eh1_tb to 1100ns with the standard fused env
+FROM A DIRECTORY CONTAINING program.hex (e.g. ~/accel_run), grep RETIRE,
+diff against the first 22 lines of probe_ref3000. Always 2>&1 (notes go
+to stderr); always double-run warm; always verify installs==14 AND
+`grep -c 'could not open' log == 0` — a missing program.hex is a
+warning, not an error, and silently voids the run.
