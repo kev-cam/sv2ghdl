@@ -53,12 +53,15 @@ RST_HOLD catastrophe — is withdrawn with it.
 - Interp VeeR hello: plain 11.0 cyc/s, sweep 10.4 cyc/s (valid,
   retire-exact); Verilator baseline 22,086 cyc/s (speedcmp.sh
   marginal-wall method).
-- Fused accel (2026-08-07, first honest number on the retire-exact
-  config): 16.5 cyc/s by the marginal-wall method (2,227 cycles between
-  the 3000ns and 25275ns horizons in 134.9s of warm wall) — 1.5x over
-  interp. The ~1,340x gap to Verilator is now a pure coverage/perf
-  problem: the 14 merged flop-primitive chunks cover a small fraction
-  of whole-core eval time. Correctness is no longer the blocker.
+- Fused accel (2026-08-07, retire-exact config): marginal 16.5 cyc/s vs
+  interp's re-measured 12.3 — a real 1.34x where it counts. After the
+  aj_uniquify_modules fix (038e1a83d: the transitive-hash fixpoint
+  re-ran its strstr search every pass — 71% of warm startup), fused warm
+  start dropped 266s -> 43.5s and fused hello now wins END-TO-END too
+  (~178s vs interp 211s). The ~1,340x gap to Verilator is coverage/perf:
+  chunks are <0.6% of steady-state sim time; the interp side (deposit
+  path 13%, l3d kernels ~17%) and coverage expansion are the standing
+  levers. Correctness is no longer the blocker.
 - Shipped accel-vs-interp on the 19-design accelbench: 17.3x geomean
   (accel_real_numbers_corrected), gate-protected by accel-gate.sh.
 
