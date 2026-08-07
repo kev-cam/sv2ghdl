@@ -9,12 +9,14 @@
 - **Correctness**: retire-stream byte-exact against the interp reference
   through cyc85 (~1090ns). Thread 1 starts on time, gated clocks sustain,
   reset captures land, waveform-class clock outputs publish real-time.
-- **Residual**: retires=30 diff=14 at 1100ns under the corrected protocol
-  (see the baseline-correction section; fused runs 4 retires AHEAD of
-  interp's 26 — a first-of-burst +4 signature — and the cyc86-89
-  mhartstart-pause analysis from the earlier era needs re-verification
-  against this baseline). Fused hello does NOT reach TEST_PASSED. Parity
-  measurement (#64) stays blocked on this.
+- **Residual: CLOSED (2026-08-07).** The same-ultimate-nexus publication
+  fanout (a flop's dout feeds several port-connected rims; the chunk
+  published one while 307 reader-bearing siblings starved at init-X;
+  each is now an out_extra target of its ord, back-filled at install)
+  restored the cyc86-89 postsync pause. Measured: 1100ns retire stream
+  window-exact, 3000ns byte-exact against the full 125-line reference
+  (diff=0), fused hello TEST_PASSED cycles=2519, suite 12/12. Parity
+  measurement (#64) is unblocked.
 
 ## The residual, mechanized
 
