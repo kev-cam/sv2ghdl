@@ -2763,7 +2763,18 @@ int main(int argc, char **argv)
         fprintf(out, "\"%s\", ", nm.c_str());
     }
     fprintf(out, "0};\n");
-    fprintf(out, "#define SM_NUM_EXTRA_CLOCKS %zu\n\n", extra_clocks.size());
+    fprintf(out, "#define SM_NUM_EXTRA_CLOCKS %zu\n", extra_clocks.size());
+    // How many registers the MAIN clock (group 0) actually clocks.  A model
+    // with SM_GROUP0_REGS 0 but extra clocks is clocked ENTIRELY by extras
+    // (e.g. FPGA-shape rvdff members whose `clk` pin carries a dead gated
+    // net while the flops run on rawclk) — the caller must then key its
+    // edge arming / staged-output phases on a LIVE clock, not the main pin.
+    {
+        size_t g0 = 0;
+        for (auto &reg : registers)
+            if (reg.clk_group == 0) g0++;
+        fprintf(out, "#define SM_GROUP0_REGS %zu\n\n", g0);
+    }
 
     // sm_eval: back-compat wrapper — combinational outputs from the current state,
     // then commit (identical to the old single-function semantics).
