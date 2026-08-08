@@ -153,13 +153,16 @@ CATALOG = {
    [],
    "Prefer the explicit NVC_ACCEL_PRUNE name list; =auto cannot see wait-for "
    "pollers and zeroes their sampled outputs."),
- "C12": ("risk", "case/equality dispatch on possibly-X control vectors",
+ "C12": ("risk", "control state seeded from never-published boundary nets",
    [],
-   "A case or equality over a vector carrying X matches no choice and falls "
-   "to OTHERS — a value flip, not just pessimism (MEASURED: an X-marked CSR "
-   "address classified a postsync CSR write as ordinary; the pipeline skipped "
-   "a mandatory stall). Ensure every control vector consumed by case/equality "
-   "dispatch is reset-driven certain before first use."),
+   "CORRECTED (fixture-tested): translated dispatch follows the VALUE plane "
+   "(VHDL cannot `case` over logic3d_vector; the sv2vhdl `=` overload is "
+   "value-plane, X-leaning-0 == certain-0). The real measured hazard is "
+   "VALUE STARVATION: chunk-internal nets with outside readers that never "
+   "publish leave readers computing from init bytes (the VeeR postsync-miss "
+   "root cause). Ensure every net a reader consumes has a live publication "
+   "path — the same-ultimate-nexus fanout covers published outputs' "
+   "siblings; anything deeper needs the net exposed as a port."),
  "C13": ("risk", "logic dependent on the X->certain event timeline",
    [],
    "Settle cascades that rely on re-drive EVENTS of unchanged values (X-> "

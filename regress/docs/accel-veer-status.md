@@ -26,10 +26,13 @@ mass-settles X->certain at the first clock edge under reset assertion
 build publishes the same values certain at t=0 — hashes identical, wake
 EVENTS gone. Comb islands (IFC) that wake on the settle events instead
 capture X once around the 35ns fetch qualification and recirculate it
-through miss-FSM feedback; an X-marked CSR address later classifies the
-mhartstart postsync write as ordinary via case-dispatch fall-through, so
-the mandatory stall never issues. Values were right all along; the event
-timeline was not.
+through miss-FSM feedback, and downstream control reads starved values.
+(CORRECTION 2026-08-08, fixture-tested: the original "case-dispatch
+fall-through on X" wording was wrong — VHDL cannot `case` over
+logic3d_vector and the sv2vhdl `=` overload is value-plane, so translated
+dispatch follows value bits. The operative mechanism was VALUE
+starvation of never-published rims; the fanout fix and every measurement
+stand unchanged.)
 
 ## Five refuted runtime repairs (all measured, all default-off knobs)
 
