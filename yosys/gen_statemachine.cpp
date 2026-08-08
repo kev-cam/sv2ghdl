@@ -1341,6 +1341,109 @@ int main(int argc, char **argv)
     for (auto *cell : comb_cells)
         topo_visit(cell);
 
+    // ---- GSM_MASKED_COMB analysis (phase 1): member-partition census ----
+    // The fused-chunk comb settle is activity-BLIND (measured: act_lo vs
+    // act_hi accel instruction counts 0.8% apart while interp scales 2.8x
+    // with activity) because every clock pass re-evaluates the whole
+    // network.  The planned fix partitions comb cells by fused-wrapper
+    // member (flattened name prefix "_u<K>_") and re-runs only members
+    // whose inputs or state changed, with cross-member comb nets persisted
+    // in state_t.  This block is the DESIGN-SIZING census: it computes the
+    // partition, the member-affects DAG (cross-member comb nets + register
+    // reads) and its transitive closure, and reports the numbers that
+    // decide the emission design (persisted-net count = state bloat;
+    // closure density = worst-case re-run set).  Analysis only: emission
+    // is unchanged.
+    if (getenv("GSM_MASKED_COMB") != NULL) {
+        auto member_of_name = [&](const std::string &n) -> int {
+            size_t p = 0;
+            if (p < n.size() && n[p] == '_') p++;
+            if (p >= n.size() || n[p] != 'u') return -1;
+            size_t q = p + 1, s0 = q;
+            while (q < n.size() && isdigit((unsigned char)n[q])) q++;
+            if (q == s0 || q >= n.size() || n[q] != '_') return -1;
+            return atoi(n.substr(s0, q - s0).c_str());
+        };
+        auto member_of_cell = [&](RTLIL::Cell *cell) -> int {
+            for (auto port_id : {ID::Y, ID(DATA)})
+                if (cell->hasPort(port_id))
+                    for (auto &chunk : cell->getPort(port_id).chunks())
+                        if (chunk.wire)
+                            return member_of_name(cname(chunk.wire->name.str()));
+            return member_of_name(cname(cell->name.str()));
+        };
+        int nmem = 0;
+        std::map<RTLIL::Cell*, int> cmember;
+        int orphan_cells = 0;
+        for (auto *cell : sorted) {
+            int mb = member_of_cell(cell);
+            cmember[cell] = mb;
+            if (mb < 0) orphan_cells++;
+            if (mb + 1 > nmem) nmem = mb + 1;
+        }
+        std::map<std::string, int> name_member;   // register name -> member
+        for (auto &reg : registers)
+            name_member[reg.name] = member_of_name(reg.name);
+        std::map<RTLIL::Wire*, int> wprod;        // comb wire -> producer member
+        for (auto *cell : sorted)
+            for (auto port_id : {ID::Y, ID(DATA)})
+                if (cell->hasPort(port_id))
+                    for (auto &chunk : cell->getPort(port_id).chunks())
+                        if (chunk.wire)
+                            wprod[chunk.wire] = cmember[cell];
+        std::set<RTLIL::Wire*> xnets;             // cross-member comb nets
+        long xbits = 0;
+        std::vector<std::set<int>> affects(nmem > 0 ? nmem : 1);
+        long regedges = 0;
+        for (auto *cell : sorted) {
+            const int cm = cmember[cell];
+            for (auto &conn : cell->connections()) {
+                if (cell->output(conn.first)) continue;
+                RTLIL::SigSpec ms = sigmap(conn.second);
+                for (auto &bit : ms) {
+                    auto rit = redirect.find(bit);
+                    RTLIL::SigBit rb = (rit != redirect.end() ? rit->second : bit);
+                    if (rb.wire == nullptr) continue;
+                    auto wp = wprod.find(rb.wire);
+                    if (wp != wprod.end() && wp->second >= 0 && cm >= 0
+                        && wp->second != cm) {
+                        if (xnets.insert(rb.wire).second)
+                            xbits += rb.wire->width;
+                        affects[wp->second].insert(cm);
+                        continue;
+                    }
+                    // cross-member REGISTER read: state-persisted by nature,
+                    // but member B's commit must re-run reader A's comb.
+                    auto nm = name_member.find(cname(rb.wire->name.str()));
+                    if (nm != name_member.end() && nm->second >= 0 && cm >= 0
+                        && nm->second != cm
+                        && affects[nm->second].insert(cm).second)
+                        regedges++;
+                }
+            }
+        }
+        // transitive closure (affects*), incl self
+        std::vector<std::set<int>> clo(nmem > 0 ? nmem : 1);
+        for (int k = 0; k < nmem; k++) {
+            std::vector<int> stk(1, k);
+            while (!stk.empty()) {
+                int v = stk.back(); stk.pop_back();
+                if (!clo[k].insert(v).second) continue;
+                for (int w2 : affects[v]) stk.push_back(w2);
+            }
+        }
+        size_t cmax = 0, csum = 0;
+        for (int k = 0; k < nmem; k++) {
+            cmax = std::max(cmax, clo[k].size());
+            csum += clo[k].size();
+        }
+        fprintf(stderr, "gen_statemachine: MASKED_COMB census: members=%d "
+                "cells=%zu orphan_cells=%d xnets=%zu xbits=%ld regedges=%ld "
+                "closure avg=%.1f max=%zu\n",
+                nmem, sorted.size(), orphan_cells, xnets.size(), xbits,
+                regedges, nmem > 0 ? (double)csum / nmem : 0.0, cmax);
+    }
+
     // ---- async-reset cone inliner -------------------------------------
     // The "Async reset overrides" block runs BEFORE the comb wires are
     // declared/evaluated, so a DERIVED reset (arst = comb of inputs, e.g.
