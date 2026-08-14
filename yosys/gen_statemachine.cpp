@@ -604,6 +604,251 @@ static std::string accel_cache_path(const char *module_name, const char *ext) {
     return path;
 }
 
+// --- GSM_ICG2EN: ICG (latch+AND gated clock) -> clock-enable rewrite --------
+// A flattened wrapper that internalizes an integrated clock gate (transparent-
+// low latch on the enable + AND(clk, en_l) driving downstream flop clocks)
+// declines at the extra-clock-must-be-a-module-input gate: the gated clock is
+// an INTERNAL net.  With GSM_ICG2EN=1 each such cone is matched structurally
+// and rewritten to its synchronous equivalent:
+//     $dff on AND(clkin, latch(en))   ->   $dffe on clkin, EN = latch cone
+// Soundness: a transparent-LOW latch tracks D while clk is low and freezes at
+// the rise, so its value AT the posedge equals the pre-edge value of its D
+// cone -- exactly what emit_seq's commit reads (comb evaluated on pre-edge
+// state).  A transparent-HIGH latch is NOT equivalent -> decline.  Anything
+// unmatched keeps its internal clock and still hits the extra-clock decline,
+// so a partial match can only fail SAFE (the chunk stays interpreted).
+// If the gated clock is also a module OUTPUT (interp consumers clock on it),
+// the raw enable must NOT leak through mid-cycle (an enable rising during
+// clk-high would publish a spurious posedge).  Moore-ize: a hidden 1-bit
+// $dff commits the enable cone at each base posedge (== the value the ICG
+// latch froze), and the exported AND reads sm_icg_clkval -- the real clock
+// value poked by the bridge before each eval (the comb-local _clk is pinned
+// 0 by design; inputs_t deliberately excludes the primary clock).
+static bool g_icg2en_used = false;   // any cone rewritten (scan-json guard)
+static bool g_icg2en_out  = false;   // an exported cone needs sm_icg_clkval
+static void icg2en_rewrite(RTLIL::Module *mod)
+{
+    SigMap smap(mod);
+    dict<RTLIL::SigBit, RTLIL::Cell*> drv;
+    for (auto &cp : mod->cells_) {
+        RTLIL::Cell *c = cp.second;
+        for (auto &conn : c->connections())
+            if (c->output(conn.first))
+                for (auto b : smap(conn.second))
+                    if (b.wire) drv[b] = c;
+    }
+    auto is_ff = [](RTLIL::Cell *c) {
+        return c->type.in(ID($dff), ID($adff), ID($dffe), ID($adffe),
+                          ID($sdff), ID($sdffe));
+    };
+    // FF cells grouped by their canonical INTERNAL clock bit
+    dict<RTLIL::SigBit, std::vector<RTLIL::Cell*>> groups;
+    for (auto &cp : mod->cells_) {
+        RTLIL::Cell *c = cp.second;
+        if (!is_ff(c) || !c->hasPort(ID::CLK)) continue;
+        RTLIL::SigBit g = smap(c->getPort(ID::CLK))[0];
+        if (!g.wire || g.wire->port_input) continue;   // already legal
+        groups[g].push_back(c);
+    }
+    if (groups.empty()) return;
+
+    int nhold = 0;
+    pool<RTLIL::Cell*> latches_connected;
+    for (auto &gp : groups) {
+        RTLIL::SigBit g = gp.first;
+        auto note = [&](const char *why) {
+            fprintf(stderr, "icg2en: clock cone %s declined (%s)\n",
+                    g.wire->name.c_str(), why);
+        };
+        auto it = drv.find(g);
+        if (it == drv.end()) { note("no driver"); continue; }
+        RTLIL::Cell *gate = it->second;
+        if (!gate->type.in(ID($and), ID($logic_and))) {
+            note("driver is not an AND"); continue; }
+        if (GetSize(gate->getPort(ID::Y)) != 1 ||
+            GetSize(gate->getPort(ID::A)) != 1 ||
+            GetSize(gate->getPort(ID::B)) != 1) {
+            note("AND is not 1-bit"); continue; }
+
+        // Latch matcher: q must be the Q of a 1-bit $dlatch transparent
+        // exactly when THIS cone's base clock is LOW.
+        RTLIL::SigBit clkbit;
+        auto match_latch = [&](RTLIL::SigBit q) -> RTLIL::Cell* {
+            auto d = drv.find(q);
+            if (d == drv.end() || d->second->type != ID($dlatch))
+                return nullptr;
+            RTLIL::Cell *l = d->second;
+            if (l->getParam(ID(WIDTH)).as_int() != 1) return nullptr;
+            bool pol = l->getParam(ID(EN_POLARITY)).as_bool();
+            RTLIL::SigBit le = smap(l->getPort(ID::EN))[0];
+            if (le == clkbit)                    // EN=clk: transparent at 0?
+                return pol ? nullptr : l;
+            auto ld = drv.find(le);              // EN=!clk: transparent at 1?
+            if (ld != drv.end()
+                && ld->second->type.in(ID($not), ID($logic_not))
+                && smap(ld->second->getPort(ID::A))[0] == clkbit)
+                return pol ? l : nullptr;
+            return nullptr;
+        };
+
+        // Classify AND operands (either order): one directly a module-input
+        // bit (the base clock -- v1: no buffer/cascade chase), the other the
+        // enable: a matched latch Q, or OR(latch Q, input/const) for the
+        // TE-bypass header style (TE assumed quasi-static; note emitted).
+        RTLIL::SigBit a = smap(gate->getPort(ID::A))[0];
+        RTLIL::SigBit b = smap(gate->getPort(ID::B))[0];
+        RTLIL::Cell *latch = nullptr;
+        RTLIL::SigBit enbit;
+        for (int ord = 0; ord < 2 && latch == nullptr; ord++) {
+            RTLIL::SigBit co = ord ? b : a, eo = ord ? a : b;
+            if (!co.wire || !co.wire->port_input) continue;
+            clkbit = co;
+            latch = match_latch(eo);
+            if (latch) { enbit = eo; break; }
+            auto od = drv.find(eo);
+            if (od != drv.end()
+                && od->second->type.in(ID($or), ID($logic_or))
+                && GetSize(od->second->getPort(ID::Y)) == 1
+                && GetSize(od->second->getPort(ID::A)) == 1
+                && GetSize(od->second->getPort(ID::B)) == 1) {
+                RTLIL::SigBit oa = smap(od->second->getPort(ID::A))[0];
+                RTLIL::SigBit ob = smap(od->second->getPort(ID::B))[0];
+                auto inpc = [&](RTLIL::SigBit x) {
+                    return !x.wire || x.wire->port_input; };
+                if ((latch = match_latch(oa)) != nullptr && inpc(ob)) {
+                    enbit = eo; break; }
+                if ((latch = match_latch(ob)) != nullptr && inpc(oa)) {
+                    enbit = eo; break; }
+                latch = nullptr;
+            }
+        }
+        if (latch == nullptr) {
+            note("no transparent-low latch+AND ICG shape"); continue; }
+
+        // Every flop on this gated clock must be a plain posedge $dff/$adff
+        // (post-dffunmap there is no EN to merge; anything else declines).
+        bool ffbad = false;
+        for (RTLIL::Cell *c : gp.second)
+            if (!c->type.in(ID($dff), ID($adff))
+                || (c->hasParam(ID(CLK_POLARITY))
+                    && !c->getParam(ID(CLK_POLARITY)).as_bool())) {
+                ffbad = true; break; }
+        if (ffbad) { note("flop is not a posedge $dff/$adff"); continue; }
+
+        // Enable-cone guard: walk enbit's cone (through THE latch via its D).
+        // Registers/inputs are sound pre-edge reads; the base clock as a leaf,
+        // any other stateful cell, or an oversized cone -> decline.
+        bool bad = false;
+        {
+            // Bound the walk, not the semantics: soundness is the leaf checks
+            // (clk-in-cone / stateful cells), and real enable cones (VeeR
+            // stall trees) run to thousands of bits.  97/97 EH1-asic cones
+            // declined at 512.
+            static int bmax = -1;
+            if (bmax < 0) {
+                const char *e = getenv("GSM_ICG2EN_BUDGET");
+                bmax = e ? atoi(e) : 100000;
+            }
+            int budget = bmax;
+            pool<RTLIL::SigBit> seen;
+            std::vector<RTLIL::SigBit> q{ enbit };
+            while (!q.empty()) {
+                RTLIL::SigBit x = smap(q.back()); q.pop_back();
+                if (!x.wire || seen.count(x)) continue;
+                // budget counts UNIQUE visited bits (a dense cone re-pushes
+                // the same bits many times; charging per pop mis-declined
+                // real stall-tree enables at any sane limit)
+                if (--budget < 0) { note("enable cone too large"); bad = true; break; }
+                seen.insert(x);
+                if (x == clkbit) {
+                    note("base clock read inside enable cone"); bad = true; break; }
+                if (x.wire->port_input) continue;
+                auto dd = drv.find(x);
+                if (dd == drv.end()) continue;
+                RTLIL::Cell *c = dd->second;
+                if (c == latch) { q.push_back(c->getPort(ID::D)[0]); continue; }
+                if (is_ff(c)) continue;
+                if (c->type.in(ID($dlatch), ID($adlatch), ID($dlatchsr),
+                               ID($sr), ID($aldff), ID($aldffe))
+                    || c->type.str().compare(0, 6, "$memrd") == 0) {
+                    note("stateful cell inside enable cone"); bad = true; break; }
+                for (auto &conn : c->connections())
+                    if (c->input(conn.first))
+                        for (auto bb : smap(conn.second))
+                            if (bb.wire) q.push_back(bb);
+            }
+        }
+        if (bad) continue;
+
+        // Fanout audit: the gated net may feed ONLY this group's CLK pins and
+        // module outputs.  Any other reader would see the zeroed comb _clk ->
+        // decline (today's behavior, structurally safe).
+        bool exported = false;
+        for (auto &cp : mod->cells_) {
+            RTLIL::Cell *c = cp.second;
+            if (c == gate || bad) continue;
+            for (auto &conn : c->connections()) {
+                if (!c->input(conn.first)) continue;
+                for (auto bb : smap(conn.second)) {
+                    if (bb != g) continue;
+                    bool member = false;
+                    for (RTLIL::Cell *m : gp.second)
+                        if (m == c) { member = true; break; }
+                    if (!(member && conn.first == ID::CLK)) bad = true;
+                }
+            }
+        }
+        if (bad) { note("gated clock has non-clock readers"); continue; }
+        for (auto &wp : mod->wires_) {
+            if (!wp.second->port_output) continue;
+            for (auto bb : smap(RTLIL::SigSpec(wp.second)))
+                if (bb == g) { exported = true; break; }
+        }
+
+        // ---- rewrite ----
+        for (RTLIL::Cell *c : gp.second) {
+            c->setPort(ID::CLK, RTLIL::SigSpec(clkbit));
+            c->setPort(ID::EN, RTLIL::SigSpec(enbit));
+            c->setParam(ID(EN_POLARITY), RTLIL::Const(1, 1));
+            c->type = (c->type == ID($adff)) ? ID($adffe) : ID($dffe);
+            fprintf(stderr, "icg2en: reg %s reclocked to %s (en=%s)\n",
+                    c->name.c_str(), clkbit.wire->name.c_str(),
+                    enbit.wire ? enbit.wire->name.c_str() : "const");
+        }
+        // Latch disposal: transparent-low == wire at every pre-edge read
+        // point; the connect keeps its Q net comb-driven for all readers.
+        if (!latches_connected.count(latch)) {
+            mod->connect(latch->getPort(ID::Q), latch->getPort(ID::D));
+            latches_connected.insert(latch);
+        }
+        if (exported) {
+            RTLIL::Wire *hw = mod->addWire(
+                RTLIL::IdString(stringf("\\icg2en_hold_%d", nhold++)), 1);
+            RTLIL::Const iv(0, 1);
+            RTLIL::SigBit lq = latch->getPort(ID::Q)[0];
+            if (lq.wire && lq.wire->attributes.count(ID::init)) {
+                const RTLIL::Const &wi = lq.wire->attributes.at(ID::init);
+                if (GetSize(wi) > lq.offset && wi[lq.offset] == RTLIL::S1)
+                    iv = RTLIL::Const(1, 1);
+            }
+            hw->attributes[ID::init] = iv;
+            mod->addDff(NEW_ID, RTLIL::SigSpec(clkbit), RTLIL::SigSpec(enbit),
+                        RTLIL::SigSpec(hw), true);
+            gate->setPort(ID::A, RTLIL::SigSpec(clkbit));
+            gate->setPort(ID::B, RTLIL::SigSpec(hw));
+            gate->set_bool_attribute(ID(gsm_icg_clk));
+            g_icg2en_out = true;
+            fprintf(stderr, "icg2en: exported gated clock %s held via %s\n",
+                    g.wire->name.c_str(), hw->name.c_str());
+        }
+        g_icg2en_used = true;
+    }
+    // Deferred: a latch freed mid-loop would leave stale drv pointers for
+    // later cones sharing it (the Q:=D connect above is additive and safe).
+    for (RTLIL::Cell *l : latches_connected)
+        mod->remove(l);
+}
+
 int main(int argc, char **argv)
 {
     fprintf(stderr, "gen_statemachine starting...\n");
@@ -692,6 +937,12 @@ int main(int argc, char **argv)
     // sm_reset. Without this the codegen drops sync resets (q_next = d only).
     Yosys::run_pass("dffunmap");
     Yosys::run_pass("opt_clean");   // tidy WITHOUT opt_dff re-absorbing the reset into $dff SRST
+
+    // GSM_ICG2EN: rewrite latch+AND internal gated clocks to clock enables.
+    // Runs BEFORE the CXXRTL value plane and the SigMap/redirect build so
+    // both engines and all downstream analysis see the same rewritten cells.
+    if (getenv("GSM_ICG2EN"))
+        icg2en_rewrite(Yosys::yosys_get_design()->top_module());
 
     // ---- VALUE-PLANE ENGINE: emit CXXRTL from the SAME RTLIL ---------------
     // Run here, immediately after the netlist the hand-written C emitter is
@@ -1637,6 +1888,11 @@ int main(int argc, char **argv)
     // cone cells exclusive to dead outputs are skipped at run time.
     fprintf(out, "uint64_t sm_live_outputs[4] ="
                  " {~0ull,~0ull,~0ull,~0ull};\n\n");
+    if (g_icg2en_out)
+        // Real base-clock value, poked by the bridge before each eval (the
+        // comb-local _clk is pinned 0; inputs_t excludes the primary clock).
+        // Read ONLY by icg2en-exported gated-clock gates.
+        fprintf(out, "uint64_t sm_icg_clkval = 0;\n\n");
 
     // Input struct (primary inputs, excluding clk/rst)
     fprintf(out, "typedef struct {\n");
@@ -2029,6 +2285,13 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
                     masks.c_str());
+        } else if (type == "$and" && cell->get_bool_attribute(ID(gsm_icg_clk))) {
+            // icg2en exported gated clock: real clk (bridge-poked) & the hold
+            // register that froze the enable at the last base posedge -- the
+            // exact ICG output waveform (0 through clk-low, held through
+            // clk-high; never tracks a mid-phase enable change).
+            fprintf(out, "    %s = (sm_icg_clkval & 1) & %s;\n", y_name.c_str(),
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
         } else if (type == "$and") {
             fprintf(out, "    %s = %s & %s;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
@@ -3557,7 +3820,10 @@ int main(int argc, char **argv)
     // turns each DFF into a PPI/PPO; dffunmap already folded sync reset/enable
     // into D, and async resets remain $_DFF_*_ whose R json2bench ignores —
     // matching the model's per-cycle next-state (= D; async reset via sm_reset).
-    if (const char *scan_json = getenv("GSM_SCAN_JSON")) {
+    if (g_icg2en_used && getenv("GSM_SCAN_JSON"))
+        fprintf(stderr, "gen_statemachine: GSM_SCAN_JSON skipped — icg2en "
+                "left $dffe cells the scan flow does not model\n");
+    if (const char *scan_json = g_icg2en_used ? NULL : getenv("GSM_SCAN_JSON")) {
         std::string tn = mod->name.str();
         if (!tn.empty() && tn[0] == '\\') tn = tn.substr(1);
         fprintf(stderr, "Emitting full-scan JSON -> %s (top %s)\n",
