@@ -86,13 +86,36 @@ architecture sim of veer_eh1_tb is
 
 HEADER
 
-# Signal declarations
+# Signal declarations. Registered response outputs additionally get an
+# r_* twin: the TB's clocked processes drive r_*, and the DUT-facing s_*
+# copy is retimed +1 ps below. A plain VHDL posedge assign commits at
+# delta 1 -- the SAME delta a comb-derived gated clock inside the
+# translated core edges -- so a flop like lsu_axi_rvalid_ff (clocked by
+# lsu_busm_clk) reads the NEW value and passes it through a cycle early.
+# Verilog TBs are immune by region order (NBAs commit after active-region
+# clock propagation); the +1 ps retimer restores that contract. Measured
+# on EH1a hello: the un-retimed 1-cycle response made bus_rsp_read fire
+# before rdata_q captured and the first lb returned stale data.
+my %retime = map { $_ => 1 } qw(
+    ifu_axi_rvalid ifu_axi_rid ifu_axi_rdata ifu_axi_rlast
+    lsu_axi_rvalid lsu_axi_rid lsu_axi_rdata lsu_axi_rlast
+    lsu_axi_bvalid lsu_axi_bid
+);
+my @retimed;
 for my $p (@ports) {
     my ($n, $d, $t) = @$p;
     my $init = ($t =~ /vector\(/) ? "(others => L3D_0)" : "L3D_0";
     print "  signal s_$n : $t := $init;\n";
+    if ($retime{$n}) {
+        print "  signal r_$n : $t := $init;\n";
+        push @retimed, $n;
+    }
 }
 print "\nbegin\n";
+
+# +1 ps retimers (see the r_* declaration comment)
+print "  s_$_ <= transport r_$_ after 1 ps;\n" for @retimed;
+print "\n";
 
 # Clock
 print <<'CLK';
@@ -338,8 +361,8 @@ print <<'CLK';
     if rising_edge(s_clk) then
       -- Drop rvalid once the consumer acks it.
       if rdata_live and is_one(s_ifu_axi_rready) then
-        s_ifu_axi_rvalid <= L3D_0;
-        s_ifu_axi_rlast  <= L3D_0;
+        r_ifu_axi_rvalid <= L3D_0;
+        r_ifu_axi_rlast  <= L3D_0;
         rdata_live := false;
       end if;
       -- Enqueue a new request on arvalid+arready handshake.
@@ -371,10 +394,10 @@ print <<'CLK';
                 d(k*8+7 downto k*8) := nat_to_l3dv(mem(a+k), 8);
               end loop;
             end if;
-            s_ifu_axi_rdata  <= d;
-            s_ifu_axi_rid    <= q_id(i);
-            s_ifu_axi_rvalid <= L3D_1;
-            s_ifu_axi_rlast  <= L3D_1;
+            r_ifu_axi_rdata  <= d;
+            r_ifu_axi_rid    <= q_id(i);
+            r_ifu_axi_rvalid <= L3D_1;
+            r_ifu_axi_rlast  <= L3D_1;
             rdata_live := true;
             q_valid(i) := '0';
             exit;
@@ -412,8 +435,8 @@ print <<'CLK';
     if rising_edge(s_clk) then
       -- Drop rvalid once the consumer acks it.
       if rdata_live and is_one(s_lsu_axi_rready) then
-        s_lsu_axi_rvalid <= L3D_0;
-        s_lsu_axi_rlast  <= L3D_0;
+        r_lsu_axi_rvalid <= L3D_0;
+        r_lsu_axi_rlast  <= L3D_0;
         rdata_live := false;
       end if;
       -- Enqueue a new request on arvalid+arready handshake.
@@ -443,10 +466,10 @@ print <<'CLK';
                 d(k*8+7 downto k*8) := nat_to_l3dv(mem(a+k), 8);
               end loop;
             end if;
-            s_lsu_axi_rdata  <= d;
-            s_lsu_axi_rid    <= q_id(i);
-            s_lsu_axi_rvalid <= L3D_1;
-            s_lsu_axi_rlast  <= L3D_1;
+            r_lsu_axi_rdata  <= d;
+            r_lsu_axi_rid    <= q_id(i);
+            r_lsu_axi_rvalid <= L3D_1;
+            r_lsu_axi_rlast  <= L3D_1;
             rdata_live := true;
             q_valid(i) := '0';
             exit;
@@ -497,10 +520,10 @@ print <<'CLK';
             end loop;
           end if;
         end if;
-        s_lsu_axi_bvalid <= L3D_1;
-        s_lsu_axi_bid    <= s_lsu_axi_awid;
+        r_lsu_axi_bvalid <= L3D_1;
+        r_lsu_axi_bid    <= s_lsu_axi_awid;
       elsif is_one(s_lsu_axi_bready) then
-        s_lsu_axi_bvalid <= L3D_0;
+        r_lsu_axi_bvalid <= L3D_0;
       end if;
     end if;
   end process;
