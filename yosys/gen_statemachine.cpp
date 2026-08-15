@@ -1908,10 +1908,12 @@ int main(int argc, char **argv)
     // Input struct (primary inputs, excluding clk/rst)
     fprintf(out, "typedef struct {\n");
     bool has_inputs = false;
+    bool saw_rst_port = false;
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
         if (wire->port_input) {
             std::string wn = cname(wire->name.str());
+            if (wn == "_rst") saw_rst_port = true;
             if (wn != "_clk" && wn != "_rst") {
                 if (is_wide(wire->width))
                     fprintf(out, "    uint32_t %s[%d];  // %d bits\n",
@@ -1924,6 +1926,15 @@ int main(int argc, char **argv)
     }
     if (!has_inputs) fprintf(out, "    int _dummy;\n");
     fprintf(out, "} inputs_t;\n\n");
+
+    // Out-of-band reset handshake marker. Reset is a TWO-SIDED protocol:
+    // this side strips a port named `rst` from inputs_t; nvc's bridge
+    // diverts the same pin and drives sm_reset from AJB[5]. Removing
+    // either half alone is silent poison (measured: 16/19 accelbench
+    // designs wrong with both gates green). The bridge dlsym's this
+    // marker at install and hard-declines on any disagreement, so a
+    // one-sided edit fails loudly instead.
+    fprintf(out, "const int sm_oob_reset = %d;\n\n", saw_rst_port ? 1 : 0);
 
     // Wide-word memories (>64b/word) are out of scope: the $memwr/$memrd data
     // path below stays uint64_t, so silently truncating a wide word would be
