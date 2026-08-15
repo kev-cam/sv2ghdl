@@ -1886,8 +1886,19 @@ int main(int argc, char **argv)
     // Dead-output pruning mask: bit i = output i (sm_output_order[]) is live.
     // The bridge clears bits for outputs whose consumer nexus has no readers;
     // cone cells exclusive to dead outputs are skipped at run time.
-    fprintf(out, "uint64_t sm_live_outputs[4] ="
-                 " {~0ull,~0ull,~0ull,~0ull};\n\n");
+    // SIZED to the real output count (min 4 words for legacy layout): a
+    // fixed [4] capped every model at 256 outputs, and pin-completion
+    // wrappers legitimately exceed that.  sm_live_outputs_words lets the
+    // bridge negotiate the copy size (absent symbol = legacy 4).
+    int n_out_ports = 0;
+    for (auto &w : mod->wires_)
+        if (w.second->port_output) n_out_ports++;
+    const int lo_words = std::max(4, (n_out_ports + 63) / 64);
+    fprintf(out, "const int sm_live_outputs_words = %d;\n", lo_words);
+    fprintf(out, "uint64_t sm_live_outputs[%d] = {", lo_words);
+    for (int lw = 0; lw < lo_words; lw++)
+        fprintf(out, "%s~0ull", lw ? "," : "");
+    fprintf(out, "};\n\n");
     if (g_icg2en_out)
         // Real base-clock value, poked by the bridge before each eval (the
         // comb-local _clk is pinned 0; inputs_t excludes the primary clock).
@@ -3560,8 +3571,14 @@ int main(int argc, char **argv)
                    "}\n\n");
         fprintf(a, "#include \"%s\"\n\n", cxx_cc.c_str());
         fprintf(a, "typedef cxxrtl_design::%s vp_design_t;\n\n", cxx_class.c_str());
-        fprintf(a, "extern \"C\" uint64_t sm_live_outputs[4] ="
-                   " {~0ull,~0ull,~0ull,~0ull};\n\n");
+        // Same sizing as the C emitter (the bridge negotiates the copy via
+        // sm_live_outputs_words; both engines must agree).
+        fprintf(a, "extern \"C\" const int sm_live_outputs_words = %d;\n",
+                lo_words);
+        fprintf(a, "extern \"C\" uint64_t sm_live_outputs[%d] = {", lo_words);
+        for (int lw = 0; lw < lo_words; lw++)
+            fprintf(a, "%s~0ull", lw ? "," : "");
+        fprintf(a, "};\n\n");
 
         // ---- inputs_t : byte-identical to the C emitter ---------------------
         fprintf(a, "typedef struct {\n");
