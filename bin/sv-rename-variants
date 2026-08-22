@@ -59,6 +59,68 @@ def parse_entities(content):
         entities.append((name, sig, m.start(), m.end()))
     return entities
 
+def arch_entity_refs(content):
+    """Map entity name -> list of entity names its architecture
+    instantiates.  A wrapper whose arch differs ONLY in which child
+    variant it instantiates (e.g. rvdff_fpga wrapping a gated vs a
+    plain rvdff under SV2VHDL_ICG2EN) has identical ports/params/
+    guards — the child references must join the signature, iterated to
+    fixpoint so hashes propagate up the wrapper chain."""
+    refs = {}
+    for am in re.finditer(
+            r'architecture\s+\w+\s+of\s+(\w+)\s+is(.*?)end\s+architecture\s*;',
+            content, re.DOTALL | re.IGNORECASE):
+        rs = re.findall(r'entity\s+work\.(\w+)', am.group(2))
+        if rs:
+            refs[am.group(1)] = rs
+    return refs
+
+def arch_icg_guards(content):
+    """Map entity name -> canonical string of icg2en guard externals in its
+    architecture.  A gated-clock specialization (SV2VHDL_ICG2EN) differs
+    from the raw variant ONLY in the architecture body (same ports, same
+    params), so the guard externals must join the variant signature or the
+    two collapse to one name after concat+dedup and instances re-bind to
+    the wrong body (same failure class as the DCCM<->PIC rangecheck swap,
+    parameter edition)."""
+    guards = {}
+    for am in re.finditer(
+            r'architecture\s+\w+\s+of\s+(\w+)\s+is(.*?)end\s+architecture\s*;',
+            content, re.DOTALL | re.IGNORECASE):
+        g = re.findall(r'<<\s*signal\s+[^>]*>>', am.group(2))
+        if g:
+            guards[am.group(1)] = ' '.join(sorted(set(
+                re.sub(r'\s+', ' ', x) for x in g)))
+    return guards
+
+
+def arch_bodies(content):
+    """Map entity name -> short hash of its NORMALIZED architecture body.
+    The ports+params+guards+refs signature is blind to everything else in
+    the body — instance LABELS (which icg2en guard paths name via ^.-
+    external names) and declaration order drift across per-module runs.
+    Two same-named entities with different bodies then collapse to ONE
+    name, sv-dedup-vhdl keeps whichever comes first, and every other
+    run's instances silently re-bind to the wrong body (the F-build
+    funnel: core rvdffe sites re-bound to another context's variant;
+    83 same-(name,ports) different-body collisions in one sweep).
+    Folding a body hash into the signature makes NAME <-> BODY a
+    bijection: benign emission nondeterminism forks extra self-
+    consistent variants instead of silently cross-binding.  Child
+    entity refs are MASKED here (their identity already joins the
+    signature via the fixpoint REFS: component)."""
+    bodies = {}
+    for am in re.finditer(
+            r'architecture\s+\w+\s+of\s+(\w+)\s+is(.*?)end\s+architecture\s*;',
+            content, re.DOTALL | re.IGNORECASE):
+        name = am.group(1)
+        b = re.sub(r'--[^\n]*', '', am.group(2))
+        b = re.sub(r'entity\s+work\.\w+', 'entity work.REF', b)
+        b = re.sub(r'\b' + re.escape(name) + r'\b', 'SELF', b)
+        b = re.sub(r'\s+', ' ', b).strip()
+        bodies[name] = shorthash(b)
+    return bodies
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('input', nargs='?', default='-')
@@ -75,17 +137,39 @@ def main():
         content = f.read()
 
     entities = parse_entities(content)
+    icg_guards = arch_icg_guards(content)
+    ent_refs = arch_entity_refs(content)
+    body_hash = arch_bodies(content)
 
-    # Build rename map: original name -> hashed name
-    rename = {}
+    # Base signatures (ports + params + icg guards)
+    base_sig = {}
+    order = []
     for name, sig, _, _ in entities:
-        if name in skip:
-            continue
-        if name in rename:
-            # Same name appears twice in this file with possibly different
-            # signature — that's a different problem; skip it.
-            continue
-        rename[name] = f"{name}__{shorthash(sig)}"
+        if name in icg_guards:
+            sig += ' ICG:' + icg_guards[name]
+        if name in body_hash:
+            sig += ' BODY:' + body_hash[name]
+        if name in base_sig:
+            continue     # duplicate name in one file: leave to dedup
+        base_sig[name] = sig
+        order.append(name)
+
+    # Iterate hashes to fixpoint so a wrapper's hash reflects the
+    # (renamed) variants it instantiates — nesting depth bounds passes
+    rename = {}
+    for _ in range(8):
+        new_map = {}
+        for name in order:
+            if name in skip:
+                continue
+            sig = base_sig[name]
+            rs = ent_refs.get(name)
+            if rs:
+                sig += ' REFS:' + ' '.join(rename.get(r, r) for r in rs)
+            new_map[name] = f"{name}__{shorthash(sig)}"
+        if new_map == rename:
+            break
+        rename = new_map
 
     if not rename:
         out_text = content

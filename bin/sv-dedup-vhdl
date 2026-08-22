@@ -44,6 +44,7 @@ def main():
 
     # Collect unique (name, signature) pairs
     variants = defaultdict(dict)  # name -> {sig: block}
+    body_clash = 0
     for b in blocks:
         m = re.search(r'entity\s+(\w+)\s+is', b)
         if not m: continue
@@ -51,6 +52,21 @@ def main():
         sig = port_sig(b)
         if sig not in variants[name]:
             variants[name][sig] = b
+        else:
+            # Same name + same ports: the bodies must agree, or first-wins
+            # silently re-binds every other file's instances to the wrong
+            # architecture (labels/child-refs differ -> broken or cross-
+            # wired ^.-external guard paths).  sv-rename-variants folds a
+            # body hash into names, so a clash here means that invariant
+            # broke upstream — fail loudly (SV2VHDL_DEDUP_LAX=1 to keep
+            # the old first-wins behaviour while debugging).
+            kept = re.sub(r'--[^\n]*', '', variants[name][sig])
+            mine = re.sub(r'--[^\n]*', '', b)
+            if re.sub(r'\s+', ' ', kept) != re.sub(r'\s+', ' ', mine):
+                body_clash += 1
+                print(f"sv-dedup-vhdl: BODY CLASH on {name} "
+                      f"(same name+ports, different architecture)",
+                      file=sys.stderr)
 
     # Build output: for names with one variant, keep as-is.
     # For names with multiple variants, emit all with __hash suffixes.
@@ -94,6 +110,13 @@ def main():
             if dep in entity_blocks: visit(dep)
         result.append(n)
     for n in entity_blocks: visit(n)
+
+    import os
+    if body_clash and os.environ.get('SV2VHDL_DEDUP_LAX') != '1':
+        print(f"sv-dedup-vhdl: FATAL: {body_clash} same-name+ports body "
+              f"clashes (silently mis-binding); set SV2VHDL_DEDUP_LAX=1 "
+              f"to override", file=sys.stderr)
+        sys.exit(1)
 
     n_multi = sum(1 for v in variants.values() if len(v) > 1)
     n_total_variants = sum(len(v) for v in variants.values() if len(v) > 1)
