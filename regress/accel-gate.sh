@@ -139,6 +139,23 @@ if ! "$HERE/accel/opt_asserts.sh" | sed 's/^/    /'; then
   echo "VERDICT: HELD — an optimization stopped firing (see FAIL lines above)"
   exit 1
 fi
+
+# ---- 4. translated-design coverage ------------------------------------------
+# The accelbench designs are generated NATIVE VHDL (static sensitivity
+# lists); defects specific to iverilog-TRANSLATED processes
+# (wait-at-bottom dynamic sensitivity) are invisible to them — the
+# single-chunk wake hole (chunk evaluated twice at t=0 then never
+# again; nvc d2f50aa83) lived exactly there.  translated.sh runs one
+# translated fixture through interp and accel (single + merged) and
+# byte-compares.
+echo "  running translated.sh"
+TR_NVC="${NVC:-/usr/local/src/nvc-build/bin/nvc}"
+TR_LIB="${NVC_LIBDIR:-${TR_NVC%/bin/nvc}/lib}"
+if ! "$HERE/accel/translated.sh" "${TMPDIR:-/tmp}/accel-translated-$$" \
+     "$TR_NVC" "$TR_LIB" | sed 's/^/    /'; then
+  echo "VERDICT: HELD — translated-design accel check failed"
+  exit 1
+fi
 echo "VERDICT: CLEAN — all designs interp == accel == perinst == Verilator"
 echo "         ($installed chunks installed)"
 exit 0
