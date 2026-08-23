@@ -2548,13 +2548,17 @@ int main(int argc, char **argv)
                         fprintf(out, "      %s = (_yspl >> %d) & %s;\n",
                                 wn.c_str(), pos, mask_lit(w).c_str());
                     else {
-                        // Slice-width mask shifted by the DESTINATION
-                        // offset: under GSM_U32 a narrow mask literal is
-                        // 32-bit, so a u64 destination with off+w > 32
-                        // needs the mask (and the extracted field) lifted
-                        // to 64 bits or the shift is UB.
+                        // Slice-width mask into a WIDER destination:
+                        // under GSM_U32 a narrow mask literal is 32-bit.
+                        // Two hazards for a u64 destination: off+w > 32
+                        // makes the shift UB, and — subtler — ~(mask<<off)
+                        // of a 32-bit value ZERO-EXTENDS, wiping the
+                        // destination's high 32 bits on every LOW-slice
+                        // writeback (bug #4: i0_dp bit 43 lost to a
+                        // ~(0x1fU<<19) at bits 19..23).  Lift whenever the
+                        // destination is wider than 32, any offset.
                         std::string m = mask_lit(w);
-                        if (g_u32 && ww > 32 && off + w > 32)
+                        if (g_u32 && ww > 32)
                             m = "(uint64_t)" + m;
                         fprintf(out, "      %s = (%s & ~(%s << %d)) |"
                                 " (((_yspl >> %d) & %s) << %d);\n",
