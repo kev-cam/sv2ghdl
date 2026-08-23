@@ -103,13 +103,27 @@ struct CxxMember { std::string kind; int width; };
 // Wide-signal support: signals up to 64 bits use uint64_t (byte-identical to the
 // pre-wide codegen); 65..128 bits use unsigned __int128 so big datapath chunks
 // (e.g. dec's 68-bit i0_brp) compute correctly instead of truncating to 64.
-static const char *ctype(int w) { return w > 64 ? "unsigned __int128" : "uint64_t"; }
+// GSM_U32=1: width-aware carriers — signals <=32 bits are held in uint32_t
+// instead of uint64_t.  Semantically neutral on CPU (results are width-
+// masked either way; headroom-needing ops cast up explicitly below) but
+// ~2.5x on GPU targets, which emulate 64-bit integer ops (measured on the
+// fsm_bench farm, RTX 2060).  Default OFF until the differential gates pass.
+static bool g_u32 = false;
+
+static const char *ctype(int w) {
+    if (g_u32 && w <= 32) return "uint32_t";
+    return w > 64 ? "unsigned __int128" : "uint64_t";
+}
 
 // Emit a C literal for a value up to 128 bits (hi/lo split for >64); for <=64
 // emits exactly the old `UINT64_C(0x..)` spelling so narrow output is unchanged.
-static std::string u128_lit(unsigned __int128 v) {
+static std::string u128_lit(unsigned __int128 v, int w = 64) {
     std::ostringstream o;
     uint64_t lo = (uint64_t)v, hi = (uint64_t)(v >> 64);
+    if (g_u32 && w <= 32 && v <= 0xffffffffu) {
+        o << "0x" << std::hex << lo << "U";
+        return o.str();
+    }
     if (hi == 0)
         o << "UINT64_C(0x" << std::hex << lo << ")";
     else
@@ -122,6 +136,11 @@ static std::string u128_lit(unsigned __int128 v) {
 // the UB `1<<w` (w>=64) never runs; <=64 matches the old `UINT64_C(0x..)` spelling.
 static std::string mask_lit(int w) {
     if (w >= 128) return "(~(unsigned __int128)0)";
+    if (g_u32 && w <= 32) {
+        std::ostringstream o;
+        o << "0x" << std::hex << ((UINT64_C(1) << w) - 1) << "U";
+        return o.str();
+    }
     if (w == 64)  return "UINT64_C(0xffffffffffffffff)";
     if (w < 64) {
         std::ostringstream o;
@@ -215,7 +234,7 @@ static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
         unsigned __int128 v = 0;
         for (int i = val.size()-1; i >= 0; i--)
             v = (v << 1) | (val[i] == RTLIL::S1 ? 1 : 0);
-        return u128_lit(v);
+        return u128_lit(v, val.size());
     }
 
     // Single wire reference. NB: hold chunks() in a NAMED local. SigSpec::chunks()
@@ -272,13 +291,19 @@ static std::string sig_expr(const SigSpec &sig, const SigMap &sigmap) {
             unsigned __int128 v = 0;
             for (int i = chunk.data.size()-1; i >= 0; i--)
                 v = (v << 1) | (chunk.data[i] == RTLIL::S1 ? 1 : 0);
-            part = u128_lit(v);
+            part = u128_lit(v, chunk.data.size());
         }
         if (pos == 0)
             expr = part;
         else {
             std::ostringstream oss;
-            oss << "((" << part << " << " << std::dec << pos << ") | " << expr << ")";
+            // A u32-carried part shifted by pos >= 32 would be UB; cast up
+            // whenever the accumulating value exceeds 32 bits under GSM_U32
+            if (g_u32 && pos + chunk.width > 32)
+                oss << "(((uint64_t)(" << part << ") << " << std::dec << pos
+                    << ") | " << expr << ")";
+            else
+                oss << "((" << part << " << " << std::dec << pos << ") | " << expr << ")";
             expr = oss.str();
         }
         pos += chunk.width;
@@ -303,7 +328,12 @@ static std::string signed_expr(const std::string &expr, int width) {
     }
     if (width >= 64) return "(int64_t)" + expr;
     std::ostringstream oss;
-    oss << "((int64_t)((" << expr << ") << " << (64 - width) << ") >> " << (64 - width) << ")";
+    if (g_u32 && width <= 32)   // u32 carrier needs explicit headroom
+        oss << "((int64_t)(((uint64_t)(" << expr << ")) << " << (64 - width)
+            << ") >> " << (64 - width) << ")";
+    else
+        oss << "((int64_t)((" << expr << ") << " << (64 - width) << ") >> "
+            << (64 - width) << ")";
     return oss.str();
 }
 
@@ -851,6 +881,9 @@ static void icg2en_rewrite(RTLIL::Module *mod)
 
 int main(int argc, char **argv)
 {
+    if (getenv("GSM_U32") && *getenv("GSM_U32") == '1')
+        g_u32 = true;
+
     fprintf(stderr, "gen_statemachine starting...\n");
     // Accept multiple input files: any arg ending in .v/.sv/.vh/.svh is a
     // source; the first non-source arg is the top module; the next is the
@@ -2295,16 +2328,23 @@ int main(int argc, char **argv)
         }
         if (y_multi) { fprintf(out, "    { uint64_t _yspl = 0;\n"); y_name = "_yspl"; }
 
+        // GSM_U32: a u32-carried operand loses the carry/product/negate
+        // headroom a wider Y needs; pre-wrap the first operand so C
+        // promotion carries the whole expression (emission unchanged when
+        // the mode is off).
+        auto upwrap = [&](const std::string &e) {
+            return (g_u32 && y_width > 32) ? "(uint64_t)(" + e + ")" : e;
+        };
         if (type == "$add") {
             fprintf(out, "    %s = (%s + %s) & %s;\n",
                     y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    upwrap(sig_expr(cell->getPort(ID::A), sigmap)).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
                     masks.c_str());
         } else if (type == "$sub") {
             fprintf(out, "    %s = (%s - %s) & %s;\n",
                     y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    upwrap(sig_expr(cell->getPort(ID::A), sigmap)).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
                     masks.c_str());
         } else if (type == "$and" && cell->get_bool_attribute(ID(gsm_icg_clk))) {
@@ -2336,12 +2376,13 @@ int main(int argc, char **argv)
             // 0). yosys shift counts are unsigned and can exceed 63 (variable
             // `sll shamt`, shamt up to the operand's full range). Guard >=64->0;
             // the width mask already handles the [width,63] range.
+            std::string shl_a = sig_expr(cell->getPort(ID::A), sigmap);
+            if (g_u32)
+                shl_a = "(uint64_t)(" + shl_a + ")";
             fprintf(out, "    { uint64_t _s=(uint64_t)(%s); %s = (_s>=64 ? 0 : "
                     "((%s) << _s)) & %s; }\n",
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
-                    y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
-                    masks.c_str());
+                    y_name.c_str(), shl_a.c_str(), masks.c_str());
         } else if (type == "$shr") {
             // Same C shift-count UB guard as $shl (see above); logical right
             // shift fills 0, so a count >= 64 (or >= width) yields 0.
@@ -2457,11 +2498,12 @@ int main(int argc, char **argv)
             else
                 fprintf(out, "    %s = (%s * %s) & %s;\n",
                         y_name.c_str(),
-                        sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                        upwrap(sig_expr(cell->getPort(ID::A), sigmap)).c_str(),
                         sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
         } else if (type == "$neg") {
             fprintf(out, "    %s = (-%s) & %s;\n", y_name.c_str(),
-                    sig_expr(cell->getPort(ID::A), sigmap).c_str(), masks.c_str());
+                    upwrap(sig_expr(cell->getPort(ID::A), sigmap)).c_str(),
+                    masks.c_str());
         } else if (type == "$reduce_and") {
             auto a = sig_expr(cell->getPort(ID::A), sigmap);
             int a_width = cell->getPort(ID::A).size();
