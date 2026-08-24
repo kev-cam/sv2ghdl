@@ -2292,6 +2292,13 @@ int main(int argc, char **argv)
             if (w.second->port_input) innames.insert(cname(w.second->name.str()));
         for (auto *cell : sorted) {
             int b = g_gp.blk[cell];
+            // $memwr sits in `sorted` but is EMITTED by the seq phase — its
+            // ADDR/DATA/EN wires are seq reads (must persist), NOT intra-block
+            // comb reads.  Classifying them here made the memwr staging wires
+            // function-locals: garbage whenever their producer block was
+            // skipped (caught: first write vanished on the wide-word fixture).
+            if (cell->type.str().compare(0, 6, "$memwr") == 0)
+                continue;
             bool ismem = cell->type.str().compare(0, 6, "$memrd") == 0;
             for (auto &conn : cell->connections()) {
                 bool isout = ismem ? (conn.first == ID(DATA))
@@ -2316,7 +2323,8 @@ int main(int argc, char **argv)
         std::set<std::string> seqreads;
         for (auto &c : mod->cells_) {
             auto *cell = c.second;
-            if (g_gp.blk.count(cell)) continue;
+            if (g_gp.blk.count(cell)
+                && cell->type.str().compare(0, 6, "$memwr") != 0) continue;
             for (auto &conn : cell->connections()) {
                 RTLIL::SigSpec ms = sigmap(conn.second);
                 for (auto &ch : ms.chunks())
@@ -2430,14 +2438,16 @@ int main(int argc, char **argv)
     // one-sided edit fails loudly instead.
     fprintf(out, "const int sm_oob_reset = %d;\n\n", saw_rst_port ? 1 : 0);
 
-    // Wide-word memories (>64b/word) are out of scope: the $memwr/$memrd data
-    // path below stays uint64_t, so silently truncating a wide word would be
-    // wrong. Decline the whole module (stays interpreted in nvc) instead.
+    // Wide-word memories (>64b/word): words become limb arrays, stored flat
+    // as name[depth*wnl]; $memrd copies the word's limbs, $memwr does a
+    // per-limb masked RMW.  Init constants beyond 128 bits are unsupported
+    // (MemInfo::init is __int128) — decline those loudly.
     for (auto &m : memories)
-        if (m.second.width > 64) {
-            fprintf(stderr, "gen_statemachine: memory %s has %d-bit words (>64) — declining\n",
+        if (m.second.width > 128 && !m.second.init.empty()) {
+            fprintf(stderr, "gen_statemachine: memory %s has %d-bit words with"
+                    " init values (>128-bit init unsupported) — declining\n",
                     m.second.name.c_str(), m.second.width);
-            exit(1);   // install checks the exit code and leaves the chunk in nvc
+            exit(1);
         }
 
     // State struct
@@ -2449,9 +2459,15 @@ int main(int argc, char **argv)
         else
             fprintf(out, "    %s %s;  // %d bits\n", ctype(reg.width), reg.name.c_str(), reg.width);
     }
-    for (auto &m : memories)
-        fprintf(out, "    uint64_t %s[%d];  // %d x %d-bit\n",
-                m.second.name.c_str(), m.second.depth, m.second.depth, m.second.width);
+    for (auto &m : memories) {
+        if (m.second.width > 64)
+            fprintf(out, "    %s %s[%d];  // %d x %d-bit (%d limbs/word)\n", lt(),
+                    m.second.name.c_str(), m.second.depth * nlimbs(m.second.width),
+                    m.second.depth, m.second.width, nlimbs(m.second.width));
+        else
+            fprintf(out, "    uint64_t %s[%d];  // %d x %d-bit\n",
+                    m.second.name.c_str(), m.second.depth, m.second.depth, m.second.width);
+    }
     fprintf(out, "} state_t;\n\n");
 
     // FSM coverage struct
@@ -2579,10 +2595,25 @@ int main(int argc, char **argv)
     }
     for (auto &m : memories) {
         auto &mem = m.second;
+        const bool ww = mem.width > 64;
+        const int wnl = ww ? nlimbs(mem.width) : 1;
         for (int i = 0; i < mem.depth; i++) {
             auto it = mem.init.find(i);
             unsigned __int128 val = (it != mem.init.end()) ? it->second : 0;
-            if (val != 0)
+            if (val == 0) continue;
+            if (ww) {
+                const int lb = g_w64 ? 64 : 32;
+                for (int l = 0; l < wnl && l * lb < 128; l++) {
+                    uint64_t lw = (uint64_t)(val >> (lb * l));
+                    if (lb == 32) lw &= 0xffffffffu;
+                    if (lw)
+                        fprintf(out, "    s->%s[%d] = %s0x%llx%s;\n",
+                                mem.name.c_str(), i * wnl + l,
+                                lb == 64 ? "UINT64_C(" : "",
+                                (unsigned long long)lw,
+                                lb == 64 ? ")" : "u");
+                }
+            } else
                 fprintf(out, "    s->%s[%d] = %s;\n",
                         mem.name.c_str(), i, u128_lit(val).c_str());
         }
@@ -2757,9 +2788,21 @@ int main(int argc, char **argv)
             if (!data_name.empty()) {
                 auto addr = sig_expr(cell->getPort(ID(ADDR)), sigmap);
                 int abits = cell->getParam(ID(ABITS)).as_int();
-                fprintf(out, "    %s = s->%s[%s & %s];\n",
-                        data_name.c_str(), cname(memid).c_str(),
-                        addr.c_str(), mask_lit(abits).c_str());
+                auto mit = memories.find(memid);
+                int mw = (mit != memories.end()) ? mit->second.width : 64;
+                if (mw > 64) {
+                    int wnl = nlimbs(mw);
+                    auto *dw = (*cell->getPort(ID(DATA)).chunks().begin()).wire;
+                    int dnl = nlimbs(dw->width);
+                    fprintf(out, "    wcopy(%s, &s->%s[(%s & %s) * %d], %d);\n",
+                            data_name.c_str(), cname(memid).c_str(),
+                            addr.c_str(), mask_lit(abits).c_str(), wnl, wnl);
+                    for (int l = wnl; l < dnl; l++)
+                        fprintf(out, "    %s[%d] = 0;\n", data_name.c_str(), l);
+                } else
+                    fprintf(out, "    %s = s->%s[%s & %s];\n",
+                            data_name.c_str(), cname(memid).c_str(),
+                            addr.c_str(), mask_lit(abits).c_str());
             }
             return;
         }
@@ -3445,6 +3488,36 @@ int main(int argc, char **argv)
             int abits = cell->getParam(ID(ABITS)).as_int();
             uint64_t amask = (abits >= 64) ? ~0ULL : ((1ULL << abits) - 1);
             std::string addr = sig_expr(cell->getPort(ID(ADDR)), sigmap);
+            {
+                auto mit = memories.find(cell->getParam(ID(MEMID)).decode_string());
+                int mw = (mit != memories.end()) ? mit->second.width : 64;
+                if (mw > 64) {
+                    // wide-word: materialize DATA/EN limbs, masked RMW per limb.
+                    // EN gating: any nonzero EN bit writes its limbs; the whole
+                    // statement is unguarded (per-bit EN handled by the mask),
+                    // but skip work when EN is all-zero.
+                    int wnl = nlimbs(mw);
+                    if (!hdr) { fprintf(out, "    // Memory write ports\n"); hdr = true; }
+                    std::string gd;
+                    if (g_gated && g_gp.memreaders.count(mn))
+                        gd = gd_or_str(g_gp.memreaders[mn]);
+                    fprintf(out, "    { %s _md[%d], _me[%d];\n", lt(), wnl, wnl);
+                    emit_materialize(out, "_md", wnl, cell->getPort(ID(DATA)), sigmap, false, 0);
+                    emit_materialize(out, "_me", wnl, cell->getPort(ID(EN)), sigmap, false, 0);
+                    if (masked)
+                        fprintf(out, "      if ((posedge_mask & 1u) && wred_or(_me,%d)) {\n", wnl);
+                    else
+                        fprintf(out, "      if (wred_or(_me,%d)) {\n", wnl);
+                    fprintf(out, "        uint64_t _wa = ((uint64_t)(%s) & UINT64_C(0x%llx)) * %d;\n",
+                            addr.c_str(), (unsigned long long)amask, wnl);
+                    fprintf(out, "        for (int _l = 0; _l < %d; _l++)\n"
+                                 "          %s->%s[_wa+_l] = (%s->%s[_wa+_l] & ~_me[_l]) | (_md[_l] & _me[_l]);\n",
+                            wnl, sp, mn.c_str(), sp, mn.c_str());
+                    if (!gd.empty()) fprintf(out, "       %s\n", gd.c_str());
+                    fprintf(out, "      } }\n");
+                    continue;
+                }
+            }
             std::string data = sig_expr(cell->getPort(ID(DATA)), sigmap);
             std::string en   = sig_expr(cell->getPort(ID(EN)), sigmap);
             // Masked write: bits where EN=1 take DATA, EN=0 keep old word. Handles
