@@ -678,6 +678,13 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         else if (type == "$le") snprintf(e, sizeof e, "%s(_wb,_wa,%d)?0:1", cmp, nc);
         else                    snprintf(e, sizeof e, "%s(_wa,_wb,%d)?0:1", cmp, nc);
         put_bit(e);
+    } else if ((type == "$logic_and" || type == "$logic_or")
+               && aw <= 64 && bw <= 64) {
+        // narrow logical op landing in a wide target (partial drive)
+        std::string e = "((" + scalar_of(cell->getPort(ID::A), sigmap)
+            + " != 0) " + (type == "$logic_and" ? "&&" : "||") + " ("
+            + scalar_of(cell->getPort(ID::B), sigmap) + " != 0)) ? 1 : 0";
+        put_bit(e);
     } else if (type == "$reduce_or" || type == "$reduce_bool" || type == "$logic_not") {
         int na = nlimbs(aw);
         fprintf(o, "      %s _wa[%d];\n", lt(), na); matA("_wa", na, false, 0);
@@ -2909,6 +2916,24 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(),
                     y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str());
+        } else if (type == "$sshr") {
+            // Arithmetic right shift: sign-extend A to its own width first;
+            // a count >= width floods with the sign bit (clamp to 63 after
+            // extension — the extended value's sign fills everything above).
+            int aw2 = cell->getPort(ID::A).size();
+            std::string sa = signed_expr(sig_expr(cell->getPort(ID::A), sigmap), aw2);
+            fprintf(out, "    { uint64_t _s=(uint64_t)(%s); if (_s>63) _s=63; "
+                    "%s = ((uint64_t)(%s >> _s)) & %s; }\n",
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
+                    y_name.c_str(), sa.c_str(), masks.c_str());
+        } else if (type == "$sshl") {
+            // Shift left is sign-agnostic; same count-UB guard as $shl.
+            fprintf(out, "    { uint64_t _s=(uint64_t)(%s); %s = (_s>=64 ? 0 : "
+                    "(((%s) << _s) & %s)); }\n",
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str(),
+                    y_name.c_str(),
+                    upwrap(sig_expr(cell->getPort(ID::A), sigmap)).c_str(),
+                    masks.c_str());
         } else if (type == "$shift" || type == "$shiftx") {
             // Dynamic-offset shift / indexed part-select a[b +: w]: Y = A >> B,
             // where B is the (possibly signed) offset — a negative B shifts LEFT
@@ -3043,6 +3068,12 @@ int main(int argc, char **argv)
         } else if (type == "$reduce_bool") {
             fprintf(out, "    %s = (%s != 0) ? 1 : 0;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str());
+        } else if (type == "$logic_and" || type == "$logic_or") {
+            fprintf(out, "    %s = ((%s != 0) %s (%s != 0)) ? 1 : 0;\n",
+                    y_name.c_str(),
+                    sig_expr(cell->getPort(ID::A), sigmap).c_str(),
+                    type == "$logic_and" ? "&&" : "||",
+                    sig_expr(cell->getPort(ID::B), sigmap).c_str());
         } else if (type == "$xnor") {
             fprintf(out, "    %s = (~(%s ^ %s)) & %s;\n", y_name.c_str(),
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
