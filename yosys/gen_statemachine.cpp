@@ -2103,6 +2103,10 @@ int main(int argc, char **argv)
     // ---- GSM_GATED plan + file-scope persistence -------------------------
     // v1 scope: single clock group, no FSM specialization (checked when the
     // gated body is emitted; the plan itself is unconditional under g_gated).
+    if (g_gated && !g_spec_regname.empty()) {
+        fprintf(stderr, "GSM_GATED: disabled (FSM specialization active)\n");
+        g_gated = false;
+    }
     if (g_gated) {
         const int K = g_gated_block;
         int idx = 0;
@@ -2146,6 +2150,15 @@ int main(int argc, char **argv)
                 for (auto &ch : ms.chunks())
                     if (ch.wire) seqreads.insert(cname(ch.wire->name.str()));
             }
+        }
+        // Output-copy reads too: gated sm_comb emits the output tail from the
+        // persistent statics, so every net emit_outputs references must
+        // survive its writer block being skipped.
+        for (auto &w : mod->wires_) {
+            if (!w.second->port_output) continue;
+            RTLIL::SigSpec ms = sigmap(RTLIL::SigSpec(w.second));
+            for (auto &ch : ms.chunks())
+                if (ch.wire) seqreads.insert(cname(ch.wire->name.str()));
         }
         // Boundary = comb-written net whose value must survive its writer
         // block being skipped: read by another block, sliced across several
@@ -3015,8 +3028,17 @@ int main(int argc, char **argv)
             continue;
         }
         if (!declared.count(wn)) {
+            // Gated body: a written non-boundary net is intra-block only and
+            // topo order guarantees write-before-read, so skip the zero-init
+            // (a skipped block's local is garbage nobody reads).  Undriven
+            // nets keep the 0.
+            bool noinit = g_emit_gated_body && g_gp.writers.count(wn);
             if (is_wide(wire->width))
-                fprintf(out, "    uint32_t %s[%d] = {0};\n", wn.c_str(), nlimbs(wire->width));
+                fprintf(out, noinit ? "    uint32_t %s[%d];\n"
+                                    : "    uint32_t %s[%d] = {0};\n",
+                        wn.c_str(), nlimbs(wire->width));
+            else if (noinit)
+                fprintf(out, "    %s %s;\n", ctype(wire->width), wn.c_str());
             else
                 fprintf(out, "    %s %s = 0;\n", ctype(wire->width), wn.c_str());
             declared.insert(wn);
@@ -3056,8 +3078,15 @@ int main(int argc, char **argv)
             fprintf(out, "    }\n");
         }
         // Blocks: test-and-clear dirty bit, cells, boundary compares.
+        // Word-level skip is sound: a bit in word w can only be set mid-pass
+        // by an earlier block — cross-word setters run before the pass
+        // reaches w, and a same-word setter implies w was nonzero at entry.
         int idx = 0;
         for (int b = 0; b < g_gp.nb; b++) {
+            if ((b & 63) == 0) {
+                if (b) fprintf(out, "    }\n");
+                fprintf(out, "    if (_bd[%d]) {\n", b >> 6);
+            }
             fprintf(out, "    if (_bd[%d] & (1ull<<%d)) { _bd[%d] &= ~(1ull<<%d);\n",
                     b >> 6, b & 63, b >> 6, b & 63);
             for (; idx < (int)sorted.size() && g_gp.blk[sorted[idx]] == b; idx++)
@@ -3077,6 +3106,7 @@ int main(int argc, char **argv)
             }
             fprintf(out, "    }\n");
         }
+        if (g_gp.nb) fprintf(out, "    }\n");
     } else {
     g_census_active = true;
     for (auto *cell : sorted) emit_cell_cns(cell);
@@ -3256,6 +3286,31 @@ int main(int argc, char **argv)
     }
     };  // end emit_seq lambda
 
+    // GSM_GATED: post-seq register-commit dirtying.  Compares against a
+    // persistent prev copy (NOT the pre-edge alias — async-reset overrides
+    // mutate both alias and state and would mask the transition), so it is
+    // valid after ANY commit path: plain, masked, or late.
+    auto emit_reg_dirty = [&](const char *sp) {
+        if (!g_gated) return;
+        fprintf(out, "    // register-change dirtying\n");
+        for (auto &reg : registers) {
+            auto rit = g_gp.readers.find(reg.name);
+            if (rit == g_gp.readers.end()) continue;
+            if (is_wide(reg.width)) {
+                int nl = nlimbs(reg.width);
+                fprintf(out, "    if (_gd_wne(_pv%s, %s->%s, %d)) { "
+                             "wcopy(_pv%s, %s->%s, %d);\n",
+                        reg.name.c_str(), sp, reg.name.c_str(), nl,
+                        reg.name.c_str(), sp, reg.name.c_str(), nl);
+            } else
+                fprintf(out, "    if (_pv%s != %s->%s) { _pv%s = %s->%s;\n",
+                        reg.name.c_str(), sp, reg.name.c_str(),
+                        reg.name.c_str(), sp, reg.name.c_str());
+            gd_emit_or(out, rit->second, -1, "        ");
+            fprintf(out, "    }\n");
+        }
+    };
+
     // Output copies (the sm_comb tail) — trace through sigmap to find the source.
     auto emit_outputs = [&]() {
     fprintf(out, "    // Outputs\n");
@@ -3311,10 +3366,20 @@ int main(int argc, char **argv)
         fprintf(out, "    }\n}\n\n");
     } else {
         fprintf(out, "void sm_comb(state_t *s, const inputs_t *in, outputs_t *o) {\n");
-        emit_comb_prefix("s");
-        fprintf(out, "    // output cones only\n");
-        emit_outcone_cells();
-        emit_outputs();
+        if (g_gated) {
+            // Same gated pass as sm_clock (shared _bd + boundary statics):
+            // settle-loop re-evals only re-run input-dirtied blocks, and the
+            // following sm_clock finds the comb already settled.
+            g_emit_gated_body = true;
+            emit_comb("s");
+            g_emit_gated_body = false;
+            emit_outputs();
+        } else {
+            emit_comb_prefix("s");
+            fprintf(out, "    // output cones only\n");
+            emit_outcone_cells();
+            emit_outputs();
+        }
         fprintf(out, "}\n\n");
     }
 
@@ -3368,29 +3433,8 @@ int main(int argc, char **argv)
             g_emit_gated_body = g_gated;
             emit_comb("s");
             emit_seq("s", false);
-            if (g_emit_gated_body) {
-                // Register-commit dirtying: compare against a persistent prev
-                // copy (NOT the pre-edge alias — async-reset overrides mutate
-                // both alias and state, and would mask the transition).
-                fprintf(out, "    // register-change dirtying\n");
-                for (auto &reg : registers) {
-                    auto rit = g_gp.readers.find(reg.name);
-                    if (rit == g_gp.readers.end()) continue;
-                    if (is_wide(reg.width)) {
-                        int nl = nlimbs(reg.width);
-                        fprintf(out, "    if (_gd_wne(_pv%s, s->%s, %d)) { "
-                                     "wcopy(_pv%s, s->%s, %d);\n",
-                                reg.name.c_str(), reg.name.c_str(), nl,
-                                reg.name.c_str(), reg.name.c_str(), nl);
-                    } else
-                        fprintf(out, "    if (_pv%s != s->%s) { _pv%s = s->%s;\n",
-                                reg.name.c_str(), reg.name.c_str(),
-                                reg.name.c_str(), reg.name.c_str());
-                    gd_emit_or(out, rit->second, -1, "        ");
-                    fprintf(out, "    }\n");
-                }
-            }
             g_emit_gated_body = false;
+            emit_reg_dirty("s");
             fprintf(out, "}\n\n");
         }
         fprintf(out, "void sm_clock_out(state_t *s, const inputs_t *in, "
@@ -3398,6 +3442,7 @@ int main(int argc, char **argv)
         fprintf(out, "    (void)posedge_mask;\n");
         emit_comb("s");
         emit_seq("s", false);
+        emit_reg_dirty("s");
         fprintf(out, "    // refresh committed registers read by the output cones\n");
         for (auto &rn : outcone_regs) {
             int w = regwidth.count(rn) ? regwidth[rn] : 1;
@@ -3420,8 +3465,11 @@ int main(int argc, char **argv)
         // single call (any groups co-firing in one mask read one snapshot).
         fprintf(out, "void sm_clock_masked(state_t *s, const inputs_t *in, "
                      "unsigned posedge_mask) {\n");
+        g_emit_gated_body = g_gated;
         emit_comb("s");
+        g_emit_gated_body = false;
         emit_seq("s", true);
+        emit_reg_dirty("s");
         fprintf(out, "}\n\n");
         fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
         fprintf(out, "    sm_clock_masked(s, in, ~0u);\n");
@@ -3431,6 +3479,7 @@ int main(int argc, char **argv)
         fprintf(out, "    (void)posedge_mask;\n");
         emit_comb("s");
         emit_seq("s", true);
+        emit_reg_dirty("s");
         fprintf(out, "    // refresh committed registers read by the output cones\n");
         for (auto &rn : outcone_regs) {
             int w = regwidth.count(rn) ? regwidth[rn] : 1;
@@ -3458,6 +3507,7 @@ int main(int argc, char **argv)
                      "const inputs_t *in, unsigned posedge_mask) {\n");
         emit_comb("k");
         emit_seq("s", true);
+        emit_reg_dirty("s");
         fprintf(out, "}\n\n");
 
         // Fused late commit: only the late-groups' D/EN/ARST cone is
@@ -3472,6 +3522,7 @@ int main(int argc, char **argv)
         for (auto *cell : sorted)
             if (latecone.count(cell)) emit_cell(cell);
         emit_seq("s", true);
+        emit_reg_dirty("s");
         fprintf(out, "    // refresh committed registers read by the output cones\n");
         for (auto &rn : outcone_regs) {
             int w = regwidth.count(rn) ? regwidth[rn] : 1;
