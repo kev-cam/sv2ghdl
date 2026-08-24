@@ -1180,7 +1180,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "  chparam %s = %s on %s\n", k.c_str(), v.c_str(), top_name);
         Yosys::run_pass("chparam -set " + k + " " + v + " " + top_name);
     }
-    Yosys::run_pass(std::string("hierarchy -top ") + top_name);
+    // -check: a module with no definition would otherwise become a silent
+    // blackbox (dangling-zero outputs) — measured on Vortex: VX_multiplier/
+    // VX_uuid_gen missing from the file list stalled fetch with no error.
+    Yosys::run_pass(std::string("hierarchy -check -top ") + top_name);
     Yosys::run_pass("proc");
     Yosys::run_pass("flatten");
     Yosys::run_pass("opt -keepdc");
