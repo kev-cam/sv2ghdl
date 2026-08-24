@@ -157,7 +157,12 @@ static std::string mask_lit(int w) {
 // 32-bit limbs keep every $mul partial product inside a uint64_t (no __int128),
 // so this scales to ANY width — e.g. dec's 152-bit trigger_pkt_any.
 static inline bool is_wide(int w) { return w > 64; }
-static inline int  nlimbs(int w)  { return (w + 31) / 32; }
+// GSM_WIDE64: 64-bit limbs for wide signals (x86-64 native; halves the limb
+// ops on 256-bit datapaths).  Default stays 32-bit limbs, byte-identical.
+static bool g_w64 = false;
+static inline int  nlimbs(int w)  { return g_w64 ? (w + 63) / 64
+                                                 : (w + 31) / 32; }
+static inline const char *lt() { return g_w64 ? "uint64_t" : "uint32_t"; }
 
 // Emitted into the generated .c ONLY when some signal is wide (so all-narrow
 // designs stay byte-identical). Little-endian: limb i holds bits [32i, 32i+32).
@@ -211,6 +216,58 @@ static const char *WIDE_RT =
 "  while(w>0){int db=doff&31,sb=soff&31;int n=32-(db>sb?db:sb);if(n>w)n=w;\n"
 "    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
 "    d[doff>>5]=(d[doff>>5]&~(m<<db))|(((s[soff>>5]>>sb)&m)<<db);\n"
+"    doff+=n;soff+=n;w-=n;}}\n"
+"\n";
+
+// 64-bit-limb variant (GSM_WIDE64).  Same names/contracts, uint64_t limbs;
+// carries and $mul partial products use unsigned __int128.
+static const char *WIDE_RT64 =
+"// --- wide-int runtime (little-endian uint64_t limbs) ---\n"
+"typedef unsigned __int128 w128;\n"
+"static inline void wcopy(uint64_t*d,const uint64_t*a,int n){for(int i=0;i<n;i++)d[i]=a[i];}\n"
+"static inline void wand(uint64_t*d,const uint64_t*a,const uint64_t*b,int n){for(int i=0;i<n;i++)d[i]=a[i]&b[i];}\n"
+"static inline void wor_(uint64_t*d,const uint64_t*a,const uint64_t*b,int n){for(int i=0;i<n;i++)d[i]=a[i]|b[i];}\n"
+"static inline void wxor(uint64_t*d,const uint64_t*a,const uint64_t*b,int n){for(int i=0;i<n;i++)d[i]=a[i]^b[i];}\n"
+"static inline void wnot(uint64_t*d,const uint64_t*a,int n){for(int i=0;i<n;i++)d[i]=~a[i];}\n"
+"static inline void wadd(uint64_t*d,const uint64_t*a,const uint64_t*b,int n){w128 c=0;for(int i=0;i<n;i++){c+=(w128)a[i]+b[i];d[i]=(uint64_t)c;c>>=64;}}\n"
+"static inline void wsub(uint64_t*d,const uint64_t*a,const uint64_t*b,int n){w128 c=1;for(int i=0;i<n;i++){c+=(w128)a[i]+(uint64_t)~b[i];d[i]=(uint64_t)c;c>>=64;}}\n"
+"static inline void wneg(uint64_t*d,const uint64_t*a,int n){w128 c=1;for(int i=0;i<n;i++){c+=(w128)(uint64_t)~a[i];d[i]=(uint64_t)c;c>>=64;}}\n"
+"static inline void wmul(uint64_t*d,const uint64_t*a,const uint64_t*b,int n){uint64_t t[64];for(int i=0;i<n;i++)t[i]=0;for(int i=0;i<n;i++){w128 c=0;for(int j=0;i+j<n;j++){w128 p=(w128)a[i]*b[j]+t[i+j]+c;t[i+j]=(uint64_t)p;c=p>>64;}}for(int i=0;i<n;i++)d[i]=t[i];}\n"
+"static inline void wshl(uint64_t*d,const uint64_t*a,int s,int n){int w=s>>6,b=s&63;for(int i=n-1;i>=0;i--){uint64_t v=0;int j=i-w;if(j>=0){v=a[j]<<b;if(b&&j-1>=0)v|=a[j-1]>>(64-b);}d[i]=v;}}\n"
+"static inline void wshr(uint64_t*d,const uint64_t*a,int s,int n){int w=s>>6,b=s&63;for(int i=0;i<n;i++){uint64_t v=0;int j=i+w;if(j<n){v=a[j]>>b;if(b&&j+1<n)v|=a[j+1]<<(64-b);}d[i]=v;}}\n"
+"static inline int weq(const uint64_t*a,const uint64_t*b,int n){for(int i=0;i<n;i++)if(a[i]!=b[i])return 0;return 1;}\n"
+"static inline int wult(const uint64_t*a,const uint64_t*b,int n){for(int i=n-1;i>=0;i--)if(a[i]!=b[i])return a[i]<b[i];return 0;}\n"
+"static inline int wslt(const uint64_t*a,const uint64_t*b,int n){uint64_t sa=a[n-1]>>63,sb=b[n-1]>>63;if(sa!=sb)return (int)sa;return wult(a,b,n);}\n"
+"static inline int wred_or(const uint64_t*a,int n){for(int i=0;i<n;i++)if(a[i])return 1;return 0;}\n"
+"static inline int wred_xor(const uint64_t*a,int n){uint64_t x=0;for(int i=0;i<n;i++)x^=a[i];x^=x>>32;x^=x>>16;x^=x>>8;x^=x>>4;x^=x>>2;x^=x>>1;return (int)(x&1);}\n"
+"static inline int wred_and(const uint64_t*a,int width,int n){for(int i=0;i<n;i++){uint64_t m=(i==n-1&&(width&63))?((UINT64_C(1)<<(width&63))-1):~UINT64_C(0);if((a[i]&m)!=m)return 0;}return 1;}\n"
+"static inline __attribute__((always_inline)) uint64_t wslice64(const uint64_t*s,int off,int w,int n){int l=off>>6,b=off&63;uint64_t v=s[l]>>b;if(b&&l+1<n)v|=s[l+1]<<(64-b);return w>=64?v:(v&((UINT64_C(1)<<w)-1));}\n"
+"static inline __attribute__((always_inline)) void wplace(uint64_t*d,int doff,const uint64_t*s,int w){\n"
+"  int soff=0;\n"
+"  while(w>0){int db=doff&63,sb=soff&63;int n=64-(db>sb?db:sb);if(n>w)n=w;\n"
+"    uint64_t m=(n>=64)?~UINT64_C(0):((UINT64_C(1)<<n)-1);\n"
+"    d[doff>>6]=(d[doff>>6]&~(m<<db))|(((s[soff>>6]>>sb)&m)<<db);\n"
+"    doff+=n;soff+=n;w-=n;}}\n"
+"static inline void wplaceb(uint64_t*d,int off,uint64_t b){d[off>>6]=(d[off>>6]&~(UINT64_C(1)<<(off&63)))|((b&1)<<(off&63));}\n"
+"static inline __attribute__((always_inline)) void worbits(uint64_t*d,int doff,const uint64_t*s,int soff,int w){\n"
+"  while(w>0){int db=doff&63,sb=soff&63;int n=64-(db>sb?db:sb);if(n>w)n=w;\n"
+"    uint64_t m=(n>=64)?~UINT64_C(0):((UINT64_C(1)<<n)-1);\n"
+"    d[doff>>6]|=((s[soff>>6]>>sb)&m)<<db; doff+=n;soff+=n;w-=n;}}\n"
+"static inline __attribute__((always_inline)) void worbits_s(uint64_t*d,int doff,uint64_t s,int soff,int w){\n"
+"  s>>=soff;\n"
+"  while(w>0){int db=doff&63;int n=64-db;if(n>w)n=w;\n"
+"    uint64_t m=(n>=64)?~UINT64_C(0):((UINT64_C(1)<<n)-1);\n"
+"    d[doff>>6]|=(s&m)<<db; if(n<64)s>>=n; else s=0; doff+=n;w-=n;}}\n"
+"static inline __attribute__((always_inline)) void wplacew_s(uint64_t*d,int doff,uint64_t s,int soff,int w){\n"
+"  s>>=soff;\n"
+"  while(w>0){int db=doff&63;int n=64-db;if(n>w)n=w;\n"
+"    uint64_t m=(n>=64)?~UINT64_C(0):((UINT64_C(1)<<n)-1);\n"
+"    d[doff>>6]=(d[doff>>6]&~(m<<db))|((s&m)<<db);\n"
+"    if(n<64)s>>=n; else s=0; doff+=n;w-=n;}}\n"
+"static inline void wplacew(uint64_t*d,int doff,const uint64_t*s,int soff,int w){\n"
+"  while(w>0){int db=doff&63,sb=soff&63;int n=64-(db>sb?db:sb);if(n>w)n=w;\n"
+"    uint64_t m=(n>=64)?~UINT64_C(0):((UINT64_C(1)<<n)-1);\n"
+"    d[doff>>6]=(d[doff>>6]&~(m<<db))|(((s[soff>>6]>>sb)&m)<<db);\n"
 "    doff+=n;soff+=n;w-=n;}}\n"
 "\n";
 
@@ -348,6 +405,12 @@ static std::string scalar_of(const SigSpec &sig, const SigMap &sigmap) {
 // Mask a wide limb array's top limb down to `width` bits (no-op if width is a
 // multiple of 32 — the top limb is already full).
 static void emit_wmask(FILE *o, const std::string &y, int width, int ny) {
+    if (g_w64) {
+        if (width & 63)
+            fprintf(o, "      %s[%d] &= UINT64_C(0x%llx);\n", y.c_str(), ny - 1,
+                    (unsigned long long)((UINT64_C(1) << (width & 63)) - 1));
+        return;
+    }
     if (width & 31)
         fprintf(o, "      %s[%d] &= 0x%xu;\n", y.c_str(), ny - 1,
                 (unsigned)((1u << (width & 31)) - 1));
@@ -362,7 +425,8 @@ static void emit_materialize(FILE *o, const std::string &dst, int ny,
                              bool signext, int sext_w) {
     auto mapped = sigmap(sig);
     fprintf(o, "      for(int _wi=0;_wi<%d;_wi++) %s[_wi]=0;\n", ny, dst.c_str());
-    std::vector<uint32_t> cacc(ny, 0);
+    std::vector<uint64_t> cacc(ny, 0);
+    const int LS = g_w64 ? 6 : 5, LM = g_w64 ? 63 : 31;
     bool any_const = false;
     int pos = 0;
     for (auto &chunk : mapped.chunks()) {
@@ -399,7 +463,7 @@ static void emit_materialize(FILE *o, const std::string &dst, int ny,
             // Wide copies (w=1024) keep the call: the loop is already one
             // word-op per 32 bits there, which is what we want.
             const int dw = pos & 31, sw = off & 31;
-            const bool one_word_dst = dw + w <= 32;
+            const bool one_word_dst = !g_w64 && dw + w <= 32;
             if (is_wide(chunk.wire->width)) {
                 if (one_word_dst && sw + w <= 32) {
                     const unsigned mask =
@@ -428,15 +492,31 @@ static void emit_materialize(FILE *o, const std::string &dst, int ny,
             any_const = true;
             for (int i = 0; i < w; i++) {
                 bool bit = (i < (int)chunk.data.size() && chunk.data[i] == RTLIL::S1);
-                if (bit) { int p = pos + i; if ((p >> 5) < ny) cacc[p >> 5] |= 1u << (p & 31); }
+                if (bit) { int p = pos + i; if ((p >> LS) < ny) cacc[p >> LS] |= UINT64_C(1) << (p & LM); }
             }
         }
         pos += w;
     }
     if (any_const)
         for (int i = 0; i < ny; i++)
-            if (cacc[i]) fprintf(o, "      %s[%d]|=0x%xu;\n", dst.c_str(), i, cacc[i]);
-    if (signext && sext_w >= 1) {
+            if (cacc[i]) {
+                if (g_w64)
+                    fprintf(o, "      %s[%d]|=UINT64_C(0x%llx);\n", dst.c_str(), i,
+                            (unsigned long long)cacc[i]);
+                else
+                    fprintf(o, "      %s[%d]|=0x%xu;\n", dst.c_str(), i,
+                            (unsigned)cacc[i]);
+            }
+    if (signext && sext_w >= 1 && g_w64) {
+        int sb = sext_w - 1, tl = sb >> 6;
+        uint64_t hm = (sb & 63) == 63 ? 0 : (~UINT64_C(0) << ((sb & 63) + 1));
+        fprintf(o, "      if(%s[%d]&(UINT64_C(1)<<%d)){", dst.c_str(), tl, sb & 63);
+        if (hm) fprintf(o, " %s[%d]|=UINT64_C(0x%llx);", dst.c_str(), tl,
+                        (unsigned long long)hm);
+        for (int i = tl + 1; i < ny; i++)
+            fprintf(o, " %s[%d]=~UINT64_C(0);", dst.c_str(), i);
+        fprintf(o, " }\n");
+    } else if (signext && sext_w >= 1) {
         int sb = sext_w - 1, tl = sb >> 5;
         uint32_t hm = (sb & 31) == 31 ? 0 : (0xffffffffu << ((sb & 31) + 1));
         fprintf(o, "      if(%s[%d]&(1u<<%d)){", dst.c_str(), tl, sb & 31);
@@ -508,7 +588,7 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
     if (type == "$add" || type == "$sub" || type == "$mul" ||
         type == "$and" || type == "$or" || type == "$xor") {
         int ng = nlimbs(std::max(yw, std::max(aw, bw)));
-        fprintf(o, "      uint32_t _wa[%d],_wb[%d],_wy[%d];\n", ng, ng, ng);
+        fprintf(o, "      %s _wa[%d],_wb[%d],_wy[%d];\n", lt(), ng, ng, ng);
         matA("_wa", ng, false, 0); matB("_wb", ng, false, 0);
         const char *fn = type == "$add" ? "wadd" : type == "$sub" ? "wsub" :
                          type == "$mul" ? "wmul" : type == "$and" ? "wand" :
@@ -517,20 +597,20 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         put_val(ng);
     } else if (type == "$xnor") {
         int ng = nlimbs(std::max(yw, std::max(aw, bw)));
-        fprintf(o, "      uint32_t _wa[%d],_wb[%d],_wy[%d];\n", ng, ng, ng);
+        fprintf(o, "      %s _wa[%d],_wb[%d],_wy[%d];\n", lt(), ng, ng, ng);
         matA("_wa", ng, false, 0); matB("_wb", ng, false, 0);
         fprintf(o, "      wxor(_wy,_wa,_wb,%d); wnot(_wy,_wy,%d);\n", ng, ng);
         put_val(ng);
     } else if (type == "$not" || type == "$neg") {
         int ng = nlimbs(std::max(yw, aw));
-        fprintf(o, "      uint32_t _wa[%d],_wy[%d];\n", ng, ng);
+        fprintf(o, "      %s _wa[%d],_wy[%d];\n", lt(), ng, ng);
         matA("_wa", ng, false, 0);
         fprintf(o, "      %s(_wy,_wa,%d);\n", type == "$not" ? "wnot" : "wneg", ng);
         put_val(ng);
     } else if (type == "$shl" || type == "$shr") {
         int ng = nlimbs(std::max(yw, aw));
-        fprintf(o, "      uint32_t _wa[%d],_wy[%d]; int _sh=(int)(%s);\n",
-                ng, ng, scalar_of(cell->getPort(ID::B), sigmap).c_str());
+        fprintf(o, "      %s _wa[%d],_wy[%d]; int _sh=(int)(%s);\n",
+                lt(), ng, ng, scalar_of(cell->getPort(ID::B), sigmap).c_str());
         matA("_wa", ng, false, 0);
         fprintf(o, "      %s(_wy,_wa,_sh,%d);\n", type == "$shl" ? "wshl" : "wshr", ng);
         put_val(ng);
@@ -546,8 +626,8 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         // masks Y to yw. Mirrors the scalar handler + the $shl/$shr wide case above.
         int ng = nlimbs(std::max(yw, aw));
         bool bs = cell->getParam(ID::B_SIGNED).as_bool();
-        fprintf(o, "      uint32_t _wa[%d],_wy[%d]; int64_t _sh=(int64_t)(uint64_t)(%s);\n",
-                ng, ng, scalar_of(cell->getPort(ID::B), sigmap).c_str());
+        fprintf(o, "      %s _wa[%d],_wy[%d]; int64_t _sh=(int64_t)(uint64_t)(%s);\n",
+                lt(), ng, ng, scalar_of(cell->getPort(ID::B), sigmap).c_str());
         if (bs) {
             int bw = cell->getPort(ID::B).size();
             if (bw < 64)
@@ -559,14 +639,14 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
                 ng, ng);
         put_val(ng);
     } else if (type == "$mux") {
-        fprintf(o, "      uint32_t _wa[%d],_wb[%d],_wy[%d];\n", ny, ny, ny);
+        fprintf(o, "      %s _wa[%d],_wb[%d],_wy[%d];\n", lt(), ny, ny, ny);
         matA("_wa", ny, false, 0); matB("_wb", ny, false, 0);
         fprintf(o, "      if (%s) wcopy(_wy,_wb,%d); else wcopy(_wy,_wa,%d);\n",
                 scalar_of(cell->getPort(ID::S), sigmap).c_str(), ny, ny);
         put_val(ny);
     } else if (type == "$pmux") {
         int n_cases = cell->getPort(ID::S).size();
-        fprintf(o, "      uint32_t _wy[%d];\n", ny);
+        fprintf(o, "      %s _wy[%d];\n", lt(), ny);
         emit_materialize(o, "_wy", ny, cell->getPort(ID::A), sigmap, false, 0);
         for (int i = 0; i < n_cases; i++) {
             fprintf(o, "      if (%s) {\n",
@@ -581,7 +661,7 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         // 2-state they reduce to plain equality.
         const bool is_eq = type == "$eq" || type == "$eqx";
         int nc = nlimbs(std::max(aw, bw));
-        fprintf(o, "      uint32_t _wa[%d],_wb[%d];\n", nc, nc);
+        fprintf(o, "      %s _wa[%d],_wb[%d];\n", lt(), nc, nc);
         matA("_wa", nc, false, 0); matB("_wb", nc, false, 0);
         char e[64]; snprintf(e, sizeof e, "weq(_wa,_wb,%d)?%d:%d", nc,
                              is_eq ? 1 : 0, is_eq ? 0 : 1);
@@ -589,7 +669,7 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
     } else if (type == "$lt" || type == "$le" || type == "$gt" || type == "$ge") {
         bool sg = is_signed(cell);
         int nc = nlimbs(std::max(aw, bw));
-        fprintf(o, "      uint32_t _wa[%d],_wb[%d];\n", nc, nc);
+        fprintf(o, "      %s _wa[%d],_wb[%d];\n", lt(), nc, nc);
         matA("_wa", nc, sg, aw); matB("_wb", nc, sg, bw);
         const char *cmp = sg ? "wslt" : "wult";
         char e[64];
@@ -600,18 +680,18 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         put_bit(e);
     } else if (type == "$reduce_or" || type == "$reduce_bool" || type == "$logic_not") {
         int na = nlimbs(aw);
-        fprintf(o, "      uint32_t _wa[%d];\n", na); matA("_wa", na, false, 0);
+        fprintf(o, "      %s _wa[%d];\n", lt(), na); matA("_wa", na, false, 0);
         char e[48]; snprintf(e, sizeof e, "wred_or(_wa,%d)?%d:%d", na,
                              type == "$logic_not" ? 0 : 1, type == "$logic_not" ? 1 : 0);
         put_bit(e);
     } else if (type == "$reduce_and") {
         int na = nlimbs(aw);
-        fprintf(o, "      uint32_t _wa[%d];\n", na); matA("_wa", na, false, 0);
+        fprintf(o, "      %s _wa[%d];\n", lt(), na); matA("_wa", na, false, 0);
         char e[48]; snprintf(e, sizeof e, "wred_and(_wa,%d,%d)?1:0", aw, na);
         put_bit(e);
     } else if (type == "$reduce_xor") {
         int na = nlimbs(aw);
-        fprintf(o, "      uint32_t _wa[%d];\n", na); matA("_wa", na, false, 0);
+        fprintf(o, "      %s _wa[%d];\n", lt(), na); matA("_wa", na, false, 0);
         char e[48]; snprintf(e, sizeof e, "wred_xor(_wa,%d)?1:0", na);
         put_bit(e);
     } else {
@@ -1004,6 +1084,8 @@ int main(int argc, char **argv)
         g_census_depth = atoi(getenv("GSM_CENSUS_DEPTH"));
     if (getenv("GSM_CENSUS_BLOCK"))
         g_census_block = atoi(getenv("GSM_CENSUS_BLOCK"));
+    if (getenv("GSM_WIDE64"))
+        g_w64 = true;
     if (getenv("GSM_GATED")) {
         g_gated = true;
         if (getenv("GSM_GATED_BLOCK"))
@@ -2045,7 +2127,7 @@ int main(int argc, char **argv)
     bool any_wide = false;
     for (auto &w : mod->wires_)
         if (is_wide(w.second->width)) { any_wide = true; break; }
-    (void)any_wide; fprintf(out, "%s", WIDE_RT);  // always: wide-mux path uses limb helpers even for <=64b
+    (void)any_wide; fprintf(out, "%s", g_w64 ? WIDE_RT64 : WIDE_RT);  // always: wide-mux path uses limb helpers even for <=64b
     // Dead-output pruning mask: bit i = output i (sm_output_order[]) is live.
     // The bridge clears bits for outputs whose consumer nexus has no readers;
     // cone cells exclusive to dead outputs are skipped at run time.
@@ -2276,16 +2358,16 @@ int main(int argc, char **argv)
         fprintf(out, "// GSM_GATED persistent state (block dirty + boundary nets)\n");
         fprintf(out, "static uint64_t _bd[%d];\n", g_gp.nw);
         fprintf(out, "static int _gd_init;\n");
-        fprintf(out, "static int _gd_wne(const uint32_t*a,const uint32_t*b,int n)"
-                     "{for(int i=0;i<n;i++)if(a[i]!=b[i])return 1;return 0;}\n");
+        fprintf(out, "static int _gd_wne(const %s*a,const %s*b,int n)"
+                     "{for(int i=0;i<n;i++)if(a[i]!=b[i])return 1;return 0;}\n", lt(), lt());
         std::set<std::string> cmpset;
         for (auto &v : g_gp.blk_cmp) for (auto &n : v) cmpset.insert(n);
         for (auto &n : g_gp.boundary) {
             int w = g_gp.bwidth[n];
             bool cmp = cmpset.count(n) != 0;
             if (is_wide(w)) {
-                fprintf(out, "static uint32_t %s[%d];\n", n.c_str(), nlimbs(w));
-                if (cmp) fprintf(out, "static uint32_t _sh%s[%d];\n", n.c_str(), nlimbs(w));
+                fprintf(out, "static %s %s[%d];\n", lt(), n.c_str(), nlimbs(w));
+                if (cmp) fprintf(out, "static %s _sh%s[%d];\n", lt(), n.c_str(), nlimbs(w));
             } else {
                 fprintf(out, "static %s %s;\n", ctype(w), n.c_str());
                 if (cmp) fprintf(out, "static %s _sh%s;\n", ctype(w), n.c_str());
@@ -2295,7 +2377,7 @@ int main(int argc, char **argv)
         for (auto &reg : registers)
             if (g_gp.readers.count(reg.name)) {
                 if (is_wide(reg.width))
-                    fprintf(out, "static uint32_t _pv%s[%d];\n",
+                    fprintf(out, "static %s _pv%s[%d];\n", lt(),
                             reg.name.c_str(), nlimbs(reg.width));
                 else
                     fprintf(out, "static %s _pv%s;\n", ctype(reg.width),
@@ -2307,7 +2389,7 @@ int main(int argc, char **argv)
             std::string n = cname(wire->name.str());
             if (n == "_clk" || n == "_rst" || !g_gp.readers.count(n)) continue;
             if (is_wide(wire->width))
-                fprintf(out, "static uint32_t _pv%s[%d];\n", n.c_str(),
+                fprintf(out, "static %s _pv%s[%d];\n", lt(), n.c_str(),
                         nlimbs(wire->width));
             else
                 fprintf(out, "static %s _pv%s;\n", ctype(wire->width), n.c_str());
@@ -2328,7 +2410,7 @@ int main(int argc, char **argv)
             if (wn == "_rst") saw_rst_port = true;
             if (wn != "_clk" && wn != "_rst") {
                 if (is_wide(wire->width))
-                    fprintf(out, "    uint32_t %s[%d];  // %d bits\n",
+                    fprintf(out, "    %s %s[%d];  // %d bits\n", lt(),
                             wn.c_str(), nlimbs(wire->width), wire->width);
                 else
                     fprintf(out, "    %s %s;  // %d bits\n", ctype(wire->width), wn.c_str(), wire->width);
@@ -2362,7 +2444,7 @@ int main(int argc, char **argv)
     fprintf(out, "typedef struct {\n");
     for (auto &reg : registers) {
         if (is_wide(reg.width))
-            fprintf(out, "    uint32_t %s[%d];  // %d bits\n",
+            fprintf(out, "    %s %s[%d];  // %d bits\n", lt(),
                     reg.name.c_str(), nlimbs(reg.width), reg.width);
         else
             fprintf(out, "    %s %s;  // %d bits\n", ctype(reg.width), reg.name.c_str(), reg.width);
@@ -2397,7 +2479,7 @@ int main(int argc, char **argv)
         auto *wire = w.second;
         if (wire->port_output) {
             if (is_wide(wire->width))
-                fprintf(out, "    uint32_t %s[%d];  // %d bits\n",
+                fprintf(out, "    %s %s[%d];  // %d bits\n", lt(),
                         cname(wire->name.str()).c_str(), nlimbs(wire->width), wire->width);
             else
                 fprintf(out, "    %s %s;  // %d bits\n",
@@ -2410,7 +2492,8 @@ int main(int argc, char **argv)
     // Power-on limbs for a merged register: per-bit `init` attr if defined,
     // else the slice's async-reset value, else 0 (bits no slice covers = 0).
     auto merged_pov = [&](const RegInfo &reg) {
-        std::vector<uint32_t> lv((size_t)nlimbs(reg.width), 0);
+        const int LS = g_w64 ? 6 : 5, LM = g_w64 ? 63 : 31;
+        std::vector<uint64_t> lv((size_t)nlimbs(reg.width), 0);
         for (auto &sl : reg.slices)
             for (int i = 0; i < sl.width; i++) {
                 RTLIL::State st = RTLIL::Sx;
@@ -2421,7 +2504,7 @@ int main(int argc, char **argv)
                        ? sl.arst_const[i] : RTLIL::S0;
                 if (st == RTLIL::S1) {
                     int p = sl.offset + i;
-                    lv[p >> 5] |= 1u << (p & 31);
+                    lv[p >> LS] |= UINT64_C(1) << (p & LM);
                 }
             }
         return lv;
@@ -2439,13 +2522,15 @@ int main(int argc, char **argv)
     // Slice mask/value as per-limb vectors (wide merged registers)
     auto slice_mvw = [&](const RegInfo &reg, const RegSlice &sl,
                          const RTLIL::Const &c,
-                         std::vector<uint32_t> &m, std::vector<uint32_t> &v) {
+                         std::vector<uint64_t> &m, std::vector<uint64_t> &v) {
+        const int LS = g_w64 ? 6 : 5, LM = g_w64 ? 63 : 31;
         m.assign((size_t)nlimbs(reg.width), 0);
         v.assign((size_t)nlimbs(reg.width), 0);
         for (int i = 0; i < sl.width; i++) {
             int p = sl.offset + i;
-            m[p >> 5] |= 1u << (p & 31);
-            if (i < c.size() && c[i] == RTLIL::S1) v[p >> 5] |= 1u << (p & 31);
+            m[p >> LS] |= UINT64_C(1) << (p & LM);
+            if (i < c.size() && c[i] == RTLIL::S1)
+                v[p >> LS] |= UINT64_C(1) << (p & LM);
         }
     };
 
@@ -2454,14 +2539,19 @@ int main(int argc, char **argv)
     for (auto &reg : registers) {
         if (!reg.slices.empty()) {
             // merged sliced register: compose per-slice init/arst at offsets
-            std::vector<uint32_t> lv = merged_pov(reg);
+            std::vector<uint64_t> lv = merged_pov(reg);
             if (is_wide(reg.width)) {
-                for (int l = 0; l < (int)lv.size(); l++)
-                    fprintf(out, "    s->%s[%d] = 0x%xu;\n",
-                            reg.name.c_str(), l, lv[l]);
+                for (int l = 0; l < (int)lv.size(); l++) {
+                    if (g_w64)
+                        fprintf(out, "    s->%s[%d] = UINT64_C(0x%llx);\n",
+                                reg.name.c_str(), l, (unsigned long long)lv[l]);
+                    else
+                        fprintf(out, "    s->%s[%d] = 0x%xu;\n",
+                                reg.name.c_str(), l, (unsigned)lv[l]);
+                }
             } else {
                 unsigned __int128 pv = lv[0];
-                if (lv.size() > 1) pv |= (unsigned __int128)lv[1] << 32;
+                if (!g_w64 && lv.size() > 1) pv |= (unsigned __int128)lv[1] << 32;
                 fprintf(out, "    s->%s = %s;\n",
                         reg.name.c_str(), u128_lit(pv).c_str());
             }
@@ -2474,6 +2564,12 @@ int main(int argc, char **argv)
         if (is_wide(reg.width)) {
             int ny = nlimbs(reg.width);
             for (int l = 0; l < ny; l++) {
+                if (g_w64) {
+                    uint64_t lw = (l < 2) ? (uint64_t)(pov >> (64 * l)) : 0;
+                    fprintf(out, "    s->%s[%d] = UINT64_C(0x%llx);\n",
+                            reg.name.c_str(), l, (unsigned long long)lw);
+                    continue;
+                }
                 uint32_t lw = (l < 4) ? (uint32_t)(pov >> (32 * l)) : 0;
                 fprintf(out, "    s->%s[%d] = 0x%xu;\n", reg.name.c_str(), l, lw);
             }
@@ -3010,7 +3106,7 @@ int main(int argc, char **argv)
             if (wn == "_clk" || wn == "_rst")
                 fprintf(out, "    uint64_t %s = 0;  // clock/reset handled externally\n", wn.c_str());
             else if (is_wide(wire->width))
-                fprintf(out, "    uint32_t %s[%d]; wcopy(%s,in->%s,%d);\n",
+                fprintf(out, "    %s %s[%d]; wcopy(%s,in->%s,%d);\n", lt(),
                         wn.c_str(), nlimbs(wire->width), wn.c_str(), wn.c_str(), nlimbs(wire->width));
             else
                 fprintf(out, "    %s %s = in->%s;\n", ctype(wire->width), wn.c_str(), wn.c_str());
@@ -3019,7 +3115,7 @@ int main(int argc, char **argv)
     fprintf(out, "\n    // Register aliases (current state)\n");
     for (auto &reg : registers) {
         if (is_wide(reg.width))
-            fprintf(out, "    uint32_t %s[%d]; wcopy(%s,%s->%s,%d);\n",
+            fprintf(out, "    %s %s[%d]; wcopy(%s,%s->%s,%d);\n", lt(),
                     reg.name.c_str(), nlimbs(reg.width), reg.name.c_str(), sp, reg.name.c_str(), nlimbs(reg.width));
         else if (g_spec_value >= 0 && reg.name == g_spec_regname)
             // FSM-SPEC: this state reg is a compile-time constant in this variant
@@ -3049,17 +3145,28 @@ int main(int argc, char **argv)
                     if (sl.arst_expr.empty()) continue;
                     if (!hdr) { fprintf(out, "    // Async reset overrides\n"); hdr = true; }
                     if (is_wide(reg.width)) {
-                        std::vector<uint32_t> m, v;
+                        std::vector<uint64_t> m, v;
                         slice_mvw(reg, sl, sl.arst_const, m, v);
                         fprintf(out, "    if (%s) {", sl.arst_expr.c_str());
                         for (int l = 0; l < (int)m.size(); l++) {
                             if (!m[l]) continue;
-                            fprintf(out, " %s[%d]=(%s[%d]&~0x%xu)|0x%xu;"
+                            if (g_w64)
+                                fprintf(out,
+                                    " %s[%d]=(%s[%d]&~UINT64_C(0x%llx))|UINT64_C(0x%llx);"
+                                    " %s->%s[%d]=(%s->%s[%d]&~UINT64_C(0x%llx))|UINT64_C(0x%llx);",
+                                    reg.name.c_str(), l, reg.name.c_str(), l,
+                                    (unsigned long long)m[l], (unsigned long long)v[l],
+                                    sp, reg.name.c_str(), l,
+                                    sp, reg.name.c_str(), l,
+                                    (unsigned long long)m[l], (unsigned long long)v[l]);
+                            else
+                                fprintf(out, " %s[%d]=(%s[%d]&~0x%xu)|0x%xu;"
                                          " %s->%s[%d]=(%s->%s[%d]&~0x%xu)|0x%xu;",
                                     reg.name.c_str(), l, reg.name.c_str(), l,
-                                    m[l], v[l],
+                                    (unsigned)m[l], (unsigned)v[l],
                                     sp, reg.name.c_str(), l,
-                                    sp, reg.name.c_str(), l, m[l], v[l]);
+                                    sp, reg.name.c_str(), l,
+                                    (unsigned)m[l], (unsigned)v[l]);
                         }
                         fprintf(out, " }\n");
                     } else {
@@ -3083,6 +3190,13 @@ int main(int argc, char **argv)
                 int ny = nlimbs(reg.width);
                 fprintf(out, "    if (%s) {", reg.arst_expr.c_str());
                 for (int l = 0; l < ny; l++) {
+                    if (g_w64) {
+                        uint64_t lw = (l < 2) ? (uint64_t)(reg.arst_val >> (64*l)) : 0;
+                        fprintf(out, " %s[%d]=UINT64_C(0x%llx); %s->%s[%d]=UINT64_C(0x%llx);",
+                                reg.name.c_str(), l, (unsigned long long)lw,
+                                sp, reg.name.c_str(), l, (unsigned long long)lw);
+                        continue;
+                    }
                     uint32_t lw = (l < 4) ? (uint32_t)(reg.arst_val >> (32*l)) : 0;
                     fprintf(out, " %s[%d]=0x%xu; %s->%s[%d]=0x%xu;",
                             reg.name.c_str(), l, lw, sp, reg.name.c_str(), l, lw);
@@ -3124,9 +3238,9 @@ int main(int argc, char **argv)
             // nets keep the 0.
             bool noinit = g_emit_gated_body && g_gp.writers.count(wn);
             if (is_wide(wire->width))
-                fprintf(out, noinit ? "    uint32_t %s[%d];\n"
-                                    : "    uint32_t %s[%d] = {0};\n",
-                        wn.c_str(), nlimbs(wire->width));
+                fprintf(out, noinit ? "    %s %s[%d];\n"
+                                    : "    %s %s[%d] = {0};\n",
+                        lt(), wn.c_str(), nlimbs(wire->width));
             else if (noinit)
                 fprintf(out, "    %s %s;\n", ctype(wire->width), wn.c_str());
             else
@@ -3254,7 +3368,7 @@ int main(int argc, char **argv)
                     if (!cond.empty()) fprintf(out, "    if (%s) {\n", cond.c_str());
                     if (is_wide(sl.width)) {
                         int nw = nlimbs(sl.width);
-                        fprintf(out, "      { uint32_t _wsl[%d];\n", nw);
+                        fprintf(out, "      { %s _wsl[%d];\n", lt(), nw);
                         emit_materialize(out, "_wsl", nw, sl.d_sig, sigmap, false, 0);
                         fprintf(out, "      wplacew(%s, %d, _wsl, 0, %d); }\n",
                                 dst.c_str(), sl.offset, sl.width);
@@ -3489,7 +3603,10 @@ int main(int argc, char **argv)
             int nl = nlimbs(wire->width);
             fprintf(out, "    fprintf(_df,\"%s=\");", wn.c_str());
             for (int l = nl - 1; l >= 0; l--)
-                fprintf(out, " fprintf(_df,\"%%08x\",(unsigned)%s[%d]);", wn.c_str(), l);
+                if (g_w64)
+                    fprintf(out, " fprintf(_df,\"%%016llx\",(unsigned long long)%s[%d]);", wn.c_str(), l);
+                else
+                    fprintf(out, " fprintf(_df,\"%%08x\",(unsigned)%s[%d]);", wn.c_str(), l);
             fprintf(out, " fprintf(_df,\"\\n\");\n");
         } else
             fprintf(out, "    fprintf(_df,\"%s=%%llx\\n\",(unsigned long long)%s);\n",
@@ -3833,6 +3950,11 @@ int main(int argc, char **argv)
     // --- Generate NVC-mapped version ---
     // Wraps the standalone sm_eval with signal bridge code.
     // Compiled as .so, loaded by cycle_sim plugin.
+    if (g_w64) {
+        fprintf(stderr, "GSM_WIDE64: skipping the _nvc bridge companion "
+                "(bridge ABI is 32-bit limbs)\n");
+        return 0;
+    }
     std::string mapped_file = model_file;
     auto dot = mapped_file.rfind('.');
     if (dot != std::string::npos)
