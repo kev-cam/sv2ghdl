@@ -182,26 +182,26 @@ static const char *WIDE_RT =
 "static inline int wred_or(const uint32_t*a,int n){for(int i=0;i<n;i++)if(a[i])return 1;return 0;}\n"
 "static inline int wred_xor(const uint32_t*a,int n){uint32_t x=0;for(int i=0;i<n;i++)x^=a[i];x^=x>>16;x^=x>>8;x^=x>>4;x^=x>>2;x^=x>>1;return x&1;}\n"
 "static inline int wred_and(const uint32_t*a,int width,int n){for(int i=0;i<n;i++){uint32_t m=(i==n-1&&(width&31))?((1u<<(width&31))-1):0xffffffffu;if((a[i]&m)!=m)return 0;}return 1;}\n"
-"static inline uint64_t wslice64(const uint32_t*s,int off,int w,int n){int l=off>>5,b=off&31;uint64_t lo=s[l];if(l+1<n)lo|=(uint64_t)s[l+1]<<32;uint64_t v=lo>>b;if(b&&w+b>64&&l+2<n)v|=(uint64_t)s[l+2]<<(64-b);return w>=64?v:(v&((UINT64_C(1)<<w)-1));}\n"
+"static inline __attribute__((always_inline)) uint64_t wslice64(const uint32_t*s,int off,int w,int n){int l=off>>5,b=off&31;uint64_t lo=s[l];if(l+1<n)lo|=(uint64_t)s[l+1]<<32;uint64_t v=lo>>b;if(b&&w+b>64&&l+2<n)v|=(uint64_t)s[l+2]<<(64-b);return w>=64?v:(v&((UINT64_C(1)<<w)-1));}\n"
 "// word-chunked: the bit-at-a-time form cost 24k bit-iterations per network\n"
 "// pass on dec-class chunks (282 calls, 268 of them 88 bits wide)\n"
-"static inline void wplace(uint32_t*d,int doff,const uint32_t*s,int w){\n"
+"static inline __attribute__((always_inline)) void wplace(uint32_t*d,int doff,const uint32_t*s,int w){\n"
 "  int soff=0;\n"
 "  while(w>0){int db=doff&31,sb=soff&31;int n=32-(db>sb?db:sb);if(n>w)n=w;\n"
 "    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
 "    d[doff>>5]=(d[doff>>5]&~(m<<db))|(((s[soff>>5]>>sb)&m)<<db);\n"
 "    doff+=n;soff+=n;w-=n;}}\n"
 "static inline void wplaceb(uint32_t*d,int off,uint32_t b){d[off>>5]=(d[off>>5]&~(1u<<(off&31)))|((b&1)<<(off&31));}\n"
-"static inline void worbits(uint32_t*d,int doff,const uint32_t*s,int soff,int w){\n"
+"static inline __attribute__((always_inline)) void worbits(uint32_t*d,int doff,const uint32_t*s,int soff,int w){\n"
 "  while(w>0){int db=doff&31,sb=soff&31;int n=32-(db>sb?db:sb);if(n>w)n=w;\n"
 "    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
 "    d[doff>>5]|=((s[soff>>5]>>sb)&m)<<db; doff+=n;soff+=n;w-=n;}}\n"
-"static inline void worbits_s(uint32_t*d,int doff,uint64_t s,int soff,int w){\n"
+"static inline __attribute__((always_inline)) void worbits_s(uint32_t*d,int doff,uint64_t s,int soff,int w){\n"
 "  s>>=soff;\n"
 "  while(w>0){int db=doff&31;int n=32-db;if(n>w)n=w;\n"
 "    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
 "    d[doff>>5]|=((uint32_t)s&m)<<db; s>>=n;doff+=n;w-=n;}}\n"
-"static inline void wplacew_s(uint32_t*d,int doff,uint64_t s,int soff,int w){\n"
+"static inline __attribute__((always_inline)) void wplacew_s(uint32_t*d,int doff,uint64_t s,int soff,int w){\n"
 "  s>>=soff;\n"
 "  while(w>0){int db=doff&31;int n=32-db;if(n>w)n=w;\n"
 "    uint32_t m=(n>=32)?0xffffffffu:((1u<<n)-1u);\n"
@@ -725,6 +725,18 @@ static unsigned cns_salt_of(RTLIL::Cell *cell) {
 static std::vector<std::string> g_cns_groups;
 static std::map<std::string,int> g_cns_gid;
 static int g_census_depth = 1;
+static std::string cns_sanitize(const std::string &raw)
+{
+    std::string n;
+    for (size_t i = 0; i < raw.size(); i++) {
+        if (raw.compare(i, 9, "$flatten\\") == 0) { i += 8; continue; }
+        if (raw.compare(i, 8, "flatten\\") == 0 && (i == 0 || raw[i-1] == '.'))
+            { i += 7; continue; }
+        if (raw[i] != '\\') n += raw[i];
+    }
+    if (!n.empty() && n[0]=='$') n = n.substr(1);
+    return n;
+}
 static int g_census_block = 0;   // >0: group by topo-order block of K cells
 static std::map<std::string,int> g_cns_gid_override;
 static int cns_gid_of(RTLIL::Cell *cell)
@@ -736,14 +748,7 @@ static int cns_gid_of(RTLIL::Cell *cell)
     // Sanitize: drop yosys flatten\ prefixes and stray backslashes (they
     // would be interpreted as escapes inside the emitted C string literal),
     // then group by the first g_census_depth '.'-components.
-    std::string n, raw = cell->name.str();
-    for (size_t i = 0; i < raw.size(); i++) {
-        if (raw.compare(i, 9, "$flatten\\") == 0) { i += 8; continue; }
-        if (raw.compare(i, 8, "flatten\\") == 0 && (i == 0 || raw[i-1] == '.'))
-            { i += 7; continue; }
-        if (raw[i] != '\\') n += raw[i];
-    }
-    if (!n.empty() && n[0]=='$') n = n.substr(1);
+    std::string n = cns_sanitize(cell->name.str());
     // depth <= 0 means per-cell (group = full sanitized name); otherwise
     // group by the first depth '.'-components, or the whole name if the
     // hierarchy is shallower than that.
@@ -2106,6 +2111,91 @@ int main(int argc, char **argv)
     if (g_gated && !g_spec_regname.empty()) {
         fprintf(stderr, "GSM_GATED: disabled (FSM specialization active)\n");
         g_gated = false;
+    }
+    // GSM_ACTPROF=<file>: per-cell change counts (census depth-0 run.err
+    // format: "  <name>  <pct>%% (<count>)").  When present, re-sort the
+    // gated emission order with Kahn's algorithm, preferring high-activity
+    // cells first — co-active cells cluster into the same blocks instead of
+    // each hot cell dragging K-1 idle topo neighbours.  Any topological
+    // order is valid for emission, so this only changes block quality.
+    if (g_gated && getenv("GSM_ACTPROF")) {
+        std::map<std::string, long> prof;
+        FILE *pf = fopen(getenv("GSM_ACTPROF"), "r");
+        if (pf) {
+            char ln[1024], nb[512]; double pct; long cnt;
+            while (fgets(ln, sizeof ln, pf))
+                if (sscanf(ln, " %511s %lf%% (%ld)", nb, &pct, &cnt) == 3)
+                    prof[nb] = cnt;
+            fclose(pf);
+        }
+        fprintf(stderr, "GSM_ACTPROF: %zu cells profiled\n", prof.size());
+        if (!prof.empty()) {
+            // dependency edges among the comb cells via their nets
+            std::map<std::string, RTLIL::Cell*> netw;   // net -> writer cell
+            std::map<RTLIL::Cell*, std::vector<RTLIL::Cell*>> succ;
+            std::map<RTLIL::Cell*, int> pred, opos;
+            std::map<RTLIL::Cell*, long> act;
+            int oi = 0;
+            for (auto *cell : sorted) {
+                opos[cell] = oi++;
+                pred[cell] = 0;
+                auto it = prof.find(cns_sanitize(cell->name.str()));
+                act[cell] = it == prof.end() ? 0 : it->second;
+            }
+            for (auto *cell : sorted) {
+                bool ismem = cell->type.str().compare(0, 6, "$memrd") == 0;
+                for (auto &conn : cell->connections()) {
+                    bool isout = ismem ? (conn.first == ID(DATA))
+                                       : (conn.first == ID::Y);
+                    if (!isout) continue;
+                    RTLIL::SigSpec ms = sigmap(conn.second);
+                    for (auto &ch : ms.chunks())
+                        if (ch.wire) netw[cname(ch.wire->name.str())] = cell;
+                }
+            }
+            for (auto *cell : sorted) {
+                bool ismem = cell->type.str().compare(0, 6, "$memrd") == 0;
+                std::set<RTLIL::Cell*> ps;
+                for (auto &conn : cell->connections()) {
+                    bool isout = ismem ? (conn.first == ID(DATA))
+                                       : (conn.first == ID::Y);
+                    if (isout) continue;
+                    RTLIL::SigSpec ms = sigmap(conn.second);
+                    for (auto &ch : ms.chunks()) {
+                        if (!ch.wire) continue;
+                        auto w = netw.find(cname(ch.wire->name.str()));
+                        if (w != netw.end() && w->second != cell)
+                            ps.insert(w->second);
+                    }
+                }
+                for (auto *p : ps) { succ[p].push_back(cell); pred[cell]++; }
+            }
+            // hot-first Kahn: bucket by log2(count), original position ties
+            auto key = [&](RTLIL::Cell *c) {
+                long a = act[c]; int b = 0;
+                while (a) { b++; a >>= 1; }
+                return std::make_pair(-b, opos[c]);
+            };
+            std::set<std::pair<std::pair<int,int>, RTLIL::Cell*>> ready;
+            for (auto *cell : sorted)
+                if (pred[cell] == 0) ready.insert({key(cell), cell});
+            std::vector<RTLIL::Cell*> order;
+            order.reserve(sorted.size());
+            while (!ready.empty()) {
+                auto *c = ready.begin()->second;
+                ready.erase(ready.begin());
+                order.push_back(c);
+                for (auto *sc : succ[c])
+                    if (--pred[sc] == 0) ready.insert({key(sc), sc});
+            }
+            if (order.size() == sorted.size()) {
+                sorted = order;
+                fprintf(stderr, "GSM_ACTPROF: resorted %zu cells hot-first\n",
+                        order.size());
+            } else
+                fprintf(stderr, "GSM_ACTPROF: resort FAILED (%zu != %zu), "
+                        "keeping topo order\n", order.size(), sorted.size());
+        }
     }
     if (g_gated) {
         const int K = g_gated_block;
