@@ -673,12 +673,38 @@ static unsigned cns_salt_of(RTLIL::Cell *cell) {
 }
 static std::vector<std::string> g_cns_groups;
 static std::map<std::string,int> g_cns_gid;
+static int g_census_depth = 1;
+static int g_census_block = 0;   // >0: group by topo-order block of K cells
+static std::map<std::string,int> g_cns_gid_override;
 static int cns_gid_of(RTLIL::Cell *cell)
 {
-    std::string n = cell->name.str();
-    if (!n.empty() && (n[0]=='\\' || n[0]=='$')) n = n.substr(1);
-    size_t d = n.find('.');
-    std::string g = (d == std::string::npos) ? std::string("top") : n.substr(0, d);
+    if (g_census_block > 0) {
+        auto ov = g_cns_gid_override.find(cell->name.str());
+        if (ov != g_cns_gid_override.end()) return ov->second;
+    }
+    // Sanitize: drop yosys flatten\ prefixes and stray backslashes (they
+    // would be interpreted as escapes inside the emitted C string literal),
+    // then group by the first g_census_depth '.'-components.
+    std::string n, raw = cell->name.str();
+    for (size_t i = 0; i < raw.size(); i++) {
+        if (raw.compare(i, 9, "$flatten\\") == 0) { i += 8; continue; }
+        if (raw.compare(i, 8, "flatten\\") == 0 && (i == 0 || raw[i-1] == '.'))
+            { i += 7; continue; }
+        if (raw[i] != '\\') n += raw[i];
+    }
+    if (!n.empty() && n[0]=='$') n = n.substr(1);
+    // depth <= 0 means per-cell (group = full sanitized name); otherwise
+    // group by the first depth '.'-components, or the whole name if the
+    // hierarchy is shallower than that.
+    std::string g;
+    if (g_census_depth <= 0)
+        g = n;
+    else {
+        size_t d = 0;
+        for (int k = 0; k < g_census_depth && d != std::string::npos; k++)
+            d = n.find('.', k ? d + 1 : 0);
+        g = (d == std::string::npos) ? n : n.substr(0, d);
+    }
     auto it = g_cns_gid.find(g);
     if (it != g_cns_gid.end()) return it->second;
     int id = (int)g_cns_groups.size();
@@ -918,6 +944,10 @@ int main(int argc, char **argv)
         g_u32 = true;
     if (getenv("GSM_ACTIVITY_CENSUS"))
         g_census = true;
+    if (getenv("GSM_CENSUS_DEPTH"))
+        g_census_depth = atoi(getenv("GSM_CENSUS_DEPTH"));
+    if (getenv("GSM_CENSUS_BLOCK"))
+        g_census_block = atoi(getenv("GSM_CENSUS_BLOCK"));
 
     fprintf(stderr, "gen_statemachine starting...\n");
     // Accept multiple input files: any arg ending in .v/.sv/.vh/.svh is a
@@ -1962,8 +1992,23 @@ int main(int argc, char **argv)
     for (auto &w : mod->wires_)
         if (w.second->port_output) n_out_ports++;
     const int lo_words = std::max(4, (n_out_ports + 63) / 64);
-    if (g_census)
+    if (g_census) {
+        if (g_census_block > 0) {
+            // topo-block grouping: gid = position in `sorted` / K
+            int idx = 0;
+            for (auto *cell : sorted) {
+                int blk = idx++ / g_census_block;
+                while ((int)g_cns_groups.size() <= blk) {
+                    char bn[16]; snprintf(bn, sizeof bn, "blk%04d",
+                                          (int)g_cns_groups.size());
+                    g_cns_gid[bn] = (int)g_cns_groups.size();
+                    g_cns_groups.push_back(bn);
+                }
+                g_cns_gid_override[cell->name.str()] = blk;
+            }
+        }
         for (auto &c : mod->cells_) (void)cns_gid_of(c.second);
+    }
     fprintf(out, "const int sm_live_outputs_words = %d;\n", lo_words);
     fprintf(out, "uint64_t sm_live_outputs[%d] = {", lo_words);
     for (int lw = 0; lw < lo_words; lw++)
