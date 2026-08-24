@@ -654,6 +654,39 @@ static std::string accel_cache_path(const char *module_name, const char *ext) {
 // latch froze), and the exported AND reads sm_icg_clkval -- the real clock
 // value poked by the bridge before each eval (the comb-local _clk is pinned
 // 0 by design; inputs_t deliberately excludes the primary clock).
+// --- GSM_ACTIVITY_CENSUS: per-instance-group output-change census -------
+// Diagnostic mode: everything still evaluates (correctness-neutral); each
+// comb cell's result is folded into its top-level-instance group's hash,
+// and at the end of every sm_comb call each group's hash is compared with
+// the previous call's — a group whose hash is unchanged is a group an
+// activity-gated build could have skipped.  Report at exit.  This measures
+// the GATING CEILING on real workloads before building the transform.
+static bool g_census = false;
+static bool g_census_active = false;
+static std::map<std::string,unsigned> g_cns_salt;
+static unsigned cns_salt_of(RTLIL::Cell *cell) {
+    auto it = g_cns_salt.find(cell->name.str());
+    if (it != g_cns_salt.end()) return it->second;
+    unsigned v = (unsigned)g_cns_salt.size() * 2654435761u + 0x9e3779b9u;
+    g_cns_salt[cell->name.str()] = v;
+    return v;
+}
+static std::vector<std::string> g_cns_groups;
+static std::map<std::string,int> g_cns_gid;
+static int cns_gid_of(RTLIL::Cell *cell)
+{
+    std::string n = cell->name.str();
+    if (!n.empty() && (n[0]=='\\' || n[0]=='$')) n = n.substr(1);
+    size_t d = n.find('.');
+    std::string g = (d == std::string::npos) ? std::string("top") : n.substr(0, d);
+    auto it = g_cns_gid.find(g);
+    if (it != g_cns_gid.end()) return it->second;
+    int id = (int)g_cns_groups.size();
+    g_cns_groups.push_back(g);
+    g_cns_gid[g] = id;
+    return id;
+}
+
 static bool g_icg2en_used = false;   // any cone rewritten (scan-json guard)
 static bool g_icg2en_out  = false;   // an exported cone needs sm_icg_clkval
 static void icg2en_rewrite(RTLIL::Module *mod)
@@ -883,6 +916,8 @@ int main(int argc, char **argv)
 {
     if (getenv("GSM_U32") && *getenv("GSM_U32") == '1')
         g_u32 = true;
+    if (getenv("GSM_ACTIVITY_CENSUS"))
+        g_census = true;
 
     fprintf(stderr, "gen_statemachine starting...\n");
     // Accept multiple input files: any arg ending in .v/.sv/.vh/.svh is a
@@ -1927,11 +1962,33 @@ int main(int argc, char **argv)
     for (auto &w : mod->wires_)
         if (w.second->port_output) n_out_ports++;
     const int lo_words = std::max(4, (n_out_ports + 63) / 64);
+    if (g_census)
+        for (auto &c : mod->cells_) (void)cns_gid_of(c.second);
     fprintf(out, "const int sm_live_outputs_words = %d;\n", lo_words);
     fprintf(out, "uint64_t sm_live_outputs[%d] = {", lo_words);
     for (int lw = 0; lw < lo_words; lw++)
         fprintf(out, "%s~0ull", lw ? "," : "");
     fprintf(out, "};\n\n");
+    if (g_census) {
+        fprintf(out, "enum { _CNS_NG = %d };\n"
+                "static uint64_t _cns_shadow[_CNS_NG];\n"
+                "static uint64_t _cns_runs[_CNS_NG];\n"
+                "static uint64_t _cns_calls;\n"
+                "static const char *_cns_names[_CNS_NG] = {",
+                (int)g_cns_groups.size());
+        for (auto &g : g_cns_groups)
+            fprintf(out, "\"%s\",", g.c_str());
+        fprintf(out, "};\n"
+            "__attribute__((destructor)) static void _cns_report(void) {\n"
+            "    if (_cns_calls == 0) return;\n"
+            "    fprintf(stderr, \"ACTIVITY CENSUS (%%llu comb calls):\\n\",\n"
+            "            (unsigned long long)_cns_calls);\n"
+            "    for (int g = 0; g < _CNS_NG; g++)\n"
+            "        fprintf(stderr, \"  %%-24s %%6.2f%%%% (%%llu)\\n\", _cns_names[g],\n"
+            "                100.0*_cns_runs[g]/_cns_calls,\n"
+            "                (unsigned long long)_cns_runs[g]);\n"
+            "}\n\n");
+    }
     if (g_icg2en_out)
         // Real base-clock value, poked by the bridge before each eval (the
         // comb-local _clk is pinned 0; inputs_t excludes the primary clock).
@@ -2575,6 +2632,21 @@ int main(int argc, char **argv)
     // feeding a shared cell is itself shared, so topo order is preserved)
     // unconditionally, then each output's exclusive bucket guarded by its
     // sm_live_outputs bit.
+    auto emit_cell_cns = [&](RTLIL::Cell *cell) {
+        emit_cell(cell);
+        if (g_census && g_census_active && cell->hasPort(ID::Y)) {
+            auto &y = cell->getPort(ID::Y);
+            if (y.chunks().begin() != y.chunks().end()
+                && (*y.chunks().begin()).wire) {
+                RTLIL::SigChunk yc = *y.chunks().begin();
+                if (!is_wide(yc.wire->width))
+                    fprintf(out, "    _gh[%d] ^= ((uint64_t)(%s) + %uULL) * 0x9E3779B97F4A7C15ULL;\n",
+                            cns_gid_of(cell), cname(yc.wire->name.str()).c_str(),
+                            cns_salt_of(cell));
+            }
+        }
+    };
+
     auto emit_outcone_cells = [&]() {
         FeedMask sat; sat.sat();
         for (auto *cell : sorted)
@@ -2599,7 +2671,15 @@ int main(int argc, char **argv)
         }
     };
 
+    // GSM_ACTIVITY_CENSUS pre-pass: fix the group table BEFORE emission so
+    // the _gh array size is known at declaration time.
+    if (g_census)
+        for (auto &c : mod->cells_)
+            (void)cns_gid_of(c.second);
+
     auto emit_comb_prefix = [&](const char *sp) {
+    if (g_census)
+        fprintf(out, "    uint64_t _gh[_CNS_NG] = {0};\n");
     fprintf(out, "    // Input aliases\n");
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
@@ -2727,7 +2807,18 @@ int main(int argc, char **argv)
     emit_comb_prefix(sp);
     // Emit combinational logic in topological order
     fprintf(out, "    // Combinational evaluation (topologically sorted)\n");
-    for (auto *cell : sorted) emit_cell(cell);
+    g_census_active = true;
+    for (auto *cell : sorted) emit_cell_cns(cell);
+    g_census_active = false;
+    if (g_census)
+        fprintf(out,
+            "    _cns_calls++;\n"
+            "    for (int _g = 0; _g < _CNS_NG; _g++) {\n"
+            "        if (_gh[_g] != _cns_shadow[_g]) {\n"
+            "            _cns_shadow[_g] = _gh[_g];\n"
+            "            _cns_runs[_g]++;\n"
+            "        }\n"
+            "    }\n");
 
     fprintf(out, "\n");
     };  // end emit_comb lambda
