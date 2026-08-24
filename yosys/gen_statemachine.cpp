@@ -1329,11 +1329,24 @@ int main(int argc, char **argv)
             uint64_t addr = 0;
             for (int i = addr_const.size()-1; i >= 0; i--)
                 addr = (addr << 1) | (addr_const[i] == RTLIL::S1 ? 1 : 0);
-            unsigned __int128 data = 0;
-            for (int i = data_const.size()-1; i >= 0; i--)
-                data = (data << 1) | (data_const[i] == RTLIL::S1 ? 1 : 0);
-            mem.init[addr] = data;
+            // $meminit_v2 packs WORDS consecutive words into one DATA
+            // constant (word w = bits [w*width, (w+1)*width)).  Stuffing the
+            // whole constant into init[addr] scrambled every multi-word ROM:
+            // yosys proc_rom lowers case tables this way, and the Vortex
+            // popcount ROM read back its full table as word 0 (mshr dealloc
+            // count stuck at 4 -> the fetch-fill path never issued).
             int words = cell->getParam(ID(WORDS)).as_int();
+            if (words < 1) words = 1;
+            for (int w = 0; w < words; w++) {
+                unsigned __int128 data = 0;
+                for (int i = width - 1; i >= 0; i--) {
+                    int bit = w * width + i;
+                    data = (data << 1)
+                         | (bit < data_const.size()
+                            && data_const[bit] == RTLIL::S1 ? 1 : 0);
+                }
+                mem.init[addr + w] = data;
+            }
             if ((int)addr + words > mem.depth)
                 mem.depth = addr + words;
         }
@@ -2562,6 +2575,12 @@ int main(int argc, char **argv)
 
     // Reset function
     fprintf(out, "void sm_reset(state_t *s) {\n");
+    // Zero the whole state first: memory words with zero init are skipped
+    // below (and registers rely on it for padding limbs), so uninitialized
+    // storage (stack-allocated state_t) read back garbage — measured: a
+    // proc_rom's entry 0 returned 0x02 on the rom_bench differential.
+    fprintf(out, "    for (unsigned long _zi = 0; _zi < sizeof(state_t); _zi++)\n"
+                 "        ((char*)s)[_zi] = 0;\n");
     for (auto &reg : registers) {
         if (!reg.slices.empty()) {
             // merged sliced register: compose per-slice init/arst at offsets
