@@ -663,6 +663,57 @@ static std::string accel_cache_path(const char *module_name, const char *ext) {
 // the GATING CEILING on real workloads before building the transform.
 static bool g_census = false;
 static bool g_census_active = false;
+
+// --- GSM_GATED: activity-gated block evaluation --------------------------
+// Cells are partitioned into contiguous topo-order blocks of K.  A block is
+// evaluated only when its dirty bit is set.  Boundary nets (read outside
+// their writer block, or by the seq phase) persist as file-scope statics so
+// a skipped block leaves its last-computed values readable; ungated
+// functions (sm_comb outcone, sm_clock_out, sm_dump_comb) re-declare every
+// net as a local, which SHADOWS the statics — they keep today's semantics
+// untouched.  Dirty sources: primary-input compares (entry), boundary-net
+// change compares (after a block runs), register commit compares (post-seq,
+// against a persistent prev copy so async-reset transitions count too), and
+// memory-write execution (conservative, under the write enable).
+static bool g_gated = false;
+static int  g_gated_block = 32;
+static bool g_emit_gated_body = false;
+struct GatedPlan {
+    int nb = 0, nw = 0;
+    std::map<Yosys::RTLIL::Cell*,int> blk;
+    std::set<std::string> boundary;                    // persist as statics
+    std::map<std::string,int> bwidth;                  // boundary net width
+    std::map<std::string,std::set<int>> readers;       // net -> reader blocks
+    std::map<std::string,std::set<int>> writers;       // net -> writer blocks
+                                                       // (slice writebacks give
+                                                       // one net several)
+    std::vector<std::vector<std::string>> blk_cmp;     // per block: nets to compare
+    std::map<std::string,std::set<int>> memreaders;    // memid -> reader blocks
+};
+static GatedPlan g_gp;
+// OR the reader-set (minus exclude) into the emitted dirty words.
+static std::string gd_or_str(const std::set<int> &rd)
+{
+    std::map<int,uint64_t> wm;
+    for (int b : rd) wm[b>>6] |= 1ull<<(b&63);
+    std::string r;
+    char buf[64];
+    for (auto &p : wm) {
+        snprintf(buf, sizeof buf, " _bd[%d] |= UINT64_C(0x%llx);", p.first,
+                 (unsigned long long)p.second);
+        r += buf;
+    }
+    return r;
+}
+static void gd_emit_or(FILE *out, const std::set<int> &rd, int exclude,
+                       const char *ind)
+{
+    std::map<int,uint64_t> wm;
+    for (int b : rd) { if (b == exclude) continue; wm[b>>6] |= 1ull<<(b&63); }
+    for (auto &p : wm)
+        fprintf(out, "%s_bd[%d] |= UINT64_C(0x%llx);\n", ind, p.first,
+                (unsigned long long)p.second);
+}
 static std::map<std::string,unsigned> g_cns_salt;
 static unsigned cns_salt_of(RTLIL::Cell *cell) {
     auto it = g_cns_salt.find(cell->name.str());
@@ -948,6 +999,15 @@ int main(int argc, char **argv)
         g_census_depth = atoi(getenv("GSM_CENSUS_DEPTH"));
     if (getenv("GSM_CENSUS_BLOCK"))
         g_census_block = atoi(getenv("GSM_CENSUS_BLOCK"));
+    if (getenv("GSM_GATED")) {
+        g_gated = true;
+        if (getenv("GSM_GATED_BLOCK"))
+            g_gated_block = atoi(getenv("GSM_GATED_BLOCK"));
+        if (g_census) {
+            fprintf(stderr, "GSM_GATED: census disabled (mutually exclusive)\n");
+            g_census = false;
+        }
+    }
 
     fprintf(stderr, "gen_statemachine starting...\n");
     // Accept multiple input files: any arg ending in .v/.sv/.vh/.svh is a
@@ -2040,6 +2100,120 @@ int main(int argc, char **argv)
         // Read ONLY by icg2en-exported gated-clock gates.
         fprintf(out, "uint64_t sm_icg_clkval = 0;\n\n");
 
+    // ---- GSM_GATED plan + file-scope persistence -------------------------
+    // v1 scope: single clock group, no FSM specialization (checked when the
+    // gated body is emitted; the plan itself is unconditional under g_gated).
+    if (g_gated) {
+        const int K = g_gated_block;
+        int idx = 0;
+        for (auto *cell : sorted) g_gp.blk[cell] = idx++ / K;
+        g_gp.nb = (idx + K - 1) / K;
+        g_gp.nw = (g_gp.nb + 63) / 64;
+        // Per-cell reads/writes over ALL chunks of every port.
+        std::set<std::string> regnames, innames;
+        for (auto &reg : registers) regnames.insert(reg.name);
+        for (auto &w : mod->wires_)
+            if (w.second->port_input) innames.insert(cname(w.second->name.str()));
+        for (auto *cell : sorted) {
+            int b = g_gp.blk[cell];
+            bool ismem = cell->type.str().compare(0, 6, "$memrd") == 0;
+            for (auto &conn : cell->connections()) {
+                bool isout = ismem ? (conn.first == ID(DATA))
+                                   : (conn.first == ID::Y);
+                RTLIL::SigSpec ms = sigmap(conn.second);
+                for (auto &ch : ms.chunks()) {
+                    if (!ch.wire) continue;
+                    std::string n = cname(ch.wire->name.str());
+                    if (isout) {
+                        g_gp.writers[n].insert(b);
+                        g_gp.bwidth[n] = ch.wire->width;
+                    } else
+                        g_gp.readers[n].insert(b);
+                }
+            }
+            if (ismem)
+                g_gp.memreaders[cname(cell->getParam(ID(MEMID))
+                                          .decode_string())].insert(b);
+        }
+        // Seq-phase reads: every wire connected to a non-comb cell (flops,
+        // memwr — CLK etc. included, harmless).
+        std::set<std::string> seqreads;
+        for (auto &c : mod->cells_) {
+            auto *cell = c.second;
+            if (g_gp.blk.count(cell)) continue;
+            for (auto &conn : cell->connections()) {
+                RTLIL::SigSpec ms = sigmap(conn.second);
+                for (auto &ch : ms.chunks())
+                    if (ch.wire) seqreads.insert(cname(ch.wire->name.str()));
+            }
+        }
+        // Boundary = comb-written net whose value must survive its writer
+        // block being skipped: read by another block, sliced across several
+        // writer blocks, or read by the seq phase.  EVERY writer block gets
+        // the change-compare (a slice write from any of them must propagate).
+        g_gp.blk_cmp.assign(g_gp.nb, {});
+        for (auto &p : g_gp.writers) {
+            const std::string &n = p.first;
+            if (regnames.count(n) || innames.count(n)) continue;
+            const std::set<int> &wbs = p.second;
+            bool cross = wbs.size() > 1;
+            auto rit = g_gp.readers.find(n);
+            if (!cross && rit != g_gp.readers.end())
+                for (int rb : rit->second)
+                    if (!wbs.count(rb)) { cross = true; break; }
+            if (cross || seqreads.count(n)) {
+                g_gp.boundary.insert(n);
+                bool cmp = cross ||
+                    (rit != g_gp.readers.end() && !rit->second.empty());
+                if (cmp)
+                    for (int wb : wbs) g_gp.blk_cmp[wb].push_back(n);
+            }
+        }
+        // Emit the persistent storage: dirty words, boundary nets + shadows.
+        fprintf(out, "// GSM_GATED persistent state (block dirty + boundary nets)\n");
+        fprintf(out, "static uint64_t _bd[%d];\n", g_gp.nw);
+        fprintf(out, "static int _gd_init;\n");
+        fprintf(out, "static int _gd_wne(const uint32_t*a,const uint32_t*b,int n)"
+                     "{for(int i=0;i<n;i++)if(a[i]!=b[i])return 1;return 0;}\n");
+        std::set<std::string> cmpset;
+        for (auto &v : g_gp.blk_cmp) for (auto &n : v) cmpset.insert(n);
+        for (auto &n : g_gp.boundary) {
+            int w = g_gp.bwidth[n];
+            bool cmp = cmpset.count(n) != 0;
+            if (is_wide(w)) {
+                fprintf(out, "static uint32_t %s[%d];\n", n.c_str(), nlimbs(w));
+                if (cmp) fprintf(out, "static uint32_t _sh%s[%d];\n", n.c_str(), nlimbs(w));
+            } else {
+                fprintf(out, "static %s %s;\n", ctype(w), n.c_str());
+                if (cmp) fprintf(out, "static %s _sh%s;\n", ctype(w), n.c_str());
+            }
+        }
+        // prev copies for register-commit and primary-input compares
+        for (auto &reg : registers)
+            if (g_gp.readers.count(reg.name)) {
+                if (is_wide(reg.width))
+                    fprintf(out, "static uint32_t _pv%s[%d];\n",
+                            reg.name.c_str(), nlimbs(reg.width));
+                else
+                    fprintf(out, "static %s _pv%s;\n", ctype(reg.width),
+                            reg.name.c_str());
+            }
+        for (auto &w : mod->wires_) {
+            auto *wire = w.second;
+            if (!wire->port_input) continue;
+            std::string n = cname(wire->name.str());
+            if (n == "_clk" || n == "_rst" || !g_gp.readers.count(n)) continue;
+            if (is_wide(wire->width))
+                fprintf(out, "static uint32_t _pv%s[%d];\n", n.c_str(),
+                        nlimbs(wire->width));
+            else
+                fprintf(out, "static %s _pv%s;\n", ctype(wire->width), n.c_str());
+        }
+        fprintf(out, "\n");
+        fprintf(stderr, "GSM_GATED: %d blocks of %d, %zu boundary nets\n",
+                g_gp.nb, K, g_gp.boundary.size());
+    }
+
     // Input struct (primary inputs, excluding clk/rst)
     fprintf(out, "typedef struct {\n");
     bool has_inputs = false;
@@ -2836,6 +3010,10 @@ int main(int argc, char **argv)
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
         std::string wn = cname(wire->name.str());
+        if (g_emit_gated_body && g_gp.boundary.count(wn)) {
+            declared.insert(wn);   // binds to the file-scope static
+            continue;
+        }
         if (!declared.count(wn)) {
             if (is_wide(wire->width))
                 fprintf(out, "    uint32_t %s[%d] = {0};\n", wn.c_str(), nlimbs(wire->width));
@@ -2852,9 +3030,58 @@ int main(int argc, char **argv)
     emit_comb_prefix(sp);
     // Emit combinational logic in topological order
     fprintf(out, "    // Combinational evaluation (topologically sorted)\n");
+    if (g_emit_gated_body) {
+        // First call: everything dirty.
+        fprintf(out, "    if (!_gd_init) { _gd_init = 1; "
+                     "for (int _i = 0; _i < %d; _i++) _bd[_i] = ~0ull; }\n",
+                g_gp.nw);
+        // Primary-input change compares.
+        fprintf(out, "    // input-change dirtying\n");
+        for (auto &w : mod->wires_) {
+            auto *wire = w.second;
+            if (!wire->port_input) continue;
+            std::string n = cname(wire->name.str());
+            if (n == "_clk" || n == "_rst") continue;
+            auto rit = g_gp.readers.find(n);
+            if (rit == g_gp.readers.end()) continue;
+            if (is_wide(wire->width)) {
+                int nl = nlimbs(wire->width);
+                fprintf(out, "    if (_gd_wne(_pv%s, in->%s, %d)) { "
+                             "wcopy(_pv%s, in->%s, %d);\n",
+                        n.c_str(), n.c_str(), nl, n.c_str(), n.c_str(), nl);
+            } else
+                fprintf(out, "    if (_pv%s != in->%s) { _pv%s = in->%s;\n",
+                        n.c_str(), n.c_str(), n.c_str(), n.c_str());
+            gd_emit_or(out, rit->second, -1, "        ");
+            fprintf(out, "    }\n");
+        }
+        // Blocks: test-and-clear dirty bit, cells, boundary compares.
+        int idx = 0;
+        for (int b = 0; b < g_gp.nb; b++) {
+            fprintf(out, "    if (_bd[%d] & (1ull<<%d)) { _bd[%d] &= ~(1ull<<%d);\n",
+                    b >> 6, b & 63, b >> 6, b & 63);
+            for (; idx < (int)sorted.size() && g_gp.blk[sorted[idx]] == b; idx++)
+                emit_cell(sorted[idx]);
+            for (auto &n : g_gp.blk_cmp[b]) {
+                int w = g_gp.bwidth[n];
+                if (is_wide(w)) {
+                    int nl = nlimbs(w);
+                    fprintf(out, "    if (_gd_wne(%s, _sh%s, %d)) { "
+                                 "wcopy(_sh%s, %s, %d);\n",
+                            n.c_str(), n.c_str(), nl, n.c_str(), n.c_str(), nl);
+                } else
+                    fprintf(out, "    if (%s != _sh%s) { _sh%s = %s;\n",
+                            n.c_str(), n.c_str(), n.c_str(), n.c_str());
+                gd_emit_or(out, g_gp.readers[n], b, "        ");
+                fprintf(out, "    }\n");
+            }
+            fprintf(out, "    }\n");
+        }
+    } else {
     g_census_active = true;
     for (auto *cell : sorted) emit_cell_cns(cell);
     g_census_active = false;
+    }
     if (g_census)
         fprintf(out,
             "    _cns_calls++;\n"
@@ -2990,10 +3217,14 @@ int main(int argc, char **argv)
             // uniform full-word enables (FIFOs) and partial/byte enables alike.
             // Memory writes are owned by the main clk group (bit 0) when masked.
             std::string menc = masked ? std::string("(posedge_mask & 1u) && ") + en : en;
+            std::string gd;
+            if (g_gated && g_gp.memreaders.count(mn))
+                gd = gd_or_str(g_gp.memreaders[mn]);
             fprintf(out, "    if (%s) { uint64_t _wa = (%s) & UINT64_C(0x%llx); "
-                         "%s->%s[_wa] = (%s->%s[_wa] & ~(uint64_t)(%s)) | ((%s) & (%s)); }\n",
+                         "%s->%s[_wa] = (%s->%s[_wa] & ~(uint64_t)(%s)) | ((%s) & (%s));%s }\n",
                     menc.c_str(), addr.c_str(), (unsigned long long)amask,
-                    sp, mn.c_str(), sp, mn.c_str(), en.c_str(), data.c_str(), en.c_str());
+                    sp, mn.c_str(), sp, mn.c_str(), en.c_str(), data.c_str(), en.c_str(),
+                    gd.c_str());
         }
     }
     fprintf(out, "\n");
@@ -3134,8 +3365,32 @@ int main(int argc, char **argv)
             fprintf(out, "    }\n}\n\n");
         } else {
             fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
+            g_emit_gated_body = g_gated;
             emit_comb("s");
             emit_seq("s", false);
+            if (g_emit_gated_body) {
+                // Register-commit dirtying: compare against a persistent prev
+                // copy (NOT the pre-edge alias — async-reset overrides mutate
+                // both alias and state, and would mask the transition).
+                fprintf(out, "    // register-change dirtying\n");
+                for (auto &reg : registers) {
+                    auto rit = g_gp.readers.find(reg.name);
+                    if (rit == g_gp.readers.end()) continue;
+                    if (is_wide(reg.width)) {
+                        int nl = nlimbs(reg.width);
+                        fprintf(out, "    if (_gd_wne(_pv%s, s->%s, %d)) { "
+                                     "wcopy(_pv%s, s->%s, %d);\n",
+                                reg.name.c_str(), reg.name.c_str(), nl,
+                                reg.name.c_str(), reg.name.c_str(), nl);
+                    } else
+                        fprintf(out, "    if (_pv%s != s->%s) { _pv%s = s->%s;\n",
+                                reg.name.c_str(), reg.name.c_str(),
+                                reg.name.c_str(), reg.name.c_str());
+                    gd_emit_or(out, rit->second, -1, "        ");
+                    fprintf(out, "    }\n");
+                }
+            }
+            g_emit_gated_body = false;
             fprintf(out, "}\n\n");
         }
         fprintf(out, "void sm_clock_out(state_t *s, const inputs_t *in, "
