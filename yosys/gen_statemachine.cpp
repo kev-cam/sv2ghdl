@@ -2493,8 +2493,11 @@ int main(int argc, char **argv)
     }
     fprintf(out, "} state_t;\n\n");
 
-    // FSM coverage struct
+    // FSM coverage struct — everything coverage-related is inside
+    // #ifdef SM_FSM_COV in the EMITTED code: default builds carry no
+    // dead .bss and device (nvcc) builds see no host-only stdio/globals.
     if (!fsms.empty()) {
+        fprintf(out, "#ifdef SM_FSM_COV\n");
         fprintf(out, "#define SM_NUM_FSMS %zu\n", fsms.size());
         fprintf(out, "typedef struct {\n");
         for (auto &fsm : fsms) {
@@ -2509,7 +2512,8 @@ int main(int argc, char **argv)
         }
         fprintf(out, "    uint64_t cycle_count;\n");
         fprintf(out, "} fsm_coverage_t;\n\n");
-        fprintf(out, "static fsm_coverage_t sm_fsm_cov;\n\n");
+        fprintf(out, "static fsm_coverage_t sm_fsm_cov;\n");
+        fprintf(out, "#endif // SM_FSM_COV\n\n");
     }
 
     // Output struct (observable signals)
@@ -4001,6 +4005,7 @@ int main(int argc, char **argv)
 
     // FSM coverage report function
     if (!fsms.empty()) {
+        fprintf(out, "#ifdef SM_FSM_COV\n");
         fprintf(out, "void sm_fsm_coverage_report(FILE *f) {\n");
         fprintf(out, "    fprintf(f, \"=== FSM Coverage Report (%%lu cycles) ===\\n\",\n");
         fprintf(out, "            (unsigned long)sm_fsm_cov.cycle_count);\n");
@@ -4031,7 +4036,8 @@ int main(int argc, char **argv)
             fprintf(out, "                    fprintf(f, \"      %%d -> %%d\\n\", i, j);\n");
             fprintf(out, "    }\n");
         }
-        fprintf(out, "}\n\n");
+        fprintf(out, "}\n");
+        fprintf(out, "#endif // SM_FSM_COV\n\n");
     }
 
     // Testbench — auto-generated from output ports
@@ -4063,8 +4069,11 @@ int main(int argc, char **argv)
                         wn.c_str(), wn.c_str());
         }
     }
-    if (!fsms.empty())
+    if (!fsms.empty()) {
+        fprintf(out, "#ifdef SM_FSM_COV\n");
         fprintf(out, "    sm_fsm_coverage_report(stdout);\n");
+        fprintf(out, "#endif\n");
+    }
     fprintf(out, "    return 0;\n");
     fprintf(out, "}\n");
     fprintf(out, "#endif // SM_NO_MAIN\n");
