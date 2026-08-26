@@ -1352,17 +1352,27 @@ int main(int argc, char **argv)
         }
     }
 
-    // Second pass: get depth from $memrd cells if not set
+    // Second pass: get depth from $memrd AND $memwr port ABITS. Depth must
+    // be the MAX over every source: a $meminit that touches only word 0
+    // used to leave depth=1, and the old `if (depth == 0)` guard then kept
+    // it there — the array was allocated one word deep and every write to a
+    // higher address silently corrupted the NEXT state_t member. (Found as
+    // the Vortex multi-lane-load hang: the dcache MSHR's 16-entry
+    // addr_table got depth 1; entry-1 writes clobbered mshr_store slot 0's
+    // tag, so the second same-line miss replayed a garbage tag and the
+    // coalescer's slot-1 response never matched.)
     for (auto &c : mod->cells_) {
         auto *cell = c.second;
         auto type = cell->type.str();
-        if (type == "$memrd" || type == "$memrd_v2") {
+        if (type == "$memrd" || type == "$memrd_v2" ||
+            type == "$memwr" || type == "$memwr_v2") {
             std::string memid = cell->getParam(ID(MEMID)).decode_string();
             auto &mem = memories[memid];
-            if (mem.depth == 0)
-                mem.depth = 1 << cell->getParam(ID(ABITS)).as_int();
+            int abits = cell->getParam(ID(ABITS)).as_int();
+            if ((1 << abits) > mem.depth)
+                mem.depth = 1 << abits;
             mem.width = cell->getParam(ID(WIDTH)).as_int();
-            mem.abits = cell->getParam(ID(ABITS)).as_int();
+            mem.abits = abits;
             mem.name = cname(memid);
         }
     }
@@ -3724,6 +3734,12 @@ int main(int argc, char **argv)
     fprintf(out, "#include <stdio.h>\n");
     fprintf(out, "void sm_dump_comb(state_t *s, const inputs_t *in, FILE *_df) {\n");
     emit_comb("s");
+    // Print each wire RESOLVED through sigmap/read-redirect (sig_expr /
+    // emit_materialize), not its raw local: wires that are pure aliases of
+    // register slices or other nets are never assigned by emit_comb (their
+    // readers reference the source directly), so the raw local prints a dead
+    // 0 — which made the dump lie beside live values (req_rem_mask_r=0 next
+    // to batch_mask=2) and cost a debugging day on the Vortex multi-lane bug.
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
         if (wire->port_input) continue;
@@ -3731,16 +3747,18 @@ int main(int argc, char **argv)
         if (wn == "_clk" || wn == "_rst") continue;
         if (is_wide(wire->width)) {
             int nl = nlimbs(wire->width);
+            fprintf(out, "    { %s _dw[%d];\n", lt(), nl);
+            emit_materialize(out, "_dw", nl, RTLIL::SigSpec(wire), sigmap, false, 0);
             fprintf(out, "    fprintf(_df,\"%s=\");", wn.c_str());
             for (int l = nl - 1; l >= 0; l--)
                 if (g_w64)
-                    fprintf(out, " fprintf(_df,\"%%016llx\",(unsigned long long)%s[%d]);", wn.c_str(), l);
+                    fprintf(out, " fprintf(_df,\"%%016llx\",(unsigned long long)_dw[%d]);", l);
                 else
-                    fprintf(out, " fprintf(_df,\"%%08x\",(unsigned)%s[%d]);", wn.c_str(), l);
-            fprintf(out, " fprintf(_df,\"\\n\");\n");
+                    fprintf(out, " fprintf(_df,\"%%08x\",(unsigned)_dw[%d]);", l);
+            fprintf(out, " fprintf(_df,\"\\n\"); }\n");
         } else
-            fprintf(out, "    fprintf(_df,\"%s=%%llx\\n\",(unsigned long long)%s);\n",
-                    wn.c_str(), wn.c_str());
+            fprintf(out, "    fprintf(_df,\"%s=%%llx\\n\",(unsigned long long)(%s));\n",
+                    wn.c_str(), sig_expr(RTLIL::SigSpec(wire), sigmap).c_str());
     }
     fprintf(out, "}\n#endif\n\n");
 
