@@ -2833,7 +2833,29 @@ int main(int argc, char **argv)
                 int abits = cell->getParam(ID(ABITS)).as_int();
                 auto mit = memories.find(memid);
                 int mw = (mit != memories.end()) ? mit->second.width : 64;
+                // DATA may be a CONCATENATION of distinct wires or a partial
+                // slice: yosys proc_rom packs several case-output signals into
+                // one ROM word (Vortex decode packed amo_unsigned+4 siblings
+                // into a 5-bit word; a bare first_chunk = mem[addr] handed the
+                // whole word to chunk 0 — a 1-bit reg read back 4 — and left
+                // the rest dead-0).  Scatter the word chunk-by-chunk, same as
+                // the multi-wire-Y path below.
+                auto dch = data_port.chunks();
+                int dnwire = 0; bool dpartial = false;
+                for (auto &c : dch) {
+                    if (c.wire) dnwire++;
+                    if (c.wire && (c.offset != 0 || c.width != c.wire->width))
+                        dpartial = true;
+                }
+                bool dscatter = (dnwire > 1 || dpartial);
                 if (mw > 64) {
+                    if (dscatter) {
+                        fprintf(stderr, "gen_statemachine: $memrd wide DATA is"
+                                " a multi-chunk/partial concat (%s) —"
+                                " declining (a first-chunk wcopy would"
+                                " miscompute)\n", memid.c_str());
+                        exit(1);
+                    }
                     int wnl = nlimbs(mw);
                     auto *dw = (*cell->getPort(ID(DATA)).chunks().begin()).wire;
                     int dnl = nlimbs(dw->width);
@@ -2842,6 +2864,35 @@ int main(int argc, char **argv)
                             addr.c_str(), mask_lit(abits).c_str(), wnl, wnl);
                     for (int l = wnl; l < dnl; l++)
                         fprintf(out, "    %s[%d] = 0;\n", data_name.c_str(), l);
+                } else if (dscatter) {
+                    fprintf(out, "    { uint64_t _yspl = s->%s[%s & %s];\n",
+                            cname(memid).c_str(), addr.c_str(),
+                            mask_lit(abits).c_str());
+                    int pos = 0;
+                    for (auto &ch : dch) {
+                        if (ch.wire) {
+                            std::string wn = cname(ch.wire->name.str());
+                            int w = ch.width, off = ch.offset, ww = ch.wire->width;
+                            if (is_wide(ww))
+                                fprintf(out, "      wplacew_s(%s,%d,_yspl,%d,%d);\n",
+                                        wn.c_str(), off, pos, w);
+                            else if (off == 0 && w == ww)
+                                fprintf(out, "      %s = (_yspl >> %d) & %s;\n",
+                                        wn.c_str(), pos, mask_lit(w).c_str());
+                            else {
+                                // same u32 mask-lift hazard as the Y scatter
+                                std::string m = mask_lit(w);
+                                if (g_u32 && ww > 32)
+                                    m = "(uint64_t)" + m;
+                                fprintf(out, "      %s = (%s & ~(%s << %d)) |"
+                                        " (((_yspl >> %d) & %s) << %d);\n",
+                                        wn.c_str(), wn.c_str(), m.c_str(), off,
+                                        pos, m.c_str(), off);
+                            }
+                        }
+                        pos += ch.width;
+                    }
+                    fprintf(out, "    }\n");
                 } else
                     fprintf(out, "    %s = s->%s[%s & %s];\n",
                             data_name.c_str(), cname(memid).c_str(),
