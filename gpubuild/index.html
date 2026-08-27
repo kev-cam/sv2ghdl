@@ -1,0 +1,175 @@
+<title>gpubuild</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --paper: #F4F6F8; --ink: #1B2430; --muted: #5A6572;
+  --accent: #B0521F; --accent-soft: #B0521F22;
+  --codebg: #E9EDF1; --line: #D5DBE2; --chipbg: #E4E9EE;
+  --ok: #2E7D4F; --warn: #8A6D1F;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #151A21; --ink: #DEE4EA; --muted: #8B96A3;
+    --accent: #E8874A; --accent-soft: #E8874A22;
+    --codebg: #1D242E; --line: #2A333F; --chipbg: #202834;
+    --ok: #5FBF8A; --warn: #CBA84C;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #151A21; --ink: #DEE4EA; --muted: #8B96A3;
+  --accent: #E8874A; --accent-soft: #E8874A22;
+  --codebg: #1D242E; --line: #2A333F; --chipbg: #202834;
+  --ok: #5FBF8A; --warn: #CBA84C;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font: 16px/1.65 "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  margin: 0; padding: 3.2rem 1.2rem 5rem;
+}
+main { max-width: 47rem; margin: 0 auto; }
+h1 {
+  font-size: 2.3rem; font-weight: 700; letter-spacing: -0.02em;
+  margin: 0 0 .3rem; text-wrap: balance;
+}
+h1 .tld { color: var(--accent); }
+p.tag { color: var(--muted); font-size: 1.08rem; margin: 0 0 1.3rem; max-width: 40rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 2.6rem; }
+.chip {
+  background: var(--chipbg); border: 1px solid var(--line); border-radius: 999px;
+  padding: .22rem .8rem; font-size: .82rem; font-weight: 500; color: var(--muted);
+  letter-spacing: .01em;
+}
+.chip b { color: var(--ink); font-weight: 600; }
+h2 {
+  font-size: 1.28rem; font-weight: 600; letter-spacing: -0.01em;
+  margin: 2.7rem 0 .7rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
+  text-wrap: balance;
+}
+h3 { font-size: 1.02rem; font-weight: 600; margin: 1.5rem 0 .4rem; }
+p { margin: .6rem 0; }
+code, pre {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .86em;
+}
+code { background: var(--codebg); padding: .1em .35em; border-radius: 4px; }
+pre {
+  background: var(--codebg); border-left: 3px solid var(--accent);
+  border-radius: 6px; padding: .85rem 1rem; overflow-x: auto;
+  line-height: 1.55; margin: .8rem 0 1.1rem;
+}
+pre code { background: none; padding: 0; }
+pre .c { color: var(--muted); }
+table {
+  border-collapse: collapse; width: 100%; margin: .8rem 0 1.2rem;
+  font-size: .92rem; font-variant-numeric: tabular-nums;
+}
+th, td { text-align: left; padding: .45rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+td code { white-space: nowrap; }
+.tablewrap { overflow-x: auto; }
+ul { padding-left: 1.25rem; margin: .6rem 0; }
+li { margin: .35rem 0; }
+.sec { border-left: 3px solid var(--ok); background: var(--accent-soft);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+  border-radius: 6px; padding: .8rem 1rem; margin: 1rem 0; }
+.sec b:first-child { color: var(--ok); }
+.warnbox { border-left: 3px solid var(--warn); border-radius: 6px; padding: .8rem 1rem; margin: 1rem 0;
+  background: color-mix(in srgb, var(--warn) 9%, transparent); }
+footer { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: .85rem; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+</style>
+<main>
+<h1>gpubuild<span class="tld"></span></h1>
+<p class="tag">Compile CUDA farm binaries on any machine podman runs — no CUDA install,
+no GPU, no NVIDIA driver on the build host. Ship only the compiled binary to cloud
+GPUs, and trust checksums instead of the cloud.</p>
+<div class="chips">
+  <span class="chip">build host needs: <b>podman only</b></span>
+  <span class="chip">run host needs: <b>libcuda.so.1 only</b></span>
+  <span class="chip">cloud sees: <b>binaries, never source</b></span>
+</div>
+
+<h2>Quick start</h2>
+<pre><code><span class="c"># any nvcc command line, run inside the pinned CUDA-devel container</span>
+./gpu-cc.sh -O2 -arch=sm_75 -o hello hello.cu
+./hello        <span class="c"># on a machine with an NVIDIA driver</span></code></pre>
+<p>The first invocation pulls <code>nvidia/cuda:12.4.1-devel</code> (≈7&#8201;GB, once).
+Compilation is pure CPU: it works in rootless podman on a laptop and in podman on
+WSL2 identically. The current directory is mounted at <code>/w</code>; paths in your
+nvcc arguments are relative to it.</p>
+
+<h2>Scripts</h2>
+<div class="tablewrap"><table>
+<tr><th>script</th><th>does</th></tr>
+<tr><td><code>gpu-cc.sh</code></td><td>nvcc in the container. Image pinned by digest
+(<code>IMG=</code> or <code>IMG_TAG=1</code> to override), <code>--network=none</code>,
+cwd mounted at <code>/w</code>. Podman is the supported engine; <code>ENGINE=docker</code>
+exists if you must.</td></tr>
+<tr><td><code>build_farm.sh</code></td><td>flow of record for generated simulation models:
+<code>model.c harness.cu out</code> &rarr; device-qualify the model
+(<code>make_device_model.sh</code>) &rarr; fat binary. Targets overridable via
+<code>GENC=</code>.</td></tr>
+<tr><td><code>make_device_model.sh</code></td><td>qualifies a generated model&#8217;s
+functions <code>__device__</code> for nvcc; writes <code>&lt;model&gt;_dev.c</code>.</td></tr>
+<tr><td><code>ship_run.sh</code></td><td>scp files to any ssh host and run one command
+in a held-open session: <code>ship_run.sh user@host 'cmd' file...</code></td></tr>
+<tr><td><code>vast_run.sh</code></td><td>binary-only vast.ai session: poll instance to
+running, attach your ssh key, ship files, run, log. Needs <code>VAST_API_KEY</code> in
+the environment — the key is used only locally, never copied to the instance.</td></tr>
+</table></div>
+
+<h2>Fat-binary targets</h2>
+<div class="tablewrap"><table>
+<tr><th>arch</th><th>hardware</th></tr>
+<tr><td><code>sm_75</code></td><td>Turing — T1000, RTX 20-series</td></tr>
+<tr><td><code>sm_86</code></td><td>Ampere — RTX 3090, A4000-class cloud boxes</td></tr>
+<tr><td><code>compute_86</code> PTX</td><td>JIT at load for newer parts (sm_89 / sm_90+)</td></tr>
+</table></div>
+<p>cudart links static, so the binary needs only <code>libcuda.so.1</code> — the
+driver — on the run host. That covers bare Linux, WSL2
+(<code>/usr/lib/wsl/lib/libcuda.so.1</code>), and every stock cloud image we have met.</p>
+
+<h2>Security model</h2>
+<p>The design treats the cloud as untrusted in <em>both</em> directions:</p>
+<div class="sec"><b>Outbound.</b> Source, RTL, and toolchain never leave your machines.
+A rented GPU box receives compiled SASS/PTX and test vectors — the same trust level as
+shipping a product binary. The vast.ai API key stays local: it authenticates API calls
+from your machine and is never written to the instance.</div>
+<div class="sec"><b>Inbound.</b> A cloud host owner can read or tamper with anything
+that runs there, so results are never trusted as such. Certify them: have the workload
+produce checksums the host could not guess (aggregate result hashes, per-instance
+checksums) and compare against values computed on hardware you own. A faked run
+cannot produce the right numbers without doing the work.</div>
+<div class="sec"><b>Build.</b> The container image is pinned by digest, and the build
+runs with <code>--network=none</code> — nvcc needs no network, so the build is hermetic
+and your mounted source cannot leave the container.</div>
+<div class="warnbox"><b>PTX caveat.</b> PTX is an intermediate representation and is
+substantially easier to reverse than SASS. If the model embedded in a binary is
+IP-sensitive, build SASS-only for third-party hosts
+(<code>GENC="-gencode arch=compute_86,code=sm_86"</code>) and keep PTX-carrying fat
+binaries for your own hardware.</div>
+
+<h2>Field notes</h2>
+<ul>
+<li>A harness&#8217;s <code>#define MODEL_C</code> must be <code>#ifndef</code>-guarded
+or the <code>-DMODEL_C</code> from <code>build_farm.sh</code> loses.</li>
+<li>Use <code>--threads 4</code> (build_farm does) — big single-file models compile
+each <code>-gencode</code> target in parallel.</li>
+<li>Very large device functions can hold cicc for hours; <code>-Xcicc -O1</code> cuts
+that to minutes at a small runtime cost — good for iteration, full opt for
+measurement.</li>
+<li>WSL run hosts: processes die when the last <code>wsl.exe</code> session exits —
+keep the calling ssh session open instead of using <code>nohup</code>.</li>
+<li>Rootless podman may warn about systemd cgroup sessions and fall back to
+cgroupfs; the warnings are noise.</li>
+<li>Cloud instances bill until destroyed: <code>vastai destroy instance &lt;id&gt;</code>
+when the log is in.</li>
+</ul>
+
+<footer>gpubuild is part of the sv2ghdl project&#8217;s simulation-acceleration
+toolchain; the scripts are self-contained and have no dependency on the rest of the
+repository.</footer>
+</main>
