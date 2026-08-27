@@ -3595,12 +3595,39 @@ int main(int argc, char **argv)
     // AFTER the combinational $memrd reads above, so a same-cycle read sees the OLD
     // word (FIFO read-before-write / NBA semantics). ADDR/DATA/EN use the current-
     // state register aliases, so placement after the pointer updates is fine.
+    //
+    // ORDER: multiple write ports to one memory in the same cycle carry RTL
+    // priority — proc_memwr numbers them by PORTID in statement order, later
+    // statements winning byte overlaps. Iterating cells_ (name order) emitted
+    // them arbitrarily: Vortex's AMO writeback queue does a shift (pop) and an
+    // indexed push to the SAME slot in one clock, push written last in the RTL;
+    // name order put the shift after the push, so the pushed entry was wiped
+    // and one concurrent atomic update vanished (atomtest 2067/2080). Sort by
+    // (MEMID, PORTID|PRIORITY) ascending so the last-in-RTL write lands last.
     {
         bool hdr = false;
+        std::vector<RTLIL::Cell*> wcells;
         for (auto &c : mod->cells_) {
             auto *cell = c.second;
             auto wtype = cell->type.str();
             if (wtype != "$memwr" && wtype != "$memwr_v2") continue;
+            wcells.push_back(cell);
+        }
+        auto wprio = [](RTLIL::Cell *cell) {
+            if (cell->hasParam(ID(PORTID)))
+                return cell->getParam(ID(PORTID)).as_int();
+            if (cell->hasParam(ID(PRIORITY)))
+                return cell->getParam(ID(PRIORITY)).as_int();
+            return 0;
+        };
+        std::stable_sort(wcells.begin(), wcells.end(),
+            [&](RTLIL::Cell *a, RTLIL::Cell *b) {
+                auto ma = a->getParam(ID(MEMID)).decode_string();
+                auto mb = b->getParam(ID(MEMID)).decode_string();
+                if (ma != mb) return ma < mb;
+                return wprio(a) < wprio(b);
+            });
+        for (auto *cell : wcells) {
             if (!hdr) { fprintf(out, "    // Memory write ports\n"); hdr = true; }
             std::string mn = cname(cell->getParam(ID(MEMID)).decode_string());
             int abits = cell->getParam(ID(ABITS)).as_int();
