@@ -132,6 +132,30 @@ the environment — the key is used only locally, never copied to the instance.<
 driver — on the run host. That covers bare Linux, WSL2
 (<code>/usr/lib/wsl/lib/libcuda.so.1</code>), and every stock cloud image we have met.</p>
 
+<h2>Renting a GPU on vast.ai</h2>
+<p>The whole cycle — search, create, ship, run, destroy — from your machine, with
+the API key never leaving it:</p>
+<pre><code>pip install vastai
+export VAST_API_KEY=...     <span class="c"># from cloud.vast.ai &rarr; account settings</span>
+
+<span class="c"># search: the cuda_vers filter matters — the host driver must support the
+# toolkit your binary was built with (12.4 here).  A cheaper offer with an
+# older driver fails at load with "driver version is insufficient".</span>
+vastai search offers 'gpu_name=RTX_3090 num_gpus=1 rentable=true \
+    cuda_vers>=12.4 reliability>0.98 inet_down>100' -o 'dph'
+
+vastai create instance &lt;offer-id&gt; \
+    --image nvidia/cuda:12.4.1-runtime-ubuntu22.04 --ssh --direct --disk 12
+
+<span class="c"># poll to running, attach your key, ship binaries, run, log:</span>
+./vast_run.sh &lt;instance-id&gt; 'cd /root &amp;&amp; chmod +x farm &amp;&amp; ./farm 2000 16384' farm data.bin
+
+vastai destroy instance &lt;instance-id&gt;   <span class="c"># bills until you do this</span></code></pre>
+<p>Ship <em>prebuilt</em> binaries only: instance ssh auth can decay within minutes of
+provisioning, long before a remote toolchain build would finish — a binary scp fits
+the window with seconds to spare. A runtime (not devel) image is enough on the
+instance because cudart is linked static.</p>
+
 <h2>Security model</h2>
 <p>The design treats the cloud as untrusted in <em>both</em> directions:</p>
 <div class="sec"><b>Outbound.</b> Source, RTL, and toolchain never leave your machines.
