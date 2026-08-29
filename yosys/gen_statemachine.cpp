@@ -764,6 +764,11 @@ static bool g_census_active = false;
 // memory-write execution (conservative, under the write enable).
 static bool g_gated = false;
 static int  g_gated_block = 32;
+// GSM_COMB_SPLIT=K: emit sm_clock's comb network as K part functions plus a
+// commit function, cross-part wires carried in an xw_state_t struct.  Restores
+// register-allocator locality on GPU (one 24k-cell sm_comb spilled ~7x worse
+// per eval than a half-size one on sm_75).  Single-clock, ungated only.
+static int  g_comb_split = 0;
 static bool g_emit_gated_body = false;
 struct GatedPlan {
     int nb = 0, nw = 0;
@@ -881,6 +886,22 @@ static void icg2en_rewrite(RTLIL::Module *mod)
         RTLIL::SigBit g = smap(c->getPort(ID::CLK))[0];
         if (!g.wire || g.wire->port_input) continue;   // already legal
         groups[g].push_back(c);
+    }
+    // Clocked memory ports on the same gated clocks (true-memory RAM
+    // primitives inside an ICG cone: the way-data $memwr inherits the way
+    // clock).  Reclocked alongside the FFs: CLK -> base, EN &= enable.
+    dict<RTLIL::SigBit, std::vector<RTLIL::Cell*>> memgroups;
+    for (auto &cp : mod->cells_) {
+        RTLIL::Cell *c = cp.second;
+        bool ismw = c->type.str().compare(0, 6, "$memwr") == 0;
+        bool ismr = c->type.str().compare(0, 6, "$memrd") == 0;
+        if (!ismw && !ismr) continue;
+        if (!c->hasPort(ID::CLK)) continue;
+        if (c->hasParam(ID(CLK_ENABLE)) && !c->getParam(ID(CLK_ENABLE)).as_bool())
+            continue;                                   // comb read port
+        RTLIL::SigBit g = smap(c->getPort(ID::CLK))[0];
+        if (!g.wire || g.wire->port_input) continue;
+        memgroups[g].push_back(c);
     }
     if (groups.empty()) return;
 
@@ -1026,6 +1047,9 @@ static void icg2en_rewrite(RTLIL::Module *mod)
                     bool member = false;
                     for (RTLIL::Cell *m : gp.second)
                         if (m == c) { member = true; break; }
+                    if (!member && memgroups.count(g))
+                        for (RTLIL::Cell *m : memgroups.at(g))
+                            if (m == c) { member = true; break; }
                     if (!(member && conn.first == ID::CLK)) bad = true;
                 }
             }
@@ -1046,6 +1070,20 @@ static void icg2en_rewrite(RTLIL::Module *mod)
             fprintf(stderr, "icg2en: reg %s reclocked to %s (en=%s)\n",
                     c->name.c_str(), clkbit.wire->name.c_str(),
                     enbit.wire ? enbit.wire->name.c_str() : "const");
+        }
+        if (memgroups.count(g)) {
+            for (RTLIL::Cell *c : memgroups.at(g)) {
+                c->setPort(ID::CLK, RTLIL::SigSpec(clkbit));
+                RTLIL::SigSpec en = c->getPort(ID::EN);
+                RTLIL::SigSpec enrep;
+                for (int k2 = 0; k2 < GetSize(en); k2++)
+                    enrep.append(enbit);
+                RTLIL::SigSpec newen = mod->And(NEW_ID, en, enrep);
+                c->setPort(ID::EN, newen);
+                fprintf(stderr, "icg2en: mem port %s reclocked to %s (en&=%s)\n",
+                        c->name.c_str(), clkbit.wire->name.c_str(),
+                        enbit.wire ? enbit.wire->name.c_str() : "const");
+            }
         }
         // Latch disposal: transparent-low == wire at every pre-edge read
         // point; the connect keeps its Q net comb-driven for all readers.
@@ -1093,6 +1131,8 @@ int main(int argc, char **argv)
         g_census_block = atoi(getenv("GSM_CENSUS_BLOCK"));
     if (getenv("GSM_WIDE64"))
         g_w64 = true;
+    if (getenv("GSM_COMB_SPLIT"))
+        g_comb_split = atoi(getenv("GSM_COMB_SPLIT"));
     if (getenv("GSM_GATED")) {
         g_gated = true;
         if (getenv("GSM_GATED_BLOCK"))
@@ -3861,6 +3901,184 @@ int main(int argc, char **argv)
             for (int k = 0; k < g_spec_nstates; k++)
                 fprintf(out, "    case %d: sm_clock_%d(s,in); return;\n", k, k);
             fprintf(out, "    }\n}\n\n");
+        } else if (g_comb_split > 1 && !g_gated && !g_census) {
+            // ---- GSM_COMB_SPLIT: sm_clock as K part functions + a commit ----
+            // Restores register-allocator locality on GPU: one 24k-cell comb
+            // function spilled ~7x worse per eval than a half-size one.
+            // Contiguous topo slices; wires produced in one part and consumed
+            // in a later part (or by the register/memory commits) travel in an
+            // xw_state_t struct.  Bit-identical by construction: same cells,
+            // same order, same expressions — only the function boundaries and
+            // the cross-wire round-trips through xw are new.
+            const int K = g_comb_split;
+            // part_of MUST use the exact emission ranges below — the closed
+            // form (i*K)/N disagrees at boundaries (cell N*p/K classified
+            // p-1), and ONE misclassified cell reads its inputs stale and
+            // stores its output before computing it (the ifc-fsm bug).
+            std::map<RTLIL::Cell*, int> part_of;
+            for (int p = 0; p < K; p++) {
+                size_t lo = (sorted.size() * (size_t)p) / K;
+                size_t hi = (sorted.size() * (size_t)(p + 1)) / K;
+                for (size_t i = lo; i < hi; i++) part_of[sorted[i]] = p;
+            }
+            auto res_wire = [&](RTLIL::SigBit bit) -> RTLIL::Wire* {
+                RTLIL::SigBit b = sigmap(bit);
+                if (g_redirect) {
+                    auto it = g_redirect->find(b);
+                    if (it != g_redirect->end()) b = it->second;
+                }
+                return b.wire;
+            };
+            struct XInfo {
+                int minw = 1 << 30;          // first writer part
+                std::set<int> wparts;        // all writer parts
+                std::set<int> touch;         // parts reading or writing
+                bool seq = false;            // read by register/memwr commits
+            };
+            std::map<RTLIL::Wire*, XInfo> xi;
+            for (auto *cell : sorted) {
+                int p = part_of.at(cell);
+                bool ismemrd = cell->type.str().compare(0, 6, "$memrd") == 0;
+                for (auto &conn : cell->connections()) {
+                    bool is_out = (conn.first == ID::Y)
+                                  || (ismemrd && conn.first == ID(DATA));
+                    if (is_out) {
+                        // writers keyed by the RAW driven wire (the name the
+                        // emission assigns), matching wire_driver's keying
+                        for (auto &chunk : conn.second.chunks()) {
+                            if (!chunk.wire) continue;
+                            auto &x = xi[chunk.wire];
+                            if (p < x.minw) x.minw = p;
+                            x.wparts.insert(p);
+                            x.touch.insert(p);
+                        }
+                    } else {
+                        for (auto &bit : conn.second) {
+                            RTLIL::Wire *w = res_wire(bit);
+                            if (w) xi[w].touch.insert(p);
+                        }
+                    }
+                }
+            }
+            // commit-side reads: register D/EN/ARST/SRST + memory ADDR/DATA/EN
+            for (auto &c2 : mod->cells_) {
+                auto *cell = c2.second;
+                auto t = cell->type.str();
+                bool isdff = (t == "$adff" || t == "$dff" || t == "$adffe"
+                              || t == "$dffe" || t == "$sdff" || t == "$sdffe");
+                bool ismemwr = t.compare(0, 6, "$memwr") == 0;
+                if (!isdff && !ismemwr) continue;
+                for (auto &conn : cell->connections()) {
+                    if (conn.first == ID::Q) continue;
+                    for (auto &bit : conn.second) {
+                        RTLIL::Wire *w = res_wire(bit);
+                        if (!w) continue;
+                        auto it = xi.find(w);
+                        if (it != xi.end()) it->second.seq = true;
+                    }
+                }
+            }
+            if (const char *dbgw = getenv("GSM_COMB_SPLIT_DEBUG")) {
+                for (auto &kv : xi) {
+                    if (cname(kv.first->name.str()) != dbgw) continue;
+                    auto &x = kv.second;
+                    fprintf(stderr, "[split-dbg] %s minw=%d wparts={", dbgw, x.minw);
+                    for (int w2 : x.wparts) fprintf(stderr, "%d,", w2);
+                    fprintf(stderr, "} touch={");
+                    for (int t2 : x.touch) fprintf(stderr, "%d,", t2);
+                    fprintf(stderr, "} seq=%d\n", (int)x.seq);
+                }
+                // and every cell whose connections resolve to it
+                for (auto *cell : sorted) {
+                    for (auto &conn : cell->connections()) {
+                        for (auto &bit : conn.second) {
+                            RTLIL::Wire *w2 = res_wire(bit);
+                            if (w2 && cname(w2->name.str()) == dbgw)
+                                fprintf(stderr, "[split-dbg] cell %s type %s port %s part %d\n",
+                                        cell->name.c_str(), cell->type.c_str(),
+                                        conn.first.c_str(), part_of.at(cell));
+                        }
+                    }
+                }
+            }
+            std::vector<RTLIL::Wire*> xwires;
+            bool xall = getenv("GSM_COMB_SPLIT_ALL") != nullptr;  // bisect aid
+            for (auto &kv : xi) {
+                auto &x = kv.second;
+                if (x.minw == (1 << 30)) continue;   // no comb writer: alias/reg/input
+                int maxt = -1;
+                for (int t2 : x.touch) if (t2 > maxt) maxt = t2;
+                if (xall || x.seq || maxt > x.minw) {
+                    if (xall) { x.seq = true; for (int p2 = 0; p2 < K; p2++) x.touch.insert(p2); }
+                    xwires.push_back(kv.first);
+                }
+            }
+            std::sort(xwires.begin(), xwires.end(),
+                [](RTLIL::Wire *a, RTLIL::Wire *b) { return a->name.str() < b->name.str(); });
+            fprintf(out, "// GSM_COMB_SPLIT=%d: %zu cross-part wires\n", K, xwires.size());
+            fprintf(out, "typedef struct {\n");
+            for (auto *w : xwires) {
+                std::string wn = cname(w->name.str());
+                if (is_wide(w->width))
+                    fprintf(out, "    %s %s[%d];\n", lt(), wn.c_str(), nlimbs(w->width));
+                else
+                    fprintf(out, "    %s %s;\n", ctype(w->width), wn.c_str());
+            }
+            fprintf(out, "} xw_state_t;\n"
+                         "#ifndef SM_XW_QUAL\n#define SM_XW_QUAL\n#endif\n"
+                         "static SM_XW_QUAL xw_state_t sm_xw;\n\n");
+            for (int p = 0; p < K; p++) {
+                fprintf(out, "static void sm_clock_p%d(state_t *s, const inputs_t *in, xw_state_t *xw) {\n", p);
+                emit_comb_prefix("s");
+                fprintf(out, "    // cross-part loads\n");
+                for (auto *w : xwires) {
+                    auto &x = xi[w];
+                    if (p > x.minw && x.touch.count(p)) {
+                        std::string wn = cname(w->name.str());
+                        if (is_wide(w->width))
+                            fprintf(out, "    wcopy(%s, xw->%s, %d);\n",
+                                    wn.c_str(), wn.c_str(), nlimbs(w->width));
+                        else
+                            fprintf(out, "    %s = xw->%s;\n", wn.c_str(), wn.c_str());
+                    }
+                }
+                size_t lo = (sorted.size() * (size_t)p) / K;
+                size_t hi = (sorted.size() * (size_t)(p + 1)) / K;
+                fprintf(out, "    // cells %zu..%zu\n", lo, hi);
+                for (size_t i = lo; i < hi; i++) emit_cell(sorted[i]);
+                fprintf(out, "    // cross-part stores\n");
+                for (auto *w : xwires) {
+                    auto &x = xi[w];
+                    if (x.wparts.count(p)) {
+                        std::string wn = cname(w->name.str());
+                        if (is_wide(w->width))
+                            fprintf(out, "    wcopy(xw->%s, %s, %d);\n",
+                                    wn.c_str(), wn.c_str(), nlimbs(w->width));
+                        else
+                            fprintf(out, "    xw->%s = %s;\n", wn.c_str(), wn.c_str());
+                    }
+                }
+                fprintf(out, "}\n\n");
+            }
+            fprintf(out, "static void sm_clock_pc(state_t *s, const inputs_t *in, xw_state_t *xw) {\n");
+            emit_comb_prefix("s");
+            fprintf(out, "    // cross-part loads (commit reads)\n");
+            for (auto *w : xwires) {
+                if (!xi[w].seq) continue;
+                std::string wn = cname(w->name.str());
+                if (is_wide(w->width))
+                    fprintf(out, "    wcopy(%s, xw->%s, %d);\n",
+                            wn.c_str(), wn.c_str(), nlimbs(w->width));
+                else
+                    fprintf(out, "    %s = xw->%s;\n", wn.c_str(), wn.c_str());
+            }
+            emit_seq("s", false);
+            fprintf(out, "}\n\n");
+            fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
+            for (int p = 0; p < K; p++)
+                fprintf(out, "    sm_clock_p%d(s, in, &sm_xw);\n", p);
+            fprintf(out, "    sm_clock_pc(s, in, &sm_xw);\n");
+            fprintf(out, "}\n\n");
         } else {
             fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
             g_emit_gated_body = g_gated;
