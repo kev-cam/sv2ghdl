@@ -3774,29 +3774,31 @@ int main(int argc, char **argv)
     };
 
     // Output copies (the sm_comb tail) — trace through sigmap to find the source.
+    auto emit_output_one = [&](RTLIL::Wire *wire, int _oi) {
+        std::string wn = cname(wire->name.str());
+        SigSpec port_sig(wire);
+        if (_oi < 256)
+            fprintf(out, "    if (sm_live_outputs[%d] & (1ull<<%d)) {\n",
+                    _oi >> 6, _oi & 63);
+        if (is_wide(wire->width)) {
+            std::string dst = "o->" + wn;
+            int ny = nlimbs(wire->width);
+            emit_materialize(out, dst, ny, port_sig, sigmap, false, 0);
+            emit_wmask(out, dst, wire->width, ny);
+        } else {
+            std::string expr = sig_expr(port_sig, sigmap);
+            fprintf(out, "    o->%s = %s;\n", wn.c_str(), expr.c_str());
+        }
+        if (_oi < 256) fprintf(out, "    }\n");
+    };
+
     auto emit_outputs = [&]() {
     fprintf(out, "    // Outputs\n");
     int _oi = 0;
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
-        if (wire->port_output) {
-            std::string wn = cname(wire->name.str());
-            SigSpec port_sig(wire);
-            if (_oi < 256)
-                fprintf(out, "    if (sm_live_outputs[%d] & (1ull<<%d)) {\n",
-                        _oi >> 6, _oi & 63);
-            if (is_wide(wire->width)) {
-                std::string dst = "o->" + wn;
-                int ny = nlimbs(wire->width);
-                emit_materialize(out, dst, ny, port_sig, sigmap, false, 0);
-                emit_wmask(out, dst, wire->width, ny);
-            } else {
-                std::string expr = sig_expr(port_sig, sigmap);
-                fprintf(out, "    o->%s = %s;\n", wn.c_str(), expr.c_str());
-            }
-            if (_oi < 256) fprintf(out, "    }\n");
-            _oi++;
-        }
+        if (wire->port_output)
+            emit_output_one(wire, _oi++);
     }
     };  // end emit_outputs lambda
 
@@ -4001,6 +4003,40 @@ int main(int argc, char **argv)
                     }
                 }
             }
+            // outputs-from-parts: copy each output port to o-> from the part
+            // where its source value is final, so harnesses need NO separate
+            // sm_comb (output-cone) eval per edge — that cone is near-full-size
+            // and cost a second full eval on both CPU and GPU.  Output values
+            // are the pre-commit comb values, identical to sm_comb's; the TB
+            // may consume them after the commit (they feed next-edge inputs).
+            std::vector<std::pair<RTLIL::Wire*, int>> outw;  // (port, oi)
+            std::map<RTLIL::Wire*, int> outpart;
+            {
+                int _oi = 0;
+                for (auto &w2 : mod->wires_) {
+                    auto *wire = w2.second;
+                    if (!wire->port_output) continue;
+                    int p = 0;
+                    SigSpec ps(wire);
+                    for (auto &bit : ps) {
+                        RTLIL::Wire *src = res_wire(bit);
+                        if (!src) continue;
+                        auto it2 = xi.find(src);
+                        if (it2 == xi.end()) continue;   // reg/input alias
+                        for (int wp : it2->second.wparts)
+                            if (wp > p) p = wp;
+                    }
+                    outw.push_back({wire, _oi});
+                    outpart[wire] = p;
+                    for (auto &bit : ps) {
+                        RTLIL::Wire *src = res_wire(bit);
+                        if (!src) continue;
+                        auto it2 = xi.find(src);
+                        if (it2 != xi.end()) it2->second.touch.insert(p);
+                    }
+                    _oi++;
+                }
+            }
             std::vector<RTLIL::Wire*> xwires;
             bool xall = getenv("GSM_COMB_SPLIT_ALL") != nullptr;  // bisect aid
             for (auto &kv : xi) {
@@ -4028,7 +4064,7 @@ int main(int argc, char **argv)
                          "#ifndef SM_XW_QUAL\n#define SM_XW_QUAL\n#endif\n"
                          "static SM_XW_QUAL xw_state_t sm_xw;\n\n");
             for (int p = 0; p < K; p++) {
-                fprintf(out, "static void sm_clock_p%d(state_t *s, const inputs_t *in, xw_state_t *xw) {\n", p);
+                fprintf(out, "static void sm_clock_p%d(state_t *s, const inputs_t *in, outputs_t *o, xw_state_t *xw) {\n", p);
                 emit_comb_prefix("s");
                 fprintf(out, "    // cross-part loads\n");
                 for (auto *w : xwires) {
@@ -4046,6 +4082,9 @@ int main(int argc, char **argv)
                 size_t hi = (sorted.size() * (size_t)(p + 1)) / K;
                 fprintf(out, "    // cells %zu..%zu\n", lo, hi);
                 for (size_t i = lo; i < hi; i++) emit_cell(sorted[i]);
+                fprintf(out, "    // outputs finalized in this part\n");
+                for (auto &op : outw)
+                    if (outpart[op.first] == p) emit_output_one(op.first, op.second);
                 fprintf(out, "    // cross-part stores\n");
                 for (auto *w : xwires) {
                     auto &x = xi[w];
@@ -4060,7 +4099,8 @@ int main(int argc, char **argv)
                 }
                 fprintf(out, "}\n\n");
             }
-            fprintf(out, "static void sm_clock_pc(state_t *s, const inputs_t *in, xw_state_t *xw) {\n");
+            fprintf(out, "static void sm_clock_pc(state_t *s, const inputs_t *in, outputs_t *o, xw_state_t *xw) {\n");
+            fprintf(out, "    (void)o;\n");
             emit_comb_prefix("s");
             fprintf(out, "    // cross-part loads (commit reads)\n");
             for (auto *w : xwires) {
@@ -4074,10 +4114,18 @@ int main(int argc, char **argv)
             }
             emit_seq("s", false);
             fprintf(out, "}\n\n");
+            fprintf(out, "static SM_XW_QUAL outputs_t sm_o_scratch;\n");
             fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
             for (int p = 0; p < K; p++)
-                fprintf(out, "    sm_clock_p%d(s, in, &sm_xw);\n", p);
-            fprintf(out, "    sm_clock_pc(s, in, &sm_xw);\n");
+                fprintf(out, "    sm_clock_p%d(s, in, &sm_o_scratch, &sm_xw);\n", p);
+            fprintf(out, "    sm_clock_pc(s, in, &sm_o_scratch, &sm_xw);\n");
+            fprintf(out, "}\n\n");
+            fprintf(out, "// one full eval per edge: comb parts write o (pre-commit values),\n");
+            fprintf(out, "// then the commit — replaces sm_comb+sm_clock harness pairs.\n");
+            fprintf(out, "void sm_clock_o(state_t *s, const inputs_t *in, outputs_t *o) {\n");
+            for (int p = 0; p < K; p++)
+                fprintf(out, "    sm_clock_p%d(s, in, o, &sm_xw);\n", p);
+            fprintf(out, "    sm_clock_pc(s, in, o, &sm_xw);\n");
             fprintf(out, "}\n\n");
         } else {
             fprintf(out, "void sm_clock(state_t *s, const inputs_t *in) {\n");
