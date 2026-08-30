@@ -419,6 +419,68 @@ if [ "$gmrg" -ge 1 ] && [ "${gedge:-0}" -ge 1 ] && [ -n "$YGI" ] && [ "$YGA" = "
   ok "domain merge + negedge flip (GALS)" "(fused, $gedge internal edge, Y matches)"
 else bad "domain merge + negedge flip (GALS)" "mrg=$gmrg edge=$gedge Y=$YGA/$YGI"; fi
 
+# 11. MEM WHOLE-ARRAY SIGNAL ASSIGN must not kill the probe (2026-08-30):
+#     vhdl2vlog's mem_scan_cb and the whole-array emission called
+#     tree_value() directly on a T_SIGNAL_ASSIGN — a FATAL object lookup,
+#     so the merge-collection PROBE killed the simulator on any design
+#     whose memory is written whole-array by a signal assign (the
+#     NBA-shadow commit `mem <= v_nba_mem` on EH1a walked into it).
+#     The probe's contract is DECLINE, never die: this run must complete
+#     with the interpreter's answer whether or not anything installs.
+cat > "$W/memagg.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity memagg_dut is
+  port (clk : in std_logic; y : out unsigned(7 downto 0));
+end entity;
+architecture rtl of memagg_dut is
+  type mem_t is array (0 to 3) of std_logic_vector(7 downto 0);
+  signal m   : mem_t;
+  signal cnt : unsigned(7 downto 0) := (others => '0');
+  signal acc : unsigned(7 downto 0) := (others => '0');
+begin
+  process(clk) begin
+    if rising_edge(clk) then
+      if cnt = 0 then
+        m <= (x"11", x"22", x"33", x"44");  -- whole-array SIGNAL assign
+      else
+        m(to_integer(cnt(1 downto 0))) <= std_logic_vector(cnt);
+      end if;
+      acc <= acc + unsigned(m(to_integer(cnt(1 downto 0))));
+      cnt <= cnt + 1;
+    end if;
+  end process;
+  y <= acc;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity memagg_tb is end entity;
+architecture sim of memagg_tb is
+  signal clk : std_logic := '0';
+  signal y   : unsigned(7 downto 0);
+  signal run : boolean := true;
+begin
+  clk <= not clk after 5 ns when run;
+  dut: entity work.memagg_dut port map (clk => clk, y => y);
+  process begin
+    wait for 1500 ns;
+    report "Y=" & integer'image(to_integer(y));
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+MD="$W/memagg"; mkdir -p "$MD"
+$NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -a "$W/memagg.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -e memagg_tb >/dev/null 2>&1
+YMI=$($NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -r memagg_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+mout=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 \
+       timeout 60 $NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -r memagg_tb 2>&1); mrc=$?
+YMA=$(printf '%s' "$mout" | grep -oE 'Y=[0-9]+' | tail -1)
+mfat=$(printf '%s' "$mout" | grep -c 'Fatal')
+if [ $mrc -eq 0 ] && [ "$mfat" -eq 0 ] && [ -n "$YMI" ] && [ "$YMA" = "$YMI" ]; then
+  ok "mem whole-array assign probe survives" "(no Fatal, Y matches)"
+else bad "mem whole-array assign probe survives" "rc=$mrc fatal=$mfat Y=$YMA/$YMI"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
