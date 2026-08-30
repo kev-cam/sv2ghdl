@@ -42,11 +42,11 @@ false, so the efficiency test rejects it.
 | bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.469 ×22.6 | — | — | — | 🟢 0.424 ×25.0 | 10.619 ×1.0 | — |
 | bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.952 ×1.0 | — | — | — | 🟢 1.913 ×1.0 | brk | — |
 | b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 1.984 ×5.6 | — | 2.002 ×5.6 = | 2.860 ×3.9 | 🟢 1.790 ×6.2 | 11.128 ×1.0 | 8.9e9 ×5282 |
-| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.838 ×4.3 | — | 1.820 ×4.4 = | 2.570 ×3.1 | 🟢 1.658 ×4.8 | 7.969 ×1.0 | 7.7e9 ×6381 |
-| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 3.001 ×4.3 | 🟢 2.905 ×4.5 2t 1.9×cpu | 3.171 ×4.1 = | — | 3.280 ×4.0 | 13.009 ×1.0 | — |
-| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 🟢 0.774 ×10.9 | — | 0.789 ×10.7 = | — | 0.813 ×10.4 | 8.428 ×1.0 | — |
-| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 1.912 ×6.4 | — | 🟢 1.882 ×6.5 = | — | 2.404 ×5.1 | 12.316 ×1.0 | — |
-| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 1.532 ×4.9 | — | 🟢 1.451 ×5.1 = | — | 1.509 ×4.9 | 7.445 ×1.0 | — |
+| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.838 ×4.3 | — | 1.820 ×4.4 = | 2.570 ×3.1 | 🟢 1.658 ×4.8 | 7.969 ×1.0 | 7.7e9 ×6419 |
+| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 3.001 ×4.3 | 🟢 2.905 ×4.5 2t 1.9×cpu | 3.171 ×4.1 = | — | 3.280 ×4.0 | 13.009 ×1.0 | 5.3e8 ×516 |
+| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 🟢 0.774 ×10.9 | — | 0.789 ×10.7 = | — | 0.813 ×10.4 | 8.428 ×1.0 | 1.2e9 ×958 |
+| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 1.912 ×6.4 | — | 🟢 1.882 ×6.5 = | — | 2.404 ×5.1 | 12.316 ×1.0 | 1.8e7 ×34 |
+| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 1.532 ×4.9 | — | 🟢 1.451 ×5.1 = | — | 1.509 ×4.9 | 7.445 ×1.0 | 2.1e8 ×304 |
 
 ### Reading these numbers
 
@@ -137,23 +137,29 @@ then runs 4,096 stimulus-decorrelated instances as one CUDA farm.  Cells
 are aggregate instance-cycles/s on a **T1000 laptop-class GPU** and the
 multiple over the row's fastest single engine.  Instance 0 replays the
 canonical stimulus, so its CHK must (and does) equal the VHDL engines'.
+**All six ITC designs are now covered** — the last four were unlocked by
+the integer-array-memory / boolean-literal / division translator work
+(nvc dcd34b090), each certified at full cycle count.
 
 | design | agg inst-cyc/s | per-instance | vs fastest single |
 | :-- | --: | --: | --: |
-| b01 | 8.853e9 | 2.16M cyc/s | ×5282 |
-| b06 | 7.696e9 | 1.88M cyc/s | ×6381 |
+| b01 | 8.85e9 | 2.16M cyc/s | ×5282 |
+| b06 | 7.74e9 | 1.89M cyc/s | ×6419 |
+| b12 | 5.33e8 | 130k cyc/s | ×516 |
+| b14 | 1.24e9 | 302k cyc/s | ×958 |
+| b17 | 1.81e7 | 4.4k cyc/s | ×34 |
+| b22 | 2.10e8 | 51k cyc/s | ×304 |
 
-Each of the 4,096 concurrent copies individually outruns the fastest
-CPU engine in its row (b01: 2.16M vs stock's 1.68M cyc/s).  Not yet
-covered: b12 (module declines translation), b14 (constrained-integer
-port stimulus not yet replicated in C), b17/b22 (register-less dump —
-under triage); the syn benches have no separable DUT scope.
+The spread tracks design size: the small FSMs run each instance FASTER
+than any CPU engine runs one copy, while b17 (three CPU cores per
+instance) pays the width-for-latency trade and still delivers 34× the
+best single engine in aggregate.  The syn benches have no separable DUT
+scope and stay uncovered by construction.
 
 The b06 --accel checksum divergence an earlier run of this table
 caught (async-reset drive path, four stacked defects) is fixed in nvc
-45059fe51 and guarded by the `arst` accelbench shape — the accel cell
-above now agrees, which is this table's cross-engine gate doing its
-job in both directions.
+45059fe51 and guarded by the `arst` accelbench shape — this table's
+cross-engine gate keeps working in both directions.
 
 ## Where we lead
 
