@@ -3170,6 +3170,38 @@ int main(int argc, char **argv)
                         y_name.c_str(),
                         upwrap(sig_expr(cell->getPort(ID::A), sigmap)).c_str(),
                         sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
+        } else if (type == "$div" || type == "$mod") {
+            // Integer division/remainder (vhdl2vlog now maps VHDL "/" and
+            // "rem").  C's / and % on signed operands truncate toward zero
+            // with remainder sign following the dividend — exactly Verilog's
+            // signed semantics (1364-2005 5.1.5).  A zero divisor is
+            // undefined in the reference too; emit a deterministic 0 rather
+            // than a trap.  Wide (>64) operands decline loudly like the
+            // other wide-word gaps.
+            if (y_width > 64 || cell->getPort(ID::A).size() > 64
+                || cell->getPort(ID::B).size() > 64) {
+                fprintf(stderr, "gen_statemachine: %s wider than 64 bits -- "
+                        "declining\n", type.c_str());
+                exit(1);   // same contract as unhandled cells
+            } else {
+                auto a = sig_expr(cell->getPort(ID::A), sigmap);
+                auto b = sig_expr(cell->getPort(ID::B), sigmap);
+                const char *op = (type == "$div") ? "/" : "%";
+                if (is_signed(cell)) {
+                    int aw = cell->getPort(ID::A).size();
+                    int bw = cell->getPort(ID::B).size();
+                    a = signed_expr(a, aw); b = signed_expr(b, bw);
+                    fprintf(out, "    { int64_t _dv = %s; %s = _dv == 0 ? 0 : "
+                            "((uint64_t)(%s %s _dv)) & %s; }\n",
+                            b.c_str(), y_name.c_str(), a.c_str(), op,
+                            masks.c_str());
+                }
+                else
+                    fprintf(out, "    { uint64_t _dv = %s; %s = _dv == 0 ? 0 : "
+                            "((%s) %s _dv) & %s; }\n",
+                            b.c_str(), y_name.c_str(),
+                            upwrap(a).c_str(), op, masks.c_str());
+            }
         } else if (type == "$neg") {
             fprintf(out, "    %s = (-%s) & %s;\n", y_name.c_str(),
                     upwrap(sig_expr(cell->getPort(ID::A), sigmap)).c_str(),
