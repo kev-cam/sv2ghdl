@@ -14,8 +14,24 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
+#include <mutex>
 
 using namespace Yosys;
+
+// ---- library mode ----------------------------------------------------------
+// This file builds two ways (see Makefile): the CLI tool (default) and
+// libgsm.so (-DGSM_LIB), whose only export is gsm_generate() — the extern "C"
+// facade nvc dlopens (RTLD_LOCAL) to run synthesis+codegen in-process without
+// ever seeing a yosys header.  The CLI main() is a wrapper over the same
+// gsm_generate(), so the two clients cannot drift.
+//
+// Every "declining" exit(1) is a GsmBail instead: in-process, exit() would
+// kill the SIMULATOR mid-run, so the facade catches it (and yosys's own
+// log_error, via log_error_atexit) and returns the exit code the CLI would
+// have had.  All diagnostics go through g_err, which the facade points at the
+// per-chunk log file that the CLI achieved with shell redirection.
+struct GsmBail { int rc; };
+static FILE *g_err = stderr;
 
 // Read redirect: maps each sigmap-representative SigBit to the net's actual
 // DRIVEN storage bit (a cell output Y/DATA, a register Q, or a module input).
@@ -702,10 +718,10 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         char e[48]; snprintf(e, sizeof e, "wred_xor(_wa,%d)?1:0", na);
         put_bit(e);
     } else {
-        fprintf(stderr, "gen_statemachine: unhandled WIDE cell type %s"
+        fprintf(g_err, "gen_statemachine: unhandled WIDE cell type %s"
                 " (yw=%d aw=%d bw=%d) — declining (a silent stub would leave"
                 " its output 0 and miscompute)\n", type.c_str(), yw, aw, bw);
-        exit(1);   // install checks the exit code; the chunk stays interpreted
+        throw GsmBail{1};   // install checks the exit code; the chunk stays interpreted
     }
     fprintf(o, "    }\n");
 }
@@ -910,7 +926,7 @@ static void icg2en_rewrite(RTLIL::Module *mod)
     for (auto &gp : groups) {
         RTLIL::SigBit g = gp.first;
         auto note = [&](const char *why) {
-            fprintf(stderr, "icg2en: clock cone %s declined (%s)\n",
+            fprintf(g_err, "icg2en: clock cone %s declined (%s)\n",
                     g.wire->name.c_str(), why);
         };
         auto it = drv.find(g);
@@ -1067,7 +1083,7 @@ static void icg2en_rewrite(RTLIL::Module *mod)
             c->setPort(ID::EN, RTLIL::SigSpec(enbit));
             c->setParam(ID(EN_POLARITY), RTLIL::Const(1, 1));
             c->type = (c->type == ID($adff)) ? ID($adffe) : ID($dffe);
-            fprintf(stderr, "icg2en: reg %s reclocked to %s (en=%s)\n",
+            fprintf(g_err, "icg2en: reg %s reclocked to %s (en=%s)\n",
                     c->name.c_str(), clkbit.wire->name.c_str(),
                     enbit.wire ? enbit.wire->name.c_str() : "const");
         }
@@ -1080,7 +1096,7 @@ static void icg2en_rewrite(RTLIL::Module *mod)
                     enrep.append(enbit);
                 RTLIL::SigSpec newen = mod->And(NEW_ID, en, enrep);
                 c->setPort(ID::EN, newen);
-                fprintf(stderr, "icg2en: mem port %s reclocked to %s (en&=%s)\n",
+                fprintf(g_err, "icg2en: mem port %s reclocked to %s (en&=%s)\n",
                         c->name.c_str(), clkbit.wire->name.c_str(),
                         enbit.wire ? enbit.wire->name.c_str() : "const");
             }
@@ -1108,7 +1124,7 @@ static void icg2en_rewrite(RTLIL::Module *mod)
             gate->setPort(ID::B, RTLIL::SigSpec(hw));
             gate->set_bool_attribute(ID(gsm_icg_clk));
             g_icg2en_out = true;
-            fprintf(stderr, "icg2en: exported gated clock %s held via %s\n",
+            fprintf(g_err, "icg2en: exported gated clock %s held via %s\n",
                     g.wire->name.c_str(), hw->name.c_str());
         }
         g_icg2en_used = true;
@@ -1119,7 +1135,7 @@ static void icg2en_rewrite(RTLIL::Module *mod)
         mod->remove(l);
 }
 
-int main(int argc, char **argv)
+static int gsm_run(int argc, const char *const *argv)
 {
     if (getenv("GSM_U32") && *getenv("GSM_U32") == '1')
         g_u32 = true;
@@ -1138,12 +1154,12 @@ int main(int argc, char **argv)
         if (getenv("GSM_GATED_BLOCK"))
             g_gated_block = atoi(getenv("GSM_GATED_BLOCK"));
         if (g_census) {
-            fprintf(stderr, "GSM_GATED: census disabled (mutually exclusive)\n");
+            fprintf(g_err, "GSM_GATED: census disabled (mutually exclusive)\n");
             g_census = false;
         }
     }
 
-    fprintf(stderr, "gen_statemachine starting...\n");
+    fprintf(g_err, "gen_statemachine starting...\n");
     // Accept multiple input files: any arg ending in .v/.sv/.vh/.svh is a
     // source; the first non-source arg is the top module; the next is the
     // output .c. This lets a multi-file DUT (e.g. a_plus_b + its fifos) be
@@ -1168,7 +1184,7 @@ int main(int argc, char **argv)
     }
     if (inputs.empty()) inputs.push_back("/tmp/rtl_design.v");
     if (!top_name)      top_name = "rtl_top";
-    fprintf(stderr, "  inputs: %zu  top: %s\n", inputs.size(), top_name);
+    fprintf(g_err, "  inputs: %zu  top: %s\n", inputs.size(), top_name);
 
     // Default output: ~/.cache/nvc/accel/accel-mod_<top>.c
     std::string default_output;
@@ -1177,16 +1193,8 @@ int main(int argc, char **argv)
         output_file = default_output.c_str();
     }
 
-    Yosys::yosys_setup();
-    // Errors ALWAYS reach stderr: a yosys log_error otherwise vanishes (no
-    // console stream is connected in library mode) and the subtree silently
-    // stays interpreted — VeeR's ifu_aln_ctl failed that way from day one
-    // with nothing in any log. log_errfile is yosys's errors-only channel
-    // (log_error_stderr alone only redirects EXISTING stdout log files).
-    // Full diagnostics remain opt-in via GSM_LOG.
-    Yosys::log_errfile = stderr;
-    if (getenv("GSM_LOG"))              // surface all yosys diagnostics
-        Yosys::log_streams.push_back(&std::cerr);
+    // yosys setup, log wiring and design-reset happen in gsm_generate():
+    // they are per-process/per-call concerns, not per-run.
 
     // Read each source (-sv for .sv); read_verilog accumulates modules.
     for (const std::string &f : inputs) {
@@ -1213,11 +1221,11 @@ int main(int argc, char **argv)
         size_t eq = p.find('=');
         std::string k = p.substr(0, eq), v = p.substr(eq + 1);
         if (!settable.empty() && !settable.count(RTLIL::escape_id(k))) {
-            fprintf(stderr, "  skip %s=%s (not a settable parameter of %s)\n",
+            fprintf(g_err, "  skip %s=%s (not a settable parameter of %s)\n",
                     k.c_str(), v.c_str(), top_name);
             continue;
         }
-        fprintf(stderr, "  chparam %s = %s on %s\n", k.c_str(), v.c_str(), top_name);
+        fprintf(g_err, "  chparam %s = %s on %s\n", k.c_str(), v.c_str(), top_name);
         Yosys::run_pass("chparam -set " + k + " " + v + " " + top_name);
     }
     // -check: a module with no definition would otherwise become a silent
@@ -1255,7 +1263,7 @@ int main(int argc, char **argv)
         const char *opt = getenv("GSM_CXXRTL_OPT");
         Yosys::run_pass("write_cxxrtl -header " + std::string(opt ? opt : "-O6 -g0")
                         + " " + cxx_cc);
-        fprintf(stderr, "  value-plane: wrote %s\n", cxx_cc.c_str());
+        fprintf(g_err, "  value-plane: wrote %s\n", cxx_cc.c_str());
     }
 
     auto *design = Yosys::yosys_get_design();
@@ -1480,10 +1488,10 @@ int main(int argc, char **argv)
                 int pos = 0;
                 for (auto &qc : qch) {
                     if (qc.wire == nullptr) {
-                        fprintf(stderr, "gen_statemachine: %s cell %s has a "
+                        fprintf(g_err, "gen_statemachine: %s cell %s has a "
                                 "non-wire Q chunk — declining\n",
                                 type.c_str(), cell->name.c_str());
-                        exit(1);
+                        throw GsmBail{1};
                     }
                     size_t ri;
                     auto mit = sliced_reg_idx.find(qc.wire);
@@ -1494,10 +1502,10 @@ int main(int argc, char **argv)
                             // A slice must NEVER take the cell-name collision
                             // fallback: reads resolve by wire cname, so the
                             // fallback var would be written but never read.
-                            fprintf(stderr, "gen_statemachine: sliced register "
+                            fprintf(g_err, "gen_statemachine: sliced register "
                                     "wire %s collides with an existing register "
                                     "name — declining\n", wname.c_str());
-                            exit(1);
+                            throw GsmBail{1};
                         }
                         reg_names_used.insert(wname);
                         RegInfo nreg;
@@ -1512,19 +1520,19 @@ int main(int argc, char **argv)
                     } else ri = mit->second;
                     RegInfo &mreg = registers[ri];
                     if (mreg.clk_name != cell_clk) {
-                        fprintf(stderr, "gen_statemachine: slices of register "
+                        fprintf(g_err, "gen_statemachine: slices of register "
                                 "%s use different clocks (%s vs %s) — "
                                 "declining\n", mreg.name.c_str(),
                                 mreg.clk_name.c_str(), cell_clk.c_str());
-                        exit(1);
+                        throw GsmBail{1};
                     }
                     for (auto &osl : mreg.slices)
                         if (qc.offset < osl.offset + osl.width
                             && osl.offset < qc.offset + qc.width) {
-                            fprintf(stderr, "gen_statemachine: overlapping Q "
+                            fprintf(g_err, "gen_statemachine: overlapping Q "
                                     "slices on register %s — declining\n",
                                     mreg.name.c_str());
-                            exit(1);
+                            throw GsmBail{1};
                         }
                     RegSlice sl;
                     sl.offset = qc.offset;
@@ -1714,7 +1722,7 @@ int main(int argc, char **argv)
     // Zero benefit, real hazard, and a decline structurally cannot create a
     // wrong answer.  GSM_ALLOW_COMB=1 overrides for experiments.
     if (registers.empty() && memories.empty() && !getenv("GSM_ALLOW_COMB")) {
-        fprintf(stderr, "gen_statemachine: declining '%s': comb-only "
+        fprintf(g_err, "gen_statemachine: declining '%s': comb-only "
                 "(0 registers, 0 memories) -- nothing to accelerate, and a "
                 "bridged pure-comb path adds a delta hop (clock-path hazard; "
                 "see rvoclkhdr/L1CLK)\n", mod->name.c_str());
@@ -1747,9 +1755,9 @@ int main(int argc, char **argv)
                         == std::string::npos)
                     port_name = port_name.substr(0, bpos);
                 if (!input_cnames.count(port_name)) {
-                    fprintf(stderr, "gen_statemachine: extra clock %s is not a "
+                    fprintf(g_err, "gen_statemachine: extra clock %s is not a "
                             "module input — declining\n", reg.clk_name.c_str());
-                    exit(1);
+                    throw GsmBail{1};
                 }
                 extra_clocks.push_back(reg.clk_name);
             }
@@ -1821,7 +1829,7 @@ int main(int argc, char **argv)
             fsm.width = reg.width;
             fsm.max_states = 1 << reg.width;
             fsms.push_back(fsm);
-            fprintf(stderr, "FSM detected: %s (%d bits, %d max states)%s%s\n",
+            fprintf(g_err, "FSM detected: %s (%d bits, %d max states)%s%s\n",
                     reg.name.c_str(), reg.width, fsm.max_states,
                     is_mux_sel ? " [mux-select]" : "",
                     name_match ? " [name-match]" : "");
@@ -1839,7 +1847,7 @@ int main(int argc, char **argv)
         if (best) {
             g_spec_regname = best->name;
             g_spec_nstates = best->max_states;
-            fprintf(stderr, "FSM-SPEC: per-state specializing on %s (%d states)\n",
+            fprintf(g_err, "FSM-SPEC: per-state specializing on %s (%d states)\n",
                     best->name.c_str(), best->max_states);
         }
     }
@@ -2006,7 +2014,7 @@ int main(int argc, char **argv)
             cmax = std::max(cmax, clo[k].size());
             csum += clo[k].size();
         }
-        fprintf(stderr, "gen_statemachine: MASKED_COMB census: members=%d "
+        fprintf(g_err, "gen_statemachine: MASKED_COMB census: members=%d "
                 "cells=%zu orphan_cells=%d xnets=%zu xbits=%ld regedges=%ld "
                 "closure avg=%.1f max=%zu\n",
                 nmem, sorted.size(), orphan_cells, xnets.size(), xbits,
@@ -2264,7 +2272,7 @@ int main(int argc, char **argv)
     // v1 scope: single clock group, no FSM specialization (checked when the
     // gated body is emitted; the plan itself is unconditional under g_gated).
     if (g_gated && !g_spec_regname.empty()) {
-        fprintf(stderr, "GSM_GATED: disabled (FSM specialization active)\n");
+        fprintf(g_err, "GSM_GATED: disabled (FSM specialization active)\n");
         g_gated = false;
     }
     // GSM_ACTPROF=<file>: per-cell change counts (census depth-0 run.err
@@ -2283,7 +2291,7 @@ int main(int argc, char **argv)
                     prof[nb] = cnt;
             fclose(pf);
         }
-        fprintf(stderr, "GSM_ACTPROF: %zu cells profiled\n", prof.size());
+        fprintf(g_err, "GSM_ACTPROF: %zu cells profiled\n", prof.size());
         if (!prof.empty()) {
             // dependency edges among the comb cells via their nets
             std::map<std::string, RTLIL::Cell*> netw;   // net -> writer cell
@@ -2345,10 +2353,10 @@ int main(int argc, char **argv)
             }
             if (order.size() == sorted.size()) {
                 sorted = order;
-                fprintf(stderr, "GSM_ACTPROF: resorted %zu cells hot-first\n",
+                fprintf(g_err, "GSM_ACTPROF: resorted %zu cells hot-first\n",
                         order.size());
             } else
-                fprintf(stderr, "GSM_ACTPROF: resort FAILED (%zu != %zu), "
+                fprintf(g_err, "GSM_ACTPROF: resort FAILED (%zu != %zu), "
                         "keeping topo order\n", order.size(), sorted.size());
         }
     }
@@ -2476,7 +2484,7 @@ int main(int argc, char **argv)
                 fprintf(out, "static %s _pv%s;\n", ctype(wire->width), n.c_str());
         }
         fprintf(out, "\n");
-        fprintf(stderr, "GSM_GATED: %d blocks of %d, %zu boundary nets\n",
+        fprintf(g_err, "GSM_GATED: %d blocks of %d, %zu boundary nets\n",
                 g_gp.nb, K, g_gp.boundary.size());
     }
 
@@ -2517,10 +2525,10 @@ int main(int argc, char **argv)
     // (MemInfo::init is __int128) — decline those loudly.
     for (auto &m : memories)
         if (m.second.width > 128 && !m.second.init.empty()) {
-            fprintf(stderr, "gen_statemachine: memory %s has %d-bit words with"
+            fprintf(g_err, "gen_statemachine: memory %s has %d-bit words with"
                     " init values (>128-bit init unsupported) — declining\n",
                     m.second.name.c_str(), m.second.width);
-            exit(1);
+            throw GsmBail{1};
         }
 
     // State struct
@@ -2890,11 +2898,11 @@ int main(int argc, char **argv)
                 bool dscatter = (dnwire > 1 || dpartial);
                 if (mw > 64) {
                     if (dscatter) {
-                        fprintf(stderr, "gen_statemachine: $memrd wide DATA is"
+                        fprintf(g_err, "gen_statemachine: $memrd wide DATA is"
                                 " a multi-chunk/partial concat (%s) —"
                                 " declining (a first-chunk wcopy would"
                                 " miscompute)\n", memid.c_str());
-                        exit(1);
+                        throw GsmBail{1};
                     }
                     int wnl = nlimbs(mw);
                     auto *dw = (*cell->getPort(ID(DATA)).chunks().begin()).wire;
@@ -3180,9 +3188,9 @@ int main(int argc, char **argv)
             // other wide-word gaps.
             if (y_width > 64 || cell->getPort(ID::A).size() > 64
                 || cell->getPort(ID::B).size() > 64) {
-                fprintf(stderr, "gen_statemachine: %s wider than 64 bits -- "
+                fprintf(g_err, "gen_statemachine: %s wider than 64 bits -- "
                         "declining\n", type.c_str());
-                exit(1);   // same contract as unhandled cells
+                throw GsmBail{1};   // same contract as unhandled cells
             } else {
                 auto a = sig_expr(cell->getPort(ID::A), sigmap);
                 auto b = sig_expr(cell->getPort(ID::B), sigmap);
@@ -3238,10 +3246,10 @@ int main(int argc, char **argv)
                     sig_expr(cell->getPort(ID::A), sigmap).c_str(),
                     sig_expr(cell->getPort(ID::B), sigmap).c_str(), masks.c_str());
         } else {
-            fprintf(stderr, "gen_statemachine: unhandled cell type %s —"
+            fprintf(g_err, "gen_statemachine: unhandled cell type %s —"
                     " declining (a silent stub would leave its output 0 and"
                     " miscompute)\n", type.c_str());
-            exit(1);   // install checks the exit code; chunk stays interpreted
+            throw GsmBail{1};   // install checks the exit code; chunk stays interpreted
         }
         if (y_multi) {
             int pos = 0;
@@ -4016,11 +4024,11 @@ int main(int argc, char **argv)
                 for (auto &kv : xi) {
                     if (cname(kv.first->name.str()) != dbgw) continue;
                     auto &x = kv.second;
-                    fprintf(stderr, "[split-dbg] %s minw=%d wparts={", dbgw, x.minw);
-                    for (int w2 : x.wparts) fprintf(stderr, "%d,", w2);
-                    fprintf(stderr, "} touch={");
-                    for (int t2 : x.touch) fprintf(stderr, "%d,", t2);
-                    fprintf(stderr, "} seq=%d\n", (int)x.seq);
+                    fprintf(g_err, "[split-dbg] %s minw=%d wparts={", dbgw, x.minw);
+                    for (int w2 : x.wparts) fprintf(g_err, "%d,", w2);
+                    fprintf(g_err, "} touch={");
+                    for (int t2 : x.touch) fprintf(g_err, "%d,", t2);
+                    fprintf(g_err, "} seq=%d\n", (int)x.seq);
                 }
                 // and every cell whose connections resolve to it
                 for (auto *cell : sorted) {
@@ -4028,7 +4036,7 @@ int main(int argc, char **argv)
                         for (auto &bit : conn.second) {
                             RTLIL::Wire *w2 = res_wire(bit);
                             if (w2 && cname(w2->name.str()) == dbgw)
-                                fprintf(stderr, "[split-dbg] cell %s type %s port %s part %d\n",
+                                fprintf(g_err, "[split-dbg] cell %s type %s port %s part %d\n",
                                         cell->name.c_str(), cell->type.c_str(),
                                         conn.first.c_str(), part_of.at(cell));
                         }
@@ -4473,14 +4481,14 @@ int main(int argc, char **argv)
     fprintf(out, "#endif // SM_NO_MAIN\n");
 
     fclose(out);
-    fprintf(stderr, "Generated %s: %zu comb cells, %zu registers\n",
+    fprintf(g_err, "Generated %s: %zu comb cells, %zu registers\n",
             model_file.c_str(), sorted.size(), registers.size());
 
     // --- Generate NVC-mapped version ---
     // Wraps the standalone sm_eval with signal bridge code.
     // Compiled as .so, loaded by cycle_sim plugin.
     if (g_w64) {
-        fprintf(stderr, "GSM_WIDE64: skipping the _nvc bridge companion "
+        fprintf(g_err, "GSM_WIDE64: skipping the _nvc bridge companion "
                 "(bridge ABI is 32-bit limbs)\n");
         return 0;
     }
@@ -4574,7 +4582,7 @@ int main(int argc, char **argv)
     fprintf(mout, "}\n");
 
     fclose(mout);
-    fprintf(stderr, "Generated %s (NVC-mapped version)\n", mapped_file.c_str());
+    fprintf(g_err, "Generated %s (NVC-mapped version)\n", mapped_file.c_str());
 
     // =======================================================================
     // VALUE-PLANE ADAPTER (GSM_CXXRTL=1)
@@ -4730,16 +4738,15 @@ int main(int argc, char **argv)
         if (!decline.empty()) {
             // Fall back to the hand-written C engine: it is the reference and
             // the fallback, so put it back where nvc expects the model.
-            fprintf(stderr, "gen_statemachine: value-plane DECLINED -- %s\n",
+            fprintf(g_err, "gen_statemachine: value-plane DECLINED -- %s\n",
                     decline.c_str());
             remove(output_file);
             if (rename(model_file.c_str(), output_file) != 0) {
-                fprintf(stderr, "gen_statemachine: could not restore C model to %s\n",
+                fprintf(g_err, "gen_statemachine: could not restore C model to %s\n",
                         output_file);
-                Yosys::yosys_shutdown();
-                return 1;
+                return 1;   // facade owns yosys lifetime — no shutdown here
             }
-            fprintf(stderr, "gen_statemachine: using the C engine for this chunk\n");
+            fprintf(g_err, "gen_statemachine: using the C engine for this chunk\n");
         }
         else {
         // ---- lvalue / rvalue helpers for a CXXRTL member -------------------
@@ -4753,9 +4760,8 @@ int main(int argc, char **argv)
 
         FILE *a = fopen(output_file, "w");
         if (a == NULL) {
-            fprintf(stderr, "gen_statemachine: cannot write %s\n", output_file);
-            Yosys::yosys_shutdown();
-            return 1;
+            fprintf(g_err, "gen_statemachine: cannot write %s\n", output_file);
+            return 1;   // facade owns yosys lifetime — no shutdown here
         }
         // CXXRTL's generated header opens with `#include <cxxrtl/cxxrtl.h>`, so
         // the runtime include dir has to reach the compiler on the command line
@@ -5063,13 +5069,13 @@ int main(int argc, char **argv)
         fprintf(a, "const char *sm_extra_clocks[] = {0};\n");
         fprintf(a, "#define SM_NUM_EXTRA_CLOCKS 0\n");
         fclose(a);
-        fprintf(stderr, "Generated %s: VALUE-PLANE engine (CXXRTL class %s,"
+        fprintf(g_err, "Generated %s: VALUE-PLANE engine (CXXRTL class %s,"
                         " %zu registers mirrored, %zu comb cells in the C reference)\n",
                 output_file, cxx_class.c_str(), registers.size(), sorted.size());
         if (rt_inc.empty())
-            fprintf(stderr, "gen_statemachine: WARNING could not locate the CXXRTL "
+            fprintf(g_err, "gen_statemachine: WARNING could not locate the CXXRTL "
                             "runtime headers (set GSM_CXXRTL_RUNTIME)\n");
-        fprintf(stderr, "gen_statemachine: value-plane needs NVC_ACCEL_CC=\"%s\"\n",
+        fprintf(g_err, "gen_statemachine: value-plane needs NVC_ACCEL_CC=\"%s\"\n",
                 cc_line.c_str());
         }
     }
@@ -5085,12 +5091,12 @@ int main(int argc, char **argv)
     // into D, and async resets remain $_DFF_*_ whose R json2bench ignores —
     // matching the model's per-cycle next-state (= D; async reset via sm_reset).
     if (g_icg2en_used && getenv("GSM_SCAN_JSON"))
-        fprintf(stderr, "gen_statemachine: GSM_SCAN_JSON skipped — icg2en "
+        fprintf(g_err, "gen_statemachine: GSM_SCAN_JSON skipped — icg2en "
                 "left $dffe cells the scan flow does not model\n");
     if (const char *scan_json = g_icg2en_used ? NULL : getenv("GSM_SCAN_JSON")) {
         std::string tn = mod->name.str();
         if (!tn.empty() && tn[0] == '\\') tn = tn.substr(1);
-        fprintf(stderr, "Emitting full-scan JSON -> %s (top %s)\n",
+        fprintf(g_err, "Emitting full-scan JSON -> %s (top %s)\n",
                 scan_json, tn.c_str());
         // techmap reads share/techmap.v; library-mode yosys can't auto-locate
         // share/, so point it at the build's share dir (env-overridable).
@@ -5117,12 +5123,127 @@ int main(int argc, char **argv)
                 if (!reg.raw_qname.empty())
                     fprintf(rf, "%s\n", reg.raw_qname.c_str());
             fclose(rf);
-            fprintf(stderr, "Wrote %zu register names -> %s\n",
+            fprintf(g_err, "Wrote %zu register names -> %s\n",
                     registers.size(), regnames.c_str());
         }
-        fprintf(stderr, "SCAN_JSON_TOP %s\n", tn.c_str());
+        fprintf(g_err, "SCAN_JSON_TOP %s\n", tn.c_str());
     }
 
-    Yosys::yosys_shutdown();
     return 0;
 }
+
+// ---- facade ----------------------------------------------------------------
+// The extern "C" surface (TODO-yosys-integration.md §2).  Serialized: yosys
+// keeps process-global state (design pointer, log streams, ID table) and is
+// not thread-safe, so one caller runs at a time regardless of which nvc
+// thread asks (§4).  yosys_setup() runs once and is never shut down; each
+// call starts from `design -reset` plus a reset of this file's own globals,
+// because the code above was written run-once-per-process.
+
+static void gsm_reset_state()
+{
+    g_redirect = nullptr;              // pointed at a gsm_run() local
+    g_spec_regname.clear();
+    g_spec_value = -1;
+    g_spec_nstates = 0;
+    g_comb_out_names.clear();
+    g_u32 = false;
+    g_w64 = false;
+    g_census = false;
+    g_census_active = false;
+    g_census_depth = 1;
+    g_census_block = 0;
+    g_gated = false;
+    g_gated_block = 32;
+    g_comb_split = 0;
+    g_emit_gated_body = false;
+    g_gp = GatedPlan();
+    g_cns_salt.clear();
+    g_cns_groups.clear();
+    g_cns_gid.clear();
+    g_cns_gid_override.clear();
+    g_icg2en_used = false;
+    g_icg2en_out = false;
+}
+
+// log_error() ends in _exit(1); this hook runs just before that and lets the
+// error unwind back into the facade instead of taking the host process down.
+// rc contract: 1 = clean decline (deterministic — a CLI retry would decline
+// identically), 2 = abnormal (yosys error / exception — the in-process caller
+// may retry via the CLI as a safety net).
+[[noreturn]] static void gsm_log_error_bail()
+{
+    throw GsmBail{2};
+}
+
+extern "C" int gsm_generate(int nargs, const char *const *args,
+                            const char *log_path)
+{
+    static std::mutex mu;
+    std::lock_guard<std::mutex> lk(mu);
+
+    FILE *lf = (log_path != NULL) ? fopen(log_path, "a") : NULL;
+    g_err = lf ? lf : stderr;
+
+    int rc = 1;
+    try {
+        static bool setup_done = false;   // under mu; never shut down
+        if (!setup_done) {
+            Yosys::yosys_setup();
+            setup_done = true;
+        }
+
+        // Errors ALWAYS reach g_err: a yosys log_error otherwise vanishes (no
+        // console stream is connected in library mode) and the subtree
+        // silently stays interpreted — VeeR's ifu_aln_ctl failed that way
+        // from day one with nothing in any log. log_errfile is yosys's
+        // errors-only channel; full diagnostics remain opt-in via GSM_LOG.
+        Yosys::log_errfile = g_err;
+        Yosys::log_files.clear();
+        Yosys::log_streams.clear();
+        if (getenv("GSM_LOG"))          // surface all yosys diagnostics
+            Yosys::log_files.push_back(g_err);
+        Yosys::log_cmd_error_throw = true;
+        Yosys::log_error_atexit = gsm_log_error_bail;
+
+        Yosys::run_pass("design -reset");
+
+        std::vector<const char *> av;
+        av.push_back("gen_statemachine");
+        for (int i = 0; i < nargs; i++)
+            av.push_back(args[i]);
+        rc = gsm_run((int)av.size(), av.data());
+    }
+    catch (const GsmBail &b) {
+        rc = b.rc ? b.rc : 1;           // decline: chunk stays interpreted
+        Yosys::log_reset_stack();
+    }
+    catch (const Yosys::log_cmd_error_exception &) {
+        fprintf(g_err, "gen_statemachine: yosys pass error — declining\n");
+        rc = 2;
+        Yosys::log_reset_stack();
+    }
+    catch (const std::exception &e) {
+        fprintf(g_err, "gen_statemachine: error: %s — declining\n", e.what());
+        rc = 2;
+        Yosys::log_reset_stack();
+    }
+    catch (...) {
+        fprintf(g_err, "gen_statemachine: unknown error — declining\n");
+        rc = 2;
+        Yosys::log_reset_stack();
+    }
+
+    gsm_reset_state();
+    g_err = stderr;
+    if (lf != NULL)
+        fclose(lf);
+    return rc;
+}
+
+#ifndef GSM_LIB
+int main(int argc, char **argv)
+{
+    return gsm_generate(argc - 1, (const char *const *)(argv + 1), NULL);
+}
+#endif

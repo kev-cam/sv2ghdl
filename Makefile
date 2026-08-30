@@ -27,6 +27,11 @@ YOSYS_LDFLAGS = -L$(YOSYS_BUILD) -lyosys -Wl,-rpath,$(YOSYS_BUILD)
 yosys/gen_statemachine: yosys/gen_statemachine.cpp
 	g++ $(YOSYS_CXXFLAGS) -o $@ $< $(YOSYS_LDFLAGS)
 
+# In-process form: nvc dlopens this (RTLD_LOCAL) and calls gsm_generate()
+# instead of fork/exec'ing the CLI above. Same source, so they cannot drift.
+yosys/libgsm.so: yosys/gen_statemachine.cpp
+	g++ $(YOSYS_CXXFLAGS) -DGSM_LIB -shared -o $@ $< $(YOSYS_LDFLAGS)
+
 gen_sm: yosys/gen_statemachine
 	@echo "Usage: yosys/gen_statemachine <input.v> <top_module> <output.c>"
 

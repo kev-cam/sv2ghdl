@@ -94,6 +94,19 @@ if [ "$NOBUILD" = 0 ]; then
       echo "  !! gen_statemachine rebuild FAILED"; exit 2
     fi
   fi
+  # libgsm.so is the IN-PROCESS form of the same source (nvc dlopens it and
+  # calls gsm_generate() instead of fork/exec'ing the CLI). nvc prefers it
+  # when present, so a stale .so is tested INSTEAD of the fresh CLI — the
+  # exact trap the rebuild above exists for. Same freshness rule.
+  GSM_LIB="${NVC_GSM_LIB:-$SRC/sv2ghdl/yosys/libgsm.so}"
+  if [ -f "$GSM_LIB" ] && [ "$GSM_SRC" -nt "$GSM_LIB" ]; then
+    echo "  rebuilding libgsm.so (source is newer)"
+    if ! g++ $("$YOSYS_BUILD/yosys-config" --cxxflags) -DGSM_LIB -shared \
+         "$GSM_SRC" -o "$GSM_LIB" \
+         -L"$YOSYS_BUILD" -lyosys -Wl,-rpath,"$YOSYS_BUILD" 2>&1 | tail -5; then
+      echo "  !! libgsm.so rebuild FAILED"; exit 2
+    fi
+  fi
 fi
 [ -x "$GSM" ] || { echo "  !! no gen_statemachine at $GSM"; exit 2; }
 echo "  nvc:              $NVC ($($NVC --version 2>&1 | head -1))"
