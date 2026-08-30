@@ -99,7 +99,7 @@ if [ "$NOBUILD" = 0 ]; then
   # when present, so a stale .so is tested INSTEAD of the fresh CLI — the
   # exact trap the rebuild above exists for. Same freshness rule.
   GSM_LIB="${NVC_GSM_LIB:-$SRC/sv2ghdl/yosys/libgsm.so}"
-  if [ -f "$GSM_LIB" ] && [ "$GSM_SRC" -nt "$GSM_LIB" ]; then
+  if [ ! -f "$GSM_LIB" ] || [ "$GSM_SRC" -nt "$GSM_LIB" ]; then
     echo "  rebuilding libgsm.so (source is newer)"
     if ! g++ $("$YOSYS_BUILD/yosys-config" --cxxflags) -DGSM_LIB -shared \
          "$GSM_SRC" -o "$GSM_LIB" \
@@ -118,7 +118,13 @@ echo "  gen_statemachine: $GSM"
 WORK="${ACCELBENCH_WORK:-${TMPDIR:-/tmp}/accel-gate-$$}"
 rm -rf "$WORK"
 export ACCELBENCH_WORK="$WORK"
-export GEN_STATEMACHINE="$GSM"
+# Pin the LIBRARY, not GEN_STATEMACHINE: exporting GEN_STATEMACHINE forces
+# nvc's CLI path everywhere (that env means "use this generator binary"), so
+# the fork-worker got ZERO gate coverage while every checksum still matched —
+# opt_asserts check 8b exists to catch exactly that.  The CLI-fallback paths
+# (aj_gen_sm, run.sh, opt_asserts.sh) all default to the same $GSM this gate
+# freshness-builds, so the CLI stays pinned without the export.
+export NVC_GSM_LIB="${NVC_GSM_LIB:-$SRC/sv2ghdl/yosys/libgsm.so}"
 export NVC
 
 LOG="$WORK.log"

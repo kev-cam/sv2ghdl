@@ -144,6 +144,22 @@ if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'exceeded 2s' && [ "$YT" = "$YI
   ok "synth timeout degrades to decline" "(Y matches interp)"
 else bad "synth timeout degrades to decline" "rc=$rc Y=$YT note=$(printf '%s' "$out" | grep -c exceeded)"; fi
 
+# 8b. FORK-WORKER TIMEOUT: the same degrade contract for the in-process fork
+#     worker (no exec, no /usr/bin/timeout — the child's own alarm() is the
+#     deadline).  GSM_TEST_SLEEP hangs the child before it synthesizes; if the
+#     alarm cannot kill it this hangs 30s and the checksum/note checks fail.
+#     Also proves the fork path actually ran (its launch note), so a missing
+#     libgsm.so silently falling back to the CLI cannot fake a pass.
+rm -rf "$W/.cache/nvc/accel"
+out=$(env "${AE[@]}" GSM_TEST_SLEEP=30 NVC_ACCEL_SYNTH_TIMEOUT=2 \
+      timeout 60 $NVC "${A[@]}" -r "$tb" 2>&1); rc=$?
+YT=$(printf '%s' "$out" | grep -oE 'Y=[0-9]+' | tail -1)
+ffork=$(printf '%s' "$out" | grep -c 'in-process fork')
+if [ $rc -eq 0 ] && [ "$ffork" -ge 1 ] \
+   && printf '%s' "$out" | grep -q 'exceeded 2s' && [ "$YT" = "$YI" ]; then
+  ok "fork-worker timeout degrades to decline" "(alarm killed child, Y matches)"
+else bad "fork-worker timeout degrades to decline" "rc=$rc fork=$ffork Y=$YT note=$(printf '%s' "$out" | grep -c exceeded)"; fi
+
 # 9. DERIVED-CLOCK DECLINE (nvc model.c gate).  A chunk whose group-0 clock is
 #    comb-derived races that clock's producer at the bridge -- measured on
 #    VeeR: ifu's bus beat counter (active_clk) froze and the IFU issued
