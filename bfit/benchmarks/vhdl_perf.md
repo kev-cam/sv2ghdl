@@ -39,24 +39,26 @@ false, so the efficiency test rejects it.
 
 | Design | style | size | cycles | agree | our-nvc | our-nvc ∥ | our-l3d | our-nvc --accel | stock-nvc | ghdl | gpu-farm |
 | :-- | :-- | --: | --: | :--: | --: | --: | --: | --: | --: | --: | --: |
-| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.508 ×20.8 | — | — | — | 🟢 0.422 ×25.0 | 10.552 ×1.0 | — |
-| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.960 ×1.0 | — | — | — | 🟢 1.901 ×1.0 | brk | — |
-| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 2.038 ×5.5 | — | 2.048 ×5.5 = | 2.974 ×3.8 | 🟢 1.747 ×6.5 | 11.310 ×1.0 | 8.9e9 ×5156 |
-| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.858 ×4.3 | — | 1.836 ×4.4 = | 2.554 ⚠chk | 🟢 1.584 ×5.1 | 8.006 ×1.0 | 7.7e9 ×6094 |
-| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 🟢 3.172 ×4.2 | — | 3.292 ×4.0 = | — | 3.419 ×3.9 | 13.268 ×1.0 | — |
-| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 0.836 ×10.2 | — | 0.844 ×10.1 = | — | 🟢 0.822 ×10.3 | 8.503 ×1.0 | — |
-| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 🟢 1.970 ×6.4 | — | 2.083 ×6.1 = | — | 2.394 ×5.3 | 12.610 ×1.0 | — |
-| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 1.565 ×4.8 | — | 🟢 1.501 ×5.0 = | — | 1.525 ×4.9 | 7.486 ×1.0 | — |
+| bench_seq | seq: LFSR + register chain | 45/5 | 1000000 | ✓ | 0.469 ×22.6 | — | — | — | 🟢 0.424 ×25.0 | 10.619 ×1.0 | — |
+| bench_comb | comb: 32-bit mul/add datapath | 60/4 | 2000000 | ✓ | 1.952 ×1.0 | — | — | — | 🟢 1.913 ×1.0 | brk | — |
+| b01 | FSM: serial flow comparator | 96/2 | 3000000 | ✓ | 1.984 ×5.6 | — | 2.002 ×5.6 = | 2.860 ×3.9 | 🟢 1.790 ×6.2 | 11.128 ×1.0 | 8.9e9 ×5282 |
+| b06 | FSM: interrupt handler | 112/2 | 2000000 | ✓ | 1.838 ×4.3 | — | 1.820 ×4.4 = | 2.570 ×3.1 | 🟢 1.658 ×4.8 | 7.969 ×1.0 | 7.7e9 ×6381 |
+| b12 | ctrl+datapath: 1-player game | 442/8 | 3000000 | ✓ | 3.001 ×4.3 | 🟢 2.905 ×4.5 2t 1.9×cpu | 3.171 ×4.1 = | — | 3.280 ×4.0 | 13.009 ×1.0 | — |
+| b14 | CPU: Viper processor subset | 490/2 | 1000000 | ✓ | 🟢 0.774 ×10.9 | — | 0.789 ×10.7 = | — | 0.813 ×10.4 | 8.428 ×1.0 | — |
+| b17 | 3x CPU: three b14-class cores | 758/18 | 1000000 | ✓ | 1.912 ×6.4 | — | 🟢 1.882 ×6.5 = | — | 2.404 ×5.1 | 12.316 ×1.0 | — |
+| b22 | 3x CPU: b14-class pipeline copy | 1539/8 | 1000000 | ✓ | 1.532 ×4.9 | — | 🟢 1.451 ×5.1 = | — | 1.509 ×4.9 | 7.445 ×1.0 | — |
 
 ### Reading these numbers
 
 **our-nvc is a 1.18.0-based fork; stock-nvc here is 1.22.0 — four releases
 newer.** The gap has been closed by profiling, one discrete cause at a time,
-and the fork now trades blows with a release four versions newer — this
-run: leads b12 (+7%) and b17 (+18%), within 3% on bench_comb/b14/b22,
-trails b01/b06 (~15%) and the tiny bench_seq.  Which side of parity a
-given ITC row lands on moves a few percent run to run; the month-scale
-trend is what the mechanism list below records.  Fused dispatch is
+and the fork now trades blows with a release four versions newer: it
+leads or ties half the rows (2026-08-29 regenerate: b14 and b17
+outright, b12 via the parallel scheduler's first qualifying cell, b22
+via l3d — the 4-state engine winning rows outright while carrying MORE
+per-wire semantics), trails b01/b06 ~10% and the tiny bench_seq.
+Which side of parity a given row lands on moves a few percent run to
+run; the month-scale trend is what the mechanism list below records.  Fused dispatch is
 default-on and the native projection complete: `bench_comb`
 was 4.1x off until the numeric_std shift-and-add multiply was replaced with
 upstream's native 64-bit multiply; the remaining ~1.3x fell to ~1.1x when
@@ -138,24 +140,20 @@ canonical stimulus, so its CHK must (and does) equal the VHDL engines'.
 
 | design | agg inst-cyc/s | per-instance | vs fastest single |
 | :-- | --: | --: | --: |
-| b01 | 8.853e9 | 2.16M cyc/s | ×5156 |
-| b06 | 7.696e9 | 1.88M cyc/s | ×6094 |
+| b01 | 8.853e9 | 2.16M cyc/s | ×5282 |
+| b06 | 7.696e9 | 1.88M cyc/s | ×6381 |
 
 Each of the 4,096 concurrent copies individually outruns the fastest
-CPU engine in its row (b01: 2.16M vs stock's 1.72M cyc/s).  Not yet
+CPU engine in its row (b01: 2.16M vs stock's 1.68M cyc/s).  Not yet
 covered: b12 (module declines translation), b14 (constrained-integer
 port stimulus not yet replicated in C), b17/b22 (register-less dump —
 under triage); the syn benches have no separable DUT scope.
 
-⚠chk (b06 --accel): with the accel model installed the checksum
-diverged — a live accel-path correctness bug caught by this table's
-cross-engine gate, root-caused to the async-reset drive path (four
-stacked defects: no reset wake, fastclk-swallowed wake, quench pass
-never running in the lazy-JIT flow, and an NBA commit resurrecting the
-pre-reset value) and FIXED in nvc 45059fe51; b06 accel now matches at
-the full 2M cycles, and the `arst` accelbench shape guards the class.
-The timed cell reflects the pre-fix run; the flag drops at the next
-regenerate.
+The b06 --accel checksum divergence an earlier run of this table
+caught (async-reset drive path, four stacked defects) is fixed in nvc
+45059fe51 and guarded by the `arst` accelbench shape — the accel cell
+above now agrees, which is this table's cross-engine gate doing its
+job in both directions.
 
 ## Where we lead
 
@@ -172,10 +170,10 @@ in the nvc tree. std_logic shown for reference (it isn't the 3D-logic path).
 
 | wires | std_logic | logic3d | l3dw word | l3dw vs logic3d |
 | --: | --: | --: | --: | --: |
-| 8 | 0.121s | 0.144s | 0.125s | 1.15x |
-| 32 | 0.122s | 0.177s | 0.130s | 1.36x |
-| 128 | 0.129s | 0.317s | 0.143s | 2.22x |
-| 1024 | 0.190s | 1.569s | 0.257s | 6.11x |
+| 8 | 0.116s | 0.138s | 0.120s | 1.15x |
+| 32 | 0.118s | 0.172s | 0.124s | 1.39x |
+| 128 | 0.123s | 0.312s | 0.132s | 2.36x |
+| 1024 | 0.184s | 1.557s | 0.251s | 6.20x |
 
 ### Demand-driven (pull) vs forward (push) evaluation
 
@@ -186,10 +184,10 @@ pull result verified bit-identical to push. 8329-node design, 5000 cycles:
 
 | evaluator | observation | vs forward push |
 | :-- | :-- | --: |
-| compiled pull cone | every cycle | **26.83x FASTER** |
-| pull (interpreted) | every cycle | 10.60x |
-| pull (interpreted) | every 100th cycle | 129.72x |
-| pull (interpreted) | final only | 209.63x |
+| compiled pull cone | every cycle | **27.06x FASTER** |
+| pull (interpreted) | every cycle | 10.65x |
+| pull (interpreted) | every 100th cycle | 108.11x |
+| pull (interpreted) | final only | 167.57x |
 
 Compiled cones skip dead **logic** at push's per-eval speed (no interp
 overhead); memoisation/multicycle-collapse additionally skip unobserved
