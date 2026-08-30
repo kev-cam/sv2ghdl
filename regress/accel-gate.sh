@@ -109,6 +109,14 @@ if [ "$NOBUILD" = 0 ]; then
   fi
 fi
 [ -x "$GSM" ] || { echo "  !! no gen_statemachine at $GSM"; exit 2; }
+# The gsm_rtlil_* direct-construction facade rides in the same binaries:
+# prove it against the text path (determinism + driven behavioral equality)
+# whenever they are rebuilt.  Cheap (~2s) and engagement-checked.
+if [ -f "$SRC/sv2ghdl/yosys/rtlil-selftest/run.sh" ]; then
+  if ! bash "$SRC/sv2ghdl/yosys/rtlil-selftest/run.sh"; then
+    echo "  !! rtlil builder self-test FAILED"; exit 1
+  fi
+fi
 echo "  nvc:              $NVC ($($NVC --version 2>&1 | head -1))"
 echo "  gen_statemachine: $GSM"
 

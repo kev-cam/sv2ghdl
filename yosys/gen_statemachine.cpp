@@ -36,6 +36,10 @@ static FILE *g_err = stderr;
 // decline (GsmBail / yosys log_error) unwinds mid-emission — in-process, a
 // leaked FILE* accumulates per declined chunk and its tail stays unflushed.
 static FILE *g_out_file = nullptr;
+// Set by the gsm_rtlil_* builder facade before invoking the pipeline: the
+// design already sits in yosys's global design, so gsm_run must not read
+// sources or chparam.  Cleared in gsm_session_close().
+static bool g_design_ready = false;
 
 // Read redirect: maps each sigmap-representative SigBit to the net's actual
 // DRIVEN storage bit (a cell output Y/DATA, a register Q, or a module input).
@@ -1200,6 +1204,11 @@ static int gsm_run(int argc, const char *const *argv)
     // yosys setup, log wiring and design-reset happen in gsm_generate():
     // they are per-process/per-call concerns, not per-run.
 
+    // When the design was CONSTRUCTED via the gsm_rtlil_* builder facade
+    // there is nothing to read and parameters were baked at construction, so
+    // the read_verilog and chparam legs are skipped.  A ".v" argv in that
+    // mode is only the label printed in the output header.
+    if (!g_design_ready) {
     // Read each source (-sv for .sv); read_verilog accumulates modules.
     for (const std::string &f : inputs) {
         std::string sv_flag =
@@ -1232,6 +1241,7 @@ static int gsm_run(int argc, const char *const *argv)
         fprintf(g_err, "  chparam %s = %s on %s\n", k.c_str(), v.c_str(), top_name);
         Yosys::run_pass("chparam -set " + k + " " + v + " " + top_name);
     }
+    }   // !g_design_ready
     // -check: a module with no definition would otherwise become a silent
     // blackbox (dangling-zero outputs) — measured on Vortex: VX_multiplier/
     // VX_uuid_gen missing from the file list stalled fetch with no error.
@@ -1244,6 +1254,31 @@ static int gsm_run(int argc, const char *const *argv)
     // sm_reset. Without this the codegen drops sync resets (q_next = d only).
     Yosys::run_pass("dffunmap");
     Yosys::run_pass("opt_clean");   // tidy WITHOUT opt_dff re-absorbing the reset into $dff SRST
+
+    // Builder mode: canonicalize pass-invented names.  proc/dffunmap/opt
+    // name their temporaries through yosys's process-global autoidx, which
+    // `design -reset` never rewinds — so the SAME constructed design
+    // synthesized twice in one process would emit C differing in local
+    // names.  The caller named everything it created; rename what the
+    // passes added to a deterministic per-run sequence.  (Not done for the
+    // read_verilog path: its names are non-deterministic at the SOURCE.)
+    if (g_design_ready) {
+        RTLIL::Module *cm = Yosys::yosys_get_design()->top_module();
+        int seq = 0;
+        std::vector<RTLIL::Wire *> rwires;
+        for (auto &w : cm->wires_)
+            if (w.first.str()[0] == '$')
+                rwires.push_back(w.second);
+        for (RTLIL::Wire *w : rwires)
+            cm->rename(w, std::string("$gsm$w") + std::to_string(seq++));
+        seq = 0;
+        std::vector<RTLIL::Cell *> rcells;
+        for (auto &c : cm->cells_)
+            if (c.first.str()[0] == '$')
+                rcells.push_back(c.second);
+        for (RTLIL::Cell *c : rcells)
+            cm->rename(c, std::string("$gsm$c") + std::to_string(seq++));
+    }
 
     // GSM_ICG2EN: rewrite latch+AND internal gated clocks to clock enables.
     // Runs BEFORE the CXXRTL value plane and the SigMap/redirect build so
@@ -5189,38 +5224,56 @@ static void gsm_reset_state()
     throw GsmBail{2};
 }
 
-extern "C" int gsm_generate(int nargs, const char *const *args,
-                            const char *log_path)
+// ---- shared session plumbing (text facade + gsm_rtlil_* builder) -----------
+static std::mutex g_gsm_mu;
+static FILE *g_session_lf = nullptr;
+
+static void gsm_session_open(const char *log_path)
 {
-    static std::mutex mu;
-    std::lock_guard<std::mutex> lk(mu);
+    g_session_lf = (log_path != NULL) ? fopen(log_path, "a") : NULL;
+    g_err = g_session_lf ? g_session_lf : stderr;
 
-    FILE *lf = (log_path != NULL) ? fopen(log_path, "a") : NULL;
-    g_err = lf ? lf : stderr;
+    static bool setup_done = false;   // under g_gsm_mu; never shut down
+    if (!setup_done) {
+        Yosys::yosys_setup();
+        setup_done = true;
+    }
 
+    // Errors ALWAYS reach g_err: a yosys log_error otherwise vanishes (no
+    // console stream is connected in library mode) and the subtree
+    // silently stays interpreted — VeeR's ifu_aln_ctl failed that way
+    // from day one with nothing in any log. log_errfile is yosys's
+    // errors-only channel; full diagnostics remain opt-in via GSM_LOG.
+    Yosys::log_errfile = g_err;
+    Yosys::log_files.clear();
+    Yosys::log_streams.clear();
+    if (getenv("GSM_LOG"))          // surface all yosys diagnostics
+        Yosys::log_files.push_back(g_err);
+    Yosys::log_cmd_error_throw = true;
+    Yosys::log_error_atexit = gsm_log_error_bail;
+}
+
+static void gsm_session_close(void)
+{
+    gsm_reset_state();
+    g_design_ready = false;
+    if (g_out_file != NULL) {          // a decline unwound mid-emission:
+        fclose(g_out_file);            // flush + close the partial output
+        g_out_file = nullptr;          // (it is never renamed into the cache)
+    }
+    Yosys::log_errfile = stderr;       // the log is about to close — leave no
+    Yosys::log_files.clear();          // dangling FILE* in yosys globals
+    g_err = stderr;
+    if (g_session_lf != NULL) {
+        fclose(g_session_lf);
+        g_session_lf = nullptr;
+    }
+}
+
+static int gsm_run_guarded(int nargs, const char *const *args)
+{
     int rc = 1;
     try {
-        static bool setup_done = false;   // under mu; never shut down
-        if (!setup_done) {
-            Yosys::yosys_setup();
-            setup_done = true;
-        }
-
-        // Errors ALWAYS reach g_err: a yosys log_error otherwise vanishes (no
-        // console stream is connected in library mode) and the subtree
-        // silently stays interpreted — VeeR's ifu_aln_ctl failed that way
-        // from day one with nothing in any log. log_errfile is yosys's
-        // errors-only channel; full diagnostics remain opt-in via GSM_LOG.
-        Yosys::log_errfile = g_err;
-        Yosys::log_files.clear();
-        Yosys::log_streams.clear();
-        if (getenv("GSM_LOG"))          // surface all yosys diagnostics
-            Yosys::log_files.push_back(g_err);
-        Yosys::log_cmd_error_throw = true;
-        Yosys::log_error_atexit = gsm_log_error_bail;
-
-        Yosys::run_pass("design -reset");
-
         std::vector<const char *> av;
         av.push_back("gen_statemachine");
         for (int i = 0; i < nargs; i++)
@@ -5246,18 +5299,408 @@ extern "C" int gsm_generate(int nargs, const char *const *args,
         rc = 2;
         Yosys::log_reset_stack();
     }
-
-    gsm_reset_state();
-    if (g_out_file != NULL) {          // a decline unwound mid-emission:
-        fclose(g_out_file);            // flush + close the partial output
-        g_out_file = nullptr;          // (it is never renamed into the cache)
-    }
-    Yosys::log_errfile = stderr;       // lf is about to close — leave no
-    Yosys::log_files.clear();          // dangling FILE* in yosys globals
-    g_err = stderr;
-    if (lf != NULL)
-        fclose(lf);
     return rc;
+}
+
+extern "C" int gsm_generate(int nargs, const char *const *args,
+                            const char *log_path)
+{
+    std::lock_guard<std::mutex> lk(g_gsm_mu);
+    gsm_session_open(log_path);
+    int rc = 2;
+    try {
+        Yosys::run_pass("design -reset");
+        rc = 0;
+    }
+    catch (...) {
+        fprintf(g_err, "gen_statemachine: design reset failed\n");
+        Yosys::log_reset_stack();
+    }
+    if (rc == 0)
+        rc = gsm_run_guarded(nargs, args);
+    gsm_session_close();
+    return rc;
+}
+
+// =====================================================================
+// gsm_rtlil_* — direct-RTLIL construction facade
+// (TODO-yosys-integration.md §1; design /home/claude/design_direct_rtlil.md)
+//
+// A host CONSTRUCTS the design through these string/int calls — never
+// touching a yosys header — then synthesizes it through the SAME
+// pipeline+emitter as the text path (gsm_run skips only read_verilog and
+// chparam).  A session holds the facade mutex from begin() to
+// synth()/abort(); a construction error poisons the session (every later
+// call returns nonzero, synth declines) instead of unwinding into the
+// host.
+//
+// Determinism: the caller names every wire and cell, so — unlike the
+// read_verilog path, whose $procmux/$auto names embed yosys's never-reset
+// global autoidx — builder output is byte-stable run-to-run PROVIDED the
+// caller pre-lowers its process muxes to named $mux cells and keeps sync
+// actions flat (then the `proc` pass has no anonymous temporaries to
+// invent).
+//
+// gsm_rtlil_content_hash() folds every call's arguments (FNV-1a), giving
+// the synth cache the design-content bytes that the .v file text provides
+// on the read_verilog path.
+//
+// Sigspec strings: `name`, `name[i]`, `name[hi:lo]`, `N'b<bits>` (MSB
+// first, 01xz), `N'd<val>`, or `{a, b, ...}` (verilog order: first item
+// is the MSB end).  Wires must exist before they are referenced.
+
+static bool            g_rtlil_session  = false;
+static bool            g_rtlil_poisoned = false;
+static RTLIL::Module  *g_rtlil_mod  = nullptr;
+static RTLIL::Process *g_rtlil_proc = nullptr;
+static RTLIL::SyncRule *g_rtlil_sync = nullptr;
+static uint64_t        g_rtlil_hash = 1469598103934665603ULL;
+
+static void rtlil_hash_str(const char *s)
+{
+    for (const char *p = s ? s : ""; *p; p++)
+        g_rtlil_hash = (g_rtlil_hash ^ (unsigned char)*p) * 1099511628211ULL;
+    g_rtlil_hash = (g_rtlil_hash ^ 0x1fu) * 1099511628211ULL;  // separator
+}
+
+static void rtlil_hash_int(long long v)
+{
+    g_rtlil_hash = (g_rtlil_hash ^ (uint64_t)v) * 1099511628211ULL;
+}
+
+static RTLIL::SigSpec rtlil_parse_one(const std::string &tok)
+{
+    size_t q = tok.find('\'');
+    if (q != std::string::npos) {                       // sized constant
+        int width = atoi(tok.substr(0, q).c_str());
+        if (width <= 0 || q + 2 > tok.size())
+            throw GsmBail{2};
+        char base = tok[q + 1];
+        std::string digits = tok.substr(q + 2);
+        if (base == 'b') {
+            if ((int)digits.size() > width)
+                throw GsmBail{2};
+            while ((int)digits.size() < width)
+                digits.insert(digits.begin(), '0');
+            return RTLIL::SigSpec(RTLIL::Const::from_string(digits));
+        }
+        if (base == 'd')
+            return RTLIL::SigSpec(RTLIL::Const(
+                (int)strtoll(digits.c_str(), NULL, 10), width));
+        throw GsmBail{2};
+    }
+    std::string name = tok;
+    int hi = -1, lo = -1;
+    size_t br = tok.find('[');
+    if (br != std::string::npos) {
+        name = tok.substr(0, br);
+        size_t colon = tok.find(':', br), close = tok.find(']', br);
+        if (close == std::string::npos)
+            throw GsmBail{2};
+        if (colon != std::string::npos) {
+            hi = atoi(tok.substr(br + 1, colon - br - 1).c_str());
+            lo = atoi(tok.substr(colon + 1, close - colon - 1).c_str());
+        }
+        else
+            hi = lo = atoi(tok.substr(br + 1, close - br - 1).c_str());
+    }
+    RTLIL::Wire *w = g_rtlil_mod->wire(RTLIL::escape_id(name));
+    if (w == nullptr) {
+        fprintf(g_err, "gsm_rtlil: no wire '%s'\n", name.c_str());
+        throw GsmBail{2};
+    }
+    if (hi < 0)
+        return RTLIL::SigSpec(w);
+    if (lo > hi || hi >= w->width)
+        throw GsmBail{2};
+    return RTLIL::SigSpec(w, lo, hi - lo + 1);
+}
+
+static RTLIL::SigSpec rtlil_parse_sigspec(const char *txt)
+{
+    std::string s;
+    for (const char *p = txt ? txt : ""; *p; p++)
+        if (!isspace((unsigned char)*p))
+            s += *p;
+    if (s.empty())
+        throw GsmBail{2};
+    if (s[0] != '{')
+        return rtlil_parse_one(s);
+    if (s.back() != '}')
+        throw GsmBail{2};
+    std::vector<std::string> items;
+    std::string cur;
+    for (size_t i = 1; i + 1 < s.size(); i++) {
+        if (s[i] == ',') { items.push_back(cur); cur.clear(); }
+        else cur += s[i];
+    }
+    items.push_back(cur);
+    RTLIL::SigSpec out;                     // verilog {a,b}: b is the LSB end;
+    for (size_t i = items.size(); i-- > 0; )   // append() grows toward MSB
+        out.append(rtlil_parse_one(items[i]));
+    return out;
+}
+
+// Every builder call runs under this guard: outside a session or after a
+// poisoning error it returns nonzero without touching yosys state.
+template <typename F>
+static int rtlil_call(const char *what, const char *arg, F fn)
+{
+    if (!g_rtlil_session || g_rtlil_poisoned)
+        return 2;
+    try {
+        fn();
+        return 0;
+    }
+    catch (...) {
+        g_rtlil_poisoned = true;
+        fprintf(g_err, "gsm_rtlil: %s '%s' failed — session poisoned\n",
+                what, arg ? arg : "");
+        Yosys::log_reset_stack();
+        return 2;
+    }
+}
+
+extern "C" int gsm_rtlil_begin(const char *log_path)
+{
+    g_gsm_mu.lock();
+    gsm_session_open(log_path);
+    g_rtlil_session = true;
+    g_rtlil_poisoned = false;
+    g_rtlil_mod = nullptr;
+    g_rtlil_proc = nullptr;
+    g_rtlil_sync = nullptr;
+    g_rtlil_hash = 1469598103934665603ULL;
+    int rc = rtlil_call("begin", NULL, [&]() {
+        Yosys::run_pass("design -reset");
+    });
+    if (rc != 0) {
+        g_rtlil_session = false;
+        gsm_session_close();
+        g_gsm_mu.unlock();
+    }
+    return rc;
+}
+
+extern "C" int gsm_rtlil_module(const char *name)
+{
+    return rtlil_call("module", name, [&]() {
+        g_rtlil_mod = Yosys::yosys_get_design()->addModule(
+            RTLIL::escape_id(name));
+        g_rtlil_proc = nullptr;
+        g_rtlil_sync = nullptr;
+        rtlil_hash_str("m"); rtlil_hash_str(name);
+    });
+}
+
+// dir: 0 = internal, 1 = input, 2 = output.  init_bits: power-on value for
+// a register Q wire (MSB-first 01xz string), or NULL.
+extern "C" int gsm_rtlil_wire(const char *name, int width, int dir,
+                              const char *init_bits)
+{
+    return rtlil_call("wire", name, [&]() {
+        RTLIL::Wire *w = g_rtlil_mod->addWire(RTLIL::escape_id(name), width);
+        w->port_input = (dir == 1);
+        w->port_output = (dir == 2);
+        if (init_bits != NULL)
+            w->attributes[Yosys::ID::init] =
+                RTLIL::Const::from_string(init_bits);
+        rtlil_hash_str("w"); rtlil_hash_str(name);
+        rtlil_hash_int(width); rtlil_hash_int(dir);
+        rtlil_hash_str(init_bits);
+    });
+}
+
+extern "C" int gsm_rtlil_connect(const char *lhs, const char *rhs)
+{
+    return rtlil_call("connect", lhs, [&]() {
+        g_rtlil_mod->connect(rtlil_parse_sigspec(lhs),
+                             rtlil_parse_sigspec(rhs));
+        rtlil_hash_str("c"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
+    });
+}
+
+// Binary word-level cell.  op: add sub mul div mod and or xor xnor shl shr
+// sshl sshr eq ne lt le gt ge logic_and logic_or.  Widths and the
+// A/B/Y_WIDTH + *_SIGNED parameters come from the yosys helper.
+extern "C" int gsm_rtlil_cell_bin(const char *op, const char *name,
+                                  const char *a, const char *b,
+                                  const char *y, int is_signed)
+{
+    return rtlil_call("cell_bin", name, [&]() {
+        RTLIL::IdString id = RTLIL::escape_id(name);
+        RTLIL::SigSpec A = rtlil_parse_sigspec(a);
+        RTLIL::SigSpec B = rtlil_parse_sigspec(b);
+        RTLIL::SigSpec Y = rtlil_parse_sigspec(y);
+        RTLIL::Module *m = g_rtlil_mod;
+        bool sg = is_signed != 0;
+        if      (!strcmp(op, "add"))       m->addAdd(id, A, B, Y, sg);
+        else if (!strcmp(op, "sub"))       m->addSub(id, A, B, Y, sg);
+        else if (!strcmp(op, "mul"))       m->addMul(id, A, B, Y, sg);
+        else if (!strcmp(op, "div"))       m->addDiv(id, A, B, Y, sg);
+        else if (!strcmp(op, "mod"))       m->addMod(id, A, B, Y, sg);
+        else if (!strcmp(op, "and"))       m->addAnd(id, A, B, Y, sg);
+        else if (!strcmp(op, "or"))        m->addOr(id, A, B, Y, sg);
+        else if (!strcmp(op, "xor"))       m->addXor(id, A, B, Y, sg);
+        else if (!strcmp(op, "xnor"))      m->addXnor(id, A, B, Y, sg);
+        else if (!strcmp(op, "shl"))       m->addShl(id, A, B, Y, sg);
+        else if (!strcmp(op, "shr"))       m->addShr(id, A, B, Y, sg);
+        else if (!strcmp(op, "sshl"))      m->addSshl(id, A, B, Y, sg);
+        else if (!strcmp(op, "sshr"))      m->addSshr(id, A, B, Y, sg);
+        else if (!strcmp(op, "eq"))        m->addEq(id, A, B, Y, sg);
+        else if (!strcmp(op, "ne"))        m->addNe(id, A, B, Y, sg);
+        else if (!strcmp(op, "lt"))        m->addLt(id, A, B, Y, sg);
+        else if (!strcmp(op, "le"))        m->addLe(id, A, B, Y, sg);
+        else if (!strcmp(op, "gt"))        m->addGt(id, A, B, Y, sg);
+        else if (!strcmp(op, "ge"))        m->addGe(id, A, B, Y, sg);
+        else if (!strcmp(op, "logic_and")) m->addLogicAnd(id, A, B, Y, sg);
+        else if (!strcmp(op, "logic_or"))  m->addLogicOr(id, A, B, Y, sg);
+        else throw GsmBail{2};
+        rtlil_hash_str("b"); rtlil_hash_str(op); rtlil_hash_str(name);
+        rtlil_hash_str(a); rtlil_hash_str(b); rtlil_hash_str(y);
+        rtlil_hash_int(is_signed);
+    });
+}
+
+// Unary cell.  op: not neg pos reduce_and reduce_or reduce_xor reduce_bool
+// logic_not.
+extern "C" int gsm_rtlil_cell_un(const char *op, const char *name,
+                                 const char *a, const char *y, int is_signed)
+{
+    return rtlil_call("cell_un", name, [&]() {
+        RTLIL::IdString id = RTLIL::escape_id(name);
+        RTLIL::SigSpec A = rtlil_parse_sigspec(a);
+        RTLIL::SigSpec Y = rtlil_parse_sigspec(y);
+        RTLIL::Module *m = g_rtlil_mod;
+        bool sg = is_signed != 0;
+        if      (!strcmp(op, "not"))         m->addNot(id, A, Y, sg);
+        else if (!strcmp(op, "neg"))         m->addNeg(id, A, Y, sg);
+        else if (!strcmp(op, "pos"))         m->addPos(id, A, Y, sg);
+        else if (!strcmp(op, "reduce_and"))  m->addReduceAnd(id, A, Y, sg);
+        else if (!strcmp(op, "reduce_or"))   m->addReduceOr(id, A, Y, sg);
+        else if (!strcmp(op, "reduce_xor"))  m->addReduceXor(id, A, Y, sg);
+        else if (!strcmp(op, "reduce_bool")) m->addReduceBool(id, A, Y, sg);
+        else if (!strcmp(op, "logic_not"))   m->addLogicNot(id, A, Y, sg);
+        else throw GsmBail{2};
+        rtlil_hash_str("u"); rtlil_hash_str(op); rtlil_hash_str(name);
+        rtlil_hash_str(a); rtlil_hash_str(y); rtlil_hash_int(is_signed);
+    });
+}
+
+// $mux: y = s ? b : a.
+extern "C" int gsm_rtlil_cell_mux(const char *name, const char *a,
+                                  const char *b, const char *s, const char *y)
+{
+    return rtlil_call("cell_mux", name, [&]() {
+        g_rtlil_mod->addMux(RTLIL::escape_id(name),
+                            rtlil_parse_sigspec(a), rtlil_parse_sigspec(b),
+                            rtlil_parse_sigspec(s), rtlil_parse_sigspec(y));
+        rtlil_hash_str("x"); rtlil_hash_str(name); rtlil_hash_str(a);
+        rtlil_hash_str(b); rtlil_hash_str(s); rtlil_hash_str(y);
+    });
+}
+
+extern "C" int gsm_rtlil_proc(const char *name)
+{
+    return rtlil_call("proc", name, [&]() {
+        g_rtlil_proc = g_rtlil_mod->addProcess(RTLIL::escape_id(name));
+        g_rtlil_sync = nullptr;
+        rtlil_hash_str("p"); rtlil_hash_str(name);
+    });
+}
+
+// edge: "posedge" | "negedge" (clocks), "level1" | "level0" (async
+// set/reset while the signal is high/low — how proc_dff expects an arst:
+// ONE edge sync carries the data, ST0/ST1 rules carry the reset values),
+// "always" | "init".  sig: the signal, ignored (may be NULL) for
+// always/init.
+extern "C" int gsm_rtlil_sync(const char *edge, const char *sig)
+{
+    return rtlil_call("sync", edge, [&]() {
+        if (g_rtlil_proc == nullptr)
+            throw GsmBail{2};
+        RTLIL::SyncRule *sr = new RTLIL::SyncRule;
+        if      (!strcmp(edge, "posedge")) sr->type = RTLIL::STp;
+        else if (!strcmp(edge, "negedge")) sr->type = RTLIL::STn;
+        else if (!strcmp(edge, "level1"))  sr->type = RTLIL::ST1;
+        else if (!strcmp(edge, "level0"))  sr->type = RTLIL::ST0;
+        else if (!strcmp(edge, "always"))  sr->type = RTLIL::STa;
+        else if (!strcmp(edge, "init"))    sr->type = RTLIL::STi;
+        else { delete sr; throw GsmBail{2}; }
+        if (sr->type == RTLIL::STp || sr->type == RTLIL::STn
+            || sr->type == RTLIL::ST0 || sr->type == RTLIL::ST1) {
+            try { sr->signal = rtlil_parse_sigspec(sig); }
+            catch (...) { delete sr; throw; }
+        }
+        g_rtlil_proc->syncs.push_back(sr);   // ownership passes to Process
+        g_rtlil_sync = sr;
+        rtlil_hash_str("s"); rtlil_hash_str(edge); rtlil_hash_str(sig);
+    });
+}
+
+extern "C" int gsm_rtlil_sync_assign(const char *lhs, const char *rhs)
+{
+    return rtlil_call("sync_assign", lhs, [&]() {
+        if (g_rtlil_sync == nullptr)
+            throw GsmBail{2};
+        g_rtlil_sync->actions.push_back(
+            RTLIL::SigSig(rtlil_parse_sigspec(lhs),
+                          rtlil_parse_sigspec(rhs)));
+        rtlil_hash_str("a"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
+    });
+}
+
+extern "C" unsigned long long gsm_rtlil_content_hash(void)
+{
+    return (unsigned long long)g_rtlil_hash;
+}
+
+// args as for gsm_generate MINUS input files: {label.v, params..., top, out}
+// — the ".v" arg is only the label printed in the output header.
+extern "C" int gsm_rtlil_synth(int nargs, const char *const *args)
+{
+    if (!g_rtlil_session) {
+        fprintf(stderr, "gsm_rtlil_synth: no session\n");
+        return 2;
+    }
+    int rc = 2;
+    if (!g_rtlil_poisoned) {
+        try {
+            for (auto mod : Yosys::yosys_get_design()->modules())
+                mod->fixup_ports();
+            g_design_ready = true;
+            rc = 0;
+        }
+        catch (...) {
+            fprintf(g_err, "gsm_rtlil_synth: fixup failed\n");
+            Yosys::log_reset_stack();
+        }
+        if (rc == 0)
+            rc = gsm_run_guarded(nargs, args);
+    }
+    else
+        fprintf(g_err, "gsm_rtlil_synth: session poisoned — declining\n");
+    g_rtlil_session = false;
+    g_rtlil_mod = nullptr;
+    g_rtlil_proc = nullptr;
+    g_rtlil_sync = nullptr;
+    gsm_session_close();               // also clears g_design_ready
+    g_gsm_mu.unlock();
+    return rc;
+}
+
+extern "C" void gsm_rtlil_abort(void)
+{
+    if (!g_rtlil_session)
+        return;
+    g_rtlil_session = false;
+    g_rtlil_mod = nullptr;
+    g_rtlil_proc = nullptr;
+    g_rtlil_sync = nullptr;
+    try { Yosys::run_pass("design -reset"); }
+    catch (...) { Yosys::log_reset_stack(); }
+    gsm_session_close();
+    g_gsm_mu.unlock();
 }
 
 #ifndef GSM_LIB
