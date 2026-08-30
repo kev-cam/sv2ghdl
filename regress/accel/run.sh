@@ -52,6 +52,8 @@ CASES=(
   "act_hi_n8w256  act   N=8 W=256   CYC=20000 | -gALLON=1 -GALLON=1"
   "act_lo_n16w512 act   N=16 W=512  CYC=20000 | -gALLON=0 -GALLON=0"
   "act_hi_n16w512 act   N=16 W=512  CYC=20000 | -gALLON=1 -GALLON=1"
+  "arst_n8        arst  N=8         CYC=20000 |"
+  "arst_n32       arst  N=32        CYC=20000 |"
 )
 
 sel=("$@")

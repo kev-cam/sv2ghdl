@@ -148,9 +148,14 @@ port stimulus not yet replicated in C), b17/b22 (register-less dump —
 under triage); the syn benches have no separable DUT scope.
 
 ⚠chk (b06 --accel): with the accel model installed the checksum
-diverges in the final folds (CHK=9B4D… vs 574D…) — a live accel-path
-correctness bug caught by this table's cross-engine gate; excluded
-from `agree`, timed cell kept for the record.
+diverged — a live accel-path correctness bug caught by this table's
+cross-engine gate, root-caused to the async-reset drive path (four
+stacked defects: no reset wake, fastclk-swallowed wake, quench pass
+never running in the lazy-JIT flow, and an NBA commit resurrecting the
+pre-reset value) and FIXED in nvc 45059fe51; b06 accel now matches at
+the full 2M cycles, and the `arst` accelbench shape guards the class.
+The timed cell reflects the pre-fix run; the flag drops at the next
+regenerate.
 
 ## Where we lead
 

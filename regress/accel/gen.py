@@ -64,7 +64,7 @@ architecture sim of @S@_tb is
   dut : entity work.@S@_top port map (clk => clk, rst => rst, d => d, q => q@EXTRAMAP@);
 
   clk <= not clk after 5 ns when run else '0';
-  rst <= '1' when cnt < 4 else '0';
+@RSTDRV@
   d   <= lfsr;
 @EXTRADRV@
   drv : process (clk) is
@@ -100,7 +100,7 @@ module @S@_tb #(parameter int CYC = @CYC@@EXTRAP@) ();
   logic [31:0] chk  = 32'h00000001;
   logic [31:0] cnt  = 32'h0;
   wire  [31:0] d    = lfsr;
-  wire         rst  = (cnt < 32'd4);
+@SVRST@
   wire  [31:0] q;
 @SVEXTRA@
   @S@_top dut (.clk(clk), .rst(rst), .d(d), .q(q)@SVMAP@);
@@ -125,11 +125,15 @@ endmodule
 
 def emit_tb(d, S, CYC, extra=None):
     e = extra or {}
+    rstdrv = e.get("rstdrv", "  rst <= '1' when cnt < 4 else '0';")
+    svrst = e.get("svrst", "  wire         rst  = (cnt < 32'd4);")
     wr(d, "%s_tb.vhd" % S, T(VHDL_TB, S=S, CYC=CYC,
                              EXTRAG=e.get("vg", ""), EXTRASIG=e.get("vsig", ""),
-                             EXTRAMAP=e.get("vmap", ""), EXTRADRV=e.get("vdrv", "")))
+                             EXTRAMAP=e.get("vmap", ""), EXTRADRV=e.get("vdrv", ""),
+                             RSTDRV=rstdrv))
     return T(SV_TB, S=S, CYC=CYC, EXTRAP=e.get("sp", ""),
-             SVEXTRA=e.get("ssig", ""), SVMAP=e.get("smap", ""))
+             SVEXTRA=e.get("ssig", ""), SVMAP=e.get("smap", ""),
+             SVRST=svrst)
 
 # ================================================================== WIDE
 def gen_wide(d, p):
@@ -989,8 +993,105 @@ endmodule
                      "(ALLON=1 -> all hot, same netlist)" % (N, W, N))
 
 # ----------------------------------------------------------------- main
+
+# ================================================================== ARST
+def gen_arst(d, p):
+    # Async-reset chain whose TB RE-PULSES rst mid-run.  Regression for the
+    # accel drive-path defect chain fixed 2026-08-29 (b06 cc_mux): an async
+    # reset assert BETWEEN clock edges must wake the chunk, publish the
+    # cleared outputs, and survive the same-timestep NBA edge commit.  The
+    # per-cycle fold makes a single stale output cycle change Y.
+    N, CYC = p.get("N", 8), p.get("CYC", 20000)
+    S = "arst"
+
+    wr(d, "arst_stage.vhd", VHDR + T("""entity arst_stage is
+  generic (ID : natural := 0);
+  port (clk, rst : in  std_logic;
+        d        : in  std_logic_vector(31 downto 0);
+        q        : out std_logic_vector(31 downto 0));
+end entity;
+
+architecture rtl of arst_stage is
+  constant R  : natural := 1 + ((ID*13 + 7) mod 31);
+  constant K  : natural := (ID*40503 + 12345) mod 65536;
+  signal nxt : std_logic_vector(31 downto 0);
+begin
+  nxt <= std_logic_vector(unsigned(d(31-R downto 0) & d(31 downto 32-R))
+                          + to_unsigned(K, 32)) xor d;
+
+  reg : process (clk, rst) is
+  begin
+    if rst = '1' then
+      q <= std_logic_vector(to_unsigned((ID*257) mod 65536, 32));
+    elsif rising_edge(clk) then
+      q <= nxt;
+    end if;
+  end process;
+end architecture;
+"""))
+
+    sigs = "\n".join("  signal s%d : std_logic_vector(31 downto 0);" % i
+                     for i in range(N + 1))
+    insts = "\n".join(
+        "  u%d : entity work.arst_stage generic map (ID => %d)\n"
+        "    port map (clk => clk, rst => rst, d => s%d, q => s%d);" % (i, i, i, i + 1)
+        for i in range(N))
+    wr(d, "arst_top.vhd", VHDR + T("""entity arst_top is
+  port (clk, rst : in  std_logic;
+        d        : in  std_logic_vector(31 downto 0);
+        q        : out std_logic_vector(31 downto 0));
+end entity;
+
+architecture rtl of arst_top is
+@SIGS@
+begin
+  s0 <= d;
+@INSTS@
+  q <= s@N@;
+end architecture;
+""", SIGS=sigs, INSTS=insts, N=N))
+
+    repulse = ("  rst <= '1' when (cnt < 4) or"
+               " (cnt >= 500 and (cnt mod 509) < 2) else '0';")
+    sv_repulse = ("  wire         rst  = (cnt < 32'd4) ||"
+                  " ((cnt >= 32'd500) && ((cnt % 32'd509) < 32'd2));")
+    svtb = emit_tb(d, S, CYC, extra=dict(rstdrv=repulse, svrst=sv_repulse))
+
+    svstages = "\n".join(T("""module arst_stage_@I@ (
+  input  wire        clk, rst,
+  input  wire [31:0] d,
+  output reg  [31:0] q);
+  localparam [31:0] K = (@I@*32'd40503 + 32'd12345) % 32'd65536;
+  localparam integer R = 1 + ((@I@*13 + 7) % 31);
+  wire [31:0] nxt = ({d[31-R:0], d[31:32-R]} + K) ^ d;
+  always @(posedge clk or posedge rst)
+    if (rst) q <= (@I@*32'd257) % 32'd65536;
+    else     q <= nxt;
+endmodule
+""", I=i) for i in range(N))
+    svinsts = "\n".join(
+        "  arst_stage_%d u%d (.clk(clk), .rst(rst), .d(s%d), .q(s%d));" % (i, i, i, i + 1)
+        for i in range(N))
+    svsigs = "\n".join("  wire [31:0] s%d;" % i for i in range(N + 1))
+    wr(d, "arst.sv", T("""@STAGES@
+module arst_top (
+  input  wire        clk, rst,
+  input  wire [31:0] d,
+  output wire [31:0] q);
+@SIGS@
+  assign s0 = d;
+@INSTS@
+  assign q = s@N@;
+endmodule
+
+@TB@
+""", STAGES=svstages, SIGS=svsigs, INSTS=svinsts, N=N, TB=svtb))
+    return dict(top="arst_top", tb="arst_tb", sv="arst.sv", cyc=CYC,
+                desc="async-reset chain N=%d, TB re-pulses rst (b06 class)" % N)
+
 SHAPES = dict(wide=gen_wide, fsm=gen_fsm, deep=gen_deep,
-              regf=gen_regf, many=gen_many, act=gen_act)
+              regf=gen_regf, many=gen_many, act=gen_act,
+              arst=gen_arst)
 
 if __name__ == "__main__":
     if len(sys.argv) < 3 or sys.argv[1] not in SHAPES:
