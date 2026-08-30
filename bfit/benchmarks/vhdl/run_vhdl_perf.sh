@@ -303,10 +303,19 @@ for row in "${DESIGNS[@]}"; do
   read -r name kind top cyc style <<<"$row"
   # agreement over running engines (l3d deliberately excluded: separate marker)
   ref=""; agree="✓"
-  for e in our stock ghdl accel; do
+  for e in our stock ghdl; do
     c=${CHK[$name,$e]}; [ "$c" = "none" ] && continue; [ -z "$c" ] && continue
     if [ -z "$ref" ]; then ref=$c; elif [ "$c" != "$ref" ]; then agree="✗"; fi
   done
+  # accel promised "installs AND matches": a mismatching accel result is a
+  # correctness BUG — flag it loudly in its own cell, not via the row's agree
+  # (that read as cross-engine disagreement and sent us hunting the wrong
+  # engines; b06 2026-08-29 was exactly this).
+  if [ "${CHK[$name,accel]}" != "none" ] && [ -n "${CHK[$name,accel]}" ] \
+     && [ -n "$ref" ] && [ "${CHK[$name,accel]}" != "$ref" ]; then
+    T[$name,accel]="${T[$name,accel]} BUG:chk"
+    echo "   !! accel CHK MISMATCH on $name: ${CHK[$name,accel]} vs $ref (correctness bug)"
+  fi
   lmark=""
   if [ "${CHK[$name,l3d]}" != "none" ] && [ -n "${CHK[$name,l3d]}" ]; then
     if [ "${CHK[$name,l3d]}" = "$ref" ]; then lmark=" ="; else lmark=" ≠"; fi
@@ -341,8 +350,11 @@ echo "### Reading these numbers"
 echo
 echo "**our-nvc is a 1.18.0-based fork; stock-nvc here is 1.22.0 — four releases"
 echo "newer.** The gap has been closed by profiling, one discrete cause at a time,"
-echo "and the fork now LEADS stock on SEVEN of eight rows (b17 +35%, b12 +25%,"
-echo "b22 +15%, b14 +6%, b01 +5%, b06 +4%, bench_comb +3%) with fused dispatch"
+echo "and the fork now trades blows with a release four versions newer — this"
+echo "run: leads b12 (+7%) and b17 (+18%), within 3% on bench_comb/b14/b22,"
+echo "trails b01/b06 (~15%) and the tiny bench_seq.  Which side of parity a"
+echo "given ITC row lands on moves a few percent run to run; the month-scale"
+echo "trend is what the mechanism list below records.  Fused dispatch is"
 echo "default-on and the native projection complete: \`bench_comb\`"
 echo "was 4.1x off until the numeric_std shift-and-add multiply was replaced with"
 echo "upstream's native 64-bit multiply; the remaining ~1.3x fell to ~1.1x when"
