@@ -5591,6 +5591,39 @@ extern "C" int gsm_rtlil_cell_un(const char *op, const char *name,
     });
 }
 
+// Module instance: `type` is another module built in this session (or any
+// module the later `hierarchy` pass can resolve); conns is
+// "port=sigspec,port=sigspec,...".  Mirrors read_verilog's instantiation
+// (cell type = escaped module name, module_not_derived attribute).
+extern "C" int gsm_rtlil_cell_inst(const char *type, const char *name,
+                                   const char *conns)
+{
+    return rtlil_call("cell_inst", name, [&]() {
+        RTLIL::Cell *cell = g_rtlil_mod->addCell(RTLIL::escape_id(name),
+                                                 RTLIL::escape_id(type));
+        std::string s;
+        for (const char *p = conns ? conns : ""; *p; p++)
+            if (!isspace((unsigned char)*p))
+                s += *p;
+        size_t pos = 0;
+        while (pos < s.size()) {
+            size_t comma = s.find(',', pos);
+            if (comma == std::string::npos)
+                comma = s.size();
+            std::string item = s.substr(pos, comma - pos);
+            size_t eq = item.find('=');
+            if (eq == std::string::npos || eq == 0)
+                throw GsmBail{2};
+            cell->setPort(RTLIL::escape_id(item.substr(0, eq)),
+                          rtlil_parse_sigspec(item.substr(eq + 1).c_str()));
+            pos = comma + 1;
+        }
+        cell->set_bool_attribute(Yosys::ID::module_not_derived);
+        rtlil_hash_str("i"); rtlil_hash_str(type); rtlil_hash_str(name);
+        rtlil_hash_str(conns);
+    });
+}
+
 // $mux: y = s ? b : a.
 extern "C" int gsm_rtlil_cell_mux(const char *name, const char *a,
                                   const char *b, const char *s, const char *y)

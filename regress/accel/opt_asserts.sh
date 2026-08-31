@@ -481,6 +481,21 @@ if [ $mrc -eq 0 ] && [ "$mfat" -eq 0 ] && [ -n "$YMI" ] && [ "$YMA" = "$YMI" ]; 
   ok "mem whole-array assign probe survives" "(no Fatal, Y matches)"
 else bad "mem whole-array assign probe survives" "rc=$mrc fatal=$mfat Y=$YMA/$YMI"; fi
 
+# 12. DIRECT-RTLIL WALKER (opt-in NVC_ACCEL_RTLIL=1): the wide fixture must
+#     synthesize ENTIRELY through the rtlil builder — engagement note present,
+#     NO walker decline (a decline silently falls back to the text path and
+#     everything still matches, so only the engagement check can tell), and
+#     the checksum equal to interp.
+rm -rf "$W/.cache/nvc/accel"
+rout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 \
+       timeout 120 $NVC "${A[@]}" -r "$tb" 2>&1); rrc=$?
+YR=$(printf '%s' "$rout" | grep -oE 'Y=[0-9]+' | tail -1)
+reng=$(printf '%s' "$rout" | grep -c 'via rtlil builder')
+rdec=$(printf '%s' "$rout" | grep -c 'vhdl2rtlil.*declined')
+if [ $rrc -eq 0 ] && [ "$reng" -ge 1 ] && [ "$rdec" -eq 0 ] && [ "$YR" = "$YI" ]; then
+  ok "direct-rtlil walker full coverage (wide)" "(no decline, Y matches)"
+else bad "direct-rtlil walker full coverage (wide)" "rc=$rrc eng=$reng dec=$rdec Y=$YR/$YI"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
