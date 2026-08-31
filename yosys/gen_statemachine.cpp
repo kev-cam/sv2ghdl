@@ -5684,8 +5684,9 @@ extern "C" int gsm_rtlil_switch_begin(const char *sig)
     });
 }
 
-// compare: a sigspec the switch signal is matched against, or NULL/"" for
-// the default case.
+// compare: sigspec(s) the switch signal is matched against — several
+// alternatives separated by ';' ("4'd1;4'd3") — or NULL/"" for the
+// default case.
 extern "C" int gsm_rtlil_case_begin(const char *compare)
 {
     return rtlil_call("case_begin", compare, [&]() {
@@ -5693,7 +5694,18 @@ extern "C" int gsm_rtlil_case_begin(const char *compare)
             throw GsmBail{2};
         RTLIL::CaseRule *cr = new RTLIL::CaseRule;
         if (compare != NULL && compare[0] != '\0') {
-            try { cr->compare.push_back(rtlil_parse_sigspec(compare)); }
+            try {
+                std::string s(compare);
+                size_t pos = 0;
+                while (pos <= s.size()) {
+                    size_t semi = s.find(';', pos);
+                    if (semi == std::string::npos)
+                        semi = s.size();
+                    cr->compare.push_back(rtlil_parse_sigspec(
+                        s.substr(pos, semi - pos).c_str()));
+                    pos = semi + 1;
+                }
+            }
             catch (...) { delete cr; throw; }
         }
         g_rtlil_switches.back()->cases.push_back(cr);  // switch owns it now

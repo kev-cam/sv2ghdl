@@ -151,7 +151,10 @@ else bad "synth timeout degrades to decline" "rc=$rc Y=$YT note=$(printf '%s' "$
 #     Also proves the fork path actually ran (its launch note), so a missing
 #     libgsm.so silently falling back to the CLI cannot fake a pass.
 rm -rf "$W/.cache/nvc/accel"
-out=$(env "${AE[@]}" GSM_TEST_SLEEP=30 NVC_ACCEL_SYNTH_TIMEOUT=2 \
+# -u NVC_ACCEL_RTLIL: this check targets the TEXT fork-worker's deadline —
+# with the rtlil walker enabled its child times out first (same degrade
+# contract, its own notes) and the text fork legitimately never launches.
+out=$(env -u NVC_ACCEL_RTLIL "${AE[@]}" GSM_TEST_SLEEP=30 NVC_ACCEL_SYNTH_TIMEOUT=2 \
       timeout 60 $NVC "${A[@]}" -r "$tb" 2>&1); rc=$?
 YT=$(printf '%s' "$out" | grep -oE 'Y=[0-9]+' | tail -1)
 ffork=$(printf '%s' "$out" | grep -c 'in-process fork')
