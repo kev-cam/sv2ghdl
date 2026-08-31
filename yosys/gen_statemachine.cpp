@@ -5354,6 +5354,8 @@ static bool            g_rtlil_poisoned = false;
 static RTLIL::Module  *g_rtlil_mod  = nullptr;
 static RTLIL::Process *g_rtlil_proc = nullptr;
 static RTLIL::SyncRule *g_rtlil_sync = nullptr;
+static std::vector<RTLIL::CaseRule *>   g_rtlil_cases;    // scope stack;
+static std::vector<RTLIL::SwitchRule *> g_rtlil_switches; //  [0] = root_case
 static uint64_t        g_rtlil_hash = 1469598103934665603ULL;
 
 static void rtlil_hash_str(const char *s)
@@ -5470,6 +5472,8 @@ extern "C" int gsm_rtlil_begin(const char *log_path)
     g_rtlil_mod = nullptr;
     g_rtlil_proc = nullptr;
     g_rtlil_sync = nullptr;
+    g_rtlil_cases.clear();
+    g_rtlil_switches.clear();
     g_rtlil_hash = 1469598103934665603ULL;
     int rc = rtlil_call("begin", NULL, [&]() {
         Yosys::run_pass("design -reset");
@@ -5605,7 +5609,83 @@ extern "C" int gsm_rtlil_proc(const char *name)
     return rtlil_call("proc", name, [&]() {
         g_rtlil_proc = g_rtlil_mod->addProcess(RTLIL::escape_id(name));
         g_rtlil_sync = nullptr;
+        g_rtlil_cases.clear();
+        g_rtlil_switches.clear();
+        g_rtlil_cases.push_back(&g_rtlil_proc->root_case);
         rtlil_hash_str("p"); rtlil_hash_str(name);
+    });
+}
+
+// ---- decision trees, read_verilog-style ------------------------------------
+// A process body maps 1:1: the CURRENT CASE (root_case after proc()) takes
+// actions; switch_begin(sig)/case_begin(compare)/.../case_end/switch_end
+// nest.  Hold semantics follow read_verilog's pattern — the caller assigns
+// a temp wire in the tree (root action `temp = reg` first, branches
+// override) and the sync action commits `reg <= temp`; an untaken branch
+// then holds.  `proc` lowers the tree to muxes; the pass-invented names
+// are canonicalized before emission, so determinism survives.
+
+extern "C" int gsm_rtlil_case_assign(const char *lhs, const char *rhs)
+{
+    return rtlil_call("case_assign", lhs, [&]() {
+        if (g_rtlil_cases.empty())
+            throw GsmBail{2};
+        g_rtlil_cases.back()->actions.push_back(
+            RTLIL::SigSig(rtlil_parse_sigspec(lhs),
+                          rtlil_parse_sigspec(rhs)));
+        rtlil_hash_str("ca"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
+    });
+}
+
+extern "C" int gsm_rtlil_switch_begin(const char *sig)
+{
+    return rtlil_call("switch_begin", sig, [&]() {
+        if (g_rtlil_cases.empty())
+            throw GsmBail{2};
+        RTLIL::SwitchRule *sw = new RTLIL::SwitchRule;
+        try { sw->signal = rtlil_parse_sigspec(sig); }
+        catch (...) { delete sw; throw; }
+        g_rtlil_cases.back()->switches.push_back(sw);  // case owns it now
+        g_rtlil_switches.push_back(sw);
+        rtlil_hash_str("sw"); rtlil_hash_str(sig);
+    });
+}
+
+// compare: a sigspec the switch signal is matched against, or NULL/"" for
+// the default case.
+extern "C" int gsm_rtlil_case_begin(const char *compare)
+{
+    return rtlil_call("case_begin", compare, [&]() {
+        if (g_rtlil_switches.empty())
+            throw GsmBail{2};
+        RTLIL::CaseRule *cr = new RTLIL::CaseRule;
+        if (compare != NULL && compare[0] != '\0') {
+            try { cr->compare.push_back(rtlil_parse_sigspec(compare)); }
+            catch (...) { delete cr; throw; }
+        }
+        g_rtlil_switches.back()->cases.push_back(cr);  // switch owns it now
+        g_rtlil_cases.push_back(cr);
+        rtlil_hash_str("cb"); rtlil_hash_str(compare);
+    });
+}
+
+extern "C" int gsm_rtlil_case_end(void)
+{
+    return rtlil_call("case_end", NULL, [&]() {
+        if (g_rtlil_cases.size() <= 1)   // never pop root_case
+            throw GsmBail{2};
+        g_rtlil_cases.pop_back();
+        rtlil_hash_str("ce");
+    });
+}
+
+extern "C" int gsm_rtlil_switch_end(void)
+{
+    return rtlil_call("switch_end", NULL, [&]() {
+        if (g_rtlil_switches.empty())
+            throw GsmBail{2};
+        g_rtlil_switches.pop_back();
+        rtlil_hash_str("se");
     });
 }
 
@@ -5666,6 +5746,10 @@ extern "C" int gsm_rtlil_synth(int nargs, const char *const *args)
     int rc = 2;
     if (!g_rtlil_poisoned) {
         try {
+            if (!g_rtlil_switches.empty() || g_rtlil_cases.size() > 1) {
+                fprintf(g_err, "gsm_rtlil_synth: unbalanced switch/case\n");
+                throw GsmBail{2};
+            }
             for (auto mod : Yosys::yosys_get_design()->modules())
                 mod->fixup_ports();
             g_design_ready = true;
@@ -5684,6 +5768,8 @@ extern "C" int gsm_rtlil_synth(int nargs, const char *const *args)
     g_rtlil_mod = nullptr;
     g_rtlil_proc = nullptr;
     g_rtlil_sync = nullptr;
+    g_rtlil_cases.clear();
+    g_rtlil_switches.clear();
     gsm_session_close();               // also clears g_design_ready
     g_gsm_mu.unlock();
     return rc;
@@ -5697,6 +5783,8 @@ extern "C" void gsm_rtlil_abort(void)
     g_rtlil_mod = nullptr;
     g_rtlil_proc = nullptr;
     g_rtlil_sync = nullptr;
+    g_rtlil_cases.clear();
+    g_rtlil_switches.clear();
     try { Yosys::run_pass("design -reset"); }
     catch (...) { Yosys::log_reset_stack(); }
     gsm_session_close();

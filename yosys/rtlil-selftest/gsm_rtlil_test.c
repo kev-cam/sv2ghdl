@@ -17,6 +17,10 @@ typedef int  (*sync_fn)(const char *, const char *);
 typedef int  (*sassign_fn)(const char *, const char *);
 typedef unsigned long long (*hash_fn)(void);
 typedef int  (*synth_fn)(int, const char *const *);
+typedef int  (*casgn_fn)(const char *, const char *);
+typedef int  (*swb_fn)(const char *);
+typedef int  (*caseb_fn)(const char *);
+typedef int  (*end_fn)(void);
 
 #define GET(v, n) v = (void *)dlsym(dl, n); \
    if (!v) { fprintf(stderr, "dlsym %s: %s\n", n, dlerror()); return 2; }
@@ -40,6 +44,11 @@ int main(int argc, char **argv)
    sassign_fn b_sas;     GET(b_sas,     "gsm_rtlil_sync_assign");
    hash_fn    b_hash;    GET(b_hash,    "gsm_rtlil_content_hash");
    synth_fn   b_synth;   GET(b_synth,   "gsm_rtlil_synth");
+   casgn_fn   b_casgn;   GET(b_casgn,   "gsm_rtlil_case_assign");
+   swb_fn     b_swb;     GET(b_swb,     "gsm_rtlil_switch_begin");
+   caseb_fn   b_caseb;   GET(b_caseb,   "gsm_rtlil_case_begin");
+   end_fn     b_cend;    GET(b_cend,    "gsm_rtlil_case_end");
+   end_fn     b_swe;     GET(b_swe,     "gsm_rtlil_switch_end");
 
    char out2[1024];
    snprintf(out2, sizeof out2, "%s.2", argv[2]);
@@ -56,14 +65,22 @@ int main(int argc, char **argv)
    CK(b_wire("y",      8, 2, NULL));
    CK(b_wire("a",      8, 0, "00000000"));
    CK(b_wire("b",      8, 0, "00000000"));
+   CK(b_wire("c",      8, 0, "00000000"));
+   CK(b_wire("en",     1, 0, NULL));
    CK(b_wire("t_add",  8, 0, NULL));
    CK(b_wire("a_next", 8, 0, NULL));
    CK(b_wire("t_xor",  8, 0, NULL));
+   CK(b_wire("t_addc", 8, 0, NULL));
+   CK(b_wire("t_and",  8, 0, NULL));
+   CK(b_wire("g0_c",   8, 0, NULL));   /* decision-tree temp for c */
 
    CK(b_bin("add", "c_add", "d", "b", "t_add", 0));
    CK(b_mux("c_muxa", "t_add", "8'b00000000", "rst", "a_next"));
    CK(b_bin("xor", "c_xor", "a", "d", "t_xor", 0));
-   CK(b_bin("and", "c_and", "a", "b", "y", 0));
+   CK(b_bin("add", "c_addc", "c", "a", "t_addc", 0));
+   CK(b_bin("and", "c_and", "a", "b", "t_and", 0));
+   CK(b_bin("xor", "c_y", "t_and", "c", "y", 0));
+   CK(b_conn("en", "d[0]"));
    CK(b_conn("q", "a"));
 
    CK(b_proc("p_a"));
@@ -75,6 +92,19 @@ int main(int argc, char **argv)
    CK(b_sas("b", "t_xor"));
    CK(b_sync("level1", "rst"));
    CK(b_sas("b", "8'b00000000"));
+
+   /* enable-gated register via the DECISION-TREE form (read_verilog's
+      hold pattern): root action g0_c = c; switch(en) case 1: g0_c = t_addc;
+      sync commits c <= g0_c — the untaken branch holds. */
+   CK(b_proc("p_c"));
+   CK(b_casgn("g0_c", "c"));
+   CK(b_swb("en"));
+   CK(b_caseb("1'b1"));
+   CK(b_casgn("g0_c", "t_addc"));
+   CK(b_cend());
+   CK(b_swe());
+   CK(b_sync("posedge", "clk"));
+   CK(b_sas("c", "g0_c"));
 
    printf("content_hash=%016llx\n", b_hash());
 
