@@ -11,8 +11,9 @@ int main(void)
    for (int cyc = 0; cyc < 64; cyc++) {
       in._d = (uint64_t)((cyc * 37 + 11) & 0xff);
       sm_comb(&s, &in, &o);
-      printf("%02d d=%02x q=%02llx y=%02llx\n", cyc, (unsigned)in._d,
-             (unsigned long long)o._q, (unsigned long long)o._y);
+      printf("%02d d=%02x q=%02llx y=%02llx y2=%02llx\n", cyc,
+             (unsigned)in._d, (unsigned long long)o._q,
+             (unsigned long long)o._y, (unsigned long long)o._y2);
       sm_clock(&s, &in);
    }
    return 0;

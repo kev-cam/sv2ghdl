@@ -5714,6 +5714,112 @@ extern "C" int gsm_rtlil_case_begin(const char *compare)
     });
 }
 
+// Assign on the process ROOT case regardless of the current nesting —
+// the hold/default pattern for temps discovered mid-walk (root actions
+// and switches are evaluated actions-first however they interleave).
+extern "C" int gsm_rtlil_case_assign_root(const char *lhs, const char *rhs)
+{
+    return rtlil_call("case_assign_root", lhs, [&]() {
+        if (g_rtlil_cases.empty())
+            throw GsmBail{2};
+        g_rtlil_cases.front()->actions.push_back(
+            RTLIL::SigSig(rtlil_parse_sigspec(lhs),
+                          rtlil_parse_sigspec(rhs)));
+        rtlil_hash_str("cr"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
+    });
+}
+
+// ---- memories (read_verilog's pre-`proc` encoding) -------------------------
+
+extern "C" int gsm_rtlil_memory(const char *name, int width, int size)
+{
+    return rtlil_call("memory", name, [&]() {
+        if (width <= 0 || size <= 0)
+            throw GsmBail{2};
+        RTLIL::Memory *m = new RTLIL::Memory;
+        m->name = RTLIL::escape_id(name);
+        m->width = width;
+        m->size = size;
+        m->start_offset = 0;
+        g_rtlil_mod->memories[m->name] = m;
+        rtlil_hash_str("M"); rtlil_hash_str(name);
+        rtlil_hash_int(width); rtlil_hash_int(size);
+    });
+}
+
+// Asynchronous read port: DATA driven from the memory word at ADDR
+// (a $memrd cell exactly as read_verilog builds one).
+extern "C" int gsm_rtlil_memrd(const char *name, const char *memid,
+                               const char *addr, const char *data)
+{
+    return rtlil_call("memrd", name, [&]() {
+        RTLIL::IdString mid = RTLIL::escape_id(memid);
+        if (g_rtlil_mod->memories.count(mid) == 0)
+            throw GsmBail{2};
+        RTLIL::SigSpec A = rtlil_parse_sigspec(addr);
+        RTLIL::SigSpec D = rtlil_parse_sigspec(data);
+        RTLIL::Cell *cell = g_rtlil_mod->addCell(RTLIL::escape_id(name),
+                                                 ID($memrd));
+        cell->setPort(Yosys::ID::CLK, RTLIL::SigSpec(RTLIL::State::Sx, 1));
+        cell->setPort(Yosys::ID::EN, RTLIL::SigSpec(RTLIL::State::Sx, 1));
+        cell->setPort(Yosys::ID::ADDR, A);
+        cell->setPort(Yosys::ID::DATA, D);
+        cell->parameters[Yosys::ID::MEMID] = RTLIL::Const(mid.str());
+        cell->parameters[Yosys::ID::ABITS] = RTLIL::Const((int)A.size());
+        cell->parameters[Yosys::ID::WIDTH] = RTLIL::Const((int)D.size());
+        cell->parameters[Yosys::ID::CLK_ENABLE] = RTLIL::Const(0);
+        cell->parameters[Yosys::ID::CLK_POLARITY] = RTLIL::Const(0);
+        cell->parameters[Yosys::ID::TRANSPARENT] = RTLIL::Const(0);
+        rtlil_hash_str("mr"); rtlil_hash_str(name); rtlil_hash_str(memid);
+        rtlil_hash_str(addr); rtlil_hash_str(data);
+    });
+}
+
+// Memory write on the CURRENT sync rule.  en is a ONE-bit condition,
+// replicated to the word width (per-bit enables can come later).  Within
+// one sync, later writes to the same memory take priority over earlier
+// ones — VHDL sequential semantics; `proc` lowers the actions to
+// $memwr_v2 cells with these priorities.
+extern "C" int gsm_rtlil_sync_memwr(const char *memid, const char *addr,
+                                    const char *data, const char *en)
+{
+    return rtlil_call("sync_memwr", memid, [&]() {
+        if (g_rtlil_sync == nullptr)
+            throw GsmBail{2};
+        RTLIL::IdString mid = RTLIL::escape_id(memid);
+        auto it = g_rtlil_mod->memories.find(mid);
+        if (it == g_rtlil_mod->memories.end())
+            throw GsmBail{2};
+        const int w = it->second->width;
+        RTLIL::MemWriteAction action;
+        action.memid = mid;
+        action.address = rtlil_parse_sigspec(addr);
+        action.data = rtlil_parse_sigspec(data);
+        if ((int)action.data.size() != w)
+            throw GsmBail{2};
+        RTLIL::SigSpec e = rtlil_parse_sigspec(en);
+        if (e.size() == 1) {
+            RTLIL::SigSpec rep;
+            for (int i = 0; i < w; i++)
+                rep.append(e);
+            action.enable = rep;
+        }
+        else if ((int)e.size() == w)
+            action.enable = e;
+        else
+            throw GsmBail{2};
+        const int cur = (int)g_rtlil_sync->mem_write_actions.size();
+        RTLIL::Const mask(0, cur);
+        for (int i = 0; i < cur; i++)
+            if (g_rtlil_sync->mem_write_actions[i].memid == mid)
+                mask.set(i, RTLIL::State::S1);
+        action.priority_mask = mask;
+        g_rtlil_sync->mem_write_actions.push_back(action);
+        rtlil_hash_str("mw"); rtlil_hash_str(memid); rtlil_hash_str(addr);
+        rtlil_hash_str(data); rtlil_hash_str(en);
+    });
+}
+
 extern "C" int gsm_rtlil_case_end(void)
 {
     return rtlil_call("case_end", NULL, [&]() {

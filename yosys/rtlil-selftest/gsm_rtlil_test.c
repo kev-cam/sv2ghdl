@@ -18,6 +18,9 @@ typedef int  (*sassign_fn)(const char *, const char *);
 typedef unsigned long long (*hash_fn)(void);
 typedef int  (*synth_fn)(int, const char *const *);
 typedef int  (*casgn_fn)(const char *, const char *);
+typedef int  (*mem_fn)(const char *, int, int);
+typedef int  (*memrd_fn)(const char *, const char *, const char *, const char *);
+typedef int  (*memwr_fn)(const char *, const char *, const char *, const char *);
 typedef int  (*swb_fn)(const char *);
 typedef int  (*caseb_fn)(const char *);
 typedef int  (*end_fn)(void);
@@ -49,6 +52,9 @@ int main(int argc, char **argv)
    caseb_fn   b_caseb;   GET(b_caseb,   "gsm_rtlil_case_begin");
    end_fn     b_cend;    GET(b_cend,    "gsm_rtlil_case_end");
    end_fn     b_swe;     GET(b_swe,     "gsm_rtlil_switch_end");
+   mem_fn     b_mem;     GET(b_mem,     "gsm_rtlil_memory");
+   memrd_fn   b_memrd;   GET(b_memrd,   "gsm_rtlil_memrd");
+   memwr_fn   b_memwr;   GET(b_memwr,   "gsm_rtlil_sync_memwr");
 
    char out2[1024];
    snprintf(out2, sizeof out2, "%s.2", argv[2]);
@@ -63,6 +69,10 @@ int main(int argc, char **argv)
    CK(b_wire("d",      8, 1, NULL));
    CK(b_wire("q",      8, 2, NULL));
    CK(b_wire("y",      8, 2, NULL));
+   CK(b_wire("y2",     8, 2, NULL));
+   CK(b_wire("men",    1, 0, NULL));
+   CK(b_wire("mwa",    2, 0, NULL));
+   CK(b_wire("mra",    2, 0, NULL));
    CK(b_wire("a",      8, 0, "00000000"));
    CK(b_wire("b",      8, 0, "00000000"));
    CK(b_wire("c",      8, 0, "00000000"));
@@ -82,6 +92,11 @@ int main(int argc, char **argv)
    CK(b_bin("xor", "c_y", "t_and", "c", "y", 0));
    CK(b_conn("en", "d[0]"));
    CK(b_conn("q", "a"));
+   CK(b_mem("mm", 8, 4));
+   CK(b_conn("men", "d[3]"));
+   CK(b_conn("mwa", "d[2:1]"));
+   CK(b_conn("mra", "d[5:4]"));
+   CK(b_memrd("rdm", "mm", "mra", "y2"));
 
    CK(b_proc("p_a"));
    CK(b_sync("posedge", "clk"));
@@ -105,6 +120,12 @@ int main(int argc, char **argv)
    CK(b_swe());
    CK(b_sync("posedge", "clk"));
    CK(b_sas("c", "g0_c"));
+
+   /* memory write port on its own process: enable IS the condition —
+      no decision tree needed when the write is a plain `if (en)` */
+   CK(b_proc("p_m"));
+   CK(b_sync("posedge", "clk"));
+   CK(b_memwr("mm", "mwa", "t_add", "men"));
 
    printf("content_hash=%016llx\n", b_hash());
 

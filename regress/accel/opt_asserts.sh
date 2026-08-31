@@ -499,6 +499,94 @@ if [ $rrc -eq 0 ] && [ "$reng" -ge 1 ] && [ "$rdec" -eq 0 ] && [ "$YR" = "$YI" ]
   ok "direct-rtlil walker full coverage (wide)" "(no decline, Y matches)"
 else bad "direct-rtlil walker full coverage (wide)" "rc=$rrc eng=$reng dec=$rdec Y=$YR/$YI"; fi
 
+# 13. DIRECT-RTLIL MEMORIES: a true array memory (dynamic write + dynamic
+#     read) must synthesize through the walker, and the walker's generated C
+#     must TRACE-MATCH the text path's generated C under a driving harness
+#     (these clk-only chunks do not install into the sim — a pre-existing
+#     quiet stop after the bridge — so the harness diff is the real oracle;
+#     the checksum-vs-interp check would pass trivially).
+cat > "$W/memrf.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity memrf_dut is
+  port (clk : in std_logic; y : out unsigned(15 downto 0));
+end entity;
+architecture rtl of memrf_dut is
+  type mem_t is array (0 to 7) of std_logic_vector(15 downto 0);
+  signal m   : mem_t;
+  signal cnt : unsigned(7 downto 0) := (others => '0');
+  signal acc : unsigned(15 downto 0) := (others => '0');
+begin
+  process(clk) begin
+    if rising_edge(clk) then
+      m(to_integer(cnt(2 downto 0))) <=
+        std_logic_vector(cnt) & std_logic_vector(cnt xor x"5A");
+      if cnt > 8 then
+        acc <= acc + unsigned(m(to_integer(cnt(2 downto 0) xor "001")));
+      end if;
+      cnt <= cnt + 1;
+    end if;
+  end process;
+  y <= acc;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity memrf_tb is end entity;
+architecture sim of memrf_tb is
+  signal clk : std_logic := '0';
+  signal y   : unsigned(15 downto 0);
+  signal run : boolean := true;
+begin
+  clk <= not clk after 5 ns when run;
+  dut: entity work.memrf_dut port map (clk => clk, y => y);
+  process begin
+    wait for 1500 ns;
+    report "Y=" & integer'image(to_integer(y));
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+cat > "$W/memrf_harness.c" <<'CEOF'
+#include <stdio.h>
+#include <stdint.h>
+#define SM_NO_MAIN
+#include MODEL_C
+int main(void)
+{
+   state_t s; inputs_t in; outputs_t o;
+   sm_reset(&s);
+   for (int cyc = 0; cyc < 100; cyc++) {
+      sm_comb(&s, &in, &o);
+      printf("%02d y=%04llx\n", cyc, (unsigned long long)o._y);
+      sm_clock(&s, &in);
+   }
+   return 0;
+}
+CEOF
+RD="$W/memrf"; mkdir -p "$RD"
+$NVC -M 256m -H 256m --std=2008 --work="$RD/w" -L "$VLIB" -a "$W/memrf.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$RD/w" -L "$VLIB" -e memrf_tb >/dev/null 2>&1
+rm -rf "$W/.cache/nvc/accel"
+mout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1        timeout 60 $NVC -M 256m -H 256m --std=2008 --work="$RD/w" -L "$VLIB"        -r memrf_tb 2>&1)
+meng=$(printf '%s' "$mout" | grep -c 'via rtlil builder')
+mdec=$(printf '%s' "$mout" | grep -c 'vhdl2rtlil.*declined')
+# -u: this arm must be the TEXT path even when the whole gate runs under
+# NVC_ACCEL_RTLIL=1 (the diff needs one .c from EACH backend)
+env -u NVC_ACCEL_RTLIL "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 timeout 60 $NVC -M 256m -H 256m     --std=2008 --work="$RD/w" -L "$VLIB" -r memrf_tb >/dev/null 2>&1
+RC=$(ls "$W"/.cache/nvc/accel/aj_memrf_dut_*.c 2>/dev/null      | grep -v _bridge | grep -v _nvc | grep -v subtree)
+mok=0
+if [ "$meng" -ge 1 ] && [ "$mdec" -eq 0 ] && [ $(printf '%s\n' $RC | wc -l) -eq 2 ]; then
+  set -- $RC
+  gcc -O1 -DMODEL_C="\"$1\"" -o "$RD/h1" "$W/memrf_harness.c" 2>/dev/null && \
+  gcc -O1 -DMODEL_C="\"$2\"" -o "$RD/h2" "$W/memrf_harness.c" 2>/dev/null && \
+  "$RD/h1" > "$RD/t1.txt" && "$RD/h2" > "$RD/t2.txt" && \
+  diff -q "$RD/t1.txt" "$RD/t2.txt" >/dev/null && \
+  [ "$(tail -1 "$RD/t1.txt")" != "99 y=0000" ] && mok=1
+fi
+if [ "$mok" -eq 1 ]; then
+  ok "direct-rtlil memories trace-match text" "(100-cycle harness, nonzero)"
+else bad "direct-rtlil memories trace-match text" "eng=$meng dec=$mdec ncand=$(printf '%s\n' $RC | wc -l)"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
