@@ -5607,9 +5607,15 @@ extern "C" int gsm_rtlil_cell_inst(const char *type, const char *name,
                 s += *p;
         size_t pos = 0;
         while (pos < s.size()) {
-            size_t comma = s.find(',', pos);
-            if (comma == std::string::npos)
-                comma = s.size();
+            // split on commas at brace depth 0 only ({...} concats nest)
+            size_t comma = pos;
+            int depth = 0;
+            while (comma < s.size()
+                   && !(s[comma] == ',' && depth == 0)) {
+                if (s[comma] == '{') depth++;
+                else if (s[comma] == '}') depth--;
+                comma++;
+            }
             std::string item = s.substr(pos, comma - pos);
             size_t eq = item.find('=');
             if (eq == std::string::npos || eq == 0)

@@ -48,4 +48,19 @@ for mode in "" "NVC_ACCEL_MERGE=1"; do
         "(first: $(diff gold.txt accel_$label.txt | sed -n '2p' | head -c 60))"
   fi
 done
+
+# Under NVC_ACCEL_RTLIL=1 the register chunk (bchunk — the NBA-idiom
+# process) must go through the walker WITHOUT declining: this is the
+# engagement check for translated-SV register support (a decline falls
+# back to the text path with matching output, so only this can tell).
+# clockhdr (a latch) legitimately declines either way.
+if [ -n "${NVC_ACCEL_RTLIL:-}" ]; then
+  if grep -aq "synth 'bchunk' via rtlil" raw_single.txt \
+     && ! grep -aq "vhdl2rtlil: 'bchunk' declined" raw_single.txt; then
+    ok "translated bchunk parse-free (rtlil)" "(NBA idiom walked)"
+  else
+    bad "translated bchunk parse-free (rtlil)" \
+        "(eng=$(grep -ac "synth 'bchunk' via rtlil" raw_single.txt) dec=$(grep -ac "vhdl2rtlil: 'bchunk' declined" raw_single.txt))"
+  fi
+fi
 exit $FAILED
