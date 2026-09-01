@@ -62,5 +62,18 @@ if [ -n "${NVC_ACCEL_RTLIL:-}" ]; then
     bad "translated bchunk parse-free (rtlil)" \
         "(eng=$(grep -ac "synth 'bchunk' via rtlil" raw_single.txt) dec=$(grep -ac "vhdl2rtlil: 'bchunk' declined" raw_single.txt))"
   fi
+  # if the merged pass actually formed a pool group, it must have gone
+  # through the rtlil MERGE builder (this fixture usually installs
+  # per-chunk — the GALS opt_assert owns the pool engagement check)
+  if grep -aq "MERGE synth" raw_merged.txt; then
+    if grep -aq "via rtlil merge builder" raw_merged.txt; then
+      ok "translated merge parse-free (rtlil)" "(wrapper constructed)"
+    else
+      bad "translated merge parse-free (rtlil)" \
+          "(groups formed but eng=0)"
+    fi
+  else
+    ok "translated merge parse-free (rtlil)" "(no pool groups — n/a)"
+  fi
 fi
 exit $FAILED

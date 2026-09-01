@@ -422,6 +422,15 @@ if [ "$gmrg" -ge 1 ] && [ "${gedge:-0}" -ge 1 ] && [ -n "$YGI" ] && [ "$YGA" = "
   ok "domain merge + negedge flip (GALS)" "(fused, $gedge internal edge, Y matches)"
 else bad "domain merge + negedge flip (GALS)" "mrg=$gmrg edge=$gedge Y=$YGA/$YGI"; fi
 
+# ...under NVC_ACCEL_RTLIL the pool group must have been CONSTRUCTED by the
+# rtlil merge builder (engagement — a silent text fallback matches Y too)
+if [ -n "${NVC_ACCEL_RTLIL:-}" ]; then
+  gmeng=$(printf '%s' "$gout" | grep -c 'via rtlil merge builder')
+  if [ "$gmeng" -ge 1 ]; then
+    ok "  ...GALS pool via rtlil merge builder"
+  else bad "  ...GALS pool via rtlil merge builder" "(eng=0)"; fi
+fi
+
 # 11. MEM WHOLE-ARRAY SIGNAL ASSIGN must not kill the probe (2026-08-30):
 #     vhdl2vlog's mem_scan_cb and the whole-array emission called
 #     tree_value() directly on a T_SIGNAL_ASSIGN — a FATAL object lookup,
