@@ -724,6 +724,77 @@ if [ "$h3" -eq 0 ] && [ "$s3" -ge 1 ] && [ "$Y3" = "$YCI" ]; then
   ok "  ...GSM_ALLOW_COMB bypasses the marker" "(re-attempted, Y matches)"
 else bad "  ...GSM_ALLOW_COMB bypasses the marker" "hits=$h3 synth=$s3 Y=$Y3/$YCI"; fi
 
+# 16. t=0 SEED FIXPOINT (#43): CHUNK-level cyclic dependency, bit-acyclic
+#     (the EH2 DEC<->LSU mesh shape): A's z needs B's x which needs A's y.
+#     No single seed pass in ANY install order can settle both hops, so the
+#     multi-pass back-fill fixpoint is load-bearing; SEED_PASSES=1 is the
+#     negative control and must diverge.  Sampled BEFORE the first edge.
+cat > "$W/seedcyc.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity sc_a is port (clk:in std_logic; seed:in std_logic_vector(31 downto 0);
+                     xin:in std_logic_vector(31 downto 0);
+                     y:out std_logic_vector(31 downto 0);
+                     z:out std_logic_vector(31 downto 0)); end entity;
+architecture rtl of sc_a is
+  signal r:unsigned(31 downto 0):=(others=>'0');
+begin
+  process(clk) is begin if rising_edge(clk) then r <= r + 1; end if; end process;
+  y <= std_logic_vector(unsigned(seed) xor x"11111111" xor r);
+  z <= std_logic_vector(unsigned(xin) xor x"22222222" xor r);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity sc_b is port (clk:in std_logic; yin:in std_logic_vector(31 downto 0);
+                     x:out std_logic_vector(31 downto 0)); end entity;
+architecture rtl of sc_b is
+  signal r:unsigned(31 downto 0):=(others=>'0');
+begin
+  process(clk) is begin if rising_edge(clk) then r <= r + 3; end if; end process;
+  x <= std_logic_vector(unsigned(yin) xor x"33333333" xor r);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity seedcyc_tb is end entity;
+architecture sim of seedcyc_tb is
+  signal clk : std_logic := '0';
+  signal xw, yw, zw : std_logic_vector(31 downto 0);
+  signal t0 : unsigned(31 downto 0) := (others => '0');
+  signal acc : unsigned(31 downto 0) := (others => '0');
+  signal run : boolean := true;
+begin
+  ua: entity work.sc_a port map (clk=>clk, seed=>x"12345678",
+                                 xin=>xw, y=>yw, z=>zw);
+  ub: entity work.sc_b port map (clk=>clk, yin=>yw, x=>xw);
+  process begin
+    wait for 1 ns;                    -- BEFORE the first rising edge
+    t0 <= unsigned(zw);
+    wait for 4 ns;
+    clk <= '1';
+    for i in 1 to 40 loop
+      wait for 5 ns; clk <= '0';
+      wait for 5 ns; clk <= '1';
+      acc <= acc + unsigned(zw);
+    end loop;
+    report "T0=" & integer'image(to_integer(t0(30 downto 0)));
+    report "Y=" & integer'image(to_integer(acc(30 downto 0)));
+    run <= false; wait for 5 ns; stop;
+  end process;
+end architecture;
+VHD
+SD="$W/seedcyc"; mkdir -p "$SD"
+$NVC -M 256m -H 256m --std=2008 --work="$SD/w" -L "$VLIB" -a "$W/seedcyc.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$SD/w" -L "$VLIB" -e seedcyc_tb >/dev/null 2>&1
+SI=$($NVC -M 256m -H 256m --std=2008 --work="$SD/w" -L "$VLIB" -r seedcyc_tb 2>&1      | grep -oE '(T0|Y)=[0-9]+' | tr '\n' ' ')
+SA=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_PER_INSTANCE=1      timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SD/w" -L "$VLIB"      -r seedcyc_tb 2>&1 | grep -oE '(T0|Y)=[0-9]+' | tr '\n' ' ')
+rm -rf "$W/.cache/nvc/accel"
+S1=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_PER_INSTANCE=1      NVC_ACCEL_SEED_PASSES=1      timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SD/w" -L "$VLIB"      -r seedcyc_tb 2>&1 | grep -oE '(T0|Y)=[0-9]+' | tr '\n' ' ')
+if [ -n "$SI" ] && [ "$SA" = "$SI" ] && [ "$S1" != "$SI" ]; then
+  ok "t=0 seed fixpoint converges (#43)" "(cyclic chunks match; 1-pass diverges)"
+elif [ -n "$SI" ] && [ "$SA" = "$SI" ]; then
+  bad "t=0 seed fixpoint converges (#43)" "control inert: 1-pass also matches ($S1)"
+else bad "t=0 seed fixpoint converges (#43)" "acc=$SA interp=$SI"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
