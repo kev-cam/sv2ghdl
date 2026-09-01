@@ -653,6 +653,77 @@ if [ $drc -eq 0 ] && [ "$deng" -ge 1 ] && [ "$ddec" -eq 0 ] && [ -n "$YDI" ] && 
   ok "direct-rtlil dynamic bit-write" "(masked compose, Y matches)"
 else bad "direct-rtlil dynamic bit-write" "rc=$drc eng=$deng dec=$ddec Y=$YDA/$YDI"; fi
 
+# 15. NEGATIVE-RESULT CACHE: a clean synth decline (exit 1) writes a marker
+#     keyed on the same vhash; the next run must SKIP the fork ("cached
+#     decline" note) with identical results.  GSM_ALLOW_COMB flips comb-only
+#     declines but is not in the vhash, so it rides in the marker fingerprint:
+#     flipping it must IGNORE the marker and admit the chunk (negative
+#     control — proves the marker cannot pin a chunk out wrongly).
+cat > "$W/dcc.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity dcc_dut is
+  port (a, b : in std_logic_vector(7 downto 0);
+        y : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of dcc_dut is
+begin
+  y <= a xor b;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity dcc_tb is end entity;
+architecture sim of dcc_tb is
+  signal clk : std_logic := '0';
+  signal cnt : unsigned(7 downto 0) := (others => '0');
+  signal acc : unsigned(15 downto 0) := (others => '0');
+  signal a, b, y : std_logic_vector(7 downto 0);
+  signal run : boolean := true;
+begin
+  clk <= not clk after 5 ns when run;
+  a <= std_logic_vector(cnt);
+  b <= std_logic_vector(cnt(3 downto 0) & cnt(7 downto 4));
+  dut: entity work.dcc_dut port map (a => a, b => b, y => y);
+  process(clk) begin
+    if rising_edge(clk) then
+      acc <= acc + unsigned(y);
+      cnt <= cnt + 1;
+    end if;
+  end process;
+  process begin
+    wait for 1500 ns;
+    report "Y=" & integer'image(to_integer(acc));
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+DC="$W/dcc"; mkdir -p "$DC"
+$NVC -M 256m -H 256m --std=2008 --work="$DC/w" -L "$VLIB" -a "$W/dcc.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$DC/w" -L "$VLIB" -e dcc_tb >/dev/null 2>&1
+YCI=$($NVC -M 256m -H 256m --std=2008 --work="$DC/w" -L "$VLIB" -r dcc_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+rm -rf "$W/.cache/nvc/accel"
+c1=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 timeout 60 $NVC -M 256m -H 256m \
+     --std=2008 --work="$DC/w" -L "$VLIB" -r dcc_tb 2>&1)
+mrk=$(ls "$W"/.cache/nvc/accel/*.decline 2>/dev/null | wc -l)
+c2=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 timeout 60 $NVC -M 256m -H 256m \
+     --std=2008 --work="$DC/w" -L "$VLIB" -r dcc_tb 2>&1)
+Y2=$(printf '%s' "$c2" | grep -oE 'Y=[0-9]+' | tail -1)
+hits=$(printf '%s' "$c2" | grep -c 'cached decline')
+if [ "$mrk" -ge 1 ] && [ "$hits" -ge 1 ] && [ -n "$YCI" ] && [ "$Y2" = "$YCI" ]; then
+  ok "decline cache skips re-synth" "(markers=$mrk hits=$hits, Y matches)"
+else bad "decline cache skips re-synth" "mrk=$mrk hits=$hits Y=$Y2/$YCI"; fi
+c3=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 GSM_ALLOW_COMB=1 timeout 60 $NVC \
+     -M 256m -H 256m --std=2008 --work="$DC/w" -L "$VLIB" -r dcc_tb 2>&1)
+Y3=$(printf '%s' "$c3" | grep -oE 'Y=[0-9]+' | tail -1)
+h3=$(printf '%s' "$c3" | grep -c 'cached decline')
+# the contract is "the marker must not suppress the fresh ATTEMPT" — a
+# comb chunk still doesn't install in a full nvc run (0-register install
+# stall, pre-existing), so assert the re-synth happened, not the install
+s3=$(printf '%s' "$c3" | grep -cE "synth 'dcc_dut")
+if [ "$h3" -eq 0 ] && [ "$s3" -ge 1 ] && [ "$Y3" = "$YCI" ]; then
+  ok "  ...GSM_ALLOW_COMB bypasses the marker" "(re-attempted, Y matches)"
+else bad "  ...GSM_ALLOW_COMB bypasses the marker" "hits=$h3 synth=$s3 Y=$Y3/$YCI"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
