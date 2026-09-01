@@ -596,6 +596,63 @@ if [ "$mok" -eq 1 ]; then
   ok "direct-rtlil memories trace-match text" "(100-cycle harness, nonzero)"
 else bad "direct-rtlil memories trace-match text" "eng=$meng dec=$mdec ncand=$(printf '%s\n' $RC | wc -l)"; fi
 
+# 14. DIRECT-RTLIL DYNAMIC BIT-WRITE: a non-constant single-bit index write
+#     on a vector signal (NOT an array memory — those take the $memwr path)
+#     lowers to the masked whole-target compose.  The compose reads the
+#     PRE-activation value (the signal, not g0 — reading g0 from module-level
+#     cells is a combinational loop yosys would only catch at synth as an
+#     unresolvable topological order).  Engagement + no decline + Y matches.
+cat > "$W/dynw.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity dynw_dut is
+  port (clk : in std_logic; y : out unsigned(15 downto 0));
+end entity;
+architecture rtl of dynw_dut is
+  signal vec : std_logic_vector(15 downto 0) := (others => '0');
+  signal cnt : unsigned(7 downto 0) := (others => '0');
+  signal acc : unsigned(15 downto 0) := (others => '0');
+begin
+  process(clk) begin
+    if rising_edge(clk) then
+      vec(to_integer(cnt(3 downto 0))) <= cnt(4) xor cnt(0);
+      acc <= acc + unsigned(vec);
+      cnt <= cnt + 1;
+    end if;
+  end process;
+  y <= acc;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity dynw_tb is end entity;
+architecture sim of dynw_tb is
+  signal clk : std_logic := '0';
+  signal y   : unsigned(15 downto 0);
+  signal run : boolean := true;
+begin
+  clk <= not clk after 5 ns when run;
+  dut: entity work.dynw_dut port map (clk => clk, y => y);
+  process begin
+    wait for 1500 ns;
+    report "Y=" & integer'image(to_integer(y));
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+DD="$W/dynw"; mkdir -p "$DD"
+$NVC -M 256m -H 256m --std=2008 --work="$DD/w" -L "$VLIB" -a "$W/dynw.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$DD/w" -L "$VLIB" -e dynw_tb >/dev/null 2>&1
+YDI=$($NVC -M 256m -H 256m --std=2008 --work="$DD/w" -L "$VLIB" -r dynw_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+rm -rf "$W/.cache/nvc/accel"
+dout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 \
+       timeout 60 $NVC -M 256m -H 256m --std=2008 --work="$DD/w" -L "$VLIB" -r dynw_tb 2>&1); drc=$?
+YDA=$(printf '%s' "$dout" | grep -oE 'Y=[0-9]+' | tail -1)
+deng=$(printf '%s' "$dout" | grep -c 'via rtlil builder')
+ddec=$(printf '%s' "$dout" | grep -c 'vhdl2rtlil.*declined')
+if [ $drc -eq 0 ] && [ "$deng" -ge 1 ] && [ "$ddec" -eq 0 ] && [ -n "$YDI" ] && [ "$YDA" = "$YDI" ]; then
+  ok "direct-rtlil dynamic bit-write" "(masked compose, Y matches)"
+else bad "direct-rtlil dynamic bit-write" "rc=$drc eng=$deng dec=$ddec Y=$YDA/$YDI"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
