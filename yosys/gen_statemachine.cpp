@@ -5430,16 +5430,21 @@ static RTLIL::SigSpec rtlil_parse_sigspec(const char *txt)
         return rtlil_parse_one(s);
     if (s.back() != '}')
         throw GsmBail{2};
-    std::vector<std::string> items;
-    std::string cur;
+    std::vector<std::string> items;         // split at DEPTH-0 commas only —
+    std::string cur;                        // elements may be nested concats
+    int depth = 0;
     for (size_t i = 1; i + 1 < s.size(); i++) {
-        if (s[i] == ',') { items.push_back(cur); cur.clear(); }
+        if (s[i] == '{') depth++;
+        else if (s[i] == '}') depth--;
+        if (s[i] == ',' && depth == 0) { items.push_back(cur); cur.clear(); }
         else cur += s[i];
     }
+    if (depth != 0)
+        throw GsmBail{2};
     items.push_back(cur);
     RTLIL::SigSpec out;                     // verilog {a,b}: b is the LSB end;
     for (size_t i = items.size(); i-- > 0; )   // append() grows toward MSB
-        out.append(rtlil_parse_one(items[i]));
+        out.append(rtlil_parse_sigspec(items[i].c_str()));
     return out;
 }
 
