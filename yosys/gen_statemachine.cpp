@@ -13,6 +13,7 @@
 #include <set>
 #include <vector>
 #include <algorithm>
+#include <cerrno>
 #include <sstream>
 #include <mutex>
 
@@ -1233,20 +1234,83 @@ static int gsm_run(int argc, const char *const *argv)
     // (and may replace) the module, so re-reading avail_parameters mid-loop is
     // stale. Copy the names, not the pointer.
     std::set<std::string> settable;
-    if (RTLIL::Module *topmod0 =
-            yosys_get_design()->module(RTLIL::escape_id(top_name)))
+    RTLIL::Module *topmod0 =
+        yosys_get_design()->module(RTLIL::escape_id(top_name));
+    if (topmod0)
         for (auto id : topmod0->avail_parameters)
             settable.insert(id.str());
+    // A value equal to the module's own default is a semantic no-op, but
+    // chparam still re-derives the module from its AST, and in the
+    // derived copy sv2v's hierarchical references BY MODULE NAME (the
+    // inlined interface of a flat-port wrapper: `alu_top.execute_if.data`)
+    // no longer resolve — "Failed to detect width for identifier
+    // \alu.alu_top.execute_if.data".  Keep the parsed module as read.
+    // The default is read from the LIVE module every time: chparam replaces
+    // the module, and a default may derive from another parameter
+    // (`parameter RESETW = DATAW`).  nvc prints every actual as an unsigned
+    // 64-bit decimal (tgt-vhdl scope.cc, ivl_expr_uvalue: -1 arrives as
+    // 18446744073709551615) and chparam decodes bare digits as decimal, so
+    // parse base 10 and compare the bit patterns at >= 64 bits with the
+    // default extended by its own signedness — a value that does not fit
+    // the default's width is not a no-op.
+    auto is_default = [&](const std::string &kid, const std::string &v) {
+        RTLIL::Module *m =
+            yosys_get_design()->module(RTLIL::escape_id(top_name));
+        if (!m) return false;
+        auto it = m->parameter_default_values.find(RTLIL::IdString(kid));
+        if (it == m->parameter_default_values.end()
+            || (it->second.flags & RTLIL::CONST_FLAG_STRING))
+            return false;
+        char *end = nullptr;
+        errno = 0;
+        const unsigned long long u = strtoull(v.c_str(), &end, 10);
+        if (v.empty() || *end != '\0' || errno == ERANGE)
+            return false;
+        RTLIL::Const d = it->second;
+        const int w = std::max(d.size(), 64);
+        if (d.flags & RTLIL::CONST_FLAG_SIGNED) d.exts(w); else d.extu(w);
+        return RTLIL::Const((long long)u, w) == d;
+    };
+    std::vector<std::pair<std::string, std::string>> kept;   // name, value
     for (const std::string &p : params) {
         size_t eq = p.find('=');
         std::string k = p.substr(0, eq), v = p.substr(eq + 1);
-        if (!settable.empty() && !settable.count(RTLIL::escape_id(k))) {
+        const std::string kid = RTLIL::escape_id(k);
+        // Filter whenever the top was found — a module with no `parameter`
+        // at all (every override is a localparam) must skip them all.
+        if (topmod0 && !settable.count(kid)) {
             fprintf(g_err, "  skip %s=%s (not a settable parameter of %s)\n",
                     k.c_str(), v.c_str(), top_name);
             continue;
         }
+        if (is_default(kid, v)) {
+            fprintf(g_err, "  keep %s = %s (default of %s)\n",
+                    k.c_str(), v.c_str(), top_name);
+            kept.emplace_back(k, v);
+            continue;
+        }
         fprintf(g_err, "  chparam %s = %s on %s\n", k.c_str(), v.c_str(), top_name);
         Yosys::run_pass("chparam -set " + k + " " + v + " " + top_name);
+    }
+    // A kept override's default may derive from a parameter a LATER chparam
+    // changed (RESETW = DATAW kept at 1, then DATAW = 4 makes the live default
+    // 4).  Re-test the kept ones against the live module and apply any that
+    // drifted; that chparam can shift another kept default, so sweep until
+    // none drifts (every sweep applies at least one, so this terminates).
+    for (bool drift = true; drift;) {
+        drift = false;
+        for (auto it = kept.begin(); it != kept.end();) {
+            if (is_default(RTLIL::escape_id(it->first), it->second)) {
+                ++it;
+                continue;
+            }
+            fprintf(g_err, "  chparam %s = %s on %s (default drifted)\n",
+                    it->first.c_str(), it->second.c_str(), top_name);
+            Yosys::run_pass("chparam -set " + it->first + " " + it->second
+                            + " " + top_name);
+            it = kept.erase(it);
+            drift = true;
+        }
     }
     }   // !g_design_ready
     // -check: a module with no definition would otherwise become a silent
