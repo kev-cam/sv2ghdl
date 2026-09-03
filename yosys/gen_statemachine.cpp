@@ -577,7 +577,14 @@ static void emit_wide_cell(FILE *o, RTLIL::Cell *cell, SigMap &sigmap,
         auto yy = cell->getPort(ID::Y);
         ychunks.assign(yy.chunks().begin(), yy.chunks().end());
     }
-    const bool y_scatter = ychunks.size() > 1;
+    // A SINGLE chunk that is a partial slice of a NARROW wire (offset != 0 or
+    // narrower than the wire) must also go through the scatter: the plain
+    // narrow store below is `wire = wslice64(_wy,0,yw,ng)`, which drops yoff
+    // and clobbers the untouched bits -- a per-lane `always @* case` writing
+    // r[i] (Vortex VX_alu_int msc_result, lane 1) lost its lane.
+    const bool y_scatter = ychunks.size() > 1
+        || (ychunks.size() == 1 && ychunks[0].wire
+            && (ychunks[0].offset != 0 || ychunks[0].width != ychunks[0].wire->width));
     // Store the yw-bit result held in _wy (ng limbs) into the target.
     auto put_val = [&](int ng) {
         if (y_scatter) {
