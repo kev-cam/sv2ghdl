@@ -5609,11 +5609,34 @@ extern "C" int gsm_rtlil_wire(const char *name, int width, int dir,
     });
 }
 
+// An assignment (connection, case action, sync action) needs EQUAL widths in
+// RTLIL: Module::connect asserts on a mismatch and proc_prune indexes the
+// rhs by lhs bit (vector::at range error mid-pass).  read_verilog gives
+// every assignment Verilog's context resize; the builder gives the walker's
+// sigspecs the same — zero-extend a narrower rhs, keep the low bits of a
+// wider one — and LOGS each fit: the walker renders widths heuristically
+// (identity resizes, unconstrained operator results), so a silent fit could
+// hide a 1-bit-for-32 rendering bug.
+static RTLIL::SigSig rtlil_fit(const char *what, const char *lhs,
+                               const char *rhs)
+{
+    RTLIL::SigSpec l = rtlil_parse_sigspec(lhs);
+    RTLIL::SigSpec r = rtlil_parse_sigspec(rhs);
+    if (r.size() != l.size()) {
+        fprintf(g_err, "gsm_rtlil: %s '%s' (%d bits) <- '%s' (%d bits): "
+                "rhs fitted\n", what, lhs, l.size(), rhs, r.size());
+        if (r.size() < l.size())
+            r.append(RTLIL::SigSpec(RTLIL::State::S0, l.size() - r.size()));
+        else
+            r = r.extract(0, l.size());
+    }
+    return RTLIL::SigSig(l, r);
+}
+
 extern "C" int gsm_rtlil_connect(const char *lhs, const char *rhs)
 {
     return rtlil_call("connect", lhs, [&]() {
-        g_rtlil_mod->connect(rtlil_parse_sigspec(lhs),
-                             rtlil_parse_sigspec(rhs));
+        g_rtlil_mod->connect(rtlil_fit("connect", lhs, rhs));
         rtlil_hash_str("c"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
     });
 }
@@ -5764,8 +5787,7 @@ extern "C" int gsm_rtlil_case_assign(const char *lhs, const char *rhs)
         if (g_rtlil_cases.empty())
             throw GsmBail{2};
         g_rtlil_cases.back()->actions.push_back(
-            RTLIL::SigSig(rtlil_parse_sigspec(lhs),
-                          rtlil_parse_sigspec(rhs)));
+            rtlil_fit("case_assign", lhs, rhs));
         rtlil_hash_str("ca"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
     });
 }
@@ -5823,8 +5845,7 @@ extern "C" int gsm_rtlil_case_assign_root(const char *lhs, const char *rhs)
         if (g_rtlil_cases.empty())
             throw GsmBail{2};
         g_rtlil_cases.front()->actions.push_back(
-            RTLIL::SigSig(rtlil_parse_sigspec(lhs),
-                          rtlil_parse_sigspec(rhs)));
+            rtlil_fit("case_assign_root", lhs, rhs));
         rtlil_hash_str("cr"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
     });
 }
@@ -5975,8 +5996,7 @@ extern "C" int gsm_rtlil_sync_assign(const char *lhs, const char *rhs)
         if (g_rtlil_sync == nullptr)
             throw GsmBail{2};
         g_rtlil_sync->actions.push_back(
-            RTLIL::SigSig(rtlil_parse_sigspec(lhs),
-                          rtlil_parse_sigspec(rhs)));
+            rtlil_fit("sync_assign", lhs, rhs));
         rtlil_hash_str("a"); rtlil_hash_str(lhs); rtlil_hash_str(rhs);
     });
 }
