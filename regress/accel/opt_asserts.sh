@@ -795,6 +795,107 @@ elif [ -n "$SI" ] && [ "$SA" = "$SI" ]; then
   bad "t=0 seed fixpoint converges (#43)" "control inert: 1-pass also matches ($S1)"
 else bad "t=0 seed fixpoint converges (#43)" "acc=$SA interp=$SI"; fi
 
+# 17. MULTI-DRIVER ARRAY SOUNDNESS GUARD (mylex r22_ffirst).  An array signal
+#     whose disjoint elements are driven by >1 process, where a WRITING driver
+#     also cross-reads the array (a combinational chain THROUGH it across
+#     drivers), mis-composes via the per-process whole-array hold temp -- each
+#     driver commits the whole wire, so the elements contend.  It INSTALLS but
+#     is silently WRONG.  Both the direct-RTLIL walker and the text path must
+#     DECLINE it so the subtree runs in the interpreter and matches interp.
+#     NEGATIVE CONTROL (proves the refinement, not a blanket decline): the same
+#     array type driven by two disjoint processes with NO writer cross-read
+#     (mylex r4_slice_arm shape) must NOT be declined -- it still installs.
+cat > "$W/mda.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity mda_bad is
+  port (clk:in std_logic; a:in std_logic_vector(7 downto 0);
+        b:in std_logic_vector(7 downto 0); sel:in std_logic;
+        y:out std_logic_vector(7 downto 0)); end entity;
+architecture rtl of mda_bad is
+  type arr is array (2 downto 0) of std_logic_vector(7 downto 0);
+  signal d : arr := (others => (others => '0'));
+  signal yr : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  d(2) <= a;                              -- driver 1 (element 2)
+  d(1) <= b;                              -- driver 2 (element 1)
+  process(all) is begin                   -- driver 3 (element 0), cross-reads d(2)/d(1)
+    if sel = '1' then d(0) <= d(2); else d(0) <= d(1); end if;
+  end process;
+  process(clk) is begin
+    if rising_edge(clk) then yr <= d(0) xor d(1) xor d(2); end if;
+  end process;
+  y <= yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity mda_ok is
+  port (clk:in std_logic; a:in std_logic_vector(7 downto 0);
+        b:in std_logic_vector(7 downto 0);
+        y:out std_logic_vector(7 downto 0)); end entity;
+architecture rtl of mda_ok is
+  type arr is array (1 downto 0) of std_logic_vector(7 downto 0);
+  signal d : arr := (others => (others => '0'));
+  signal yr : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  process(a) is begin d(0) <= a; end process;   -- driver 1, element 0 (no d read)
+  process(b) is begin d(1) <= b; end process;   -- driver 2, element 1 (no d read)
+  process(clk) is begin                          -- reader only (does not write d)
+    if rising_edge(clk) then yr <= d(0) xor d(1); end if;
+  end process;
+  y <= yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity mda_tb is end entity;
+architecture sim of mda_tb is
+  signal clk : std_logic := '0';
+  signal a, b : std_logic_vector(7 downto 0) := (others=>'0');
+  signal yb, yo : std_logic_vector(7 downto 0);
+  signal sel : std_logic := '0';
+  signal n : unsigned(15 downto 0) := (others=>'0');
+  signal accb, acco : unsigned(15 downto 0) := (others=>'0');
+  signal run : boolean := true;
+begin
+  clk <= not clk after 5 ns when run;
+  ub: entity work.mda_bad port map (clk=>clk,a=>a,b=>b,sel=>sel,y=>yb);
+  uo: entity work.mda_ok  port map (clk=>clk,a=>a,b=>b,y=>yo);
+  process(clk) is begin
+    if rising_edge(clk) then
+      n <= n + 1;
+      a <= std_logic_vector(n(7 downto 0));
+      b <= std_logic_vector(n(7 downto 0) xor x"5A");
+      sel <= n(0);
+      accb <= accb + unsigned(yb);
+      acco <= acco + unsigned(yo);
+    end if;
+  end process;
+  process begin
+    wait for 900 ns;
+    report "Y=" & integer'image(to_integer(accb(14 downto 0)));
+    report "Z=" & integer'image(to_integer(acco(14 downto 0)));
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+MD="$W/mda"; mkdir -p "$MD"
+$NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -a "$W/mda.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -e mda_tb >/dev/null 2>&1
+MI=$($NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -r mda_tb 2>&1 | grep -oE '(Y|Z)=[0-9]+' | tr '\n' ' ')
+# census: the walker's per-module decline reasons, clean module boundaries
+cens=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_RTLIL_CENSUS=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -r mda_tb 2>&1)
+gbad=$(printf '%s' "$cens" | grep -cE "mda_bad .*multi-driver-array")
+gok=$(printf '%s' "$cens"  | grep -cE "mda_ok .*multi-driver-array")
+# real run: soundness (accel == interp) + install discrimination
+rm -rf "$W/.cache/nvc/accel"
+rout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$MD/w" -L "$VLIB" -r mda_tb 2>&1)
+MA=$(printf '%s' "$rout" | grep -oE '(Y|Z)=[0-9]+' | tr '\n' ' ')
+iok=$(printf  '%s' "$rout" | grep -cE "ACTIVE .*'mda_ok'")
+ibad=$(printf '%s' "$rout" | grep -cE "ACTIVE .*'mda_bad'")
+if [ -n "$MI" ] && [ "$MA" = "$MI" ] && [ "$gbad" -ge 1 ] && [ "$gok" -eq 0 ]    && [ "$iok" -ge 1 ] && [ "$ibad" -eq 0 ]; then
+  ok "multi-driver array guard (r22 soundness)" "(cross-read declines->interp; disjoint installs)"
+else bad "multi-driver array guard (r22 soundness)"        "acc=$MA interp=$MI badDecl=$gbad okDecl=$gok okInst=$iok badInst=$ibad"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
