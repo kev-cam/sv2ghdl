@@ -896,6 +896,110 @@ if [ -n "$MI" ] && [ "$MA" = "$MI" ] && [ "$gbad" -ge 1 ] && [ "$gok" -eq 0 ]   
   ok "multi-driver array guard (r22 soundness)" "(cross-read declines->interp; disjoint installs)"
 else bad "multi-driver array guard (r22 soundness)"        "acc=$MA interp=$MI badDecl=$gbad okDecl=$gok okInst=$iok badInst=$ibad"; fi
 
+# 18. VAR-ELEM CONST-INDEX READ-AFTER-WRITE.  A constant-indexed read of a
+#     process-local variable AFTER an SSA write must be served from the live
+#     substitution version (v(1) reads the current value), so a straight-line
+#     read-modify-write over vector elements INSTALLS via the walker instead of
+#     declining.  NEGATIVE / SOUNDNESS control: the same read on a variable
+#     written under a branch with no covering else is POISONED (no flat version);
+#     serving it would fall through to promote-on-read, which installs a
+#     persistent pv wire that is never seeded -> silently WRONG.  The guard must
+#     DECLINE that (var-elem-poison) so it runs in the interpreter and matches.
+#     If the poison guard regresses, the branch case installs-wrong and accel
+#     diverges from interp -> this check fails.
+cat > "$W/vre.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity veok is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); sel:in std_logic;
+  y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of veok is signal yr:std_logic_vector(7 downto 0):=(others=>'0');begin
+  process(clk) is variable v:std_logic_vector(7 downto 0);begin
+    if rising_edge(clk) then v:=a; v(0):=v(1) xor v(2); v(3):=v(4) xor v(5); yr<=v; end if;
+  end process; y<=yr; end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity vepo is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); sel:in std_logic;
+  y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of vepo is signal yr:std_logic_vector(7 downto 0):=(others=>'0');begin
+  process(clk) is variable v:std_logic_vector(7 downto 0);begin
+    if rising_edge(clk) then v:=a; if sel='1' then v(0):=b(0); end if; v(1):=v(0); yr<=v; end if;
+  end process; y<=yr; end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity vre_tb is end entity;
+architecture sim of vre_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0');
+  signal sel:std_logic:='0'; signal yk,yp:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ak,ap:unsigned(19 downto 0):=(others=>'0');
+  signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run;
+  uk:entity work.veok port map(clk,a,b,sel,yk);
+  up:entity work.vepo port map(clk,a,b,sel,yp);
+  process(clk) is begin if rising_edge(clk) then n<=n+1;
+    a<=std_logic_vector(n(7 downto 0) xor x"3C"); b<=std_logic_vector(n(7 downto 0) xor x"A5"); sel<=n(1);
+    ak<=ak+unsigned(yk); ap<=ap+unsigned(yp); end if; end process;
+  process begin wait for 900 ns;
+    report "Y="&integer'image(to_integer(ak(18 downto 0)));
+    report "Z="&integer'image(to_integer(ap(18 downto 0)));
+    run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+VE="$W/vre"; mkdir -p "$VE"
+$NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -a "$W/vre.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -e vre_tb >/dev/null 2>&1
+VI=$($NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -r vre_tb 2>&1 | grep -oE '(Y|Z)=[0-9]+' | tr '\n' ' ')
+cens=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_RTLIL_CENSUS=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -r vre_tb 2>&1)
+ekdec=$(printf '%s' "$cens" | grep -cE "veok .*var-elem")          # 0: straight-line installs
+podec=$(printf '%s' "$cens" | grep -cE "vepo .*var-elem-poison")   # >=1: soundness guard fires
+rm -rf "$W/.cache/nvc/accel"
+rout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -r vre_tb 2>&1)
+VA=$(printf '%s' "$rout" | grep -oE '(Y|Z)=[0-9]+' | tr '\n' ' ')
+ekinst=$(printf '%s' "$rout" | grep -cE "ACTIVE .*'veok'")         # >=1: walker install
+if [ -n "$VI" ] && [ "$VA" = "$VI" ] && [ "$ekdec" -eq 0 ] && [ "$ekinst" -ge 1 ] && [ "$podec" -ge 1 ]; then
+  ok "var-elem read-after-write (install + poison guard)" "(straight-line installs; branch-poison declines->interp)"
+else bad "var-elem read-after-write (install + poison guard)"        "acc=$VA interp=$VI okDecl=$ekdec okInst=$ekinst poisonDecl=$podec"; fi
+
+# 19. VAR-ELEM NON-ZERO LOWER BOUND.  The element read must use the flat-wire
+#     offset (idx - low), NOT the raw index, so a downto variable with a
+#     non-zero lower bound (v : std_logic_vector(15 downto 8)) reads the correct
+#     bit and installs.  If the low-bound subtraction regresses, v(10) indexes
+#     bit 10 of an 8-bit 0-based wire -> silently WRONG (accel != interp).  This
+#     is the only guard against that regression: the corpus is all lo=0.
+cat > "$W/vnz.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity vnz is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of vnz is signal yr:std_logic_vector(7 downto 0):=(others=>'0');begin
+  process(clk) is variable v:std_logic_vector(15 downto 8); variable w:std_logic_vector(7 downto 0);begin
+    if rising_edge(clk) then v:=a; w:=b;
+      w(0):=v(8); w(1):=v(10); w(2):=v(15); w(3):=v(11); w(4):=v(9); w(5):=v(12); w(6):=v(13); w(7):=v(14);
+      yr<=w; end if;
+  end process; y<=yr; end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity vnz_tb is end entity;
+architecture sim of vnz_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(19 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.vnz port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"3C"); b<=std_logic_vector(n(7 downto 0) xor x"A5"); ac<=ac+unsigned(y); end if; end process;
+  process begin wait for 900 ns; report "R="&integer'image(to_integer(ac(18 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+NZ="$W/vnz"; mkdir -p "$NZ"
+$NVC -M 256m -H 256m --std=2008 --work="$NZ/w" -L "$VLIB" -a "$W/vnz.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$NZ/w" -L "$VLIB" -e vnz_tb >/dev/null 2>&1
+NI=$($NVC -M 256m -H 256m --std=2008 --work="$NZ/w" -L "$VLIB" -r vnz_tb 2>&1 | grep -oE 'R=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+nout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NZ/w" -L "$VLIB" -r vnz_tb 2>&1)
+NA=$(printf '%s' "$nout" | grep -oE 'R=[0-9]+')
+nzinst=$(printf '%s' "$nout" | grep -cE "ACTIVE .*'vnz'")
+nzdec=$(printf '%s' "$nout" | grep -cE "'vnz'[^\"]*declined")
+if [ -n "$NI" ] && [ "$NA" = "$NI" ] && [ "$nzinst" -ge 1 ] && [ "$nzdec" -eq 0 ]; then
+  ok "var-elem non-zero lower bound (idx-low offset)" "(v(15 downto 8) installs + matches)"
+else bad "var-elem non-zero lower bound (idx-low offset)" "acc=$NA interp=$NI inst=$nzinst dec=$nzdec"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
