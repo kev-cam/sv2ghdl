@@ -1049,6 +1049,118 @@ if [ -n "$FI" ] && [ "$FA" = "$FI" ] && [ "$flinst" -ge 1 ] && [ "$fldec" -eq 0 
   ok "SSA if-merge loop-carried flag installs" "(priority-encoder found-flag; branch-merge survives arm)"
 else bad "SSA if-merge loop-carried flag installs" "acc=$FA interp=$FI inst=$flinst dec=$fldec"; fi
 
+# 21. WAIT-UNTIL FLOP CLOCK-DROP GUARD (silent-wrong).  clock_of only detects a
+#     clock from `if rising_edge`; a `wait until rising_edge` flop was emitted as
+#     combinational (`assign q=b`, one cycle lost).  A pure such flop stays in
+#     interp (comb-only net), but a MIXED module (a real `if rising_edge` register
+#     + a wait-until flop) passed that net and installed SILENTLY WRONG.  Both
+#     paths now DECLINE any process with a wait-until edge (wait-edge-flop) so the
+#     module runs in interp.  This asserts the per-net VERIFY oracle sees ZERO
+#     divergence on the mixed module -- a regression re-ships the silent-wrong.
+cat > "$W/fumix.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity fumix is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of fumix is signal r:unsigned(7 downto 0):=(others=>'0'); signal q:std_logic_vector(7 downto 0):=(others=>'0');begin
+  rp: process(clk) is begin if rising_edge(clk) then r <= r + unsigned(a); end if; end process;
+  wp: process is begin wait until rising_edge(clk); q <= b; end process;
+  y <= std_logic_vector(r) xor q;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity fumix_tb is end entity;
+architecture sim of fumix_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(19 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.fumix port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"3C"); b<=std_logic_vector(n(7 downto 0) xor x"A5"); ac<=ac+unsigned(y); end if; end process;
+  process begin wait for 900 ns; report "Y="&integer'image(to_integer(ac(18 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+FX="$W/fumix"; mkdir -p "$FX"
+$NVC -M 256m -H 256m --std=2008 --work="$FX/w" -L "$VLIB" -a "$W/fumix.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$FX/w" -L "$VLIB" -e fumix_tb >/dev/null 2>&1
+XI=$($NVC -M 256m -H 256m --std=2008 --work="$FX/w" -L "$VLIB" -r fumix_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+xdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FX/w" -L "$VLIB" -r fumix_tb 2>&1 | grep -ciE diverg)
+rm -rf "$W/.cache/nvc/accel"
+xcens=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_RTLIL_CENSUS=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FX/w" -L "$VLIB" -r fumix_tb 2>&1)
+xdec=$(printf '%s' "$xcens" | grep -cE "wait-edge-flop")
+if [ -n "$XI" ] && [ "$xdiv" -eq 0 ] && [ "$xdec" -ge 1 ]; then
+  ok "wait-until flop clock-drop guard (silent-wrong)" "(mixed module declines wait-edge-flop; VERIFY 0)"
+else bad "wait-until flop clock-drop guard (silent-wrong)" "interp=$XI verifyDiv=$xdiv waitDecl=$xdec"; fi
+
+# 22. to_unsigned/to_signed OF A RUNTIME INT.  The counter->vector cast
+#     to_unsigned(to_integer(unsigned(a))+..., W) / to_signed(...) now renders on
+#     the value plane (zero/sign-extend or narrow) and INSTALLS via the walker.
+cat > "$W/g2.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity g2 is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); sel:in std_logic; y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of g2 is signal yr:std_logic_vector(7 downto 0):=(others=>'0');begin
+  process(clk) is variable v:std_logic_vector(7 downto 0);begin
+    if rising_edge(clk) then
+      if sel='1' then v := std_logic_vector(to_unsigned(to_integer(unsigned(a)) + to_integer(unsigned(b)), 8));
+      else v := std_logic_vector(to_signed(to_integer(signed(a)) - 3, 8)); end if;
+      yr<=v; end if;
+  end process; y<=yr; end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity g2_tb is end entity;
+architecture sim of g2_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal sel:std_logic:='0'; signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(19 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.g2 port map(clk,a,b,sel,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"3C"); b<=std_logic_vector(n(7 downto 0) xor x"A5"); sel<=n(1); ac<=ac+unsigned(y); end if; end process;
+  process begin wait for 900 ns; report "Y="&integer'image(to_integer(ac(18 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+G2="$W/g2"; mkdir -p "$G2"
+$NVC -M 256m -H 256m --std=2008 --work="$G2/w" -L "$VLIB" -a "$W/g2.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$G2/w" -L "$VLIB" -e g2_tb >/dev/null 2>&1
+GI=$($NVC -M 256m -H 256m --std=2008 --work="$G2/w" -L "$VLIB" -r g2_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+gout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$G2/w" -L "$VLIB" -r g2_tb 2>&1)
+GA=$(printf '%s' "$gout" | grep -oE 'Y=[0-9]+'); ginst=$(printf '%s' "$gout" | grep -cE "ACTIVE .*'g2'")
+if [ -n "$GI" ] && [ "$GA" = "$GI" ] && [ "$ginst" -ge 1 ]; then
+  ok "to_unsigned/to_signed of runtime int installs" "(counter->vector cast; zero/sign-extend)"
+else bad "to_unsigned/to_signed of runtime int installs" "acc=$GA interp=$GI inst=$ginst"; fi
+
+# 23. to_signed/to_unsigned WIDENING must NOT silently install wrong.  Widening a
+#     runtime INTEGER (self-determined render width) sign/zero-extends from the
+#     rendered MSB (bit 7 for an 8-bit-derived int), NOT the true integer sign --
+#     silently wrong.  The fix DECLINES the widen (to_uns-widen) rather than
+#     install; this asserts the per-net VERIFY oracle sees ZERO divergence on a
+#     to_signed(runtime,16) widen.  Re-enabling the widen re-ships the silent-wrong.
+cat > "$W/tsw.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity tsw is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of tsw is signal vf:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then vf <= std_logic_vector(to_signed(to_integer(signed(a)) - 200, 16)); end if; end process;
+  y <= vf(7 downto 0) xor vf(15 downto 8);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity tsw_tb is end entity;
+architecture sim of tsw_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(19 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.tsw port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"3C"); b<=std_logic_vector(n(7 downto 0) xor x"A5"); ac<=ac+unsigned(y); end if; end process;
+  process begin wait for 900 ns; report "Y="&integer'image(to_integer(ac(18 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+TS="$W/tsw"; mkdir -p "$TS"
+$NVC -M 256m -H 256m --std=2008 --work="$TS/w" -L "$VLIB" -a "$W/tsw.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$TS/w" -L "$VLIB" -e tsw_tb >/dev/null 2>&1
+TI=$($NVC -M 256m -H 256m --std=2008 --work="$TS/w" -L "$VLIB" -r tsw_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+tdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$TS/w" -L "$VLIB" -r tsw_tb 2>&1 | grep -ciE diverg)
+if [ -n "$TI" ] && [ "$tdiv" -eq 0 ]; then
+  ok "to_signed/to_unsigned widen not silently wrong" "(runtime-int widen declines; VERIFY 0)"
+else bad "to_signed/to_unsigned widen not silently wrong" "interp=$TI verifyDiv=$tdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
