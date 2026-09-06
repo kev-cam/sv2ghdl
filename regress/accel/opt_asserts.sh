@@ -896,17 +896,17 @@ if [ -n "$MI" ] && [ "$MA" = "$MI" ] && [ "$gbad" -ge 1 ] && [ "$gok" -eq 0 ]   
   ok "multi-driver array guard (r22 soundness)" "(cross-read declines->interp; disjoint installs)"
 else bad "multi-driver array guard (r22 soundness)"        "acc=$MA interp=$MI badDecl=$gbad okDecl=$gok okInst=$iok badInst=$ibad"; fi
 
-# 18. VAR-ELEM CONST-INDEX READ-AFTER-WRITE.  A constant-indexed read of a
-#     process-local variable AFTER an SSA write must be served from the live
+# 18. VAR-ELEM CONST-INDEX READ-AFTER-WRITE + SSA IF-MERGE.  A constant-indexed
+#     read of a process-local variable AFTER an SSA write is served from the live
 #     substitution version (v(1) reads the current value), so a straight-line
-#     read-modify-write over vector elements INSTALLS via the walker instead of
-#     declining.  NEGATIVE / SOUNDNESS control: the same read on a variable
-#     written under a branch with no covering else is POISONED (no flat version);
-#     serving it would fall through to promote-on-read, which installs a
-#     persistent pv wire that is never seeded -> silently WRONG.  The guard must
-#     DECLINE that (var-elem-poison) so it runs in the interpreter and matches.
-#     If the poison guard regresses, the branch case installs-wrong and accel
-#     diverges from interp -> this check fails.
+#     read-modify-write over vector elements INSTALLS via the walker (veok).  The
+#     SAME read on a variable written under a branch (vepo) used to be POISONED on
+#     arm exit and declined (var-elem-poison).  Since the SSA if-merge (r2_var_write
+#     stamps a branch-merge mux at PREV's depth so it survives r2_subst_poison_from),
+#     the branch-written version now carries past the branch, so vepo INSTALLS and
+#     matches too.  Both installing + matching, with NO var-elem-poison decline, is
+#     the assertion; if the if-merge regresses, vepo declines (or installs-wrong)
+#     and this fails.
 cat > "$W/vre.vhd" <<'VHD'
 library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
 entity veok is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); sel:in std_logic;
@@ -951,14 +951,15 @@ $NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -e vre_tb >/dev/null 2
 VI=$($NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -r vre_tb 2>&1 | grep -oE '(Y|Z)=[0-9]+' | tr '\n' ' ')
 cens=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_RTLIL_CENSUS=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -r vre_tb 2>&1)
 ekdec=$(printf '%s' "$cens" | grep -cE "veok .*var-elem")          # 0: straight-line installs
-podec=$(printf '%s' "$cens" | grep -cE "vepo .*var-elem-poison")   # >=1: soundness guard fires
+podec=$(printf '%s' "$cens" | grep -cE "vepo .*var-elem-poison")   # 0: if-merge installs it now
 rm -rf "$W/.cache/nvc/accel"
 rout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VE/w" -L "$VLIB" -r vre_tb 2>&1)
 VA=$(printf '%s' "$rout" | grep -oE '(Y|Z)=[0-9]+' | tr '\n' ' ')
 ekinst=$(printf '%s' "$rout" | grep -cE "ACTIVE .*'veok'")         # >=1: walker install
-if [ -n "$VI" ] && [ "$VA" = "$VI" ] && [ "$ekdec" -eq 0 ] && [ "$ekinst" -ge 1 ] && [ "$podec" -ge 1 ]; then
-  ok "var-elem read-after-write (install + poison guard)" "(straight-line installs; branch-poison declines->interp)"
-else bad "var-elem read-after-write (install + poison guard)"        "acc=$VA interp=$VI okDecl=$ekdec okInst=$ekinst poisonDecl=$podec"; fi
+poinst=$(printf '%s' "$rout" | grep -cE "ACTIVE .*'vepo'")         # >=1: branch case now INSTALLS (SSA if-merge)
+if [ -n "$VI" ] && [ "$VA" = "$VI" ] && [ "$ekdec" -eq 0 ] && [ "$ekinst" -ge 1 ] && [ "$poinst" -ge 1 ] && [ "$podec" -eq 0 ]; then
+  ok "var-elem read-after-write (both install via SSA if-merge)" "(straight-line + branch-write-then-read both install + match)"
+else bad "var-elem read-after-write (both install via SSA if-merge)"        "acc=$VA interp=$VI okDecl=$ekdec okInst=$ekinst poInst=$poinst poDec=$podec"; fi
 
 # 19. VAR-ELEM NON-ZERO LOWER BOUND.  The element read must use the flat-wire
 #     offset (idx - low), NOT the raw index, so a downto variable with a
@@ -999,6 +1000,54 @@ nzdec=$(printf '%s' "$nout" | grep -cE "'vnz'[^\"]*declined")
 if [ -n "$NI" ] && [ "$NA" = "$NI" ] && [ "$nzinst" -ge 1 ] && [ "$nzdec" -eq 0 ]; then
   ok "var-elem non-zero lower bound (idx-low offset)" "(v(15 downto 8) installs + matches)"
 else bad "var-elem non-zero lower bound (idx-low offset)" "acc=$NA interp=$NI inst=$nzinst dec=$nzdec"; fi
+
+# 20. SSA IF-MERGE across loop iterations (the "while-fold" gap).  A loop-carried
+#     scalar variable WRITTEN under a branch and READ at the top of the next
+#     iteration (a priority-encoder found-flag) requires the branch-merge version
+#     to survive arm exit.  Before the if-merge it was poisoned -> var-read decline
+#     -> whole loop to the text path; now it INSTALLS via the walker and matches.
+cat > "$W/ffl.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity ffl is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of ffl is signal yr:std_logic_vector(7 downto 0):=(others=>'0');begin
+  process(clk) is variable found:std_logic; variable acc:std_logic_vector(7 downto 0);begin
+    if rising_edge(clk) then
+      acc := (others=>'0'); found := '0';
+      for k in 0 to 7 loop
+        if found = '0' then          -- read the loop-carried flag
+          if a(k) = '1' then
+            acc(k) := b(k);
+            found := '1';            -- branch write, must carry to next iter
+          end if;
+        end if;
+      end loop;
+      yr <= acc;
+    end if;
+  end process; y<=yr; end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity ffl_tb is end entity;
+architecture sim of ffl_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(19 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.ffl port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"93"); b<=std_logic_vector(n(7 downto 0) xor x"5A"); ac<=ac+unsigned(y); end if; end process;
+  process begin wait for 900 ns; report "Y="&integer'image(to_integer(ac(18 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+FL="$W/ffl"; mkdir -p "$FL"
+$NVC -M 256m -H 256m --std=2008 --work="$FL/w" -L "$VLIB" -a "$W/ffl.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$FL/w" -L "$VLIB" -e ffl_tb >/dev/null 2>&1
+FI=$($NVC -M 256m -H 256m --std=2008 --work="$FL/w" -L "$VLIB" -r ffl_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+fout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FL/w" -L "$VLIB" -r ffl_tb 2>&1)
+FA=$(printf '%s' "$fout" | grep -oE 'Y=[0-9]+')
+flinst=$(printf '%s' "$fout" | grep -cE "ACTIVE .*'ffl'")
+fldec=$(printf '%s' "$fout" | grep -cE "'ffl'[^\"]*declined")
+if [ -n "$FI" ] && [ "$FA" = "$FI" ] && [ "$flinst" -ge 1 ] && [ "$fldec" -eq 0 ]; then
+  ok "SSA if-merge loop-carried flag installs" "(priority-encoder found-flag; branch-merge survives arm)"
+else bad "SSA if-merge loop-carried flag installs" "acc=$FA interp=$FI inst=$flinst dec=$fldec"; fi
 
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
