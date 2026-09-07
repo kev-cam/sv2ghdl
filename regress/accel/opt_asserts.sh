@@ -1461,6 +1461,65 @@ if [ -n "$NBI" ] && [ "$NBA" = "$NBI" ] && [ "$nbwins" -ge 1 ] && [ "$nbdiv" -eq
   ok "non-zero-base downto var write installs (idx-low flat pos)" "(v(15 downto 8); v(10):=.. installs + matches; VERIFY 0)"
 else bad "non-zero-base downto var write installs (idx-low flat pos)" "acc=$NBA interp=$NBI installed=$nbwins verifyDiv=$nbdiv"; fi
 
+# 30. LOGIC3D registered `{concat} <binop> X` (a concatenation as the LEFT binop
+#     operand) samples that concat ONE DELTA STALE in the accel register capture
+#     -- a silent-wrong on logic3d (r30_A: interp 1366608141 vs installed-accel
+#     513376671).  std_logic is captured correctly, and the direct walker installs
+#     VeeR fine, so this declines ONLY the logic3d concat-left-operand register ->
+#     the process runs in the interpreter (both the walker r2_process and the text
+#     emit_process decline it).  Uses --std=2040 for the sv2vhdl logic3d package
+#     (as translated.sh does).  Asserts the walker DECLINES (l3d-reg-concat-binop),
+#     is NOT installed, and accel==interp with VERIFY 0.
+cat > "$W/l3dc.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+library sv2vhdl; use sv2vhdl.logic3d_types_pkg.all;
+entity l3dc is port(clk:in logic3d; reset:in logic3d; a,b:in logic3d_vector(31 downto 0); op:in logic3d_vector(3 downto 0); y:out logic3d_vector(31 downto 0));end entity;
+architecture rtl of l3dc is signal ue:logic3d_vector(11 downto 0):=(others=>L3D_0); signal um:logic3d_vector(31 downto 0):=(others=>L3D_0); signal yr:logic3d_vector(31 downto 0):=(others=>L3D_0);begin
+  ue <= a(11 downto 0); um <= b;
+  process is begin if rising_edge(clk) then
+    if is_one(reset) then yr <= (others=>L3D_0);
+    else yr <= (ue & um(19 downto 0)) xor (a(31 downto 12) & b(11 downto 0)); end if;
+  end if; wait on clk; end process;
+  y <= yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+library sv2vhdl; use sv2vhdl.logic3d_types_pkg.all; use std.env.stop;
+entity l3dc_tb is end entity;
+architecture t of l3dc_tb is
+  signal clk:logic3d:=L3D_0; signal reset:logic3d:=L3D_1;
+  signal a,b:logic3d_vector(31 downto 0):=(others=>L3D_0); signal op:logic3d_vector(3 downto 0):=(others=>L3D_0);
+  signal y:logic3d_vector(31 downto 0); signal running:boolean:=true;
+begin
+  dut:entity work.l3dc port map(clk=>clk,reset=>reset,a=>a,b=>b,op=>op,y=>y);
+  clkgen:process is begin wait for 5 ns; while running loop clk<=L3D_1; wait for 5 ns; clk<=L3D_0; wait for 5 ns; end loop; wait; end process;
+  stim:process is variable x:unsigned(31 downto 0):=x"2545F491"; variable acc:unsigned(31 downto 0):=(others=>'0');
+  begin
+    for i in 0 to 39 loop
+      wait until clk=L3D_0;
+      if i=2 then reset<=L3D_0; end if;
+      x:=x xor (x sll 13); x:=x xor (x srl 17); x:=x xor (x sll 5);
+      a<=unsigned_to_l3d(x); b<=unsigned_to_l3d(x(15 downto 0)&x(31 downto 16)); op<=unsigned_to_l3d(x(3 downto 0));
+      wait for 1 ns;
+      acc:=(acc(30 downto 0)&acc(31)) xor l3d_to_unsigned(y);
+    end loop;
+    report "Y="&integer'image(to_integer(acc(30 downto 0))); running<=false; wait;
+  end process;
+end architecture;
+VHD
+LC="$W/l3dc"; mkdir -p "$LC"
+$NVC -M 256m -H 256m --std=2040 --work="$LC/w" -L "$VLIB" -a "$W/l3dc.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2040 --work="$LC/w" -L "$VLIB" -e l3dc_tb >/dev/null 2>&1
+LCI=$($NVC -M 256m -H 256m --std=2040 --work="$LC/w" -L "$VLIB" -r l3dc_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+lcout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 GSM_LOG=1     timeout 120 $NVC -M 256m -H 256m --std=2040 --work="$LC/w" -L "$VLIB" -r --accel l3dc_tb 2>&1)
+LCA=$(printf '%s' "$lcout" | grep -oE 'Y=[0-9]+'); lcdec=$(printf '%s' "$lcout" | grep -c 'l3d-reg-concat-binop'); lcwins=$(printf '%s' "$lcout" | grep -cE "ACTIVE .*'l3dc'")
+rm -rf "$W/.cache/nvc/accel"
+lcdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2040 --work="$LC/w" -L "$VLIB" -r --accel l3dc_tb 2>&1 | grep -ciE diverg)
+if [ -n "$LCI" ] && [ "$LCA" = "$LCI" ] && [ "$lcdec" -ge 1 ] && [ "$lcwins" -eq 0 ] && [ "$lcdiv" -eq 0 ]; then
+  ok "logic3d reg concat-left-operand declines (silent-wrong)" "(l3d-reg-concat-binop -> interp; accel==interp; VERIFY 0)"
+else bad "logic3d reg concat-left-operand declines (silent-wrong)" "acc=$LCA interp=$LCI decl=$lcdec installed=$lcwins verifyDiv=$lcdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
