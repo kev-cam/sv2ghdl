@@ -1272,6 +1272,57 @@ if [ -n "$SMI" ] && [ "$SMA" = "$SMI" ] && [ "$sminst" -ge 1 ] && [ "$smdiv" -eq
   ok "signed multiply widening renders full product (silent-wrong)" "(sum-width + operand extend; unsigned stays unsigned; VERIFY 0)"
 else bad "signed multiply widening renders full product (silent-wrong)" "acc=$SMA interp=$SMI inst=$sminst verifyDiv=$smdiv"; fi
 
+# 26. resize of a product BEYOND its natural width installs (was a crash/decline).
+#     `resize(a*b, N)` with N > product width widens an UNCONSTRAINED operator
+#     result.  The numeric_std `resize`/`to_l3d` kind-2 identity passed the
+#     sum-wide product spec to the assignment, which sliced [N-1:0] of the
+#     narrower temp -- a gen_statemachine range-check that DECLINED to the text
+#     path (correct for unsigned, silently WRONG for signed).  The walker now
+#     materializes + explicitly extends an unconstrained operator operand to the
+#     resize target (sign-extend signed, zero-extend unsigned).  This module
+#     widens a SIGNED and an UNSIGNED 8x8 product to 32 bits; the sweep hits
+#     MSB-set/negative operands so a mis-extended product diverges.  Asserts
+#     install via the rtlil builder (NOT declined) + accel==interp + VERIFY 0.
+cat > "$W/rzw.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity rzw is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(31 downto 0));end entity;
+architecture rtl of rzw is
+  signal sp:std_logic_vector(31 downto 0):=(others=>'0');   -- SIGNED product widened to 32
+  signal up:std_logic_vector(31 downto 0):=(others=>'0');   -- UNSIGNED product widened to 32
+  signal d:unsigned(31 downto 0):=(others=>'0');
+begin
+  process(clk) is begin if rising_edge(clk) then
+    d  <= d + unsigned(a);
+    sp <= std_logic_vector(resize(signed(a) * signed(b), 32));
+    up <= std_logic_vector(resize(unsigned(a) * unsigned(b), 32));
+  end if; end process;
+  y <= sp xor up xor std_logic_vector(d);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity rzw_tb is end entity;
+architecture sim of rzw_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(31 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(31 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.rzw port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"C3"); b<=std_logic_vector(n(7 downto 0) xor x"5A"); ac<=ac+unsigned(y(23 downto 8)); end if; end process;
+  process begin wait for 1200 ns; report "Y="&integer'image(to_integer(ac(30 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+RZ="$W/rzw"; mkdir -p "$RZ"
+$NVC -M 256m -H 256m --std=2008 --work="$RZ/w" -L "$VLIB" -a "$W/rzw.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$RZ/w" -L "$VLIB" -e rzw_tb >/dev/null 2>&1
+RZI=$($NVC -M 256m -H 256m --std=2008 --work="$RZ/w" -L "$VLIB" -r rzw_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+rzout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$RZ/w" -L "$VLIB" -r --accel rzw_tb 2>&1)
+RZA=$(printf '%s' "$rzout" | grep -oE 'Y=[0-9]+'); rzinst=$(printf '%s' "$rzout" | grep -cE "ACTIVE .*'rzw'"); rzcrash=$(printf '%s' "$rzout" | grep -ciE 'range_check')
+rm -rf "$W/.cache/nvc/accel"
+rzdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$RZ/w" -L "$VLIB" -r --accel rzw_tb 2>&1 | grep -ciE diverg)
+if [ -n "$RZI" ] && [ "$RZA" = "$RZI" ] && [ "$rzinst" -ge 1 ] && [ "$rzdiv" -eq 0 ] && [ "$rzcrash" -eq 0 ]; then
+  ok "resize product beyond natural width installs (silent-wrong)" "(unconstrained operand sign/zero-extends; no over-read; VERIFY 0)"
+else bad "resize product beyond natural width installs (silent-wrong)" "acc=$RZA interp=$RZI inst=$rzinst crash=$rzcrash verifyDiv=$rzdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
