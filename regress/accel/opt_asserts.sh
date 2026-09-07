@@ -1216,6 +1216,62 @@ if [ -n "$UI" ] && [ "$UA" = "$UI" ] && [ "$uinst" -ge 1 ] && [ "$udiv" -eq 0 ];
   ok "unsigned div/rem/compare render unsigned (silent-wrong)" "(installs; signed /4 stays signed; VERIFY 0)"
 else bad "unsigned div/rem/compare render unsigned (silent-wrong)" "acc=$UA interp=$UI inst=$uinst verifyDiv=$udiv"; fi
 
+# 25. SIGNED MULTIPLY WIDENING must render the FULL product (silent-wrong).
+#     A multiply's natural width is the SUM of operand widths (8x8 -> 16); the
+#     walker once took the MAX (8), truncating the product, so a widening
+#     resize/`$signed()` around it sign-extended the truncated low byte:
+#     `resize(signed(a)*k,16)` gave sext(low8(-280))=0xFFE8 instead of
+#     -280=0xFEE8.  The fix computes the mul at the sum width AND sign/zero-
+#     extends the operands to it (the synth's $mul does not itself widen a
+#     narrower signed operand).  This module registers a signed /const mul, a
+#     signed*signed mul, and an UNSIGNED mul (which must STAY unsigned) all
+#     widened to 16/32; the sweep hits MSB-set/negative operands so a truncated
+#     or mis-signed product diverges.  Reverting either half re-ships the
+#     silent-wrong (negative control: pre-fix accel 0xFFE8 vs interp 0xFEE8).
+cat > "$W/smw.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity smw is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(23 downto 0));end entity;
+architecture rtl of smw is
+  signal sc:std_logic_vector(15 downto 0):=(others=>'0');   -- signed * const, widen to product width 16
+  signal sv:std_logic_vector(15 downto 0):=(others=>'0');   -- signed * signed, widen to product width 16
+  signal uv:std_logic_vector(15 downto 0):=(others=>'0');   -- unsigned * unsigned, product width 16 (stays unsigned)
+  signal nn:std_logic_vector(23 downto 0):=(others=>'0');   -- NESTED (a*b)*const, product width 24
+  signal d:unsigned(23 downto 0):=(others=>'0');
+begin
+  process(clk) is begin if rising_edge(clk) then
+    d  <= d + unsigned(a);
+    sc <= std_logic_vector(resize(signed(a) * to_signed(-3,8), 16));
+    sv <= std_logic_vector(resize(signed(a) * signed(b), 16));
+    uv <= std_logic_vector(resize(unsigned(a) * unsigned(b), 16));
+    nn <= std_logic_vector(resize(signed(a) * signed(b) * to_signed(-2,8), 24));
+  end if; end process;
+  y <= (x"00" & sc) xor (x"00" & sv) xor (x"00" & uv) xor nn xor std_logic_vector(d);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity smw_tb is end entity;
+architecture sim of smw_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(23 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(31 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.smw port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"C3"); b<=std_logic_vector(n(7 downto 0) xor x"5A"); ac<=ac+unsigned(y(23 downto 9)); end if; end process;
+  process begin wait for 1200 ns; report "Y="&integer'image(to_integer(ac(30 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+SM="$W/smw"; mkdir -p "$SM"
+$NVC -M 256m -H 256m --std=2008 --work="$SM/w" -L "$VLIB" -a "$W/smw.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$SM/w" -L "$VLIB" -e smw_tb >/dev/null 2>&1
+SMI=$($NVC -M 256m -H 256m --std=2008 --work="$SM/w" -L "$VLIB" -r smw_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+smout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SM/w" -L "$VLIB" -r --accel smw_tb 2>&1)
+SMA=$(printf '%s' "$smout" | grep -oE 'Y=[0-9]+'); sminst=$(printf '%s' "$smout" | grep -cE "ACTIVE .*'smw'")
+rm -rf "$W/.cache/nvc/accel"
+smdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SM/w" -L "$VLIB" -r --accel smw_tb 2>&1 | grep -ciE diverg)
+if [ -n "$SMI" ] && [ "$SMA" = "$SMI" ] && [ "$sminst" -ge 1 ] && [ "$smdiv" -eq 0 ]; then
+  ok "signed multiply widening renders full product (silent-wrong)" "(sum-width + operand extend; unsigned stays unsigned; VERIFY 0)"
+else bad "signed multiply widening renders full product (silent-wrong)" "acc=$SMA interp=$SMI inst=$sminst verifyDiv=$smdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
