@@ -1161,6 +1161,61 @@ if [ -n "$TI" ] && [ "$tdiv" -eq 0 ]; then
   ok "to_signed/to_unsigned widen not silently wrong" "(runtime-int widen declines; VERIFY 0)"
 else bad "to_signed/to_unsigned widen not silently wrong" "interp=$TI verifyDiv=$tdiv"; fi
 
+# 24. numeric_std UNSIGNED division/rem/compare must render UNSIGNED (silent-wrong).
+#     The generic binop signedness once OR'd the operands (`signed||integer` on
+#     EITHER side) so `unsigned(a)/16` -- an UNSIGNED dividend with a NATURAL
+#     literal divisor -- emitted a SIGNED $div: silent-wrong whenever a's MSB is
+#     set (a=142 gave interp 8 vs accel 249).  The fix requires BOTH operands
+#     signed for a signed op, matching numeric_std (`unsigned op natural` is
+#     unsigned) and Verilog's self-determined rule the text path relies on.  This
+#     module registers an unsigned /16, an unsigned rem, an unsigned <compare, AND
+#     a SIGNED /4 (which must STAY signed) all into one output; the operand sweep
+#     hits MSB-set values, so a mis-signed div/rem/compare diverges.  Reverting to
+#     the OR rule re-ships the silent-wrong (negative control).
+cat > "$W/udv.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity udv is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of udv is
+  signal qu:std_logic_vector(7 downto 0):=(others=>'0');   -- unsigned / const
+  signal qr:std_logic_vector(7 downto 0):=(others=>'0');   -- unsigned rem const
+  signal qc:std_logic_vector(7 downto 0):=(others=>'0');   -- unsigned compare mux
+  signal qs:std_logic_vector(7 downto 0):=(others=>'0');   -- SIGNED / const (stays signed)
+  signal d:unsigned(7 downto 0):=(others=>'0');
+begin
+  process(clk) is begin if rising_edge(clk) then
+    d  <= d + unsigned(a);
+    qu <= std_logic_vector(resize(unsigned(a) / 16, 8));
+    qr <= std_logic_vector(unsigned(a) rem 100);
+    if unsigned(a) < 100 then qc <= x"01"; else qc <= x"02"; end if;
+    qs <= std_logic_vector(resize(signed(a) / 4, 8));
+  end if; end process;
+  y <= qu xor qr xor qc xor qs xor std_logic_vector(d);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity udv_tb is end entity;
+architecture sim of udv_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(23 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.udv port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"C3"); b<=std_logic_vector(n(7 downto 0) xor x"5A"); ac<=ac+unsigned('0'&y); end if; end process;
+  process begin wait for 1200 ns; report "Y="&integer'image(to_integer(ac(22 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+UD="$W/udv"; mkdir -p "$UD"
+$NVC -M 256m -H 256m --std=2008 --work="$UD/w" -L "$VLIB" -a "$W/udv.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$UD/w" -L "$VLIB" -e udv_tb >/dev/null 2>&1
+UI=$($NVC -M 256m -H 256m --std=2008 --work="$UD/w" -L "$VLIB" -r udv_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+uout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$UD/w" -L "$VLIB" -r udv_tb 2>&1)
+UA=$(printf '%s' "$uout" | grep -oE 'Y=[0-9]+'); uinst=$(printf '%s' "$uout" | grep -cE "ACTIVE .*'udv'")
+rm -rf "$W/.cache/nvc/accel"
+udiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$UD/w" -L "$VLIB" -r udv_tb 2>&1 | grep -ciE diverg)
+if [ -n "$UI" ] && [ "$UA" = "$UI" ] && [ "$uinst" -ge 1 ] && [ "$udiv" -eq 0 ]; then
+  ok "unsigned div/rem/compare render unsigned (silent-wrong)" "(installs; signed /4 stays signed; VERIFY 0)"
+else bad "unsigned div/rem/compare render unsigned (silent-wrong)" "acc=$UA interp=$UI inst=$uinst verifyDiv=$udiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
