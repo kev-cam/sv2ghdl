@@ -1377,6 +1377,90 @@ if [ -n "$RNI" ] && [ "$RNA" = "$RNI" ] && [ "$rninst" -ge 1 ] && [ "$rndiv" -eq
   ok "signed resize NARROWING keeps sign+low bits (silent-wrong)" "(signed sign-preserve; unsigned stays low-bits; VERIFY 0)"
 else bad "signed resize NARROWING keeps sign+low bits (silent-wrong)" "acc=$RNA interp=$RNI inst=$rninst verifyDiv=$rndiv"; fi
 
+# 28. ASCENDING ('to') local-vector element/slice access must reach the
+#     INTERPRETER (silent-wrong).  A `variable v:std_logic_vector(0 to 7)`
+#     partial write `v(2):=..` or slice write `v(4 to 7):=v(0 to 3)` was
+#     mis-indexed by BOTH the flat value-plane write and the text path (they
+#     assume a downto layout) -- it INSTALLED and diverged (B1: interp 18777 vs
+#     accel 17497).  The walker now declines the access (var-part-to/var-elem-to)
+#     AND the text frontend declines the whole process (asc-var-part), so the
+#     subtree runs in interp.  Asserts accel==interp with VERIFY 0 (no installed
+#     wrong model).  Reverting either guard re-ships the silent-wrong.
+cat > "$W/asc.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity asc is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of asc is signal yr:std_logic_vector(7 downto 0):=(others=>'0'); signal d:unsigned(7 downto 0):=(others=>'0');begin
+  process(clk) is variable v:std_logic_vector(0 to 7); begin if rising_edge(clk) then
+    d<=d+1; v:=a; v(2):=b(0); v(4 to 7):=v(0 to 3); yr<=v;
+  end if; end process;
+  y<=yr xor std_logic_vector(d);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity asc_tb is end entity;
+architecture sim of asc_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(23 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.asc port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"C3"); b<=std_logic_vector(n(7 downto 0) xor x"5A"); ac<=ac+unsigned('0'&y); end if; end process;
+  process begin wait for 900 ns; report "Y="&integer'image(to_integer(ac(22 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+AS="$W/asc"; mkdir -p "$AS"
+$NVC -M 256m -H 256m --std=2008 --work="$AS/w" -L "$VLIB" -a "$W/asc.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$AS/w" -L "$VLIB" -e asc_tb >/dev/null 2>&1
+ASI=$($NVC -M 256m -H 256m --std=2008 --work="$AS/w" -L "$VLIB" -r asc_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+asout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$AS/w" -L "$VLIB" -r --accel asc_tb 2>&1)
+ASA=$(printf '%s' "$asout" | grep -oE 'Y=[0-9]+'); aswins=$(printf '%s' "$asout" | grep -cE "ACTIVE .*'asc'")
+rm -rf "$W/.cache/nvc/accel"
+asdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$AS/w" -L "$VLIB" -r --accel asc_tb 2>&1 | grep -ciE diverg)
+if [ -n "$ASI" ] && [ "$ASA" = "$ASI" ] && [ "$aswins" -eq 0 ] && [ "$asdiv" -eq 0 ]; then
+  ok "ascending var element/slice reaches interp (silent-wrong)" "(walker + text decline; runs interp; VERIFY 0)"
+else bad "ascending var element/slice reaches interp (silent-wrong)" "acc=$ASA interp=$ASI installed=$aswins verifyDiv=$asdiv"; fi
+
+# 29. NON-ZERO-BASE downto partial/slice WRITE installs (was decline->text->wrong).
+#     `variable v:std_logic_vector(15 downto 8); v(10):=..` used the RAW index 10
+#     as the flat bit position (out of the 8-bit range -> "bit-build w8" decline
+#     -> text path, which is ALSO wrong for a non-zero base).  The write path now
+#     subtracts the low bound (flat = index - low), mirroring the read path, so it
+#     installs correctly.  Asserts install via the rtlil builder + accel==interp
+#     + VERIFY 0.
+cat > "$W/nzb.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity nzb is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of nzb is signal yr:std_logic_vector(7 downto 0):=(others=>'0'); signal d:unsigned(7 downto 0):=(others=>'0');begin
+  process(clk) is variable v:std_logic_vector(15 downto 8); begin if rising_edge(clk) then
+    d<=d+1; v:=a; v(10):=b(0); v(13 downto 11):=b(2 downto 0); yr<=v;
+  end if; end process;
+  y<=yr xor std_logic_vector(d);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity nzb_tb is end entity;
+architecture sim of nzb_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(23 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.nzb port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"C3"); b<=std_logic_vector(n(7 downto 0) xor x"5A"); ac<=ac+unsigned('0'&y); end if; end process;
+  process begin wait for 900 ns; report "Y="&integer'image(to_integer(ac(22 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+NB="$W/nzb"; mkdir -p "$NB"
+$NVC -M 256m -H 256m --std=2008 --work="$NB/w" -L "$VLIB" -a "$W/nzb.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$NB/w" -L "$VLIB" -e nzb_tb >/dev/null 2>&1
+NBI=$($NVC -M 256m -H 256m --std=2008 --work="$NB/w" -L "$VLIB" -r nzb_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+nbout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NB/w" -L "$VLIB" -r --accel nzb_tb 2>&1)
+NBA=$(printf '%s' "$nbout" | grep -oE 'Y=[0-9]+'); nbwins=$(printf '%s' "$nbout" | grep -cE "ACTIVE .*'nzb'")
+rm -rf "$W/.cache/nvc/accel"
+nbdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NB/w" -L "$VLIB" -r --accel nzb_tb 2>&1 | grep -ciE diverg)
+if [ -n "$NBI" ] && [ "$NBA" = "$NBI" ] && [ "$nbwins" -ge 1 ] && [ "$nbdiv" -eq 0 ]; then
+  ok "non-zero-base downto var write installs (idx-low flat pos)" "(v(15 downto 8); v(10):=.. installs + matches; VERIFY 0)"
+else bad "non-zero-base downto var write installs (idx-low flat pos)" "acc=$NBA interp=$NBI installed=$nbwins verifyDiv=$nbdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
