@@ -1323,6 +1323,60 @@ if [ -n "$RZI" ] && [ "$RZA" = "$RZI" ] && [ "$rzinst" -ge 1 ] && [ "$rzdiv" -eq
   ok "resize product beyond natural width installs (silent-wrong)" "(unconstrained operand sign/zero-extends; no over-read; VERIFY 0)"
 else bad "resize product beyond natural width installs (silent-wrong)" "acc=$RZA interp=$RZI inst=$rzinst crash=$rzcrash verifyDiv=$rzdiv"; fi
 
+# 27. resize NARROWING of a SIGNED value keeps sign bit + low N-1 (silent-wrong).
+#     numeric_std `resize(SIGNED, N)` narrowing copies the SIGN bit to the new
+#     MSB and the low (N-1) bits, NOT a plain low-N truncation -- they differ on
+#     a signed narrowing OVERFLOW (the value's bit(N-1) != its sign).  The kind-2
+#     `resize`/`to_l3d` passthrough truncated low bits (correct for UNSIGNED,
+#     silently WRONG for SIGNED): resize(signed(a)*(-3),8), a=-56 -> product
+#     +168=0x00A8 -> interp 0x28 (sign 0 + low7) vs accel 0xA8.  This module
+#     narrows a SIGNED product (overflowing 8 bits), a CONSTRAINED signed 16-bit
+#     signal, and an UNSIGNED product (which must STAY low-bits); the sweep hits
+#     overflowing magnitudes.  Asserts install + accel==interp + VERIFY 0.
+cat > "$W/rzn.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity rzn is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of rzn is
+  signal sn:std_logic_vector(7 downto 0):=(others=>'0');   -- SIGNED product narrowed to 8 (sign+low)
+  signal cs:std_logic_vector(7 downto 0):=(others=>'0');   -- CONSTRAINED signed 16b signal narrowed to 8
+  signal un:std_logic_vector(7 downto 0):=(others=>'0');   -- UNSIGNED product narrowed to 8 (low bits)
+  signal sw:signed(15 downto 0):=(others=>'0');
+  signal d:unsigned(7 downto 0):=(others=>'0');
+begin
+  process(clk) is begin if rising_edge(clk) then
+    d  <= d + unsigned(a);
+    sw <= sw + signed(a & b);
+    sn <= std_logic_vector(resize(signed(a) * to_signed(-3,8), 8));
+    cs <= std_logic_vector(resize(sw, 8));
+    un <= std_logic_vector(resize(unsigned(a) * unsigned(b), 8));
+  end if; end process;
+  y <= sn xor cs xor un xor std_logic_vector(d);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity rzn_tb is end entity;
+architecture sim of rzn_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(7 downto 0):=(others=>'0'); signal y:std_logic_vector(7 downto 0);
+  signal n:unsigned(15 downto 0):=(others=>'0'); signal ac:unsigned(23 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.rzn port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then n<=n+1; a<=std_logic_vector(n(7 downto 0) xor x"C3"); b<=std_logic_vector(n(7 downto 0) xor x"5A"); ac<=ac+unsigned('0'&y); end if; end process;
+  process begin wait for 1200 ns; report "Y="&integer'image(to_integer(ac(22 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+RN="$W/rzn"; mkdir -p "$RN"
+$NVC -M 256m -H 256m --std=2008 --work="$RN/w" -L "$VLIB" -a "$W/rzn.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$RN/w" -L "$VLIB" -e rzn_tb >/dev/null 2>&1
+RNI=$($NVC -M 256m -H 256m --std=2008 --work="$RN/w" -L "$VLIB" -r rzn_tb 2>&1 | grep -oE 'Y=[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+rnout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$RN/w" -L "$VLIB" -r --accel rzn_tb 2>&1)
+RNA=$(printf '%s' "$rnout" | grep -oE 'Y=[0-9]+'); rninst=$(printf '%s' "$rnout" | grep -cE "ACTIVE .*'rzn'")
+rm -rf "$W/.cache/nvc/accel"
+rndiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$RN/w" -L "$VLIB" -r --accel rzn_tb 2>&1 | grep -ciE diverg)
+if [ -n "$RNI" ] && [ "$RNA" = "$RNI" ] && [ "$rninst" -ge 1 ] && [ "$rndiv" -eq 0 ]; then
+  ok "signed resize NARROWING keeps sign+low bits (silent-wrong)" "(signed sign-preserve; unsigned stays low-bits; VERIFY 0)"
+else bad "signed resize NARROWING keeps sign+low bits (silent-wrong)" "acc=$RNA interp=$RNI inst=$rninst verifyDiv=$rndiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
