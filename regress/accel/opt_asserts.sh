@@ -1520,6 +1520,159 @@ if [ -n "$LCI" ] && [ "$LCA" = "$LCI" ] && [ "$lcdec" -ge 1 ] && [ "$lcwins" -eq
   ok "logic3d reg concat-left-operand declines (silent-wrong)" "(l3d-reg-concat-binop -> interp; accel==interp; VERIFY 0)"
 else bad "logic3d reg concat-left-operand declines (silent-wrong)" "acc=$LCA interp=$LCI decl=$lcdec installed=$lcwins verifyDiv=$lcdiv"; fi
 
+# 31. F1a: `to_integer(signed(X))` used as a CASE selector.  to_integer returns
+#     an INTEGER (not numeric_std SIGNED), so the old lowering read the argument
+#     as a BARE UNSIGNED value -- a negative selector (a(3)='1') zero-extended
+#     into the signed integer reg and matched the WRONG `when` arm (silent-wrong:
+#     it INSTALLED and diverged).  The fix $signed-wraps to_integer of a signed
+#     argument so the selector sign-extends and the negative arms fire.  Asserts
+#     the subtree INSTALLS and accel==interp with VERIFY 0.  Dropping the F1a
+#     `to_integer`+signed clause re-ships the wrong-arm silent-wrong.
+cat > "$W/f1c.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+-- 4-bit signed selector (-8..7), negative multiple-choice arms: -1 (all-ones
+-- nibble), -8 (MSB only), -4, sign boundary.  Zero-extending the selector picks
+-- the WRONG arm.  Every value is hit within 40 xorshift cycles.
+entity f1c is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
+architecture rtl of f1c is signal yr:unsigned(7 downto 0):=(others=>'0');begin
+  process(clk) is variable sel:integer range -8 to 7; begin if rising_edge(clk) then
+    sel:=to_integer(signed(a(3 downto 0)));
+    case sel is
+      when -1     => yr<=unsigned(a) xor unsigned(b);
+      when -8     => yr<=not unsigned(b);
+      when 0 | 7  => yr<=unsigned(a) + unsigned(b);
+      when -4 | 3 => yr<=unsigned(b) - unsigned(a);
+      when others => yr<=unsigned(a) and unsigned(b);
+    end case;
+  end if; end process;
+  y<=std_logic_vector(yr);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f1c_tb is end entity;
+architecture sim of f1c_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(7 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.f1c port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"92D68CA2"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(7 downto 0)); b<=std_logic_vector(x(15 downto 8));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+FC="$W/f1c"; mkdir -p "$FC"
+$NVC -M 256m -H 256m --std=2008 --work="$FC/w" -L "$VLIB" -a "$W/f1c.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$FC/w" -L "$VLIB" -e f1c_tb >/dev/null 2>&1
+FCI=$($NVC -M 256m -H 256m --std=2008 --work="$FC/w" -L "$VLIB" -r f1c_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+fcout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FC/w" -L "$VLIB" -r --accel f1c_tb 2>&1)
+FCA=$(printf '%s' "$fcout" | grep -oE 'Y=-?[0-9]+'); fcwins=$(printf '%s' "$fcout" | grep -cE "ACTIVE .*'f1c'")
+rm -rf "$W/.cache/nvc/accel"
+fcdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FC/w" -L "$VLIB" -r --accel f1c_tb 2>&1 | grep -ciE diverg)
+if [ -n "$FCI" ] && [ "$FCA" = "$FCI" ] && [ "$fcwins" -ge 1 ] && [ "$fcdiv" -eq 0 ]; then
+  ok "F1a: to_integer(signed) case selector sign-extends (silent-wrong)" "(negative arms fire; installs + matches; VERIFY 0)"
+else bad "F1a: to_integer(signed) case selector sign-extends (silent-wrong)" "acc=$FCA interp=$FCI installed=$fcwins verifyDiv=$fcdiv"; fi
+
+# 32. F1b: a VHDL sll/srl OPERATOR with a possibly-NEGATIVE count reverses
+#     direction (`x sll -k` == `x srl k`); Verilog << / >> treat the amount as
+#     UNSIGNED and never reverse, so an installed shift silently diverged when the
+#     count went negative (interp 27038 vs accel 46588).  The fix DECLINES a shift
+#     whose count is not provably non-negative (here a signed `integer range -8 to
+#     7`), so the process runs in interp.  Asserts the decline fires
+#     (shift-maybe-negative-count), the subtree is NOT installed, and
+#     accel==interp with VERIFY 0.
+cat > "$W/f1s.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+-- signed data shifted sll/srl by a possibly-NEGATIVE count (integer range -8..7).
+-- A negative count reverses direction in VHDL; Verilog << / >> do not -> installed
+-- accel diverges.  The fix declines it to interp.
+entity f1s is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of f1s is signal r:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is variable s:signed(15 downto 0); variable n:integer range -8 to 7; variable t:std_logic_vector(15 downto 0); begin
+    if rising_edge(clk) then
+      s:=signed(a); n:=to_integer(signed(b(3 downto 0)));
+      t:=std_logic_vector(s sll n) xor std_logic_vector(s srl n); r<=t;
+    end if;
+  end process;
+  y<=r;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f1s_tb is end entity;
+architecture sim of f1s_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0');
+begin
+  uut:entity work.f1s port map(clk=>clk,a=>a,b=>b,y=>y);
+  process variable st:unsigned(15 downto 0):=x"8001"; variable chk:unsigned(15 downto 0):=(others=>'0');
+    procedure step is begin st:=st xor shift_left(st,7); st:=st xor shift_right(st,9); st:=st xor shift_left(st,8); end procedure;
+  begin
+    for i in 0 to 39 loop
+      step; a<=std_logic_vector(st); step; b<=std_logic_vector(st);
+      clk<='0'; wait for 5 ns; clk<='1'; wait for 5 ns; chk:=rotate_left(chk,1) xor unsigned(y);
+    end loop;
+    report "Y="&integer'image(to_integer(chk)); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+FS="$W/f1s"; mkdir -p "$FS"
+$NVC -M 256m -H 256m --std=2008 --work="$FS/w" -L "$VLIB" -a "$W/f1s.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$FS/w" -L "$VLIB" -e f1s_tb >/dev/null 2>&1
+FSI=$($NVC -M 256m -H 256m --std=2008 --work="$FS/w" -L "$VLIB" -r f1s_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+fsout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 GSM_LOG=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FS/w" -L "$VLIB" -r --accel f1s_tb 2>&1)
+FSA=$(printf '%s' "$fsout" | grep -oE 'Y=-?[0-9]+'); fsdec=$(printf '%s' "$fsout" | grep -c 'shift-maybe-negative-count'); fswins=$(printf '%s' "$fsout" | grep -cE "ACTIVE .*'f1s'")
+rm -rf "$W/.cache/nvc/accel"
+fsdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FS/w" -L "$VLIB" -r --accel f1s_tb 2>&1 | grep -ciE diverg)
+if [ -n "$FSI" ] && [ "$FSA" = "$FSI" ] && [ "$fsdec" -ge 1 ] && [ "$fswins" -eq 0 ] && [ "$fsdiv" -eq 0 ]; then
+  ok "F1b: possibly-negative shift count declines (silent-wrong)" "(shift-maybe-negative-count -> interp; accel==interp; VERIFY 0)"
+else bad "F1b: possibly-negative shift count declines (silent-wrong)" "acc=$FSA interp=$FSI decl=$fsdec installed=$fswins verifyDiv=$fsdiv"; fi
+
+# 33. F1b anti-over-decline: a NON-negative (unsigned-derived / natural) shift
+#     count must STILL install -- the decline must be TARGETED to possibly-negative
+#     counts, not blanket every runtime shift (barrel shifters use unsigned
+#     counts).  Asserts the subtree INSTALLS, the F1b decline does NOT fire, and
+#     accel==interp with VERIFY 0.
+cat > "$W/f1u.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity f1u is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of f1u is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is variable u:unsigned(15 downto 0); variable m:natural range 0 to 15; begin if rising_edge(clk) then
+    u:=unsigned(a); m:=to_integer(unsigned(b(3 downto 0)));
+    yr<=std_logic_vector(u sll m) xor std_logic_vector(u srl m);
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f1u_tb is end entity;
+architecture sim of f1u_tb is
+  signal clk:std_logic:='0'; signal a,b:std_logic_vector(15 downto 0):=(others=>'0'); signal y:std_logic_vector(15 downto 0);
+  signal nn:unsigned(31 downto 0):=x"2545F491"; signal ac:unsigned(31 downto 0):=(others=>'0'); signal run:boolean:=true;
+begin
+  clk<=not clk after 5 ns when run; dut:entity work.f1u port map(clk,a,b,y);
+  process(clk) is begin if rising_edge(clk) then nn<=nn xor (nn sll 13); a<=std_logic_vector(nn(15 downto 0)); b<=std_logic_vector(nn(31 downto 16)); ac<=(ac(30 downto 0)&ac(31)) xor resize(unsigned(y),32); end if; end process;
+  process begin wait for 900 ns; report "Y="&integer'image(to_integer(ac(30 downto 0))); run<=false; wait for 20 ns; stop; end process;
+end architecture;
+VHD
+FU="$W/f1u"; mkdir -p "$FU"
+$NVC -M 256m -H 256m --std=2008 --work="$FU/w" -L "$VLIB" -a "$W/f1u.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$FU/w" -L "$VLIB" -e f1u_tb >/dev/null 2>&1
+FUI=$($NVC -M 256m -H 256m --std=2008 --work="$FU/w" -L "$VLIB" -r f1u_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+fuout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 GSM_LOG=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FU/w" -L "$VLIB" -r --accel f1u_tb 2>&1)
+FUA=$(printf '%s' "$fuout" | grep -oE 'Y=-?[0-9]+'); fudec=$(printf '%s' "$fuout" | grep -c 'shift-maybe-negative-count'); fuwins=$(printf '%s' "$fuout" | grep -cE "ACTIVE .*'f1u'")
+rm -rf "$W/.cache/nvc/accel"
+fudiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$FU/w" -L "$VLIB" -r --accel f1u_tb 2>&1 | grep -ciE diverg)
+if [ -n "$FUI" ] && [ "$FUA" = "$FUI" ] && [ "$fuwins" -ge 1 ] && [ "$fudec" -eq 0 ] && [ "$fudiv" -eq 0 ]; then
+  ok "F1b anti-over-decline: unsigned/natural shift count installs" "(non-negative count NOT declined; installs + matches; VERIFY 0)"
+else bad "F1b anti-over-decline: unsigned/natural shift count installs" "acc=$FUA interp=$FUI decl=$fudec installed=$fuwins verifyDiv=$fudiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
