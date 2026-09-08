@@ -1770,6 +1770,106 @@ if [ -n "$F6SI" ] && [ "$F6SA" = "$F6SI" ] && [ "$f6swins" -ge 1 ] && [ "$f6sdiv
   ok "F6b: walker to_integer(signed) sum width (silent-wrong)" "(rendered 32-bit sign-ext; sum installs + matches; VERIFY 0)"
 else bad "F6b: walker to_integer(signed) sum width (silent-wrong)" "acc=$F6SA interp=$F6SI installed=$f6swins verifyDiv=$f6sdiv"; fi
 
+# 36. F6-residue: a MIXED to_integer(signed)*to_integer(unsigned) MULTIPLY.  The
+#     walker's mul operand-extension used a single sign (sg = signed, since both
+#     to_integer results are INTEGER), so the UNSIGNED operand was SIGN-extended
+#     -- `sgn * 200` read 200 as -56 (interp != walker-accel).  The fix extends
+#     each mul operand with its OWN sign (r2_int_nonneg: zero-extend the unsigned
+#     source, sign-extend the signed one).  8-bit operands so the 16-bit product
+#     needs no to_signed WIDEN (that path still declines a narrower product --
+#     the nibble form falls to the text path, a separate residue).  Asserts the
+#     walker INSTALLS and accel==interp with VERIFY 0.
+cat > "$W/f6m.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity f6m is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of f6m is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is variable n:integer; begin if rising_edge(clk) then
+    n:=to_integer(signed(a(7 downto 0)))*to_integer(unsigned(b(7 downto 0)));
+    yr<=std_logic_vector(to_signed(n,16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f6m_tb is end entity;
+architecture sim of f6m_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.f6m port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"5CA1AB1E"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+F6M="$W/f6m"; mkdir -p "$F6M"
+$NVC -M 256m -H 256m --std=2008 --work="$F6M/w" -L "$VLIB" -a "$W/f6m.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$F6M/w" -L "$VLIB" -e f6m_tb >/dev/null 2>&1
+F6MI=$($NVC -M 256m -H 256m --std=2008 --work="$F6M/w" -L "$VLIB" -r f6m_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+f6mout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6M/w" -L "$VLIB" -r --accel f6m_tb 2>&1)
+F6MA=$(printf '%s' "$f6mout" | grep -oE 'Y=-?[0-9]+'); f6mwins=$(printf '%s' "$f6mout" | grep -cE "ACTIVE .*'f6m'")
+rm -rf "$W/.cache/nvc/accel"
+f6mdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6M/w" -L "$VLIB" -r --accel f6m_tb 2>&1 | grep -ciE diverg)
+if [ -n "$F6MI" ] && [ "$F6MA" = "$F6MI" ] && [ "$f6mwins" -ge 1 ] && [ "$f6mdiv" -eq 0 ]; then
+  ok "F6-residue: mixed signed*unsigned multiply per-operand sign (silent-wrong)" "(unsigned operand zero-extended; installs + matches; VERIFY 0)"
+else bad "F6-residue: mixed signed*unsigned multiply per-operand sign (silent-wrong)" "acc=$F6MA interp=$F6MI installed=$f6mwins verifyDiv=$f6mdiv"; fi
+
+# 37. F6-residue: a NON-NEGATIVE arithmetic RESULT (to_integer(unsigned)*to_
+#     integer(unsigned)) fed to a SIGNED relational compare.  r2_int_nonneg now
+#     propagates non-negativity through + and * (when the result cannot reach
+#     bit 31), so the product is ZERO-extended into the compare instead of sign-
+#     extended -- an 8x8 product 32768..65025 was read negative and `n > 4000`
+#     never fired for those (interp != walker-accel).  Asserts the walker
+#     INSTALLS and accel==interp with VERIFY 0.
+cat > "$W/f6p.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity f6p is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of f6p is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is variable n:integer; begin if rising_edge(clk) then
+    n:=to_integer(unsigned(a(7 downto 0)))*to_integer(unsigned(b(7 downto 0)));
+    if n>4000 then yr<=a xor b; else yr<=std_logic_vector(to_unsigned(n,16)); end if;
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f6p_tb is end entity;
+architecture sim of f6p_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.f6p port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"0F1E2D3C"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+F6P="$W/f6p"; mkdir -p "$F6P"
+$NVC -M 256m -H 256m --std=2008 --work="$F6P/w" -L "$VLIB" -a "$W/f6p.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$F6P/w" -L "$VLIB" -e f6p_tb >/dev/null 2>&1
+F6PI=$($NVC -M 256m -H 256m --std=2008 --work="$F6P/w" -L "$VLIB" -r f6p_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+f6pout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6P/w" -L "$VLIB" -r --accel f6p_tb 2>&1)
+F6PA=$(printf '%s' "$f6pout" | grep -oE 'Y=-?[0-9]+'); f6pwins=$(printf '%s' "$f6pout" | grep -cE "ACTIVE .*'f6p'")
+rm -rf "$W/.cache/nvc/accel"
+f6pdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6P/w" -L "$VLIB" -r --accel f6p_tb 2>&1 | grep -ciE diverg)
+if [ -n "$F6PI" ] && [ "$F6PA" = "$F6PI" ] && [ "$f6pwins" -ge 1 ] && [ "$f6pdiv" -eq 0 ]; then
+  ok "F6-residue: non-negative product into signed compare (silent-wrong)" "(nonneg propagated through *; zero-extended; installs + matches; VERIFY 0)"
+else bad "F6-residue: non-negative product into signed compare (silent-wrong)" "acc=$F6PA interp=$F6PI installed=$f6pwins verifyDiv=$f6pdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
