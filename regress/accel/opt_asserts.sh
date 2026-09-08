@@ -1870,6 +1870,57 @@ if [ -n "$F6PI" ] && [ "$F6PA" = "$F6PI" ] && [ "$f6pwins" -ge 1 ] && [ "$f6pdiv
   ok "F6-residue: non-negative product into signed compare (silent-wrong)" "(nonneg propagated through *; zero-extended; installs + matches; VERIFY 0)"
 else bad "F6-residue: non-negative product into signed compare (silent-wrong)" "acc=$F6PA interp=$F6PI installed=$f6pwins verifyDiv=$f6pdiv"; fi
 
+# 38. F6-residue: NARROWING resize of an UNSIGNED value.  The walker handled a
+#     narrowing resize of a SIGNED value (ck27) and a WIDENING resize, but a
+#     narrowing resize of UNSIGNED fell through to the kind-2 passthrough, which
+#     leaves the full width -- a wider consuming context (or an outer widening
+#     resize) then re-widened it, silently keeping the dropped high bits
+#     (resize(resize(unsigned(a),8),16) came out as `a`, not a&0xFF).  The fix
+#     takes the low nw bits, and r2_rendered_width now reports a resize's target
+#     width so a NESTED resize sees the inner narrowing.  Asserts the walker
+#     INSTALLS and accel==interp with VERIFY 0.
+cat > "$W/f6r.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity f6r is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of f6r is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(resize(unsigned(a),8),16))
+        xor std_logic_vector(resize(resize(unsigned(b),4),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f6r_tb is end entity;
+architecture sim of f6r_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.f6r port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"C0FFEE11"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+F6R="$W/f6r"; mkdir -p "$F6R"
+$NVC -M 256m -H 256m --std=2008 --work="$F6R/w" -L "$VLIB" -a "$W/f6r.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$F6R/w" -L "$VLIB" -e f6r_tb >/dev/null 2>&1
+F6RI=$($NVC -M 256m -H 256m --std=2008 --work="$F6R/w" -L "$VLIB" -r f6r_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+f6rout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6R/w" -L "$VLIB" -r --accel f6r_tb 2>&1)
+F6RA=$(printf '%s' "$f6rout" | grep -oE 'Y=-?[0-9]+'); f6rwins=$(printf '%s' "$f6rout" | grep -cE "ACTIVE .*'f6r'")
+rm -rf "$W/.cache/nvc/accel"
+f6rdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6R/w" -L "$VLIB" -r --accel f6r_tb 2>&1 | grep -ciE diverg)
+if [ -n "$F6RI" ] && [ "$F6RA" = "$F6RI" ] && [ "$f6rwins" -ge 1 ] && [ "$f6rdiv" -eq 0 ]; then
+  ok "F6-residue: narrowing resize of unsigned (silent-wrong)" "(low-nw truncation; nested installs + matches; VERIFY 0)"
+else bad "F6-residue: narrowing resize of unsigned (silent-wrong)" "acc=$F6RA interp=$F6RI installed=$f6rwins verifyDiv=$f6rdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
