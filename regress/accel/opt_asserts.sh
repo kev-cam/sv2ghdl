@@ -2023,6 +2023,56 @@ if [ -n "$F6XI" ] && [ "$F6XA" = "$F6XI" ] && [ "$f6xwins" -ge 1 ] && [ "$f6xdiv
   ok "F6-residue: mixed-width +/- extends narrower operand per sign (silent-wrong)" "(signed sign-ext, unsigned zero-ext; installs + matches; VERIFY 0)"
 else bad "F6-residue: mixed-width +/- extends narrower operand per sign (silent-wrong)" "acc=$F6XA interp=$F6XI installed=$f6xwins verifyDiv=$f6xdiv"; fi
 
+# 41. F6-residue: numeric_std vector +/- INTEGER CONSTANT.  unsigned+natural /
+#     signed+integer return the VECTOR operand's length (the constant is
+#     converted to that width), but the walker sized the result to the constant's
+#     32-bit width -- dropping the N-bit wrap: resize(signed(a),8)+5 computed the
+#     sum at 32 bits, wrong on an 8-bit overflow (interp 933918379 vs walker
+#     934121131).  Both r2_width_or_operands and the binop emitter now size a
+#     vector+/-integer to the vector width.  Asserts the walker INSTALLS and
+#     accel==interp with VERIFY 0.
+cat > "$W/f6k.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity f6k is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of f6k is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(resize(signed(a),8)+5,16))
+        xor std_logic_vector(resize(resize(unsigned(b),8)-5,16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f6k_tb is end entity;
+architecture sim of f6k_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.f6k port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"C0575001"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+F6K="$W/f6k"; mkdir -p "$F6K"
+$NVC -M 256m -H 256m --std=2008 --work="$F6K/w" -L "$VLIB" -a "$W/f6k.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$F6K/w" -L "$VLIB" -e f6k_tb >/dev/null 2>&1
+F6KI=$($NVC -M 256m -H 256m --std=2008 --work="$F6K/w" -L "$VLIB" -r f6k_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+f6kout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6K/w" -L "$VLIB" -r --accel f6k_tb 2>&1)
+F6KA=$(printf '%s' "$f6kout" | grep -oE 'Y=-?[0-9]+'); f6kwins=$(printf '%s' "$f6kout" | grep -cE "ACTIVE .*'f6k'")
+rm -rf "$W/.cache/nvc/accel"
+f6kdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F6K/w" -L "$VLIB" -r --accel f6k_tb 2>&1 | grep -ciE diverg)
+if [ -n "$F6KI" ] && [ "$F6KA" = "$F6KI" ] && [ "$f6kwins" -ge 1 ] && [ "$f6kdiv" -eq 0 ]; then
+  ok "F6-residue: vector +/- integer constant sized to vector width (silent-wrong)" "(N-bit wrap, not the const's 32-bit; installs + matches; VERIFY 0)"
+else bad "F6-residue: vector +/- integer constant sized to vector width (silent-wrong)" "acc=$F6KA interp=$F6KI installed=$f6kwins verifyDiv=$f6kdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
