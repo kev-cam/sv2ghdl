@@ -2123,6 +2123,57 @@ if [ -n "$F6WI" ] && [ "$F6WA" = "$F6WI" ] && [ "$f6wwins" -ge 1 ] && [ "$f6wdiv
   ok "F6-residue: constrained-signed resize-widen sign-extends (silent-wrong)" "(materialize + \$pos sign-ext; unsigned passthrough unchanged; installs + matches; VERIFY 0)"
 else bad "F6-residue: constrained-signed resize-widen sign-extends (silent-wrong)" "acc=$F6WA interp=$F6WI installed=$f6wwins verifyDiv=$f6wdiv"; fi
 
+# ck43 numeric_std VECTOR * scalar (unsigned*natural / signed*integer) must WRAP
+#     the scalar to the vector's length before a 2*L'length product -- the walker
+#     used to render a raw unbounded-integer multiply (silent-wrong):
+#     `unsigned(a(3:0))*16` is *0 (16 mod 2^4 = 0), not a wide a*16; `signed(a(2:0))
+#     *5` is *(-3) (TO_SIGNED(5,3)).  Fixture XORs an unsigned*literal (16 -> 0), a
+#     signed*literal (5 -> -3), and an unsigned*runtime-scalar; each via resize(.,16)
+#     so a to_signed WIDEN does not intercept.  Asserts install + accel==interp,
+#     VERIFY 0.  A regression to the raw multiply re-ships the silent-wrong.
+cat > "$W/vmck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity vmck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of vmck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(unsigned(a(3 downto 0))*16,16))
+       xor std_logic_vector(resize(signed(a(2 downto 0))*5,16))
+       xor std_logic_vector(resize(unsigned(a(3 downto 0))*to_integer(unsigned(b(3 downto 0))),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity vmck_tb is end entity;
+architecture sim of vmck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.vmck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"AC3517E9"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+VMCK="$W/vmck"; mkdir -p "$VMCK"
+$NVC -M 256m -H 256m --std=2008 --work="$VMCK/w" -L "$VLIB" -a "$W/vmck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$VMCK/w" -L "$VLIB" -e vmck_tb >/dev/null 2>&1
+VMCKI=$($NVC -M 256m -H 256m --std=2008 --work="$VMCK/w" -L "$VLIB" -r vmck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+vmckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VMCK/w" -L "$VLIB" -r --accel vmck_tb 2>&1)
+VMCKA=$(printf '%s' "$vmckout" | grep -oE 'Y=-?[0-9]+'); vmckwins=$(printf '%s' "$vmckout" | grep -cE "ACTIVE .*'vmck'")
+rm -rf "$W/.cache/nvc/accel"
+vmckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VMCK/w" -L "$VLIB" -r --accel vmck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$VMCKI" ] && [ "$VMCKA" = "$VMCKI" ] && [ "$vmckwins" -ge 1 ] && [ "$vmckdiv" -eq 0 ]; then
+  ok "numeric_std vector*scalar wraps the scalar to the vector length (silent-wrong)" "(2*L'length product; unsigned*16 -> *0, signed*5 -> *-3; installs + matches; VERIFY 0)"
+else bad "numeric_std vector*scalar wraps the scalar to the vector length (silent-wrong)" "acc=$VMCKA interp=$VMCKI installed=$vmckwins verifyDiv=$vmckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
