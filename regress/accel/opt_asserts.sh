@@ -2174,6 +2174,58 @@ if [ -n "$VMCKI" ] && [ "$VMCKA" = "$VMCKI" ] && [ "$vmckwins" -ge 1 ] && [ "$vm
   ok "numeric_std vector*scalar wraps the scalar to the vector length (silent-wrong)" "(2*L'length product; unsigned*16 -> *0, signed*5 -> *-3; installs + matches; VERIFY 0)"
 else bad "numeric_std vector*scalar wraps the scalar to the vector length (silent-wrong)" "acc=$VMCKA interp=$VMCKI installed=$vmckwins verifyDiv=$vmckdiv"; fi
 
+# ck44 numeric_std scalar/vector DIVISION: nvc divides at FULL scalar precision
+#     (the scalar is NOT wrapped to the vector length) and RESIZEs the quotient to
+#     the vector's length -- unsigned to the low N bits (1000/1 -> 1000 mod 256 =
+#     232), signed to {sign, low N-1} (1000/5 = 200 -> {0,low7} = 72).  The walker
+#     returned the UNtruncated quotient (a resize to a wider target kept 1000).
+#     Fixture XORs NATURAL/UNSIGNED, INTEGER/SIGNED (+ and - dividend) and a
+#     UNSIGNED/NATURAL wrap-past-width, divisors guarded against 0, via resize(.,16).
+#     Asserts install + accel==interp, VERIFY 0.
+cat > "$W/vdck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity vdck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of vdck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(1000/(unsigned(a(7 downto 0)) or x"01"),16))
+       xor std_logic_vector(resize(1000/(signed(a(7 downto 0)) or "00000001"),16))
+       xor std_logic_vector(resize(unsigned(a(3 downto 0))/20,16))
+       xor std_logic_vector(resize((-1000)/(signed(a(7 downto 0)) or "00000001"),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity vdck_tb is end entity;
+architecture sim of vdck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.vdck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"D1F0A5C3"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+VDCK="$W/vdck"; mkdir -p "$VDCK"
+$NVC -M 256m -H 256m --std=2008 --work="$VDCK/w" -L "$VLIB" -a "$W/vdck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$VDCK/w" -L "$VLIB" -e vdck_tb >/dev/null 2>&1
+VDCKI=$($NVC -M 256m -H 256m --std=2008 --work="$VDCK/w" -L "$VLIB" -r vdck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+vdckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VDCK/w" -L "$VLIB" -r --accel vdck_tb 2>&1)
+VDCKA=$(printf '%s' "$vdckout" | grep -oE 'Y=-?[0-9]+'); vdckwins=$(printf '%s' "$vdckout" | grep -cE "ACTIVE .*'vdck'")
+rm -rf "$W/.cache/nvc/accel"
+vdckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$VDCK/w" -L "$VLIB" -r --accel vdck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$VDCKI" ] && [ "$VDCKA" = "$VDCKI" ] && [ "$vdckwins" -ge 1 ] && [ "$vdckdiv" -eq 0 ]; then
+  ok "numeric_std scalar/vector division resizes the quotient to the vector length (silent-wrong)" "(full-precision divide, unsigned low-N / signed {sign,low N-1}; installs + matches; VERIFY 0)"
+else bad "numeric_std scalar/vector division resizes the quotient to the vector length (silent-wrong)" "acc=$VDCKA interp=$VDCKI installed=$vdckwins verifyDiv=$vdckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
