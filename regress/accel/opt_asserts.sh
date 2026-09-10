@@ -2276,6 +2276,60 @@ if [ -n "$DMCKI" ] && [ "$DMCKA" = "$DMCKI" ] && [ "$dmckwins" -ge 1 ] && [ "$dm
   ok "unsigned div/rem result zero-extends into a widening multiply (silent-wrong)" "(r2_int_nonneg result-type fall-through; installs + matches; VERIFY 0)"
 else bad "unsigned div/rem result zero-extends into a widening multiply (silent-wrong)" "acc=$DMCKA interp=$DMCKI installed=$dmckwins verifyDiv=$dmckdiv"; fi
 
+# ck46 unary NEGATION must extend/size its operand correctly.  The walker rendered
+#     `-x` at a width taken from r2_width(operand) with a hardcoded A_SIGNED 0, so a
+#     narrow SIGNED integer operand was zero-extended then negated (silent-wrong):
+#     `-(to_integer(signed(a(3:0))))` read a 4-bit -1 (0xF) as +15 -> -15, and a
+#     negation of an integer product / a resize-widened operand mis-rendered too.
+#     Now a neg renders at the operand's TRUE (rendered) width, bumps up so it never
+#     truncates a resize-widened operand, and $pos-extends a narrow operand with its
+#     OWN sign before negating.  Fixture XORs -(signed*unsigned product), -(narrow
+#     signed integer), and -(resize-widened signed), via to_signed/resize to 16.
+#     Installs + matches, VERIFY 0.
+cat > "$W/nbck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity nbck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of nbck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is variable n:integer; begin if rising_edge(clk) then
+    n:=-(to_integer(signed(a(3 downto 0)))*to_integer(unsigned(b(3 downto 0))));
+    yr<=std_logic_vector(to_signed(n,16))
+       xor std_logic_vector(to_signed(-(to_integer(signed(a(7 downto 0)))),16))
+       xor std_logic_vector(resize(-(resize(signed(a(3 downto 0)),8)),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity nbck_tb is end entity;
+architecture sim of nbck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.nbck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"3E9A17C5"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+NBCK="$W/nbck"; mkdir -p "$NBCK"
+$NVC -M 256m -H 256m --std=2008 --work="$NBCK/w" -L "$VLIB" -a "$W/nbck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$NBCK/w" -L "$VLIB" -e nbck_tb >/dev/null 2>&1
+NBCKI=$($NVC -M 256m -H 256m --std=2008 --work="$NBCK/w" -L "$VLIB" -r nbck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+nbckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NBCK/w" -L "$VLIB" -r --accel nbck_tb 2>&1)
+NBCKA=$(printf '%s' "$nbckout" | grep -oE 'Y=-?[0-9]+'); nbckwins=$(printf '%s' "$nbckout" | grep -cE "ACTIVE .*'nbck'")
+rm -rf "$W/.cache/nvc/accel"
+nbckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NBCK/w" -L "$VLIB" -r --accel nbck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$NBCKI" ] && [ "$NBCKA" = "$NBCKI" ] && [ "$nbckwins" -ge 1 ] && [ "$nbckdiv" -eq 0 ]; then
+  ok "unary negation extends/sizes its operand (product, narrow int, resize-widen) (silent-wrong)" "(render at true width + \$pos-extend with own sign; installs + matches; VERIFY 0)"
+else bad "unary negation extends/sizes its operand (product, narrow int, resize-widen) (silent-wrong)" "acc=$NBCKA interp=$NBCKI installed=$nbckwins verifyDiv=$nbckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
