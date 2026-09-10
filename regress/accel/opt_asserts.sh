@@ -2226,6 +2226,56 @@ if [ -n "$VDCKI" ] && [ "$VDCKA" = "$VDCKI" ] && [ "$vdckwins" -ge 1 ] && [ "$vd
   ok "numeric_std scalar/vector division resizes the quotient to the vector length (silent-wrong)" "(full-precision divide, unsigned low-N / signed {sign,low N-1}; installs + matches; VERIFY 0)"
 else bad "numeric_std scalar/vector division resizes the quotient to the vector length (silent-wrong)" "acc=$VDCKA interp=$VDCKI installed=$vdckwins verifyDiv=$vdckdiv"; fi
 
+# ck45 an UNSIGNED numeric_std operator result (vector/vector division, rem, or a
+#     bitwise op) feeding a WIDENING consumer must be ZERO-extended, not sign-
+#     extended.  r2_int_nonneg decided an unrecognised-operator FCALL by breaking
+#     to a signed default; an 8-bit unsigned quotient with its MSB set, fed to a
+#     widening `*`, was SIGN-extended -> wrong high bits -> wrong product.  Now it
+#     falls through to the RESULT TYPE (unsigned -> non-negative -> zero-extend).
+#     Fixture: (unsigned/unsigned) * vector XOR (unsigned rem unsigned) * scalar,
+#     divisors guarded against 0, via resize(.,16).  Installs + matches, VERIFY 0.
+cat > "$W/dmck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity dmck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of dmck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize((unsigned(a(7 downto 0))/(unsigned(b(3 downto 0)) or "0001"))*unsigned(b(7 downto 0)),16))
+       xor std_logic_vector(resize((unsigned(a(7 downto 0)) rem (unsigned(b(3 downto 0)) or "0001"))*to_unsigned(5,8),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity dmck_tb is end entity;
+architecture sim of dmck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.dmck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"7E31D0A9"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+DMCK="$W/dmck"; mkdir -p "$DMCK"
+$NVC -M 256m -H 256m --std=2008 --work="$DMCK/w" -L "$VLIB" -a "$W/dmck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$DMCK/w" -L "$VLIB" -e dmck_tb >/dev/null 2>&1
+DMCKI=$($NVC -M 256m -H 256m --std=2008 --work="$DMCK/w" -L "$VLIB" -r dmck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+dmckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$DMCK/w" -L "$VLIB" -r --accel dmck_tb 2>&1)
+DMCKA=$(printf '%s' "$dmckout" | grep -oE 'Y=-?[0-9]+'); dmckwins=$(printf '%s' "$dmckout" | grep -cE "ACTIVE .*'dmck'")
+rm -rf "$W/.cache/nvc/accel"
+dmckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$DMCK/w" -L "$VLIB" -r --accel dmck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$DMCKI" ] && [ "$DMCKA" = "$DMCKI" ] && [ "$dmckwins" -ge 1 ] && [ "$dmckdiv" -eq 0 ]; then
+  ok "unsigned div/rem result zero-extends into a widening multiply (silent-wrong)" "(r2_int_nonneg result-type fall-through; installs + matches; VERIFY 0)"
+else bad "unsigned div/rem result zero-extends into a widening multiply (silent-wrong)" "acc=$DMCKA interp=$DMCKI installed=$dmckwins verifyDiv=$dmckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
