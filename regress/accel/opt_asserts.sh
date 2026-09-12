@@ -2438,6 +2438,61 @@ if [ -n "$SVCKI" ] && [ "$SVCKA" = "$SVCKI" ] && [ "$svckwins" -ge 1 ] && [ "$sv
   ok "constrained-signed resize-widen reports target width to consumers (silent-wrong)" "(neg/add/mul of a signed var-slice widen; installs + matches; VERIFY 0)"
 else bad "constrained-signed resize-widen reports target width to consumers (silent-wrong)" "acc=$SVCKA interp=$SVCKI installed=$svckwins verifyDiv=$svckdiv"; fi
 
+# ck49 a SIGNED reinterpret over an unsigned resize-widen PASSTHROUGH must first
+#     zero-extend the value to the resize target.  A constrained-unsigned resize-
+#     widen keeps the kind-2 passthrough (ck42, so it renders NARROWER than N and
+#     the assignment zero-extends it) -- but a signed() reinterpret re-signs the
+#     pre-widen bits instead: signed(resize(u(5 downto 0),13)) (directly, or
+#     through a std_logic_vector cast, or negated) put the sign at bit 5, not the
+#     zero-extended bit 12.  r2_signed_uwiden materializes the zero-extension to
+#     the target (peeling intermediate reinterpret casts) and r2_rendered_width
+#     reports that target so consumers size it right.  The general resize
+#     passthrough (VeeR to_l3d / user sv2v_cast idiom) is untouched.  Installs +
+#     matches, VERIFY 0.
+cat > "$W/suck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity suck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of suck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is variable u:unsigned(15 downto 0); begin if rising_edge(clk) then
+    u:=unsigned(a);
+    yr<=std_logic_vector(resize(signed(resize(u(5 downto 0),13)),16))
+       xor std_logic_vector(resize(signed(std_logic_vector(resize(u(7 downto 0),12))),16))
+       xor std_logic_vector(resize(-(signed(resize(u(3 downto 0),10))),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity suck_tb is end entity;
+architecture sim of suck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.suck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"5A1CB3E7"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+SUCK="$W/suck"; mkdir -p "$SUCK"
+$NVC -M 256m -H 256m --std=2008 --work="$SUCK/w" -L "$VLIB" -a "$W/suck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$SUCK/w" -L "$VLIB" -e suck_tb >/dev/null 2>&1
+SUCKI=$($NVC -M 256m -H 256m --std=2008 --work="$SUCK/w" -L "$VLIB" -r suck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+suckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SUCK/w" -L "$VLIB" -r --accel suck_tb 2>&1)
+SUCKA=$(printf '%s' "$suckout" | grep -oE 'Y=-?[0-9]+'); suckwins=$(printf '%s' "$suckout" | grep -cE "ACTIVE .*'suck'")
+rm -rf "$W/.cache/nvc/accel"
+suckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SUCK/w" -L "$VLIB" -r --accel suck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$SUCKI" ] && [ "$SUCKA" = "$SUCKI" ] && [ "$suckwins" -ge 1 ] && [ "$suckdiv" -eq 0 ]; then
+  ok "signed reinterpret over unsigned resize-widen zero-extends (silent-wrong)" "(materialize + peel intermediate casts; direct/slv/neg; installs + matches; VERIFY 0)"
+else bad "signed reinterpret over unsigned resize-widen zero-extends (silent-wrong)" "acc=$SUCKA interp=$SUCKI installed=$suckwins verifyDiv=$suckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
