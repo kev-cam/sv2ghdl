@@ -2544,6 +2544,55 @@ if [ -n "$WMCKI" ] && [ "$WMCKA" = "$WMCKI" ] && [ "$wmckwins" -ge 1 ] && [ "$wm
   ok "r2_width_or_operands agrees with rendered width for reinterpret casts (silent-wrong)" "(defer to r2_rendered_width; materialized-resize-under-signed-cast add/div; installs + matches; VERIFY 0)"
 else bad "r2_width_or_operands agrees with rendered width for reinterpret casts (silent-wrong)" "acc=$WMCKA interp=$WMCKI installed=$wmckwins verifyDiv=$wmckdiv"; fi
 
+# ck51 a bare numeric_std `*` is ALWAYS L'length+R'length wide.  r2_width(mul) can
+#     UNDER-report it (returns an operand width -- 8 for signed(reinterpret(u,8)) *
+#     signed(reinterpret(...)), not 16), which the binop trusted (the sum-width
+#     only ran when r2_width was unconstrained), so the product TRUNCATED.  The
+#     binop now bumps the mul width to the operand SUM whenever it exceeds
+#     r2_width's value.  Fixture: two products of signed-reinterpret-of-uwiden
+#     operands (same and different resize widths).  Installs + matches, VERIFY 0.
+cat > "$W/mwmck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity mwmck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of mwmck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(signed(std_logic_vector(resize(unsigned(a(3 downto 0)),8)))*signed(std_logic_vector(resize(unsigned(b(3 downto 0)),8))),16))
+       xor std_logic_vector(resize(signed(std_logic_vector(resize(unsigned(a(7 downto 4)),8)))*signed(std_logic_vector(resize(unsigned(b(7 downto 4)),12))),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity mwmck_tb is end entity;
+architecture sim of mwmck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.mwmck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"2FD1A7C9"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+MWMCK="$W/mwmck"; mkdir -p "$MWMCK"
+$NVC -M 256m -H 256m --std=2008 --work="$MWMCK/w" -L "$VLIB" -a "$W/mwmck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$MWMCK/w" -L "$VLIB" -e mwmck_tb >/dev/null 2>&1
+MWMCKI=$($NVC -M 256m -H 256m --std=2008 --work="$MWMCK/w" -L "$VLIB" -r mwmck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+mwmckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$MWMCK/w" -L "$VLIB" -r --accel mwmck_tb 2>&1)
+MWMCKA=$(printf '%s' "$mwmckout" | grep -oE 'Y=-?[0-9]+'); mwmckwins=$(printf '%s' "$mwmckout" | grep -cE "ACTIVE .*'mwmck'")
+rm -rf "$W/.cache/nvc/accel"
+mwmckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$MWMCK/w" -L "$VLIB" -r --accel mwmck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$MWMCKI" ] && [ "$MWMCKA" = "$MWMCKI" ] && [ "$mwmckwins" -ge 1 ] && [ "$mwmckdiv" -eq 0 ]; then
+  ok "bare multiply renders the full L+R product width (silent-wrong)" "(bump mul width to operand sum when r2_width under-reports; installs + matches; VERIFY 0)"
+else bad "bare multiply renders the full L+R product width (silent-wrong)" "acc=$MWMCKA interp=$MWMCKI installed=$mwmckwins verifyDiv=$mwmckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
