@@ -1126,12 +1126,12 @@ if [ -n "$GI" ] && [ "$GA" = "$GI" ] && [ "$ginst" -ge 1 ]; then
   ok "to_unsigned/to_signed of runtime int installs" "(counter->vector cast; zero/sign-extend)"
 else bad "to_unsigned/to_signed of runtime int installs" "acc=$GA interp=$GI inst=$ginst"; fi
 
-# 23. to_signed/to_unsigned WIDENING must NOT silently install wrong.  Widening a
-#     runtime INTEGER (self-determined render width) sign/zero-extends from the
-#     rendered MSB (bit 7 for an 8-bit-derived int), NOT the true integer sign --
-#     silently wrong.  The fix DECLINES the widen (to_uns-widen) rather than
-#     install; this asserts the per-net VERIFY oracle sees ZERO divergence on a
-#     to_signed(runtime,16) widen.  Re-enabling the widen re-ships the silent-wrong.
+# 23. to_signed/to_unsigned of a runtime INTEGER must NOT silently install wrong.
+#     `to_integer(signed(a)) - 200` renders at 32 bits (int-ext32 extends the
+#     integer operands of a signed +/-), so to_signed(...,16) NARROWS -> the low
+#     16 bits are correct.  (A genuine WIDEN now INSTALLS with a $pos extend --
+#     see ck47.)  Either way the per-net VERIFY oracle must see ZERO divergence on
+#     this shape; a regression that mis-sizes the operand re-ships the silent-wrong.
 cat > "$W/tsw.vhd" <<'VHD'
 library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
 entity tsw is port(clk:in std_logic; a,b:in std_logic_vector(7 downto 0); y:out std_logic_vector(7 downto 0));end entity;
@@ -1158,7 +1158,7 @@ TI=$($NVC -M 256m -H 256m --std=2008 --work="$TS/w" -L "$VLIB" -r tsw_tb 2>&1 | 
 rm -rf "$W/.cache/nvc/accel"
 tdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$TS/w" -L "$VLIB" -r tsw_tb 2>&1 | grep -ciE diverg)
 if [ -n "$TI" ] && [ "$tdiv" -eq 0 ]; then
-  ok "to_signed/to_unsigned widen not silently wrong" "(runtime-int widen declines; VERIFY 0)"
+  ok "to_signed/to_unsigned widen not silently wrong" "(int-ext32 -> narrow; VERIFY 0)"
 else bad "to_signed/to_unsigned widen not silently wrong" "interp=$TI verifyDiv=$tdiv"; fi
 
 # 24. numeric_std UNSIGNED division/rem/compare must render UNSIGNED (silent-wrong).
@@ -2329,6 +2329,61 @@ nbckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VER
 if [ -n "$NBCKI" ] && [ "$NBCKA" = "$NBCKI" ] && [ "$nbckwins" -ge 1 ] && [ "$nbckdiv" -eq 0 ]; then
   ok "unary negation extends/sizes its operand (product, narrow int, resize-widen) (silent-wrong)" "(render at true width + \$pos-extend with own sign; installs + matches; VERIFY 0)"
 else bad "unary negation extends/sizes its operand (product, narrow int, resize-widen) (silent-wrong)" "acc=$NBCKA interp=$NBCKI installed=$nbckwins verifyDiv=$nbckdiv"; fi
+
+# ck47 to_signed/to_unsigned WIDENING of a runtime integer now INSTALLS (was a
+#     sound decline): it $pos-extends the operand's rendered aw-bit value to the
+#     target N -- zero-extend a non-negative operand, sign-extend a signed one.
+#     Sound now that the render produces the operand's TRUE value at aw bits
+#     (Families A/A'/A''/B).  Fixture exercises the shapes the relaxation unlocks
+#     AND the width-consistency fixes it needed: a signed*unsigned mixed product
+#     (was decline->wrong text), a bitwise-of-unsigned (nonneg zero-extend), an
+#     ADD of TWO widens (r2_width_or_operands to_signed target width), and a
+#     to_integer(vector*scalar) widen (nonneg product width).  Installs + matches,
+#     VERIFY 0.  A regression that re-declines loses the accel; one that mis-signs
+#     or mis-sizes re-ships a silent-wrong.
+cat > "$W/wrck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity wrck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of wrck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(to_signed(to_integer(signed(a(3 downto 0)))*to_integer(unsigned(b(3 downto 0))),16))
+       xor std_logic_vector(to_signed(to_integer(unsigned(a(4 downto 0)) and unsigned(b(4 downto 0))),16))
+       xor std_logic_vector(resize(to_signed(to_integer(signed(a(7 downto 0))),12)+to_signed(to_integer(signed(b(7 downto 0))),12),16))
+       xor std_logic_vector(to_signed(to_integer(unsigned(a(2 downto 0))*255),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity wrck_tb is end entity;
+architecture sim of wrck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.wrck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"6B2FA1D7"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+WRCK="$W/wrck"; mkdir -p "$WRCK"
+$NVC -M 256m -H 256m --std=2008 --work="$WRCK/w" -L "$VLIB" -a "$W/wrck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$WRCK/w" -L "$VLIB" -e wrck_tb >/dev/null 2>&1
+WRCKI=$($NVC -M 256m -H 256m --std=2008 --work="$WRCK/w" -L "$VLIB" -r wrck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+wrckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$WRCK/w" -L "$VLIB" -r --accel wrck_tb 2>&1)
+WRCKA=$(printf '%s' "$wrckout" | grep -oE 'Y=-?[0-9]+'); wrckwins=$(printf '%s' "$wrckout" | grep -cE "ACTIVE .*'wrck'")
+rm -rf "$W/.cache/nvc/accel"
+wrckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$WRCK/w" -L "$VLIB" -r --accel wrck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$WRCKI" ] && [ "$WRCKA" = "$WRCKI" ] && [ "$wrckwins" -ge 1 ] && [ "$wrckdiv" -eq 0 ]; then
+  ok "to_signed/to_unsigned widen installs correctly (mixmul, bitwise, add-of-2-widens, vecmul)" "(\$pos extend, zero/sign per operand; installs + matches; VERIFY 0)"
+else bad "to_signed/to_unsigned widen installs correctly (mixmul, bitwise, add-of-2-widens, vecmul)" "acc=$WRCKA interp=$WRCKI installed=$wrckwins verifyDiv=$wrckdiv"; fi
 
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
