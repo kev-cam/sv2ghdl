@@ -2385,6 +2385,59 @@ if [ -n "$WRCKI" ] && [ "$WRCKA" = "$WRCKI" ] && [ "$wrckwins" -ge 1 ] && [ "$wr
   ok "to_signed/to_unsigned widen installs correctly (mixmul, bitwise, add-of-2-widens, vecmul)" "(\$pos extend, zero/sign per operand; installs + matches; VERIFY 0)"
 else bad "to_signed/to_unsigned widen installs correctly (mixmul, bitwise, add-of-2-widens, vecmul)" "acc=$WRCKA interp=$WRCKI installed=$wrckwins verifyDiv=$wrckdiv"; fi
 
+# ck48 a WIDENING resize of a CONSTRAINED SIGNED operand (a signed variable slice)
+#     renders at its TARGET width -- r2_expr installs it there (ck42, materialize +
+#     $pos), but r2_rendered_width/r2_width_or_operands reported the pre-resize
+#     width for a constrained operand, so a CONSUMER mis-sized it: `-(resize(s(5
+#     downto 0),13))` negated the 6-bit slice, ignoring the widen (walker == the
+#     un-resized negation).  The width helpers now return the target for a signed
+#     (not only unconstrained) widen.  Fixture: neg of a var-slice widen, a var-
+#     slice widen +/- a signal, and a var-slice widen in a product.  Installs +
+#     matches, VERIFY 0.
+cat > "$W/svck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity svck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of svck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is variable s:signed(15 downto 0); begin if rising_edge(clk) then
+    s:=signed(a);
+    yr<=std_logic_vector(resize(-(resize(s(5 downto 0),13)),16))
+       xor std_logic_vector(resize(-(resize(s(3 downto 0),12))+signed(b(11 downto 0)),16))
+       xor std_logic_vector(resize(resize(s(7 downto 0),12)*signed(b(3 downto 0)),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity svck_tb is end entity;
+architecture sim of svck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.svck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"9C4E7B21"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+SVCK="$W/svck"; mkdir -p "$SVCK"
+$NVC -M 256m -H 256m --std=2008 --work="$SVCK/w" -L "$VLIB" -a "$W/svck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$SVCK/w" -L "$VLIB" -e svck_tb >/dev/null 2>&1
+SVCKI=$($NVC -M 256m -H 256m --std=2008 --work="$SVCK/w" -L "$VLIB" -r svck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+svckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SVCK/w" -L "$VLIB" -r --accel svck_tb 2>&1)
+SVCKA=$(printf '%s' "$svckout" | grep -oE 'Y=-?[0-9]+'); svckwins=$(printf '%s' "$svckout" | grep -cE "ACTIVE .*'svck'")
+rm -rf "$W/.cache/nvc/accel"
+svckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SVCK/w" -L "$VLIB" -r --accel svck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$SVCKI" ] && [ "$SVCKA" = "$SVCKI" ] && [ "$svckwins" -ge 1 ] && [ "$svckdiv" -eq 0 ]; then
+  ok "constrained-signed resize-widen reports target width to consumers (silent-wrong)" "(neg/add/mul of a signed var-slice widen; installs + matches; VERIFY 0)"
+else bad "constrained-signed resize-widen reports target width to consumers (silent-wrong)" "acc=$SVCKA interp=$SVCKI installed=$svckwins verifyDiv=$svckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
