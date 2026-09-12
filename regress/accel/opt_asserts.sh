@@ -2493,6 +2493,57 @@ if [ -n "$SUCKI" ] && [ "$SUCKA" = "$SUCKI" ] && [ "$suckwins" -ge 1 ] && [ "$su
   ok "signed reinterpret over unsigned resize-widen zero-extends (silent-wrong)" "(materialize + peel intermediate casts; direct/slv/neg; installs + matches; VERIFY 0)"
 else bad "signed reinterpret over unsigned resize-widen zero-extends (silent-wrong)" "acc=$SUCKA interp=$SUCKI installed=$suckwins verifyDiv=$suckdiv"; fi
 
+# ck50 r2_width_or_operands must AGREE with r2_rendered_width for a reinterpret cast
+#     (signed/unsigned/std_logic_vector, T_TYPE_CONV): such a cast preserves width,
+#     so it defers to r2_rendered_width (the ground truth).  r2_width alone UNDER-
+#     reported a MATERIALIZED resize under a signed reinterpret with an unconstrained
+#     operand -- signed(std_logic_vector(resize(unsigned(a(7:0)),12))) has r2_width 8
+#     but renders 12 -- so a consuming +/-/// sized to 8 and TRUNCATED the value.
+#     Fixture: signed-reinterpret-of-uwiden (signal-slice cast) fed to add, add-of-
+#     two, and division.  Installs + matches, VERIFY 0.
+cat > "$W/wmck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity wmck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of wmck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(signed(std_logic_vector(resize(unsigned(a(7 downto 0)),12)))+signed(b(7 downto 0)),16))
+       xor std_logic_vector(resize(signed(std_logic_vector(resize(unsigned(a(3 downto 0)),8)))+signed(std_logic_vector(resize(unsigned(b(3 downto 0)),8))),16))
+       xor std_logic_vector(resize(signed(resize(unsigned(a(3 downto 0)),8))/(signed(b(3 downto 0)) or "0001"),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity wmck_tb is end entity;
+architecture sim of wmck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.wmck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"C7A21E93"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+WMCK="$W/wmck"; mkdir -p "$WMCK"
+$NVC -M 256m -H 256m --std=2008 --work="$WMCK/w" -L "$VLIB" -a "$W/wmck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$WMCK/w" -L "$VLIB" -e wmck_tb >/dev/null 2>&1
+WMCKI=$($NVC -M 256m -H 256m --std=2008 --work="$WMCK/w" -L "$VLIB" -r wmck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+wmckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$WMCK/w" -L "$VLIB" -r --accel wmck_tb 2>&1)
+WMCKA=$(printf '%s' "$wmckout" | grep -oE 'Y=-?[0-9]+'); wmckwins=$(printf '%s' "$wmckout" | grep -cE "ACTIVE .*'wmck'")
+rm -rf "$W/.cache/nvc/accel"
+wmckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$WMCK/w" -L "$VLIB" -r --accel wmck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$WMCKI" ] && [ "$WMCKA" = "$WMCKI" ] && [ "$wmckwins" -ge 1 ] && [ "$wmckdiv" -eq 0 ]; then
+  ok "r2_width_or_operands agrees with rendered width for reinterpret casts (silent-wrong)" "(defer to r2_rendered_width; materialized-resize-under-signed-cast add/div; installs + matches; VERIFY 0)"
+else bad "r2_width_or_operands agrees with rendered width for reinterpret casts (silent-wrong)" "acc=$WMCKA interp=$WMCKI installed=$wmckwins verifyDiv=$wmckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
