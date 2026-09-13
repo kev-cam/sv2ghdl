@@ -2694,6 +2694,55 @@ if [ -n "$F25I" ] && [ "$F25A" = "$F25I" ] && [ "$f25wins" -ge 1 ] && [ "$f25div
   ok "F2/F5: nested narrowing resize + signed mixed-arith resize-narrow (silent-wrong)" "(inner narrow width honoured; installs + matches; VERIFY 0)"
 else bad "F2/F5: nested narrowing resize + signed mixed-arith resize-narrow (silent-wrong)" "acc=$F25A interp=$F25I installed=$f25wins verifyDiv=$f25div"; fi
 
+# ck54 F3: a NAMED / RANGE-choice aggregate used as a binop operand.  The walker
+#     used to DECLINE it, falling to a text path (emit_agg_general) that mis-ordered
+#     the ASCENDING case (positional/reversed) for a numeric consumer -- a xor
+#     (named-reverse b) computed a xor b.  The walker now INSTALLS named/range
+#     aggregates directly (r2_agg_named), leftmost element = MSB (numeric_std, both
+#     directions).  Fixture XORs a named-reverse aggregate and a range-choice
+#     aggregate.  Installs + matches, VERIFY 0.
+cat > "$W/aggck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity aggck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of aggck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(unsigned(a(7 downto 0)) xor unsigned(std_logic_vector'(7=>b(0),6=>b(1),5=>b(2),4=>b(3),3=>b(4),2=>b(5),1=>b(6),0=>b(7))),16))
+       xor std_logic_vector(resize(unsigned(a(7 downto 0)) xor unsigned(std_logic_vector'(7 downto 4=>b(0),3 downto 0=>b(7))),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity aggck_tb is end entity;
+architecture sim of aggck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.aggck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"4B9137EC"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+AGGCK="$W/aggck"; mkdir -p "$AGGCK"
+$NVC -M 256m -H 256m --std=2008 --work="$AGGCK/w" -L "$VLIB" -a "$W/aggck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$AGGCK/w" -L "$VLIB" -e aggck_tb >/dev/null 2>&1
+AGGI=$($NVC -M 256m -H 256m --std=2008 --work="$AGGCK/w" -L "$VLIB" -r aggck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+aggout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$AGGCK/w" -L "$VLIB" -r --accel aggck_tb 2>&1)
+AGGA=$(printf '%s' "$aggout" | grep -oE 'Y=-?[0-9]+'); aggwins=$(printf '%s' "$aggout" | grep -cE "ACTIVE .*'aggck'")
+rm -rf "$W/.cache/nvc/accel"
+aggdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$AGGCK/w" -L "$VLIB" -r --accel aggck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$AGGI" ] && [ "$AGGA" = "$AGGI" ] && [ "$aggwins" -ge 1 ] && [ "$aggdiv" -eq 0 ]; then
+  ok "F3: named/range-choice aggregate operand installs with correct element order (silent-wrong)" "(walker r2_agg_named, leftmost=MSB; installs + matches; VERIFY 0)"
+else bad "F3: named/range-choice aggregate operand installs with correct element order (silent-wrong)" "acc=$AGGA interp=$AGGI installed=$aggwins verifyDiv=$aggdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
