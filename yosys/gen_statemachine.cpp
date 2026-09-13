@@ -1448,6 +1448,16 @@ static int gsm_run(int argc, const char *const *argv)
     // addr_table got depth 1; entry-1 writes clobbered mshr_store slot 0's
     // tag, so the second same-line miss replayed a garbage tag and the
     // coalescer's slot-1 response never matched.)
+    // The REAL word count lives on the RTLIL memory object (proc leaves it in
+    // mod->memories; this flow runs no memory_collect that would fold it into a
+    // $mem cell), NOT in a port's 2^ABITS.  A dynamic index emitted as a 32-bit
+    // reg gives a $memwr/$memrd ABITS of 32, and `1 << 32` is UB -- on x86 the
+    // shift count is masked to 5 bits (32 & 31 == 0) so it yields 1, sizing the
+    // array to ONE word; every write to a higher address then corrupts the next
+    // state_t member (F4 dyn_write_condidx: a 4-word `dl` became `_dl[1]`).
+    std::map<std::string, int> mem_real_size;
+    for (auto &it : mod->memories)
+        mem_real_size[it.first.str()] = it.second->size;
     for (auto &c : mod->cells_) {
         auto *cell = c.second;
         auto type = cell->type.str();
@@ -1456,8 +1466,16 @@ static int gsm_run(int argc, const char *const *argv)
             std::string memid = cell->getParam(ID(MEMID)).decode_string();
             auto &mem = memories[memid];
             int abits = cell->getParam(ID(ABITS)).as_int();
-            if ((1 << abits) > mem.depth)
-                mem.depth = 1 << abits;
+            int port_depth;
+            auto rs = mem_real_size.find(memid);
+            if (rs != mem_real_size.end() && rs->second > 0)
+                port_depth = rs->second;            // authoritative RTLIL size
+            else if (abits > 0 && abits < 31)
+                port_depth = 1 << abits;            // small dynamic mem (no RTLIL obj)
+            else
+                port_depth = mem.depth;             // avoid the 1<<>=31 overflow
+            if (port_depth > mem.depth)
+                mem.depth = port_depth;
             mem.width = cell->getParam(ID(WIDTH)).as_int();
             mem.abits = abits;
             mem.name = cname(memid);

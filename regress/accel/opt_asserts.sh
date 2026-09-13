@@ -3048,6 +3048,62 @@ if [ -n "$NZI" ] && [ "$NZA" = "$NZI" ] && [ "$nzWins" -eq 0 ] \
   ok "F4: uniform NONZERO memory init reaches interp; zero bit-string still installs (silent-wrong)" "(mem_init_is_zero drops only a constant-zero fill; nonzero declines both paths; zero installs; VERIFY 0)"
 else bad "F4: uniform NONZERO memory init reaches interp; zero bit-string still installs (silent-wrong)" "nonzero:acc=$NZA int=$NZI wins=$nzWins | zerobitstr:acc=$ZBA int=$ZBI wins=$zbWins | div=$nzdiv"; fi
 
+# ck59 F4-(2B/Group D, gen_statemachine.cpp): a dynamic memory index emitted as
+#     a WIDE (32-bit) reg -- dl(k) with k an integer variable -- gave the
+#     $memwr/$memrd ports ABITS=32, and gen_statemachine sized mem.depth via
+#     `1 << abits`; `1 << 32` is UB (x86 masks the shift count: 32 & 31 == 0 ->
+#     1), so the 4-word `dl` was allocated ONE word deep and writes to words 1-3
+#     corrupted the next state_t member (i 1186668911 vs w 640245811).  gsm now
+#     takes the REAL word count from the RTLIL memory object (mod->memories size,
+#     which survives `proc`), so `dl` is depth 4 and installs correctly.  A
+#     regression here needs a rebuilt gen_statemachine/libgsm.so; the accel-gate
+#     rebuilds them, so this fixture rides the gate's freshness step.
+cat > "$W/dwi.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity dwi is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of dwi is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (others=>(others=>'0'));
+begin
+  process(clk) is variable k:integer range 0 to 3; begin if rising_edge(clk) then
+    if a(8)='1' then k := to_integer(unsigned(a(1 downto 0)));
+    else             k := to_integer(unsigned(b(1 downto 0))); end if;
+    dl(k) <= a xor b;
+  end if; end process;
+  y <= dl(0) xor dl(1) xor dl(2) xor dl(3);   -- reads ALL 4 words: depth<4 diverges
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity dwi_tb is end entity;
+architecture sim of dwi_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.dwi port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+DWI="$W/dwi"; mkdir -p "$DWI"
+$NVC -M 256m -H 256m --std=2008 --work="$DWI/w" -L "$VLIB" -a "$W/dwi.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$DWI/w" -L "$VLIB" -e dwi_tb >/dev/null 2>&1
+DWII=$($NVC -M 256m -H 256m --std=2008 --work="$DWI/w" -L "$VLIB" -r dwi_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+dwio=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$DWI/w" -L "$VLIB" -r --accel dwi_tb 2>&1)
+DWIA=$(printf '%s' "$dwio" | grep -oE 'Y=-?[0-9]+'); dwiWins=$(printf '%s' "$dwio" | grep -cE "ACTIVE .*'dwi'")
+rm -rf "$W/.cache/nvc/accel"
+dwidiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$DWI/w" -L "$VLIB" -r --accel dwi_tb 2>&1 | grep -ciE diverg)
+if [ -n "$DWII" ] && [ "$DWIA" = "$DWII" ] && [ "$dwiWins" -ge 1 ] && [ "$dwidiv" -eq 0 ]; then
+  ok "F4: dynamic wide-index memory sized to real word count, installs (silent-wrong)" "(gen_statemachine mem.depth from RTLIL memory size, not 1<<abits; installs + matches; VERIFY 0)"
+else bad "F4: dynamic wide-index memory sized to real word count, installs (silent-wrong)" "acc=$DWIA interp=$DWII wins=$dwiWins div=$dwidiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
