@@ -2593,6 +2593,57 @@ if [ -n "$MWMCKI" ] && [ "$MWMCKA" = "$MWMCKI" ] && [ "$mwmckwins" -ge 1 ] && [ 
   ok "bare multiply renders the full L+R product width (silent-wrong)" "(bump mul width to operand sum when r2_width under-reports; installs + matches; VERIFY 0)"
 else bad "bare multiply renders the full L+R product width (silent-wrong)" "acc=$MWMCKA interp=$MWMCKI installed=$mwmckwins verifyDiv=$mwmckdiv"; fi
 
+# ck52 a NON-negative addition (`unsigned_expr + small_literal`) feeding a WIDENING
+#     multiply must ZERO-extend.  r2_int_nonneg's +/* overflow guard bounded the
+#     result with max(wx,wy)+1, which OVER-counts a small literal that renders at 32
+#     bits ((u/v)+1 is 8-bit -- unsigned+natural = the vector's width -- not
+#     max(8,32)+1 = 33), tripping the <=31 guard so the value looked SIGNED and got
+#     sign-extended in the *scalar.  Now the guard uses the ACTUAL rendered result
+#     width.  Fixture: (u/v + 1)*scalar, (u + 3)*scalar, (u(3:0) + 200)*scalar.
+#     Installs + matches, VERIFY 0.
+cat > "$W/nnck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity nnck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of nnck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(((unsigned(a(7 downto 0))/(unsigned(b(7 downto 0)) or x"01"))+1)*to_unsigned(3,8),16))
+       xor std_logic_vector(resize((unsigned(a(7 downto 0))+3)*to_unsigned(2,8),16))
+       xor std_logic_vector(resize((unsigned(a(3 downto 0))+200)*to_unsigned(4,8),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity nnck_tb is end entity;
+architecture sim of nnck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.nnck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"93AC15E7"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+NNCK="$W/nnck"; mkdir -p "$NNCK"
+$NVC -M 256m -H 256m --std=2008 --work="$NNCK/w" -L "$VLIB" -a "$W/nnck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$NNCK/w" -L "$VLIB" -e nnck_tb >/dev/null 2>&1
+NNCKI=$($NVC -M 256m -H 256m --std=2008 --work="$NNCK/w" -L "$VLIB" -r nnck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+nnckout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NNCK/w" -L "$VLIB" -r --accel nnck_tb 2>&1)
+NNCKA=$(printf '%s' "$nnckout" | grep -oE 'Y=-?[0-9]+'); nnckwins=$(printf '%s' "$nnckout" | grep -cE "ACTIVE .*'nnck'")
+rm -rf "$W/.cache/nvc/accel"
+nnckdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NNCK/w" -L "$VLIB" -r --accel nnck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$NNCKI" ] && [ "$NNCKA" = "$NNCKI" ] && [ "$nnckwins" -ge 1 ] && [ "$nnckdiv" -eq 0 ]; then
+  ok "nonneg addition-of-small-literal feeding a multiply zero-extends (silent-wrong)" "(nonneg guard uses actual result width, not max+1 over-counting a 32-bit literal; installs + matches; VERIFY 0)"
+else bad "nonneg addition-of-small-literal feeding a multiply zero-extends (silent-wrong)" "acc=$NNCKA interp=$NNCKI installed=$nnckwins verifyDiv=$nnckdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
