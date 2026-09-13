@@ -2802,6 +2802,99 @@ if [ -n "$DWPI" ] && [ "$DWPA" = "$DWPI" ] && [ "$dwpwins" -eq 0 ] && [ "$dwpdiv
   ok "F4: partial-slice write at a dynamic memory index reaches interp (silent-wrong)" "(memw_scan counts it; walker + text decline dyn-elem-partial; runs interp; VERIFY 0)"
 else bad "F4: partial-slice write at a dynamic memory index reaches interp (silent-wrong)" "acc=$DWPA interp=$DWPI installed=$dwpwins verifyDiv=$dwpdiv"; fi
 
+# ck56 F4-(A): a memory access at a numeric_std VECTOR-ARITHMETIC index
+#     (mem(to_integer(unsigned(a(1:0)) + 1))) loses its modular wrap in Verilog.
+#     VHDL wraps 3+1->0 (mod 4); the text path emits mem[(a[1:0]+1)], Verilog
+#     widens the literal to 32 bits, the add reaches 4, and the $mem read is
+#     out of bounds -> garbage word (or a SIGSEGV on an underflowing `- 1`).
+#     The rtlil walker already declines (mem-usage); the text path now declines
+#     too (mem-idx-arith-wrap) so the module stays in the golden interpreter.
+#     TWO DUTs: mwa (arith index -> must reach interp + match) and mwd (a
+#     DIRECT-index sibling with NO arithmetic -> the ANTI-OVER-DECLINE guard:
+#     must still INSTALL + match; the fix must not touch plain register files).
+cat > "$W/mwa.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity mwa is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of mwa is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal mem : arr4 := (others=>(others=>'0'));
+begin
+  process(clk) is begin if rising_edge(clk) then
+    mem(to_integer(unsigned(a(1 downto 0)))) <= mem(to_integer(unsigned(a(1 downto 0)) + 1)) xor b;
+  end if; end process;
+  y <= mem(to_integer(unsigned(a(1 downto 0))));
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity mwd is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of mwd is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal mem : arr4 := (others=>(others=>'0'));
+begin
+  process(clk) is begin if rising_edge(clk) then
+    mem(to_integer(unsigned(a(1 downto 0)))) <= mem(to_integer(unsigned(a(1 downto 0)))) xor b;
+  end if; end process;
+  y <= mem(to_integer(unsigned(b(1 downto 0))));
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity mws is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of mws is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal mem : arr4 := (others=>(others=>'0'));
+begin
+  process(clk) is begin if rising_edge(clk) then
+    mem(to_integer(unsigned(a(1 downto 0)))) <= a xor b;
+  end if; end process;
+  -- shift_left FUNCTION form of the wrap-losing `<<`: (b(1:0) << 1) mod 4 in
+  -- VHDL, but Verilog widens to 32 bits and reaches 4/6 -> OOB on arr4.
+  y <= mem(to_integer(shift_left(unsigned(b(1 downto 0)),1)));
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity mwa_tb is end entity;
+architecture sim of mwa_tb is
+  signal clk:std_logic:='0'; signal a,b,ya,yd,ys:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  ua:entity work.mwa port map(clk=>clk,a=>a,b=>b,y=>ya);
+  ud:entity work.mwd port map(clk=>clk,a=>a,b=>b,y=>yd);
+  us:entity work.mws port map(clk=>clk,a=>a,b=>b,y=>ys);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable csa,csd,css:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk);
+      csa:=rotate_left(csa,1) xor resize(unsigned(ya),32);
+      csd:=rotate_left(csd,1) xor resize(unsigned(yd),32);
+      css:=rotate_left(css,1) xor resize(unsigned(ys),32);
+    end loop;
+    done<=true;
+    report "YA="&integer'image(to_integer(csa(30 downto 0)));
+    report "YD="&integer'image(to_integer(csd(30 downto 0)));
+    report "YS="&integer'image(to_integer(css(30 downto 0)));
+    wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+MWA="$W/mwa"; mkdir -p "$MWA"
+$NVC -M 256m -H 256m --std=2008 --work="$MWA/w" -L "$VLIB" -a "$W/mwa.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$MWA/w" -L "$VLIB" -e mwa_tb >/dev/null 2>&1
+mwii=$($NVC -M 256m -H 256m --std=2008 --work="$MWA/w" -L "$VLIB" -r mwa_tb 2>&1)
+MWAI=$(printf '%s' "$mwii" | grep -oE 'YA=-?[0-9]+'); MWDI=$(printf '%s' "$mwii" | grep -oE 'YD=-?[0-9]+'); MWSI=$(printf '%s' "$mwii" | grep -oE 'YS=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+mwao=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$MWA/w" -L "$VLIB" -r --accel mwa_tb 2>&1)
+MWAA=$(printf '%s' "$mwao" | grep -oE 'YA=-?[0-9]+'); MWDA=$(printf '%s' "$mwao" | grep -oE 'YD=-?[0-9]+'); MWSA=$(printf '%s' "$mwao" | grep -oE 'YS=-?[0-9]+')
+mwaWins=$(printf '%s' "$mwao" | grep -cE "ACTIVE .*'mwa'"); mwdWins=$(printf '%s' "$mwao" | grep -cE "ACTIVE .*'mwd'"); mwsWins=$(printf '%s' "$mwao" | grep -cE "ACTIVE .*'mws'")
+rm -rf "$W/.cache/nvc/accel"
+mwadiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$MWA/w" -L "$VLIB" -r --accel mwa_tb 2>&1 | grep -ciE diverg)
+if [ -n "$MWAI" ] && [ "$MWAA" = "$MWAI" ] && [ "$mwaWins" -eq 0 ] \
+   && [ -n "$MWSI" ] && [ "$MWSA" = "$MWSI" ] && [ "$mwsWins" -eq 0 ] \
+   && [ -n "$MWDI" ] && [ "$MWDA" = "$MWDI" ] && [ "$mwdWins" -ge 1 ] && [ "$mwadiv" -eq 0 ]; then
+  ok "F4: arith-index (+, shift_left) memory access reaches interp; direct-index still installs (silent-wrong)" "(mem-idx-arith-wrap declines +/shift_left wrap-losing index both paths; direct index unaffected; VERIFY 0)"
+else bad "F4: arith-index (+, shift_left) memory access reaches interp; direct-index still installs (silent-wrong)" "add:acc=$MWAA int=$MWAI wins=$mwaWins | shl:acc=$MWSA int=$MWSI wins=$mwsWins | direct:acc=$MWDA int=$MWDI wins=$mwdWins | div=$mwadiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
