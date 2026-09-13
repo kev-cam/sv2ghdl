@@ -2973,6 +2973,81 @@ if [ -n "$SWII" ] && [ "$SWIA" = "$SWII" ] && [ "$swiWins" -eq 0 ] \
   ok "F4: non-uniform memory init reaches interp; uniform (others=>0) still installs (silent-wrong)" "(text path mirrors walker mem-init decline; uniform power-on fill unaffected; VERIFY 0)"
 else bad "F4: non-uniform memory init reaches interp; uniform (others=>0) still installs (silent-wrong)" "nonunif:acc=$SWIA int=$SWII wins=$swiWins | uniform:acc=$UNIA int=$UNII wins=$uniWins | div=$swidiv"; fi
 
+# ck58 F4-(2B): a UNIFORM but NONZERO memory initializer -- signal dl : arr :=
+#     (others => x"00FF") -- was a WALKER-install-wrong.  BOTH the walker and the
+#     text path DROP any single (others => X) fill, but the accel resets memory
+#     state to 0, so a nonzero fill powered on 0 and diverged (rtlil_install=1).
+#     Both guards now drop ONLY a constant-ZERO fill (mem_init_is_zero, which
+#     decodes '0'/L/L3D_0 and all-'0' bit-strings, and integer 0 for int-element
+#     mems); a nonzero fill DECLINEs -> golden interp.  TWO DUTs: nzf (nonzero
+#     fill -> must reach interp + match) and zbs (a bit-string ZERO fill
+#     (others=>x"0000") -> the ANTI-OVER-DECLINE guard: a genuine zero fill in a
+#     different syntactic form must still INSTALL + match, not be over-declined).
+cat > "$W/nzf.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity nzf is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of nzf is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (others=>x"00FF");
+begin
+  process(clk) is begin if rising_edge(clk) then
+    dl(to_integer(unsigned(a(1 downto 0)))) <= a xor b;
+  end if; end process;
+  y <= dl(0) xor dl(1) xor dl(2) xor dl(3);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity zbs is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of zbs is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (others=>x"0000");
+begin
+  process(clk) is begin if rising_edge(clk) then
+    dl(to_integer(unsigned(a(1 downto 0)))) <= a xor b;
+  end if; end process;
+  y <= dl(to_integer(unsigned(b(1 downto 0))));
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity nzf_tb is end entity;
+architecture sim of nzf_tb is
+  signal clk:std_logic:='0'; signal a,b,yn,yz:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  un:entity work.nzf port map(clk=>clk,a=>a,b=>b,y=>yn);
+  uz:entity work.zbs port map(clk=>clk,a=>a,b=>b,y=>yz);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"12ABCD34"); variable csn,csz:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk);
+      csn:=rotate_left(csn,1) xor resize(unsigned(yn),32);
+      csz:=rotate_left(csz,1) xor resize(unsigned(yz),32);
+    end loop;
+    done<=true;
+    report "YN="&integer'image(to_integer(csn(30 downto 0)));
+    report "YZ="&integer'image(to_integer(csz(30 downto 0)));
+    wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+NZF="$W/nzf"; mkdir -p "$NZF"
+$NVC -M 256m -H 256m --std=2008 --work="$NZF/w" -L "$VLIB" -a "$W/nzf.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$NZF/w" -L "$VLIB" -e nzf_tb >/dev/null 2>&1
+nzii=$($NVC -M 256m -H 256m --std=2008 --work="$NZF/w" -L "$VLIB" -r nzf_tb 2>&1)
+NZI=$(printf '%s' "$nzii" | grep -oE 'YN=-?[0-9]+'); ZBI=$(printf '%s' "$nzii" | grep -oE 'YZ=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+nzo=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NZF/w" -L "$VLIB" -r --accel nzf_tb 2>&1)
+NZA=$(printf '%s' "$nzo" | grep -oE 'YN=-?[0-9]+'); ZBA=$(printf '%s' "$nzo" | grep -oE 'YZ=-?[0-9]+')
+nzWins=$(printf '%s' "$nzo" | grep -cE "ACTIVE .*'nzf'"); zbWins=$(printf '%s' "$nzo" | grep -cE "ACTIVE .*'zbs'")
+rm -rf "$W/.cache/nvc/accel"
+nzdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NZF/w" -L "$VLIB" -r --accel nzf_tb 2>&1 | grep -ciE diverg)
+if [ -n "$NZI" ] && [ "$NZA" = "$NZI" ] && [ "$nzWins" -eq 0 ] \
+   && [ -n "$ZBI" ] && [ "$ZBA" = "$ZBI" ] && [ "$zbWins" -ge 1 ] && [ "$nzdiv" -eq 0 ]; then
+  ok "F4: uniform NONZERO memory init reaches interp; zero bit-string still installs (silent-wrong)" "(mem_init_is_zero drops only a constant-zero fill; nonzero declines both paths; zero installs; VERIFY 0)"
+else bad "F4: uniform NONZERO memory init reaches interp; zero bit-string still installs (silent-wrong)" "nonzero:acc=$NZA int=$NZI wins=$nzWins | zerobitstr:acc=$ZBA int=$ZBI wins=$zbWins | div=$nzdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
