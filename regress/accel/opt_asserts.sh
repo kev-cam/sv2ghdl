@@ -2895,6 +2895,84 @@ if [ -n "$MWAI" ] && [ "$MWAA" = "$MWAI" ] && [ "$mwaWins" -eq 0 ] \
   ok "F4: arith-index (+, shift_left) memory access reaches interp; direct-index still installs (silent-wrong)" "(mem-idx-arith-wrap declines +/shift_left wrap-losing index both paths; direct index unaffected; VERIFY 0)"
 else bad "F4: arith-index (+, shift_left) memory access reaches interp; direct-index still installs (silent-wrong)" "add:acc=$MWAA int=$MWAI wins=$mwaWins | shl:acc=$MWSA int=$MWSI wins=$mwsWins | direct:acc=$MWDA int=$MWDI wins=$mwdWins | div=$mwadiv"; fi
 
+# ck57 F4-(2B/Group B): a memory-shaped SIGNAL with a NON-UNIFORM per-element
+#     initializer -- signal dl : arr := (x"0001", x"0002", ...) -- was silently
+#     WRONG.  The RTLIL walker declines it (mem-init: no $meminit), but the TEXT
+#     fallback emitted the bare `reg [15:0] dl [0:3]` and DROPPED the init, so dl
+#     powered on at 0 and diverged for the cycles before each element was first
+#     written.  The text path now mirrors the walker's guard: only a single
+#     (others => X) uniform power-on fill is droppable; anything else DECLINEs
+#     (mem-init) so the module stays in the golden interpreter.  TWO DUTs: swi
+#     (non-uniform init -> must reach interp + match) and uni (uniform
+#     (others=>(others=>'0')) -> the ANTI-OVER-DECLINE guard: must still INSTALL
+#     + match -- the common register-file/RAM power-on-zero fill is unaffected).
+cat > "$W/swi.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity swi is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of swi is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (x"0001",x"0002",x"0004",x"0008");
+begin
+  process(clk) is variable i,j:integer range 0 to 3; begin if rising_edge(clk) then
+    i := to_integer(unsigned(a(1 downto 0))); j := to_integer(unsigned(a(3 downto 2)));
+    dl(i) <= dl(j); dl(j) <= dl(i);
+    dl(to_integer(unsigned(b(1 downto 0)))) <= dl(to_integer(unsigned(b(1 downto 0)))) xor b;
+  end if; end process;
+  y <= dl(0) xor dl(1) xor dl(2) xor dl(3);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity uni is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of uni is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (others=>(others=>'0'));
+begin
+  process(clk) is begin if rising_edge(clk) then
+    dl(to_integer(unsigned(a(1 downto 0)))) <= a xor b;
+  end if; end process;
+  y <= dl(to_integer(unsigned(b(1 downto 0))));
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity swi_tb is end entity;
+architecture sim of swi_tb is
+  signal clk:std_logic:='0'; signal a,b,ys,yu:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  us:entity work.swi port map(clk=>clk,a=>a,b=>b,y=>ys);
+  uu:entity work.uni port map(clk=>clk,a=>a,b=>b,y=>yu);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable css,csu:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk);
+      css:=rotate_left(css,1) xor resize(unsigned(ys),32);
+      csu:=rotate_left(csu,1) xor resize(unsigned(yu),32);
+    end loop;
+    done<=true;
+    report "YS="&integer'image(to_integer(css(30 downto 0)));
+    report "YU="&integer'image(to_integer(csu(30 downto 0)));
+    wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+SWI="$W/swi"; mkdir -p "$SWI"
+$NVC -M 256m -H 256m --std=2008 --work="$SWI/w" -L "$VLIB" -a "$W/swi.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$SWI/w" -L "$VLIB" -e swi_tb >/dev/null 2>&1
+swii=$($NVC -M 256m -H 256m --std=2008 --work="$SWI/w" -L "$VLIB" -r swi_tb 2>&1)
+SWII=$(printf '%s' "$swii" | grep -oE 'YS=-?[0-9]+'); UNII=$(printf '%s' "$swii" | grep -oE 'YU=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+swio=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SWI/w" -L "$VLIB" -r --accel swi_tb 2>&1)
+SWIA=$(printf '%s' "$swio" | grep -oE 'YS=-?[0-9]+'); UNIA=$(printf '%s' "$swio" | grep -oE 'YU=-?[0-9]+')
+swiWins=$(printf '%s' "$swio" | grep -cE "ACTIVE .*'swi'"); uniWins=$(printf '%s' "$swio" | grep -cE "ACTIVE .*'uni'")
+rm -rf "$W/.cache/nvc/accel"
+swidiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$SWI/w" -L "$VLIB" -r --accel swi_tb 2>&1 | grep -ciE diverg)
+if [ -n "$SWII" ] && [ "$SWIA" = "$SWII" ] && [ "$swiWins" -eq 0 ] \
+   && [ -n "$UNII" ] && [ "$UNIA" = "$UNII" ] && [ "$uniWins" -ge 1 ] && [ "$swidiv" -eq 0 ]; then
+  ok "F4: non-uniform memory init reaches interp; uniform (others=>0) still installs (silent-wrong)" "(text path mirrors walker mem-init decline; uniform power-on fill unaffected; VERIFY 0)"
+else bad "F4: non-uniform memory init reaches interp; uniform (others=>0) still installs (silent-wrong)" "nonunif:acc=$SWIA int=$SWII wins=$swiWins | uniform:acc=$UNIA int=$UNII wins=$uniWins | div=$swidiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
