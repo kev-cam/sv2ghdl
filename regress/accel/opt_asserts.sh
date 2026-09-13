@@ -2743,6 +2743,65 @@ if [ -n "$AGGI" ] && [ "$AGGA" = "$AGGI" ] && [ "$aggwins" -ge 1 ] && [ "$aggdiv
   ok "F3: named/range-choice aggregate operand installs with correct element order (silent-wrong)" "(walker r2_agg_named, leftmost=MSB; installs + matches; VERIFY 0)"
 else bad "F3: named/range-choice aggregate operand installs with correct element order (silent-wrong)" "acc=$AGGA interp=$AGGI installed=$aggwins verifyDiv=$aggdiv"; fi
 
+# ck55 F4-(1): a PARTIAL-SLICE (or sub-bit) write into a DYNAMICALLY-indexed
+#     memory element -- dl(k)(7 downto 0) <= …; dl(k)(15 downto 8) <= … with k
+#     a runtime variable.  This shape is NOT a bare T_ARRAY_REF, so it slipped
+#     past r2_memw_scan_cb's single-level peel: a clocked process whose ONLY
+#     memory writes were partial-slice counted mws.n == 0 and (dl being a
+#     memory, ts.n == 0) EARLY-RETURNED as a silent no-op -- no write port
+#     built, no decline, module installed with dl undriven (a silent wrong
+#     install).  The scan now peels the full select chain so the process
+#     proceeds to r2_seq, where the target lowering DECLINES the dynamic
+#     partial write (dyn-elem-partial); the text path (which emitted
+#     `dl[k][7:0] <= …`, mis-synthesized by yosys) declines the same shape.
+#     Both decline -> the module stays in the golden interpreter.  Assert the
+#     subtree is NOT installed and accel == interp with VERIFY 0.
+cat > "$W/dwp.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity dwp is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of dwp is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (others=>(others=>'0'));
+begin
+  process(clk) is variable k:integer range 0 to 3; begin if rising_edge(clk) then
+    k := to_integer(unsigned(a(1 downto 0)));
+    dl(k)(7 downto 0)  <= b(7 downto 0);
+    dl(k)(15 downto 8) <= a(15 downto 8);
+  end if; end process;
+  y <= dl(0) xor dl(1) xor dl(2) xor dl(3);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity dwp_tb is end entity;
+architecture sim of dwp_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.dwp port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+DWP="$W/dwp"; mkdir -p "$DWP"
+$NVC -M 256m -H 256m --std=2008 --work="$DWP/w" -L "$VLIB" -a "$W/dwp.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$DWP/w" -L "$VLIB" -e dwp_tb >/dev/null 2>&1
+DWPI=$($NVC -M 256m -H 256m --std=2008 --work="$DWP/w" -L "$VLIB" -r dwp_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+dwpout=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$DWP/w" -L "$VLIB" -r --accel dwp_tb 2>&1)
+DWPA=$(printf '%s' "$dwpout" | grep -oE 'Y=-?[0-9]+'); dwpwins=$(printf '%s' "$dwpout" | grep -cE "ACTIVE .*'dwp'")
+rm -rf "$W/.cache/nvc/accel"
+dwpdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$DWP/w" -L "$VLIB" -r --accel dwp_tb 2>&1 | grep -ciE diverg)
+if [ -n "$DWPI" ] && [ "$DWPA" = "$DWPI" ] && [ "$dwpwins" -eq 0 ] && [ "$dwpdiv" -eq 0 ]; then
+  ok "F4: partial-slice write at a dynamic memory index reaches interp (silent-wrong)" "(memw_scan counts it; walker + text decline dyn-elem-partial; runs interp; VERIFY 0)"
+else bad "F4: partial-slice write at a dynamic memory index reaches interp (silent-wrong)" "acc=$DWPA interp=$DWPI installed=$dwpwins verifyDiv=$dwpdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
