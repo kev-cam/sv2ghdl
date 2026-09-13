@@ -2644,6 +2644,56 @@ if [ -n "$NNCKI" ] && [ "$NNCKA" = "$NNCKI" ] && [ "$nnckwins" -ge 1 ] && [ "$nn
   ok "nonneg addition-of-small-literal feeding a multiply zero-extends (silent-wrong)" "(nonneg guard uses actual result width, not max+1 over-counting a 32-bit literal; installs + matches; VERIFY 0)"
 else bad "nonneg addition-of-small-literal feeding a multiply zero-extends (silent-wrong)" "acc=$NNCKA interp=$NNCKI installed=$nnckwins verifyDiv=$nnckdiv"; fi
 
+# ck53 F2/F5 REGRESSION GUARD (no code change -- the width-model campaign resolved
+#     these).  F2: a NARROWING resize of a SIGNED value, nested, was IGNORED (accel
+#     gave the SAME value regardless of the inner narrow width) -- resize(resize(
+#     signed(a),4),16) and ...,3),16) must now give DISTINCT values (else the inner
+#     narrowing is dropped).  F5: signed mixed-arith with resize-narrow -- (resize(
+#     signed(a),9)+resize(signed(b),9))*to_signed(-7,8).  Verified fixed by 73
+#     adversarial fixtures; this locks it against a width-model regression.
+cat > "$W/f25ck.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity f25ck is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of f25ck is signal yr:std_logic_vector(15 downto 0):=(others=>'0');begin
+  process(clk) is begin if rising_edge(clk) then
+    yr<=std_logic_vector(resize(resize(signed(a),4),16))
+       xor std_logic_vector(resize(resize(signed(a),3),16))
+       xor std_logic_vector(resize((resize(signed(a),9)+resize(signed(b),9))*to_signed(-7,8),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity f25ck_tb is end entity;
+architecture sim of f25ck_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.f25ck port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"1D7E93A5"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+F25="$W/f25ck"; mkdir -p "$F25"
+$NVC -M 256m -H 256m --std=2008 --work="$F25/w" -L "$VLIB" -a "$W/f25ck.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$F25/w" -L "$VLIB" -e f25ck_tb >/dev/null 2>&1
+F25I=$($NVC -M 256m -H 256m --std=2008 --work="$F25/w" -L "$VLIB" -r f25ck_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+f25out=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F25/w" -L "$VLIB" -r --accel f25ck_tb 2>&1)
+F25A=$(printf '%s' "$f25out" | grep -oE 'Y=-?[0-9]+'); f25wins=$(printf '%s' "$f25out" | grep -cE "ACTIVE .*'f25ck'")
+rm -rf "$W/.cache/nvc/accel"
+f25div=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$F25/w" -L "$VLIB" -r --accel f25ck_tb 2>&1 | grep -ciE diverg)
+if [ -n "$F25I" ] && [ "$F25A" = "$F25I" ] && [ "$f25wins" -ge 1 ] && [ "$f25div" -eq 0 ]; then
+  ok "F2/F5: nested narrowing resize + signed mixed-arith resize-narrow (silent-wrong)" "(inner narrow width honoured; installs + matches; VERIFY 0)"
+else bad "F2/F5: nested narrowing resize + signed mixed-arith resize-narrow (silent-wrong)" "acc=$F25A interp=$F25I installed=$f25wins verifyDiv=$f25div"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
