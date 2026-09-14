@@ -3159,6 +3159,64 @@ if [ -n "$ISXI" ] && [ "$ISXA" = "$ISXI" ] && [ "$isxWins" -ge 1 ] && [ "$isxdiv
   ok "F4: integer-signal register sized to 32, dynamic index reaches all words (silent-wrong)" "(r2_collect_cb: integer signal reg width 32 not type_width scalar-1; installs + matches; VERIFY 0)"
 else bad "F4: integer-signal register sized to 32, dynamic index reaches all words (silent-wrong)" "acc=$ISXA interp=$ISXI wins=$isxWins div=$isxdiv"; fi
 
+# ck61 F4-(2B): an async-read FIFO -- a clocked dynamic WRITE dl(head)<=v and a
+#     CONCURRENT (combinational) dynamic READ y<=dl(tail), head/tail registered
+#     unsigned pointers, so the read observes the PRE-edge word (an NBA RAW
+#     hazard, effective depth = the array size).  Because the indices are
+#     to_integer(pointer), the $memwr/$memrd ports get ABITS=32, and the
+#     gen_statemachine `1<<abits` depth overflow (fixed via the RTLIL memory's
+#     real size) used to size dl to ONE word -- so reads/writes collapsed to
+#     word 0 and only matched when tail==0 (looked like a broken async $memrd
+#     at nonzero addresses; it was the depth-1 collapse).  With correct depth the
+#     async read at any pointer works.  Installs + matches; VERIFY 0.  Distinct
+#     shape from ck59 (a write-index counter): this gates the async-READ + RAW path.
+cat > "$W/afifo.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity afifo is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of afifo is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (others=>(others=>'0'));
+  signal head,tail : unsigned(1 downto 0) := "00";
+begin
+  process(clk) is begin if rising_edge(clk) then
+    dl(to_integer(head)) <= a xor b;
+    head <= head + 1;
+    tail <= tail + 1;
+  end if; end process;
+  y <= dl(to_integer(tail));
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity afifo_tb is end entity;
+architecture sim of afifo_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.afifo port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+AF="$W/afifo"; mkdir -p "$AF"
+$NVC -M 256m -H 256m --std=2008 --work="$AF/w" -L "$VLIB" -a "$W/afifo.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$AF/w" -L "$VLIB" -e afifo_tb >/dev/null 2>&1
+AFI=$($NVC -M 256m -H 256m --std=2008 --work="$AF/w" -L "$VLIB" -r afifo_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+afo=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$AF/w" -L "$VLIB" -r --accel afifo_tb 2>&1)
+AFA=$(printf '%s' "$afo" | grep -oE 'Y=-?[0-9]+'); afWins=$(printf '%s' "$afo" | grep -cE "ACTIVE .*'afifo'")
+rm -rf "$W/.cache/nvc/accel"
+afdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$AF/w" -L "$VLIB" -r --accel afifo_tb 2>&1 | grep -ciE diverg)
+if [ -n "$AFI" ] && [ "$AFA" = "$AFI" ] && [ "$afWins" -ge 1 ] && [ "$afdiv" -eq 0 ]; then
+  ok "F4: async-read FIFO with dynamic pointers installs + matches (silent-wrong)" "(gsm depth from real size -> dl not collapsed to 1 word; async read at nonzero tail correct; VERIFY 0)"
+else bad "F4: async-read FIFO with dynamic pointers installs + matches (silent-wrong)" "acc=$AFA interp=$AFI wins=$afWins div=$afdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
