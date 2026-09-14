@@ -3343,6 +3343,82 @@ if [ -n "$ASCI" ] && [ "$ASCA" = "$ASCI" ] && [ "$ascWins" -eq 0 ] \
   ok "resweep-C: ascending-range slice/element read reaches interp; downto still installs (silent-wrong)" "(both paths decline slice-ascending + elem-ascending; downto unaffected; VERIFY 0)"
 else bad "resweep-C: ascending-range slice/element read reaches interp; downto still installs (silent-wrong)" "asc:acc=$ASCA int=$ASCI wins=$ascWins | dsc:acc=$DSCA int=$DSCI wins=$dscWins | div=$ascdiv"; fi
 
+# ck64 resweep Family A: a DYNAMIC index into a NON-ZERO-BASE array.
+#     `type mem_t is array(4 to 7) of slv; mem(4+k) <= ...; y <= mem(4+j)` --
+#     the walker mem path and the text flat part-select address the store at the
+#     RAW index (4..7) without subtracting array'low, so mem(5) hits word 5 of a
+#     4-word store, not word 1 (i 427895993 vs w 1917710239).  Both paths now
+#     decline a dynamic non-zero-base index (nonzero-base-dyn-index) -> interp.
+#     TWO DUTs: nzb (array(4 to 7) -> must reach interp + match) and zbm (the
+#     same shape 0-based array(0 to 3) -> the ANTI-OVER-DECLINE guard: a 0-based
+#     dynamic mem must still be accelerated (active) + match, unaffected).
+cat > "$W/nzb.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity nzb is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of nzb is
+  type mem_t is array(4 to 7) of std_logic_vector(15 downto 0);
+  signal mem:mem_t:=(others=>(others=>'0')); signal yr:std_logic_vector(15 downto 0):=(others=>'0');
+begin
+  process(clk) is variable wi,ri:integer range 4 to 7; begin if rising_edge(clk) then
+    wi := 4 + to_integer(unsigned(a(1 downto 0))); ri := 4 + to_integer(unsigned(b(1 downto 0)));
+    mem(wi) <= a xor b; yr <= mem(ri);
+  end if; end process;
+  y <= yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity zbm is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of zbm is
+  type mem_t is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal mem:mem_t:=(others=>(others=>'0')); signal yr:std_logic_vector(15 downto 0):=(others=>'0');
+begin
+  process(clk) is variable wi,ri:integer range 0 to 3; begin if rising_edge(clk) then
+    wi := to_integer(unsigned(a(1 downto 0))); ri := to_integer(unsigned(b(1 downto 0)));
+    mem(wi) <= a xor b; yr <= mem(ri);
+  end if; end process;
+  y <= yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity nzb_tb is end entity;
+architecture sim of nzb_tb is
+  signal clk:std_logic:='0'; signal a,b,yn,yz:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  un:entity work.nzb port map(clk=>clk,a=>a,b=>b,y=>yn);
+  uz:entity work.zbm port map(clk=>clk,a=>a,b=>b,y=>yz);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable csn,csz:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk);
+      csn:=rotate_left(csn,1) xor resize(unsigned(yn),32);
+      csz:=rotate_left(csz,1) xor resize(unsigned(yz),32);
+    end loop;
+    done<=true;
+    report "YN="&integer'image(to_integer(csn(30 downto 0)));
+    report "YZ="&integer'image(to_integer(csz(30 downto 0)));
+    wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+NZB="$W/nzb"; mkdir -p "$NZB"
+$NVC -M 256m -H 256m --std=2008 --work="$NZB/w" -L "$VLIB" -a "$W/nzb.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$NZB/w" -L "$VLIB" -e nzb_tb >/dev/null 2>&1
+nzii=$($NVC -M 256m -H 256m --std=2008 --work="$NZB/w" -L "$VLIB" -r nzb_tb 2>&1)
+NZBI=$(printf '%s' "$nzii" | grep -oE 'YN=-?[0-9]+'); ZBMI=$(printf '%s' "$nzii" | grep -oE 'YZ=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+nzo=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NZB/w" -L "$VLIB" -r --accel nzb_tb 2>&1)
+NZBA=$(printf '%s' "$nzo" | grep -oE 'YN=-?[0-9]+'); ZBMA=$(printf '%s' "$nzo" | grep -oE 'YZ=-?[0-9]+')
+nzbWins=$(printf '%s' "$nzo" | grep -cE "ACTIVE .*'nzb'"); zbmWins=$(printf '%s' "$nzo" | grep -cE "ACTIVE .*'zbm'")
+rm -rf "$W/.cache/nvc/accel"
+nzdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NZB/w" -L "$VLIB" -r --accel nzb_tb 2>&1 | grep -ciE diverg)
+if [ -n "$NZBI" ] && [ "$NZBA" = "$NZBI" ] && [ "$nzbWins" -eq 0 ] \
+   && [ -n "$ZBMI" ] && [ "$ZBMA" = "$ZBMI" ] && [ "$zbmWins" -ge 1 ] && [ "$nzdiv" -eq 0 ]; then
+  ok "resweep-A: non-zero-base dynamic array index reaches interp; 0-based still accelerates (silent-wrong)" "(both paths decline nonzero-base-dyn-index; array'low not subtracted; 0-based unaffected; VERIFY 0)"
+else bad "resweep-A: non-zero-base dynamic array index reaches interp; 0-based still accelerates (silent-wrong)" "nzb:acc=$NZBA int=$NZBI wins=$nzbWins | zbm:acc=$ZBMA int=$ZBMI wins=$zbmWins | div=$nzdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
