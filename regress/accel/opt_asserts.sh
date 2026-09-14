@@ -3419,6 +3419,75 @@ if [ -n "$NZBI" ] && [ "$NZBA" = "$NZBI" ] && [ "$nzbWins" -eq 0 ] \
   ok "resweep-A: non-zero-base dynamic array index reaches interp; 0-based still accelerates (silent-wrong)" "(both paths decline nonzero-base-dyn-index; array'low not subtracted; 0-based unaffected; VERIFY 0)"
 else bad "resweep-A: non-zero-base dynamic array index reaches interp; 0-based still accelerates (silent-wrong)" "nzb:acc=$NZBA int=$NZBI wins=$nzbWins | zbm:acc=$ZBMA int=$ZBMI wins=$zbmWins | div=$nzdiv"; fi
 
+# ck65 resweep Family D: a NARROWING resize of a WIDE SIGNED product.
+#     yr <= std_logic_vector(resize(resize(signed(a),20)*resize(signed(b),20),16))
+#     -- a 40-bit signed product resized NARROW to 16.  numeric_std keeps
+#     {product'sign, low 15}, but the text path emitted `$signed(product)` and let
+#     the assignment TRUNCATE to the low 16 bits, dropping the true sign on
+#     overflow (i 1497212685 vs w 1330556091).  The rtlil walker declines this
+#     (resize-narrow-land, a width-mismatch on the wide product); the text path
+#     now declines a narrowing signed resize/to_signed too -> interp.  TWO DUTs:
+#     nsr (narrowing signed product resize -> must reach interp + match) and wsr
+#     (a WIDENING signed resize -> the ANTI-OVER-DECLINE guard: still installs).
+cat > "$W/nsr.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity nsr is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of nsr is signal yr:std_logic_vector(15 downto 0):=(others=>'0'); begin
+  process(clk) begin if rising_edge(clk) then
+    yr <= std_logic_vector(resize(resize(signed(a),20) * resize(signed(b),20), 16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity wsr is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of wsr is signal yr:std_logic_vector(15 downto 0):=(others=>'0'); begin
+  process(clk) begin if rising_edge(clk) then
+    yr <= std_logic_vector(resize(signed(a(7 downto 0)),16) + resize(signed(b(7 downto 0)),16));
+  end if; end process;
+  y<=yr;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity nsr_tb is end entity;
+architecture sim of nsr_tb is
+  signal clk:std_logic:='0'; signal a,b,yn,yw:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  un:entity work.nsr port map(clk=>clk,a=>a,b=>b,y=>yn);
+  uw:entity work.wsr port map(clk=>clk,a=>a,b=>b,y=>yw);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"4B9137EC"); variable csn,csw:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk);
+      csn:=rotate_left(csn,1) xor resize(unsigned(yn),32);
+      csw:=rotate_left(csw,1) xor resize(unsigned(yw),32);
+    end loop;
+    done<=true;
+    report "YN="&integer'image(to_integer(csn(30 downto 0)));
+    report "YW="&integer'image(to_integer(csw(30 downto 0)));
+    wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+NSR="$W/nsr"; mkdir -p "$NSR"
+$NVC -M 256m -H 256m --std=2008 --work="$NSR/w" -L "$VLIB" -a "$W/nsr.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$NSR/w" -L "$VLIB" -e nsr_tb >/dev/null 2>&1
+nsii=$($NVC -M 256m -H 256m --std=2008 --work="$NSR/w" -L "$VLIB" -r nsr_tb 2>&1)
+NSRI=$(printf '%s' "$nsii" | grep -oE 'YN=-?[0-9]+'); WSRI=$(printf '%s' "$nsii" | grep -oE 'YW=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+nso=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NSR/w" -L "$VLIB" -r --accel nsr_tb 2>&1)
+NSRA=$(printf '%s' "$nso" | grep -oE 'YN=-?[0-9]+'); WSRA=$(printf '%s' "$nso" | grep -oE 'YW=-?[0-9]+')
+nsrWins=$(printf '%s' "$nso" | grep -cE "ACTIVE .*'nsr'"); wsrWins=$(printf '%s' "$nso" | grep -cE "ACTIVE .*'wsr'")
+rm -rf "$W/.cache/nvc/accel"
+nsdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NSR/w" -L "$VLIB" -r --accel nsr_tb 2>&1 | grep -ciE diverg)
+if [ -n "$NSRI" ] && [ "$NSRA" = "$NSRI" ] && [ "$nsrWins" -eq 0 ] \
+   && [ -n "$WSRI" ] && [ "$WSRA" = "$WSRI" ] && [ "$wsrWins" -ge 1 ] && [ "$nsdiv" -eq 0 ]; then
+  ok "resweep-D: narrowing resize of a wide signed product reaches interp; widening still installs (silent-wrong)" "(text path declines narrowing signed resize/to_signed; widening unaffected; VERIFY 0)"
+else bad "resweep-D: narrowing resize of a wide signed product reaches interp; widening still installs (silent-wrong)" "narrow:acc=$NSRA int=$NSRI wins=$nsrWins | widen:acc=$WSRA int=$WSRI wins=$wsrWins | div=$nsdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
