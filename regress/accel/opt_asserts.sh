@@ -3104,6 +3104,61 @@ if [ -n "$DWII" ] && [ "$DWIA" = "$DWII" ] && [ "$dwiWins" -ge 1 ] && [ "$dwidiv
   ok "F4: dynamic wide-index memory sized to real word count, installs (silent-wrong)" "(gen_statemachine mem.depth from RTLIL memory size, not 1<<abits; installs + matches; VERIFY 0)"
 else bad "F4: dynamic wide-index memory sized to real word count, installs (silent-wrong)" "acc=$DWIA interp=$DWII wins=$dwiWins div=$dwidiv"; fi
 
+# ck60 F4-(2B): an INTEGER SIGNAL used as a register (and as a dynamic memory
+#     index) was sized to type_width's scalar 1 bit -- an `integer range 0 to 3`
+#     register held only bit 0, so nvc's 32-bit integer storage did not round-
+#     trip through the 1-bit register and a dynamic write dl(k) only ever
+#     reached words 0/1 (i 1720667698 vs w 802369880).  r2_collect_cb now sizes
+#     an integer signal register to 32 (the translator's signed[31:0] integer
+#     convention, matching r2_width and nvc's storage), so the full value round-
+#     trips.  DUT: a range-0-to-3 integer SIGNAL index into a 4-word memory that
+#     reads all 4 words -- installs + matches (a truncated index diverges).
+cat > "$W/isx.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity isx is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of isx is
+  type arr4 is array(0 to 3) of std_logic_vector(15 downto 0);
+  signal dl : arr4 := (others=>(others=>'0'));
+  signal k  : integer range 0 to 3 := 0;
+begin
+  process(clk) is begin if rising_edge(clk) then
+    k  <= to_integer(unsigned(a(1 downto 0)));
+    dl(k) <= a xor b;
+  end if; end process;
+  y <= dl(0) xor dl(1) xor dl(2) xor dl(3);
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity isx_tb is end entity;
+architecture sim of isx_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.isx port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+ISX="$W/isx"; mkdir -p "$ISX"
+$NVC -M 256m -H 256m --std=2008 --work="$ISX/w" -L "$VLIB" -a "$W/isx.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$ISX/w" -L "$VLIB" -e isx_tb >/dev/null 2>&1
+ISXI=$($NVC -M 256m -H 256m --std=2008 --work="$ISX/w" -L "$VLIB" -r isx_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+isxo=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$ISX/w" -L "$VLIB" -r --accel isx_tb 2>&1)
+ISXA=$(printf '%s' "$isxo" | grep -oE 'Y=-?[0-9]+'); isxWins=$(printf '%s' "$isxo" | grep -cE "ACTIVE .*'isx'")
+rm -rf "$W/.cache/nvc/accel"
+isxdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$ISX/w" -L "$VLIB" -r --accel isx_tb 2>&1 | grep -ciE diverg)
+if [ -n "$ISXI" ] && [ "$ISXA" = "$ISXI" ] && [ "$isxWins" -ge 1 ] && [ "$isxdiv" -eq 0 ]; then
+  ok "F4: integer-signal register sized to 32, dynamic index reaches all words (silent-wrong)" "(r2_collect_cb: integer signal reg width 32 not type_width scalar-1; installs + matches; VERIFY 0)"
+else bad "F4: integer-signal register sized to 32, dynamic index reaches all words (silent-wrong)" "acc=$ISXA interp=$ISXI wins=$isxWins div=$isxdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
