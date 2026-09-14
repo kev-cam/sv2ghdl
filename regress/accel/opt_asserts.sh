@@ -3217,6 +3217,61 @@ if [ -n "$AFI" ] && [ "$AFA" = "$AFI" ] && [ "$afWins" -ge 1 ] && [ "$afdiv" -eq
   ok "F4: async-read FIFO with dynamic pointers installs + matches (silent-wrong)" "(gsm depth from real size -> dl not collapsed to 1 word; async read at nonzero tail correct; VERIFY 0)"
 else bad "F4: async-read FIFO with dynamic pointers installs + matches (silent-wrong)" "acc=$AFA interp=$AFI wins=$afWins div=$afdiv"; fi
 
+# ck62 resweep Family B: a numeric_std `*` with a CONCATENATION operand --
+#     `p := (unsigned(a)&unsigned(b)) * resize(unsigned(b),32)` (32x32->64) into a
+#     self-feedback 64-bit accumulator.  nvc elaborates `a & b` into a concat
+#     AGGREGATE (A_CONCAT/A_POS elements), and r2_width_or_operands returned -1
+#     for it, so the mul lost that operand's L'LENGTH and MASKED the 64-bit
+#     product to 32 bits -- the upper product bits (feeding acc(63:48) -> y) were
+#     truncated (i 1719939492 vs w 1543256463).  r2_width_or_operands now sums a
+#     concat aggregate's element widths, so the product is a full 64 bits.
+#     Installs + matches; VERIFY 0.
+cat > "$W/wmac.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity wmac is port(clk:in std_logic; a,b:in std_logic_vector(15 downto 0); y:out std_logic_vector(15 downto 0));end entity;
+architecture rtl of wmac is
+  signal acc:unsigned(63 downto 0):=(others=>'0');
+begin
+  process(clk) is variable p:unsigned(63 downto 0); begin
+    if rising_edge(clk) then
+      p := (unsigned(a)&unsigned(b)) * resize(unsigned(b),32);
+      acc <= acc + p;
+    end if;
+  end process;
+  y <= std_logic_vector(acc(63 downto 48)) xor std_logic_vector(acc(31 downto 16));
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all; use std.env.stop;
+entity wmac_tb is end entity;
+architecture sim of wmac_tb is
+  signal clk:std_logic:='0'; signal a,b,y:std_logic_vector(15 downto 0):=(others=>'0'); signal done:boolean:=false;
+  function xs(v:unsigned(31 downto 0)) return unsigned is variable t:unsigned(31 downto 0):=v; begin
+    t:=t xor shift_left(t,13); t:=t xor shift_right(t,17); t:=t xor shift_left(t,5); return t; end function;
+begin
+  uut:entity work.wmac port map(clk=>clk,a=>a,b=>b,y=>y);
+  clk<=not clk after 5 ns when not done else '0';
+  process variable x:unsigned(31 downto 0):=unsigned'(x"A3B1C2D4"); variable csum:unsigned(31 downto 0):=(others=>'0'); begin
+    for i in 0 to 39 loop
+      x:=xs(x); a<=std_logic_vector(x(15 downto 0)); b<=std_logic_vector(x(31 downto 16));
+      wait until rising_edge(clk); csum:=rotate_left(csum,1) xor resize(unsigned(y),32);
+    end loop;
+    done<=true; report "Y="&integer'image(to_integer(csum(30 downto 0))); wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+WM="$W/wmac"; mkdir -p "$WM"
+$NVC -M 256m -H 256m --std=2008 --work="$WM/w" -L "$VLIB" -a "$W/wmac.vhd" >/dev/null 2>&1
+$NVC -M 256m -H 256m --std=2008 --work="$WM/w" -L "$VLIB" -e wmac_tb >/dev/null 2>&1
+WMI=$($NVC -M 256m -H 256m --std=2008 --work="$WM/w" -L "$VLIB" -r wmac_tb 2>&1 | grep -oE 'Y=-?[0-9]+')
+rm -rf "$W/.cache/nvc/accel"
+wmo=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$WM/w" -L "$VLIB" -r --accel wmac_tb 2>&1)
+WMA=$(printf '%s' "$wmo" | grep -oE 'Y=-?[0-9]+'); wmWins=$(printf '%s' "$wmo" | grep -cE "ACTIVE .*'wmac'")
+rm -rf "$W/.cache/nvc/accel"
+wmdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$WM/w" -L "$VLIB" -r --accel wmac_tb 2>&1 | grep -ciE diverg)
+if [ -n "$WMI" ] && [ "$WMA" = "$WMI" ] && [ "$wmWins" -ge 1 ] && [ "$wmdiv" -eq 0 ]; then
+  ok "resweep-B: wide multiply with a concat operand keeps full product width (silent-wrong)" "(r2_width_or_operands sums concat-aggregate element widths; 32x32->64 not masked to 32; installs + matches; VERIFY 0)"
+else bad "resweep-B: wide multiply with a concat operand keeps full product width (silent-wrong)" "acc=$WMA interp=$WMI wins=$wmWins div=$wmdiv"; fi
+
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
 exit $((fail > 0))
