@@ -5,3 +5,4 @@ rtlm/farm_*_gpu
 vast_*.log
 farm/*.log
 farm/pod_*
+rtlm/yuri/yuri_gpu*

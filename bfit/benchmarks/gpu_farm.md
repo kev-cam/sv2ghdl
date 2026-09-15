@@ -468,3 +468,62 @@ export VERILATOR_ROOT=~/tools/src/verilator PATH=~/tools/src/verilator/bin:$PATH
 # GPU:     rtlm_build.sh <dir> <top>  (local)   or   VAST_API_KEY=.. vast_build_run.sh RTX_4090 sm_89 <top>:<dir>:soa
 # sweep:   sweep_rtlm.sh with rtlm/expect.txt (name cycles CHK [N-list] [FARM_SMEM]) ; report_rtlm.py
 ```
+
+## Yuri Panchul's bet: `a_plus_b_using_wrapped_fifos` benchmark (2026-09-15)
+
+The 2026-05-28 meetsv thread: Yuri's modified lab test
+(`basics-graphics-music/labs/4_microarchitecture/4_2_fifo/4_2_9_a_plus_b_using_wrapped_fifos_benchmark`,
+width 4 / depth 4, **10,000,000 sum transfers**, timeout 1e9, logging and
+VCD off) takes Icarus 270 s on his i5-6500T and 105 s on his Mac Mini M4;
+the bet was to run it functionally correct in under 10 s with no testbench
+cheating. The testbench was ported cycle-accurately onto the gsm model
+(`vhdl/gpu/rtlm/yuri/yuri.cu`: the same reset/back-to-back/only-a/only-b/
+backpressure/random/drain phases, the same driver update rules read
+pre-edge, the same a/b scoreboard queues with expected = a+b, the same
+transfer counters; `$urandom` → xorshift32 per instance). Every instance
+checks itself and reports its own error count; a run "passes" only when
+every instance's counters agree and its queues drain empty. One test is
+22.2M cycles.
+
+**Baselines on this 5-vCPU VM (2.2 GHz-class):** Verilator 5.040 on the
+unmodified `tb.sv` (`--binary --timing -O3`): **26.5 s**, 0.85M cycles/s.
+The gsm C model of the same port on one CPU core: 5.2 s, 4.2M cycles/s.
+(Icarus on this VM: see the run log when it finishes; Yuri's own Icarus
+numbers are 270 s / 105 s.)
+
+**RTX 4090, one GPU, binary shipped, all runs PASS with 0 errors:**
+
+| run | complete tests | wall | instance-cycles/s | transfers/s | speed-up vs Verilator 1T (this VM) |
+| :-- | --: | --: | --: | --: | --: |
+| 1 GPU thread, 10M transfers (the bet run; 3 seeds: 11.26 / 11.24 / 11.24 s) | 1 | 11.24 s | 1.98e6 | 8.9e5 | **×2.4** |
+| 128 seeds, 10M transfers each | 128 | 12.26 s | 2.32e8 | 1.04e8 | ×274 |
+| 1,024 seeds, 10M transfers each | 1,024 | 12.26 s | 1.86e9 | 8.35e8 | ×2,190 |
+| 4,096 seeds, 10M transfers each | 4,096 | 12.33 s | 7.38e9 | 3.32e9 | ×8,720 |
+| 16,384 seeds, 1M transfers each | 16,384 | 3.87 s | 9.41e9 | 4.24e9 | ×11,100 |
+| 65,536 seeds, 1M transfers each | 65,536 | 14.7 s | 9.88e9 | 4.45e9 | ×11,700 |
+| 262,144 seeds, 1M transfers each | 262,144 | 59.0 s | 9.88e9 | 4.44e9 | ×11,700 |
+| 1,048,576 seeds, 1M transfers each | 1,048,576 | 235 s | 9.93e9 | 4.47e9 | ×11,700 |
+
+Speed-up = instance-cycles/s ÷ Verilator's 0.847M cycles/s on the same
+testbench on the same VM (for the single run, 26.5 s ÷ 11.24 s).
+
+**Reading.** The bet as worded — ONE sequential run under 10 s — is missed
+by 1.2 s on a lone GPU thread: a single CUDA thread is a weak scalar core
+(2M cycles/s here against 4.2M for the same model on one CPU core), and a
+sequential test cannot use the card's breadth. It still beats Verilator's
+single thread 2.4× on the real testbench. What the GPU is built for shows
+in the other rows: 4,096 complete copies of the 10M-transfer test, each
+self-checked, finish in the wall time of one, and at the plateau the card
+checks 4.4 billion transfers per second — 11,700× the Verilator thread, or
+in the bet's own units, the 22.2M-cycle test at a rate of one every 2.2 ms.
+This is the "1000× Verilator" claim in its true form: aggregate over
+seeds, not latency of one run. The 4-bit design occupies 80 registers and a
+320-byte stack per thread, so it sits well inside rule 1; the harness does
+more per cycle than the plain farm (PRNG, scoreboard, 64-bit carriers),
+which is why its plateau is 9.9e9 rather than the ~1e11 of the ITC FSMs.
+A 32-bit-carrier build (`GSM_U32=1`) for the single-thread time is the
+next measurement.
+
+Reproduce: `rtlm/yuri/yuri.cu` + the model from `gen_statemachine dut.sv
+a_plus_b_using_wrapped_fifos width=4 depth=4`; `sweep_yuri.sh` on the
+instance; raw log `results/vast_RTX_4090x1_51098213.log`.

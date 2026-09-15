@@ -10,7 +10,7 @@ S=/usr/local/src/sv2ghdl/bfit/benchmarks/vhdl/gpu
 V=~/.local/bin/vastai
 cd $S
 OFFER=$($V search offers "gpu_name=$GPU num_gpus=$NGPUS rentable=true $VERIFIED cuda_vers>=12.4 reliability>0.95 inet_down>20 disk_space>=16" -o 'dph' --raw | \
-  python3 -c "import json,sys; o=json.load(sys.stdin); o=[x for x in o if x.get('dph_total',9)<${MAXDPH:-3.0} and str(x.get('machine_id')) not in '${EXCLUDE:-}'.split(',')]; print(o[0]['id'], o[0]['dph_total'], str(o[0].get('gpu_name')).replace(' ','_'), o[0].get('cuda_max_good'), o[0].get('geolocation','?').replace(' ','_')) if o else print('NONE')")
+  python3 -c "import json,sys; o=json.load(sys.stdin); o=[x for x in o if x.get('dph_total',9)<${MAXDPH:-3.0} and str(x.get('machine_id')) not in '${EXCLUDE:-}'.split(',') and str(x.get('id')) not in '${EXCLUDE_OFFERS:-}'.split(',')]; print(o[0]['id'], o[0]['dph_total'], str(o[0].get('gpu_name')).replace(' ','_'), o[0].get('cuda_max_good'), o[0].get('geolocation','?').replace(' ','_')) if o else print('NONE')")
 echo "$(date +%T) offer: $OFFER" | tee -a vast_bench.log
 read -r OID DPH GN CV GEO <<< "$OFFER"; [ "$OID" != NONE ] || exit 2
 IID=$($V create instance $OID --image nvidia/cuda:12.4.1-runtime-ubuntu22.04 --ssh --direct --disk 16 --raw | python3 -c "import json,sys; print(json.load(sys.stdin)['new_contract'])")
