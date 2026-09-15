@@ -1,0 +1,67 @@
+23:21:02 offer: 38575013 0.8009259259259258 L40S 12.8 Taiwan,_TW
+23:21:05 instance 51089996 on offer 38575013 (L40S cuda<=12.8 $0.8009259259259258/h Taiwan,_TW)
+23:21:43 status=running ssh4.vast.ai:19996
+23:22:20 binaries shipped (attempt 1)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.8009259259259258 GPU=L40Sx1
+SWEEP-START 2026-09-15T06:22:24Z host=22a714d36535
+name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+NVIDIA L40S, 570.211.01, 2520 MHz, 46068 MiB, 350.00 W
+== serv_rf_top
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=4096 cycles=100000 block=128 secs=0.1785 agg_inst_cyc_per_s=2.2943e+09 per_inst_cyc_per_s=5.6012e+05 CHK0=E873FB95F1959861 AGG=F97AC45C33A9FC52
+CERT serv_rf_top MATCH E873FB95F1959861
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=1024 cycles=3000000 block=128 secs=5.3409 agg_inst_cyc_per_s=5.7518e+08 per_inst_cyc_per_s=5.6170e+05 CHK0=DBCE61FA14750B80 AGG=9BD745841CBCAAE9
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=4096 cycles=842548 block=128 secs=1.5043 agg_inst_cyc_per_s=2.2942e+09 per_inst_cyc_per_s=5.6010e+05 CHK0=F5F760F6BBDA81A8 AGG=22B451F50B343699
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=16384 cycles=840161 block=128 secs=2.3261 agg_inst_cyc_per_s=5.9177e+09 per_inst_cyc_per_s=3.6119e+05 CHK0=B2465B4D92C28A67 AGG=4C4C10C189800288
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=65536 cycles=541781 block=128 secs=5.7393 agg_inst_cyc_per_s=6.1865e+09 per_inst_cyc_per_s=9.4398e+04 CHK0=8FCC5D0BE1D63B92 AGG=3373AD14A28606A9
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=262144 cycles=141597 block=128 secs=5.8522 agg_inst_cyc_per_s=6.3427e+09 per_inst_cyc_per_s=2.4195e+04 CHK0=6385C4B6230689E1 AGG=BC5BB0F872C12833
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=1048576 cycles=36293 block=128 secs=6.0011 agg_inst_cyc_per_s=6.3415e+09 per_inst_cyc_per_s=6.0477e+03 CHK0=AD8CCF4A36CCB0D3 AGG=E9FC620CA69281EC
+== serv_rf_top_soa
+SoA: 34 MB for 4096 instances (8736 bytes/instance)
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=4096 cycles=100000 block=128 secs=0.5021 agg_inst_cyc_per_s=8.1573e+08 per_inst_cyc_per_s=1.9915e+05 CHK0=E873FB95F1959861 AGG=F97AC45C33A9FC52
+CERT serv_rf_top_soa MATCH E873FB95F1959861
+SoA: 8 MB for 1024 instances (8736 bytes/instance)
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=1024 cycles=3000000 block=128 secs=14.6481 agg_inst_cyc_per_s=2.0972e+08 per_inst_cyc_per_s=2.0481e+05 CHK0=DBCE61FA14750B80 AGG=9BD745841CBCAAE9
+SoA: 34 MB for 4096 instances (8736 bytes/instance)
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=4096 cycles=307207 block=128 secs=1.5443 agg_inst_cyc_per_s=8.1483e+08 per_inst_cyc_per_s=1.9893e+05 CHK0=88D884407FA990DE AGG=65EEAA8F96BAF894
+SoA: 136 MB for 16384 instances (8736 bytes/instance)
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=16384 cycles=298399 block=128 secs=1.5781 agg_inst_cyc_per_s=3.0980e+09 per_inst_cyc_per_s=1.8909e+05 CHK0=7C4F444A317BE91F AGG=55F37080DF28BBE7
+SoA: 546 MB for 65536 instances (8736 bytes/instance)
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=65536 cycles=283630 block=128 secs=4.6551 agg_inst_cyc_per_s=3.9930e+09 per_inst_cyc_per_s=6.0929e+04 CHK0=94A675813510F64C AGG=A2508EE8D6EB686E
+SoA: 2184 MB for 262144 instances (8736 bytes/instance)
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=262144 cycles=91392 block=128 secs=5.8316 agg_inst_cyc_per_s=4.1083e+09 per_inst_cyc_per_s=1.5672e+04 CHK0=CF47591F182235B2 AGG=F3A760B2BA2654F8
+SoA: 8736 MB for 1048576 instances (8736 bytes/instance)
+FARM design=serv_rf_top dev="1x NVIDIA L40S" N=1048576 cycles=23507 block=128 secs=6.3395 agg_inst_cyc_per_s=3.8881e+09 per_inst_cyc_per_s=3.7080e+03 CHK0=1CB61E7A159BB811 AGG=D0B30E171C921B44
+== veer_wrapper
+SoA: 4795 MB for 4096 instances (1227680 bytes/instance)
+FARM design=veer_wrapper dev="1x NVIDIA L40S" N=4096 cycles=100000 block=128 secs=150.4721 agg_inst_cyc_per_s=2.7221e+06 per_inst_cyc_per_s=6.6458e+02 CHK0=9FE990618782A069 AGG=7BD7DD9B9EE360FF
+CERT veer_wrapper MATCH 9FE990618782A069
+SoA: 1198 MB for 1024 instances (1227680 bytes/instance)
+FARM design=veer_wrapper dev="1x NVIDIA L40S" N=1024 cycles=15949 block=128 secs=15.2623 agg_inst_cyc_per_s=1.0701e+06 per_inst_cyc_per_s=1.0450e+03 CHK0=C6B4B83846569890 AGG=3957504273D345D0
+SoA: 4795 MB for 4096 instances (1227680 bytes/instance)
+FARM design=veer_wrapper dev="1x NVIDIA L40S" N=4096 cycles=1567 block=128 secs=2.3619 agg_inst_cyc_per_s=2.7175e+06 per_inst_cyc_per_s=6.6344e+02 CHK0=EFD85D75C29BD969 AGG=CDCDCE9FD80D6852
+SoA: 19182 MB for 16384 instances (1227680 bytes/instance)
+FARM design=veer_wrapper dev="1x NVIDIA L40S" N=16384 cycles=995 block=128 secs=3.9206 agg_inst_cyc_per_s=4.1581e+06 per_inst_cyc_per_s=2.5379e+02 CHK0=6D988DFC065C137A AGG=BE35D672D13483C2
+SoA: 38365 MB for 32768 instances (1227680 bytes/instance)
+FARM design=veer_wrapper dev="1x NVIDIA L40S" N=32768 cycles=761 block=128 secs=6.6376 agg_inst_cyc_per_s=3.7568e+06 per_inst_cyc_per_s=1.1465e+02 CHK0=9A62F4235E29BB2B AGG=B60CE0B25F0F4655
+== eh2_veer_wrapper
+SoA: 1884 MB for 4096 instances (482520 bytes/instance)
+FARM design=eh2_veer_wrapper dev="1x NVIDIA L40S" N=4096 cycles=20000 block=128 secs=118.0706 agg_inst_cyc_per_s=6.9382e+05 per_inst_cyc_per_s=1.6939e+02 CHK0=026895944047D1AD AGG=8D70F8436724CF14
+CERT eh2_veer_wrapper MATCH 026895944047D1AD
+SoA: 471 MB for 1024 instances (482520 bytes/instance)
+FARM design=eh2_veer_wrapper dev="1x NVIDIA L40S" N=1024 cycles=4065 block=128 secs=16.6196 agg_inst_cyc_per_s=2.5046e+05 per_inst_cyc_per_s=2.4459e+02 CHK0=21674135E894CFB0 AGG=1B75794176025BF8
+SoA: 1884 MB for 4096 instances (482520 bytes/instance)
+FARM design=eh2_veer_wrapper dev="1x NVIDIA L40S" N=4096 cycles=366 block=128 secs=2.1903 agg_inst_cyc_per_s=6.8444e+05 per_inst_cyc_per_s=1.6710e+02 CHK0=9EB020FCAE72D3A9 AGG=5A8A4C3749546CF7
+SoA: 7539 MB for 16384 instances (482520 bytes/instance)
+FARM design=eh2_veer_wrapper dev="1x NVIDIA L40S" N=16384 cycles=250 block=128 secs=3.7049 agg_inst_cyc_per_s=1.1055e+06 per_inst_cyc_per_s=6.7477e+01 CHK0=9E0FC92FDF3F09A1 AGG=F442A619DFFB3AFE
+SoA: 15078 MB for 32768 instances (482520 bytes/instance)
+FARM design=eh2_veer_wrapper dev="1x NVIDIA L40S" N=32768 cycles=202 block=128 secs=6.4773 agg_inst_cyc_per_s=1.0219e+06 per_inst_cyc_per_s=3.1186e+01 CHK0=0DF7563F993F5E67 AGG=2EBD489EBE4ADCE8
+SoA: 30157 MB for 65536 instances (482520 bytes/instance)
+CUDA: out of memory @128
+FARM-ERROR design=eh2_veer_wrapper CUDA="out of memory" state_t=34272 inputs_t=664 outputs_t=920
+SWEEP-END 2026-09-15T06:31:05Z
+23:31:05 RUN-EXIT=0
+23:31:05 destroying 51089996
+destroying instance 51089996.
+23:31:09 destroyed 51089996

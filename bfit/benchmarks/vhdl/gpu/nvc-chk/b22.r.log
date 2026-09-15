@@ -1,0 +1,5 @@
+** Note: 1315ns+1: accel-jit: NVC_FUSED_BLOCK â fused 4/4 member(s), two-entry 0 posedge-only + 4 every-event
+b22 CHK=64A596EC9D810F52
+** Note: 10000035ns+1: STOP called
+   Procedure STOP [] at lib/std.08/env-body.vhd:32
+   Process :b22_tb:main at /tmp/claude-1002/-home-claude/8b5bcc44-ee9b-4a37-b8a8-54362b29c82f/scratchpad/work/b22/b22_tb.vhd:53

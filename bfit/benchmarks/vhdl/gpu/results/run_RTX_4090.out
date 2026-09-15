@@ -1,0 +1,118 @@
+14:56:21 offer: 43681499 0.3613888888888889 RTX_4090 13.0 Malaysia,_MY
+14:56:28 instance 51058267 on offer 43681499 (RTX_4090 cuda<=13.0 $0.3613888888888889/h Malaysia,_MY)
+14:57:14 status=running ssh8.vast.ai:18266
+14:57:47 binaries shipped (attempt 1)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.3613888888888889 GPU=RTX_4090
+SWEEP-START 2026-09-14T21:57:52Z host=7c88f6314629
+name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+NVIDIA GeForce RTX 4090, 580.105.08, 3105 MHz, 24564 MiB, 450.00 W
+== b01
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=128 secs=0.4024 agg_inst_cyc_per_s=3.0540e+10 per_inst_cyc_per_s=7.4560e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+CERT b01 MATCH A29A0B8A83930283
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=0.3922 agg_inst_cyc_per_s=7.8319e+09 per_inst_cyc_per_s=7.6484e+06 CHK0=A29A0B8A83930283 AGG=D1D539CF5C49A1CA
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=256 secs=0.7516 agg_inst_cyc_per_s=4.0874e+09 per_inst_cyc_per_s=3.9916e+06 CHK0=A29A0B8A83930283 AGG=D1D539CF5C49A1CA
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=128 secs=0.3925 agg_inst_cyc_per_s=3.1305e+10 per_inst_cyc_per_s=7.6429e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=256 secs=0.7525 agg_inst_cyc_per_s=1.6330e+10 per_inst_cyc_per_s=3.9868e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=3000000 block=128 secs=0.3941 agg_inst_cyc_per_s=1.2471e+11 per_inst_cyc_per_s=7.6120e+06 CHK0=A29A0B8A83930283 AGG=37C4CE81B39FE554
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=3000000 block=256 secs=0.7539 agg_inst_cyc_per_s=6.5194e+10 per_inst_cyc_per_s=3.9791e+06 CHK0=A29A0B8A83930283 AGG=37C4CE81B39FE554
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=3000000 block=128 secs=1.5344 agg_inst_cyc_per_s=1.2813e+11 per_inst_cyc_per_s=1.9552e+06 CHK0=A29A0B8A83930283 AGG=7C10F94CBE72E8BB
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=3000000 block=256 secs=1.5217 agg_inst_cyc_per_s=1.2920e+11 per_inst_cyc_per_s=1.9715e+06 CHK0=A29A0B8A83930283 AGG=7C10F94CBE72E8BB
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=2957153 block=128 secs=6.0260 agg_inst_cyc_per_s=1.2864e+11 per_inst_cyc_per_s=4.9073e+05 CHK0=02C2A804A842AA86 AGG=04FAAD35C5A70B15
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=2944335 block=256 secs=5.9848 agg_inst_cyc_per_s=1.2897e+11 per_inst_cyc_per_s=4.9197e+05 CHK0=CAAEE0EA48A68A88 AGG=63F746FD256487D7
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=737972 block=128 secs=6.0220 agg_inst_cyc_per_s=1.2850e+11 per_inst_cyc_per_s=1.2255e+05 CHK0=BAA280A0198B8082 AGG=4763160182FBF93F
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=735282 block=256 secs=5.9749 agg_inst_cyc_per_s=1.2904e+11 per_inst_cyc_per_s=1.2306e+05 CHK0=A928BA12B9A00020 AGG=A0B02A584C7A84AB
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=184593 block=128 secs=6.0248 agg_inst_cyc_per_s=1.2851e+11 per_inst_cyc_per_s=3.0639e+04 CHK0=A646AA08A6C08EA4 AGG=C8FF554596F851C3
+FARM design=b01 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=183835 block=256 secs=5.9744 agg_inst_cyc_per_s=1.2906e+11 per_inst_cyc_per_s=3.0770e+04 CHK0=E0686C6A82004628 AGG=19F50FCBB00E3DA9
+== b06
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=2000000 block=128 secs=0.2790 agg_inst_cyc_per_s=2.9359e+10 per_inst_cyc_per_s=7.1678e+06 CHK0=574DA57280D8C019 AGG=FCF08D7BE4301478
+CERT b06 MATCH 574DA57280D8C019
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=0.4183 agg_inst_cyc_per_s=7.3441e+09 per_inst_cyc_per_s=7.1720e+06 CHK0=CAFE633135F5FBF9 AGG=B6F2089FDEC506C6
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=256 secs=0.8168 agg_inst_cyc_per_s=3.7609e+09 per_inst_cyc_per_s=3.6728e+06 CHK0=CAFE633135F5FBF9 AGG=B6F2089FDEC506C6
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=128 secs=0.4186 agg_inst_cyc_per_s=2.9358e+10 per_inst_cyc_per_s=7.1675e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=256 secs=0.8177 agg_inst_cyc_per_s=1.5028e+10 per_inst_cyc_per_s=3.6689e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=3000000 block=128 secs=0.4204 agg_inst_cyc_per_s=1.1692e+11 per_inst_cyc_per_s=7.1365e+06 CHK0=CAFE633135F5FBF9 AGG=378FCFB6696D14E7
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=3000000 block=256 secs=0.8184 agg_inst_cyc_per_s=6.0059e+10 per_inst_cyc_per_s=3.6657e+06 CHK0=CAFE633135F5FBF9 AGG=378FCFB6696D14E7
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=3000000 block=128 secs=1.6485 agg_inst_cyc_per_s=1.1926e+11 per_inst_cyc_per_s=1.8198e+06 CHK0=CAFE633135F5FBF9 AGG=A6B9541C06666A6E
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=3000000 block=256 secs=1.6417 agg_inst_cyc_per_s=1.1976e+11 per_inst_cyc_per_s=1.8273e+06 CHK0=CAFE633135F5FBF9 AGG=A6B9541C06666A6E
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=2741088 block=128 secs=6.0032 agg_inst_cyc_per_s=1.1970e+11 per_inst_cyc_per_s=4.5661e+05 CHK0=D7BB3081AE5F42BF AGG=0B061E390B6DCA03
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=2739715 block=256 secs=5.9951 agg_inst_cyc_per_s=1.1980e+11 per_inst_cyc_per_s=4.5699e+05 CHK0=DFAA376E66854ADB AGG=2726348FEB246C0F
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=685501 block=128 secs=5.9980 agg_inst_cyc_per_s=1.1984e+11 per_inst_cyc_per_s=1.1429e+05 CHK0=C60A323F6E787B8E AGG=CB72A67149BC9856
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=685729 block=256 secs=6.0011 agg_inst_cyc_per_s=1.1982e+11 per_inst_cyc_per_s=1.1427e+05 CHK0=03A33DAE51841B31 AGG=AAD6165515C93477
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=171403 block=128 secs=5.9969 agg_inst_cyc_per_s=1.1988e+11 per_inst_cyc_per_s=2.8582e+04 CHK0=88081DF41E6B57B3 AGG=DC8F50CFB51012CA
+FARM design=b06 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=171489 block=256 secs=6.0031 agg_inst_cyc_per_s=1.1982e+11 per_inst_cyc_per_s=2.8567e+04 CHK0=1AB988A8F35244BD AGG=3CAC49D24302F3F0
+== b14
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=1000000 block=128 secs=1.1611 agg_inst_cyc_per_s=3.5278e+09 per_inst_cyc_per_s=8.6128e+05 CHK0=BE00000000000383 AGG=E9D22C0C7DE22325
+CERT b14 MATCH BE00000000000383
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=3.4819 agg_inst_cyc_per_s=8.8227e+08 per_inst_cyc_per_s=8.6160e+05 CHK0=BE00000000000292 AGG=F9056E09D8CDC325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=256 secs=5.8984 agg_inst_cyc_per_s=5.2082e+08 per_inst_cyc_per_s=5.0861e+05 CHK0=BE00000000000292 AGG=F9056E09D8CDC325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=762919 block=128 secs=0.8859 agg_inst_cyc_per_s=3.5273e+09 per_inst_cyc_per_s=8.6116e+05 CHK0=22222221A1864242 AGG=5F693CB7801D0325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=256 secs=5.8948 agg_inst_cyc_per_s=2.0846e+09 per_inst_cyc_per_s=5.0892e+05 CHK0=BE00000000000292 AGG=97D4AEB4B6D0A325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=763403 block=128 secs=0.8881 agg_inst_cyc_per_s=1.4083e+10 per_inst_cyc_per_s=8.5957e+05 CHK0=003FC0002468ACE0 AGG=3F67C3840FD42325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=3000000 block=256 secs=5.9086 agg_inst_cyc_per_s=8.3187e+09 per_inst_cyc_per_s=5.0773e+05 CHK0=BE00000000000292 AGG=B6DAB7D34EDC2325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=761599 block=128 secs=3.0905 agg_inst_cyc_per_s=1.6150e+10 per_inst_cyc_per_s=2.4643e+05 CHK0=83E00000000001D9 AGG=D8204FD55C382325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=1478576 block=256 secs=5.8398 agg_inst_cyc_per_s=1.6593e+10 per_inst_cyc_per_s=2.5319e+05 CHK0=155713DF9A46025C AGG=C41F53C354322325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=379783 block=128 secs=6.0444 agg_inst_cyc_per_s=1.6471e+10 per_inst_cyc_per_s=6.2832e+04 CHK0=0000003FC3331460 AGG=DC729820AC822325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=376991 block=256 secs=5.9520 agg_inst_cyc_per_s=1.6604e+10 per_inst_cyc_per_s=6.3339e+04 CHK0=2E2222222222230B AGG=89A58FAE180A2325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=95008 block=128 secs=6.0164 agg_inst_cyc_per_s=1.6559e+10 per_inst_cyc_per_s=1.5792e+04 CHK0=DC222222222223C7 AGG=D25248C15E622325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=94751 block=256 secs=5.9852 agg_inst_cyc_per_s=1.6600e+10 per_inst_cyc_per_s=1.5831e+04 CHK0=7DC2222222222226 AGG=281C0A41B2A22325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=23746 block=128 secs=5.9924 agg_inst_cyc_per_s=1.6621e+10 per_inst_cyc_per_s=3.9627e+03 CHK0=0000000000003942 AGG=6883D1F4C8A22325
+FARM design=b14 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=23776 block=256 secs=6.0062 agg_inst_cyc_per_s=1.6603e+10 per_inst_cyc_per_s=3.9586e+03 CHK0=62222222222223B8 AGG=4A04C9FBC1A22325
+== b12
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=128 secs=7.0000 agg_inst_cyc_per_s=1.7554e+09 per_inst_cyc_per_s=4.2857e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+CERT b12 MATCH C946C4B187AEB9D3
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=6.9975 agg_inst_cyc_per_s=4.3902e+08 per_inst_cyc_per_s=4.2873e+05 CHK0=C946C4B187AEB9D3 AGG=5E12F322FDF28C1E
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=2572382 block=256 secs=10.6551 agg_inst_cyc_per_s=2.4722e+08 per_inst_cyc_per_s=2.4142e+05 CHK0=2C45AF9587699E85 AGG=DE085284FBDC7374
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=362138 block=128 secs=0.8424 agg_inst_cyc_per_s=1.7609e+09 per_inst_cyc_per_s=4.2990e+05 CHK0=FFCBB17BFC402D80 AGG=CB19776497412694
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=2579443 block=256 secs=10.6847 agg_inst_cyc_per_s=9.8884e+08 per_inst_cyc_per_s=2.4142e+05 CHK0=8C939DEFDD729464 AGG=0517B4F82DE1203D
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=362124 block=128 secs=0.8445 agg_inst_cyc_per_s=7.0253e+09 per_inst_cyc_per_s=4.2879e+05 CHK0=12980FFCBB17BFC4 AGG=145AFF9CFB9DD3AD
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=2572741 block=256 secs=10.6639 agg_inst_cyc_per_s=3.9527e+09 per_inst_cyc_per_s=2.4126e+05 CHK0=87D8741116BE5711 AGG=99A0BB20DD52E069
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=361880 block=128 secs=3.0992 agg_inst_cyc_per_s=7.6524e+09 per_inst_cyc_per_s=1.1677e+05 CHK0=C9CE7DAC7A1DCCA2 AGG=55E91DBFA1F7ED66
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=700598 block=256 secs=5.8488 agg_inst_cyc_per_s=7.8502e+09 per_inst_cyc_per_s=1.1979e+05 CHK0=159543B7E27FD760 AGG=E5DD3552BDA482C9
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=179676 block=128 secs=6.0712 agg_inst_cyc_per_s=7.7581e+09 per_inst_cyc_per_s=2.9595e+04 CHK0=B84DA9059EC74876 AGG=3AAB04AA1DDD3EBA
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=177568 block=256 secs=5.9308 agg_inst_cyc_per_s=7.8486e+09 per_inst_cyc_per_s=2.9940e+04 CHK0=510C2835CD3441FD AGG=0DA83E2904B55E6A
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=44910 block=128 secs=6.0481 agg_inst_cyc_per_s=7.7861e+09 per_inst_cyc_per_s=7.4254e+03 CHK0=CF8009DDF3DABC8F AGG=712EF6463FAB9919
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=44552 block=256 secs=5.9528 agg_inst_cyc_per_s=7.8477e+09 per_inst_cyc_per_s=7.4842e+03 CHK0=DF9DABC8F8EC86AD AGG=5E5D763DC6D643DE
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=11226 block=128 secs=6.0310 agg_inst_cyc_per_s=7.8073e+09 per_inst_cyc_per_s=1.8614e+03 CHK0=AE9924DEAEB74BCF AGG=4FC067D2C9B20F47
+FARM design=b12 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=11168 block=256 secs=5.9682 agg_inst_cyc_per_s=7.8485e+09 per_inst_cyc_per_s=1.8712e+03 CHK0=EB74BCFAE9924CEA AGG=ED214474C328040A
+== b22
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=1000000 block=128 secs=3.6616 agg_inst_cyc_per_s=1.1186e+09 per_inst_cyc_per_s=2.7311e+05 CHK0=64A596EC9D810F52 AGG=6A6C1EB7AC506325
+CERT b22 MATCH 64A596EC9D810F52
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=10.9834 agg_inst_cyc_per_s=2.7969e+08 per_inst_cyc_per_s=2.7314e+05 CHK0=ED8104A5B91343C0 AGG=E9540F90C1307B25
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=1638808 block=256 secs=9.9858 agg_inst_cyc_per_s=1.6805e+08 per_inst_cyc_per_s=1.6411e+05 CHK0=89952FE74AC252AF AGG=9130AD091331BB25
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=246166 block=128 secs=0.8987 agg_inst_cyc_per_s=1.1220e+09 per_inst_cyc_per_s=2.7393e+05 CHK0=D22654BF9D2B0109 AGG=861219E1A21F0325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=1643554 block=256 secs=10.0150 agg_inst_cyc_per_s=6.7219e+08 per_inst_cyc_per_s=1.6411e+05 CHK0=F622DF93042AD0CB AGG=9F9E639C0B992325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=246163 block=128 secs=0.8945 agg_inst_cyc_per_s=4.5089e+09 per_inst_cyc_per_s=2.7520e+05 CHK0=5969132A5FCE9DE9 AGG=5EFFAB7DC8F22325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=1651208 block=256 secs=10.0665 agg_inst_cyc_per_s=2.6875e+09 per_inst_cyc_per_s=1.6403e+05 CHK0=0000000AB46DAD1B AGG=D52BDD2987942325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=246047 block=128 secs=3.1320 agg_inst_cyc_per_s=5.1485e+09 per_inst_cyc_per_s=7.8559e+04 CHK0=D87B116FE2EFA5D7 AGG=3FD2B69591EE2325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=471359 block=256 secs=5.7818 agg_inst_cyc_per_s=5.3428e+09 per_inst_cyc_per_s=8.1524e+04 CHK0=3B2269B0256B4AB8 AGG=CD71E8ADFA142325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=122286 block=128 secs=6.0635 agg_inst_cyc_per_s=5.2868e+09 per_inst_cyc_per_s=2.0167e+04 CHK0=D0E422DD44794E2F AGG=45308369C5C22325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=121005 block=256 secs=5.9389 agg_inst_cyc_per_s=5.3412e+09 per_inst_cyc_per_s=2.0375e+04 CHK0=41713280C539F04F AGG=51CCB21BB16A2325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=30562 block=128 secs=6.0208 agg_inst_cyc_per_s=5.3226e+09 per_inst_cyc_per_s=5.0761e+03 CHK0=FBD782B140F9B937 AGG=8A4B1C33A3E22325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=30456 block=256 secs=5.9806 agg_inst_cyc_per_s=5.3399e+09 per_inst_cyc_per_s=5.0925e+03 CHK0=9934DABDB6DB68A3 AGG=D39FDAE173C22325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=7638 block=128 secs=5.9966 agg_inst_cyc_per_s=5.3424e+09 per_inst_cyc_per_s=1.2737e+03 CHK0=B66B62BB3042A6BA AGG=AFF6542DE4222325
+FARM design=b22 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=7642 block=256 secs=6.0024 agg_inst_cyc_per_s=5.3400e+09 per_inst_cyc_per_s=1.2732e+03 CHK0=B62BB3042AD27B9D AGG=8055B1FD52222325
+== b17
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=1000000 block=128 secs=31.9500 agg_inst_cyc_per_s=1.2820e+08 per_inst_cyc_per_s=3.1299e+04 CHK0=1CDC023B08293B0C AGG=C508981D8390D2E6
+CERT b17 MATCH 1CDC023B08293B0C
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=751171 block=128 secs=25.1999 agg_inst_cyc_per_s=3.0524e+07 per_inst_cyc_per_s=2.9809e+04 CHK0=CBD948D5DB59B64B AGG=01D8F516918AC173
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=1024 cycles=178851 block=256 secs=6.5791 agg_inst_cyc_per_s=2.7837e+07 per_inst_cyc_per_s=2.7185e+04 CHK0=ACB1E300F106EDB3 AGG=3482827D7687909B
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=40776 block=128 secs=1.2966 agg_inst_cyc_per_s=1.2881e+08 per_inst_cyc_per_s=3.1449e+04 CHK0=D73F61E7A79447CA AGG=AE9EE7315309E184
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=4096 cycles=188686 block=256 secs=6.9788 agg_inst_cyc_per_s=1.1074e+08 per_inst_cyc_per_s=2.7037e+04 CHK0=5BD4393E01339E02 AGG=1FE25F1B76B8FDE9
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=40554 block=128 secs=1.4240 agg_inst_cyc_per_s=4.6661e+08 per_inst_cyc_per_s=2.8479e+04 CHK0=61E7A79447CA7098 AGG=14C3D92A5618097F
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=16384 cycles=170877 block=256 secs=6.3822 agg_inst_cyc_per_s=4.3867e+08 per_inst_cyc_per_s=2.6774e+04 CHK0=FBA45682B7280DCE AGG=2CE10785184CFA8A
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=40161 block=128 secs=7.9106 agg_inst_cyc_per_s=3.3272e+08 per_inst_cyc_per_s=5.0769e+03 CHK0=BFE073F3F0E0AFF1 AGG=E9E61FBB956DBEB4
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=65536 cycles=30461 block=256 secs=6.0597 agg_inst_cyc_per_s=3.2944e+08 per_inst_cyc_per_s=5.0268e+03 CHK0=2A044BF29B5B9F5D AGG=98F40597643370CA
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=7540 block=128 secs=5.8805 agg_inst_cyc_per_s=3.3612e+08 per_inst_cyc_per_s=1.2822e+03 CHK0=3F3DDE80A05508E6 AGG=AE1A36EDA7D71BC4
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=262144 cycles=7693 block=256 secs=6.0376 agg_inst_cyc_per_s=3.3402e+08 per_inst_cyc_per_s=1.2742e+03 CHK0=997927807528CD93 AGG=396DD1C748BB89F4
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=1911 block=128 secs=5.9177 agg_inst_cyc_per_s=3.3862e+08 per_inst_cyc_per_s=3.2293e+02 CHK0=42BBCFF3ABCABA5B AGG=81EB9CB456E63E22
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=1048576 cycles=1937 block=256 secs=5.9675 agg_inst_cyc_per_s=3.4036e+08 per_inst_cyc_per_s=3.2459e+02 CHK0=69550D6C1CFC42BA AGG=9971E99CBB90D2A8
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=1000 block=128 secs=15.3510 agg_inst_cyc_per_s=2.7323e+08 per_inst_cyc_per_s=6.5142e+01 CHK0=652DD3A9C8A69A84 AGG=FA7E7B30B6B4AD1E
+FARM design=b17 dev="NVIDIA GeForce RTX 4090" N=4194304 cycles=1000 block=256 secs=15.4041 agg_inst_cyc_per_s=2.7228e+08 per_inst_cyc_per_s=6.4918e+01 CHK0=652DD3A9C8A69A84 AGG=FA7E7B30B6B4AD1E
+SWEEP-END 2026-09-14T22:13:59Z
+15:14:00 RUN-EXIT=0
+./vast_bench.sh: line 21: TAG: unbound variable
+15:14:00 destroying 51058267
+destroying instance 51058267.
+15:14:15 destroyed 51058267

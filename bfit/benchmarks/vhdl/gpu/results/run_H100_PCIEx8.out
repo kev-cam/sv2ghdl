@@ -1,0 +1,137 @@
+15:17:46 offer: 50164253 19.20138888888889 H100_PCIE 13.0 United_Arab_Emirates,_AE
+15:17:55 instance 51059491 on offer 50164253 (H100_PCIE cuda<=13.0 $19.20138888888889/h United_Arab_Emirates,_AE)
+15:19:07 status=running ssh5.vast.ai:19490
+15:20:55 binaries shipped (attempt 1)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=19.20138888888889 GPU=H100_PCIEx8
+SWEEP-START 2026-09-14T22:20:58Z host=c02c407a65f1
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+1, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+2, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+3, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+4, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+5, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+6, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+7, NVIDIA H100 PCIe, 580.159.04, 1755 MHz, 81559 MiB, 350.00 W
+NGPU=8
+== b01
+FARM design=b01 dev="1x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.5636 agg_inst_cyc_per_s=2.1804e+10 per_inst_cyc_per_s=5.3233e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+CERT b01 MATCH A29A0B8A83930283
+FARM design=b01 dev="1x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.5602 agg_inst_cyc_per_s=2.1934e+10 per_inst_cyc_per_s=5.3550e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="1x NVIDIA H100 PCIe" N=65536 cycles=1663513 block=128 secs=1.5197 agg_inst_cyc_per_s=7.1739e+10 per_inst_cyc_per_s=1.0946e+06 CHK0=28020AE2208E82E0 AGG=65C2388051AEEB31
+FARM design=b01 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=103969 block=128 secs=1.3390 agg_inst_cyc_per_s=8.1419e+10 per_inst_cyc_per_s=7.7647e+04 CHK0=226204068E622622 AGG=25F1962A3154498B
+FARM design=b01 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=103969 block=128 secs=1.3389 agg_inst_cyc_per_s=8.1422e+10 per_inst_cyc_per_s=7.7650e+04 CHK0=226204068E622622 AGG=25F1962A3154498B
+FARM design=b01 dev="2x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.5601 agg_inst_cyc_per_s=2.1940e+10 per_inst_cyc_per_s=5.3565e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="2x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=1.6416 agg_inst_cyc_per_s=1.1976e+11 per_inst_cyc_per_s=1.8275e+06 CHK0=A29A0B8A83930283 AGG=7C10F94CBE72E8BB
+FARM design=b01 dev="2x NVIDIA H100 PCIe" N=1048576 cycles=776500 block=128 secs=5.0407 agg_inst_cyc_per_s=1.6153e+11 per_inst_cyc_per_s=1.5405e+05 CHK0=312389A111AB2103 AGG=676F76C0FD1575EF
+FARM design=b01 dev="2x NVIDIA H100 PCIe" N=2097152 cycles=388250 block=128 secs=5.0385 agg_inst_cyc_per_s=1.6160e+11 per_inst_cyc_per_s=7.7057e+04 CHK0=98A0019812AA99BA AGG=8EE790E5DDA6138F
+FARM design=b01 dev="4x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.5611 agg_inst_cyc_per_s=2.1899e+10 per_inst_cyc_per_s=5.3464e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="4x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=1.1004 agg_inst_cyc_per_s=1.7867e+11 per_inst_cyc_per_s=2.7264e+06 CHK0=A29A0B8A83930283 AGG=7C10F94CBE72E8BB
+FARM design=b01 dev="4x NVIDIA H100 PCIe" N=1048576 cycles=1541137 block=128 secs=5.0346 agg_inst_cyc_per_s=3.2098e+11 per_inst_cyc_per_s=3.0611e+05 CHK0=02E406082E6E2A2E AGG=639A883325C15D33
+FARM design=b01 dev="4x NVIDIA H100 PCIe" N=4194304 cycles=385284 block=128 secs=4.9999 agg_inst_cyc_per_s=3.2321e+11 per_inst_cyc_per_s=7.7059e+04 CHK0=9B0303AB180880A2 AGG=9EE4E9408742C996
+FARM design=b01 dev="8x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.5635 agg_inst_cyc_per_s=2.1808e+10 per_inst_cyc_per_s=5.3243e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="8x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=0.5617 agg_inst_cyc_per_s=3.5001e+11 per_inst_cyc_per_s=5.3407e+06 CHK0=A29A0B8A83930283 AGG=7C10F94CBE72E8BB
+FARM design=b01 dev="8x NVIDIA H100 PCIe" N=1048576 cycles=3000000 block=128 secs=4.9031 agg_inst_cyc_per_s=6.4158e+11 per_inst_cyc_per_s=6.1186e+05 CHK0=A29A0B8A83930283 AGG=A0956AE91CDFA281
+FARM design=b01 dev="8x NVIDIA H100 PCIe" N=8388608 cycles=385296 block=128 secs=5.0186 agg_inst_cyc_per_s=6.4402e+11 per_inst_cyc_per_s=7.6773e+04 CHK0=AB180880A21A2109 AGG=13DCC459F8A06FCD
+== b06
+FARM design=b06 dev="1x NVIDIA H100 PCIe" N=4096 cycles=2000000 block=128 secs=0.4176 agg_inst_cyc_per_s=1.9618e+10 per_inst_cyc_per_s=4.7895e+06 CHK0=574DA57280D8C019 AGG=FCF08D7BE4301478
+CERT b06 MATCH 574DA57280D8C019
+FARM design=b06 dev="1x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.6257 agg_inst_cyc_per_s=1.9640e+10 per_inst_cyc_per_s=4.7949e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="1x NVIDIA H100 PCIe" N=65536 cycles=1496734 block=128 secs=1.5019 agg_inst_cyc_per_s=6.5313e+10 per_inst_cyc_per_s=9.9659e+05 CHK0=9CF9B976820CA4DB AGG=300B1B0271DE7E81
+FARM design=b06 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=93545 block=128 secs=1.3406 agg_inst_cyc_per_s=7.3166e+10 per_inst_cyc_per_s=6.9777e+04 CHK0=71E9D1034D6A324F AGG=D455CCF99F86D726
+FARM design=b06 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=93545 block=128 secs=1.3406 agg_inst_cyc_per_s=7.3167e+10 per_inst_cyc_per_s=6.9778e+04 CHK0=71E9D1034D6A324F AGG=D455CCF99F86D726
+FARM design=b06 dev="2x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.6257 agg_inst_cyc_per_s=1.9639e+10 per_inst_cyc_per_s=4.7947e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="2x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=1.8168 agg_inst_cyc_per_s=1.0822e+11 per_inst_cyc_per_s=1.6513e+06 CHK0=CAFE633135F5FBF9 AGG=A6B9541C06666A6E
+FARM design=b06 dev="2x NVIDIA H100 PCIe" N=1048576 cycles=697774 block=128 secs=5.0032 agg_inst_cyc_per_s=1.4624e+11 per_inst_cyc_per_s=1.3946e+05 CHK0=14AB5F9B7C7A5BB2 AGG=3B223E6C05A6CEEE
+FARM design=b06 dev="2x NVIDIA H100 PCIe" N=2097152 cycles=348887 block=128 secs=5.0002 agg_inst_cyc_per_s=1.4633e+11 per_inst_cyc_per_s=6.9775e+04 CHK0=EA5D1D4C78F8FE7F AGG=DA2BC8C61DE04A6C
+FARM design=b06 dev="4x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.6280 agg_inst_cyc_per_s=1.9567e+10 per_inst_cyc_per_s=4.7771e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="4x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=1.2242 agg_inst_cyc_per_s=1.6060e+11 per_inst_cyc_per_s=2.4505e+06 CHK0=CAFE633135F5FBF9 AGG=A6B9541C06666A6E
+FARM design=b06 dev="4x NVIDIA H100 PCIe" N=1048576 cycles=1395511 block=128 secs=5.0366 agg_inst_cyc_per_s=2.9053e+11 per_inst_cyc_per_s=2.7707e+05 CHK0=0A84190F45FC9F8D AGG=9104F8178CF5DD7F
+FARM design=b06 dev="4x NVIDIA H100 PCIe" N=4194304 cycles=348877 block=128 secs=5.0001 agg_inst_cyc_per_s=2.9265e+11 per_inst_cyc_per_s=6.9774e+04 CHK0=6714E7088398BA8E AGG=63F9E66201606811
+FARM design=b06 dev="8x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=0.6286 agg_inst_cyc_per_s=1.9550e+10 per_inst_cyc_per_s=4.7729e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="8x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=0.6290 agg_inst_cyc_per_s=3.1260e+11 per_inst_cyc_per_s=4.7698e+06 CHK0=CAFE633135F5FBF9 AGG=A6B9541C06666A6E
+FARM design=b06 dev="8x NVIDIA H100 PCIe" N=1048576 cycles=2790927 block=128 secs=5.0442 agg_inst_cyc_per_s=5.8017e+11 per_inst_cyc_per_s=5.5329e+05 CHK0=02267E63A0406913 AGG=CED94E120B553A0F
+FARM design=b06 dev="8x NVIDIA H100 PCIe" N=8388608 cycles=348865 block=128 secs=5.0026 agg_inst_cyc_per_s=5.8499e+11 per_inst_cyc_per_s=6.9737e+04 CHK0=FA62C3B574B0567F AGG=D2AC0325EF92A0F6
+== b14
+FARM design=b14 dev="1x NVIDIA H100 PCIe" N=4096 cycles=1000000 block=128 secs=1.7111 agg_inst_cyc_per_s=2.3937e+09 per_inst_cyc_per_s=5.8440e+05 CHK0=BE00000000000383 AGG=E9D22C0C7DE22325
+CERT b14 MATCH BE00000000000383
+FARM design=b14 dev="1x NVIDIA H100 PCIe" N=4096 cycles=2921997 block=128 secs=4.9999 agg_inst_cyc_per_s=2.3937e+09 per_inst_cyc_per_s=5.8441e+05 CHK0=3FC0002468ACF120 AGG=5D74BE3555BBA325
+FARM design=b14 dev="1x NVIDIA H100 PCIe" N=65536 cycles=182624 block=128 secs=1.3630 agg_inst_cyc_per_s=8.7806e+09 per_inst_cyc_per_s=1.3398e+05 CHK0=622222222222208B AGG=68D5E25957D42325
+FARM design=b14 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=11414 block=128 secs=1.1993 agg_inst_cyc_per_s=9.9792e+09 per_inst_cyc_per_s=9.5169e+03 CHK0=9BDE0246B2E22315 AGG=650C530330A22325
+FARM design=b14 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=11414 block=128 secs=1.2001 agg_inst_cyc_per_s=9.9729e+09 per_inst_cyc_per_s=9.5109e+03 CHK0=9BDE0246B2E22315 AGG=650C530330A22325
+FARM design=b14 dev="2x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=5.1541 agg_inst_cyc_per_s=2.3841e+09 per_inst_cyc_per_s=5.8206e+05 CHK0=BE00000000000292 AGG=97D4AEB4B6D0A325
+FARM design=b14 dev="2x NVIDIA H100 PCIe" N=65536 cycles=1521743 block=128 secs=6.9438 agg_inst_cyc_per_s=1.4362e+10 per_inst_cyc_per_s=2.1915e+05 CHK0=8368ACE02479BD63 AGG=734191DC6FAA2325
+FARM design=b14 dev="2x NVIDIA H100 PCIe" N=1048576 cycles=95108 block=128 secs=5.0047 agg_inst_cyc_per_s=1.9927e+10 per_inst_cyc_per_s=1.9004e+04 CHK0=0000000003FC3002 AGG=89C1A9C38B822325
+FARM design=b14 dev="2x NVIDIA H100 PCIe" N=2097152 cycles=47554 block=128 secs=4.9967 agg_inst_cyc_per_s=1.9959e+10 per_inst_cyc_per_s=9.5172e+03 CHK0=0000000000003B42 AGG=D6809899F0E22325
+FARM design=b14 dev="4x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=5.1523 agg_inst_cyc_per_s=2.3850e+09 per_inst_cyc_per_s=5.8227e+05 CHK0=BE00000000000292 AGG=97D4AEB4B6D0A325
+FARM design=b14 dev="4x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=9.1609 agg_inst_cyc_per_s=2.1462e+10 per_inst_cyc_per_s=3.2748e+05 CHK0=BE00000000000292 AGG=AA50437FAF0A2325
+FARM design=b14 dev="4x NVIDIA H100 PCIe" N=1048576 cycles=190343 block=128 secs=5.0512 agg_inst_cyc_per_s=3.9514e+10 per_inst_cyc_per_s=3.7683e+04 CHK0=0000003FC3331460 AGG=3A33A9D525A22325
+FARM design=b14 dev="4x NVIDIA H100 PCIe" N=4194304 cycles=47585 block=128 secs=5.0142 agg_inst_cyc_per_s=3.9804e+10 per_inst_cyc_per_s=9.4900e+03 CHK0=2222222222222226 AGG=F6BDCE15B4222325
+FARM design=b14 dev="8x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=5.1513 agg_inst_cyc_per_s=2.3854e+09 per_inst_cyc_per_s=5.8238e+05 CHK0=BE00000000000292 AGG=97D4AEB4B6D0A325
+FARM design=b14 dev="8x NVIDIA H100 PCIe" N=65536 cycles=3000000 block=128 secs=5.1519 agg_inst_cyc_per_s=3.8162e+10 per_inst_cyc_per_s=5.8231e+05 CHK0=BE00000000000292 AGG=AA50437FAF0A2325
+FARM design=b14 dev="8x NVIDIA H100 PCIe" N=1048576 cycles=379600 block=128 secs=5.0674 agg_inst_cyc_per_s=7.8549e+10 per_inst_cyc_per_s=7.4910e+04 CHK0=199BDF13568ACC7E AGG=50E3151E05622325
+FARM design=b14 dev="8x NVIDIA H100 PCIe" N=8388608 cycles=47450 block=128 secs=4.9991 agg_inst_cyc_per_s=7.9622e+10 per_inst_cyc_per_s=9.4917e+03 CHK0=B9FD0962222220A7 AGG=E5A09806AC222325
+== b12
+FARM design=b12 dev="1x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=12.9627 agg_inst_cyc_per_s=9.4795e+08 per_inst_cyc_per_s=2.3143e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+CERT b12 MATCH C946C4B187AEB9D3
+FARM design=b12 dev="1x NVIDIA H100 PCIe" N=4096 cycles=1157165 block=128 secs=5.0001 agg_inst_cyc_per_s=9.4793e+08 per_inst_cyc_per_s=2.3143e+05 CHK0=34CF090023FE3199 AGG=6D1948D061B11C91
+FARM design=b12 dev="1x NVIDIA H100 PCIe" N=65536 cycles=72322 block=128 secs=1.1470 agg_inst_cyc_per_s=4.1324e+09 per_inst_cyc_per_s=6.3055e+04 CHK0=71985153AD0697A6 AGG=D46FB69D6330403B
+FARM design=b12 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=4520 block=128 secs=1.0077 agg_inst_cyc_per_s=4.7036e+09 per_inst_cyc_per_s=4.4857e+03 CHK0=021B5CF07E42A790 AGG=C3F45B7E0F208FF7
+FARM design=b12 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=4520 block=128 secs=1.0076 agg_inst_cyc_per_s=4.7039e+09 per_inst_cyc_per_s=4.4860e+03 CHK0=021B5CF07E42A790 AGG=C3F45B7E0F208FF7
+FARM design=b12 dev="2x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=11.4941 agg_inst_cyc_per_s=1.0691e+09 per_inst_cyc_per_s=2.6100e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+FARM design=b12 dev="2x NVIDIA H100 PCIe" N=65536 cycles=717758 block=128 secs=6.9150 agg_inst_cyc_per_s=6.8025e+09 per_inst_cyc_per_s=1.0380e+05 CHK0=F5E386B2A7F04BFA AGG=B7739A48379AAE1C
+FARM design=b12 dev="2x NVIDIA H100 PCIe" N=1048576 cycles=44859 block=128 secs=5.0736 agg_inst_cyc_per_s=9.2712e+09 per_inst_cyc_per_s=8.8417e+03 CHK0=02F77CF6AF23F3E0 AGG=6FA1CFC05B62F473
+FARM design=b12 dev="2x NVIDIA H100 PCIe" N=2097152 cycles=22429 block=128 secs=5.0419 agg_inst_cyc_per_s=9.3292e+09 per_inst_cyc_per_s=4.4485e+03 CHK0=3DF2064E07D78DFB AGG=89F57DD5B03DD3B8
+FARM design=b12 dev="4x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=11.4942 agg_inst_cyc_per_s=1.0691e+09 per_inst_cyc_per_s=2.6100e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+FARM design=b12 dev="4x NVIDIA H100 PCIe" N=65536 cycles=1423522 block=128 secs=9.3958 agg_inst_cyc_per_s=9.9291e+09 per_inst_cyc_per_s=1.5151e+05 CHK0=ECA75CC03DB0F877 AGG=C388EC31B71BD9C9
+FARM design=b12 dev="4x NVIDIA H100 PCIe" N=1048576 cycles=88970 block=128 secs=5.0755 agg_inst_cyc_per_s=1.8381e+10 per_inst_cyc_per_s=1.7529e+04 CHK0=13E6755C07C392D2 AGG=F6682BA9C2285522
+FARM design=b12 dev="4x NVIDIA H100 PCIe" N=4194304 cycles=22242 block=128 secs=5.0170 agg_inst_cyc_per_s=1.8595e+10 per_inst_cyc_per_s=4.4334e+03 CHK0=89FFBA5A0F74A191 AGG=E80C1680C4BB5B60
+FARM design=b12 dev="8x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=11.2445 agg_inst_cyc_per_s=1.0928e+09 per_inst_cyc_per_s=2.6680e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+FARM design=b12 dev="8x NVIDIA H100 PCIe" N=65536 cycles=2837371 block=128 secs=12.6603 agg_inst_cyc_per_s=1.4688e+10 per_inst_cyc_per_s=2.2412e+05 CHK0=842C462E3A86B7FE AGG=CED077FE638BB6FA
+FARM design=b12 dev="8x NVIDIA H100 PCIe" N=1048576 cycles=177335 block=128 secs=5.1564 agg_inst_cyc_per_s=3.6062e+10 per_inst_cyc_per_s=3.4391e+04 CHK0=32A8E736510FD556 AGG=6049393CA9B38F75
+FARM design=b12 dev="8x NVIDIA H100 PCIe" N=8388608 cycles=22166 block=128 secs=4.9988 agg_inst_cyc_per_s=3.7197e+10 per_inst_cyc_per_s=4.4343e+03 CHK0=9199BEBE4A0F74A1 AGG=10ECB3844B98CF37
+== b22
+FARM design=b22 dev="1x NVIDIA H100 PCIe" N=4096 cycles=1000000 block=128 secs=6.2520 agg_inst_cyc_per_s=6.5515e+08 per_inst_cyc_per_s=1.5995e+05 CHK0=64A596EC9D810F52 AGG=6A6C1EB7AC506325
+CERT b22 MATCH 64A596EC9D810F52
+FARM design=b22 dev="1x NVIDIA H100 PCIe" N=4096 cycles=799743 block=128 secs=4.9996 agg_inst_cyc_per_s=6.5521e+08 per_inst_cyc_per_s=1.5996e+05 CHK0=6A00000000000BE9 AGG=B7689BDB158DC325
+FARM design=b22 dev="1x NVIDIA H100 PCIe" N=65536 cycles=49983 block=128 secs=1.1036 agg_inst_cyc_per_s=2.9681e+09 per_inst_cyc_per_s=4.5290e+04 CHK0=B12269B0256B4BEF AGG=908FB3CE4A8A2325
+FARM design=b22 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=3123 block=128 secs=0.9740 agg_inst_cyc_per_s=3.3620e+09 per_inst_cyc_per_s=3.2062e+03 CHK0=832786AEEA694A2D AGG=68CFF70026422325
+FARM design=b22 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=3123 block=128 secs=0.9753 agg_inst_cyc_per_s=3.3578e+09 per_inst_cyc_per_s=3.2022e+03 CHK0=832786AEEA694A2D AGG=68CFF70026422325
+FARM design=b22 dev="2x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=15.8918 agg_inst_cyc_per_s=7.7323e+08 per_inst_cyc_per_s=1.8878e+05 CHK0=ED8104A5B91343C0 AGG=AC453AE2805B8325
+FARM design=b22 dev="2x NVIDIA H100 PCIe" N=65536 cycles=512359 block=128 secs=6.9113 agg_inst_cyc_per_s=4.8584e+09 per_inst_cyc_per_s=7.4134e+04 CHK0=96D2A07CD8171A51 AGG=4E93BC334D322325
+FARM design=b22 dev="2x NVIDIA H100 PCIe" N=1048576 cycles=32022 block=128 secs=5.0620 agg_inst_cyc_per_s=6.6332e+09 per_inst_cyc_per_s=6.3259e+03 CHK0=F6B41D9B0F622B45 AGG=A86DDE6881622325
+FARM design=b22 dev="2x NVIDIA H100 PCIe" N=2097152 cycles=16011 block=128 secs=5.0328 agg_inst_cyc_per_s=6.6717e+09 per_inst_cyc_per_s=3.1813e+03 CHK0=FFFFEA96C9132904 AGG=562D60FE69622325
+FARM design=b22 dev="4x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=15.8444 agg_inst_cyc_per_s=7.7554e+08 per_inst_cyc_per_s=1.8934e+05 CHK0=ED8104A5B91343C0 AGG=AC453AE2805B8325
+FARM design=b22 dev="4x NVIDIA H100 PCIe" N=65536 cycles=1018020 block=128 secs=9.4981 agg_inst_cyc_per_s=7.0242e+09 per_inst_cyc_per_s=1.0718e+05 CHK0=AC25A2882E2653AF AGG=CB3F80A7C9CE2325
+FARM design=b22 dev="4x NVIDIA H100 PCIe" N=1048576 cycles=63626 block=128 secs=5.0802 agg_inst_cyc_per_s=1.3133e+10 per_inst_cyc_per_s=1.2524e+04 CHK0=FFFFFFFDCD226604 AGG=2B288CAAD6E22325
+FARM design=b22 dev="4x NVIDIA H100 PCIe" N=4194304 cycles=15906 block=128 secs=5.0172 agg_inst_cyc_per_s=1.3297e+10 per_inst_cyc_per_s=3.1703e+03 CHK0=F6207087042AD0CB AGG=23F92A116E222325
+FARM design=b22 dev="8x NVIDIA H100 PCIe" N=4096 cycles=3000000 block=128 secs=15.3008 agg_inst_cyc_per_s=8.0310e+08 per_inst_cyc_per_s=1.9607e+05 CHK0=ED8104A5B91343C0 AGG=AC453AE2805B8325
+FARM design=b22 dev="8x NVIDIA H100 PCIe" N=65536 cycles=2028961 block=128 secs=13.1766 agg_inst_cyc_per_s=1.0091e+10 per_inst_cyc_per_s=1.5398e+05 CHK0=3A5612D629A1C0E4 AGG=B0A5CD2AF14C2325
+FARM design=b22 dev="8x NVIDIA H100 PCIe" N=1048576 cycles=126810 block=128 secs=5.5533 agg_inst_cyc_per_s=2.3944e+10 per_inst_cyc_per_s=2.2835e+04 CHK0=49D44CFBD782B862 AGG=8EE8049278422325
+FARM design=b22 dev="8x NVIDIA H100 PCIe" N=8388608 cycles=15851 block=128 secs=5.1408 agg_inst_cyc_per_s=2.5865e+10 per_inst_cyc_per_s=3.0834e+03 CHK0=8E9584A5E37B5268 AGG=0A5B9DA025222325
+== b17
+FARM design=b17 dev="1x NVIDIA H100 PCIe" N=4096 cycles=1000000 block=128 secs=47.9934 agg_inst_cyc_per_s=8.5345e+07 per_inst_cyc_per_s=2.0836e+04 CHK0=1CDC023B08293B0C AGG=C508981D8390D2E6
+CERT b17 MATCH 1CDC023B08293B0C
+FARM design=b17 dev="1x NVIDIA H100 PCIe" N=4096 cycles=104180 block=128 secs=5.0000 agg_inst_cyc_per_s=8.5345e+07 per_inst_cyc_per_s=2.0836e+04 CHK0=20334D3C59C19FBA AGG=1A8098EB95DD27F1
+FARM design=b17 dev="1x NVIDIA H100 PCIe" N=65536 cycles=6511 block=128 secs=2.1677 agg_inst_cyc_per_s=1.9685e+08 per_inst_cyc_per_s=3.0036e+03 CHK0=C699938CC0805C1D AGG=D201EF20F2E9FA35
+FARM design=b17 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=1000 block=128 secs=5.1147 agg_inst_cyc_per_s=2.0501e+08 per_inst_cyc_per_s=1.9551e+02 CHK0=652DD3A9C8A69A84 AGG=405CB2FD3D08F1D2
+FARM design=b17 dev="1x NVIDIA H100 PCIe" N=1048576 cycles=1000 block=128 secs=5.1169 agg_inst_cyc_per_s=2.0492e+08 per_inst_cyc_per_s=1.9543e+02 CHK0=652DD3A9C8A69A84 AGG=405CB2FD3D08F1D2
+FARM design=b17 dev="2x NVIDIA H100 PCIe" N=4096 cycles=500292 block=128 secs=23.7828 agg_inst_cyc_per_s=8.6163e+07 per_inst_cyc_per_s=2.1036e+04 CHK0=2F5F64FA36BE516A AGG=CFAB96C314D55CDA
+FARM design=b17 dev="2x NVIDIA H100 PCIe" N=65536 cycles=31268 block=128 secs=5.9698 agg_inst_cyc_per_s=3.4326e+08 per_inst_cyc_per_s=5.2377e+03 CHK0=424D632C97DE2318 AGG=B0F0DDA4AD16C0C8
+FARM design=b17 dev="2x NVIDIA H100 PCIe" N=1048576 cycles=1954 block=128 secs=5.0114 agg_inst_cyc_per_s=4.0885e+08 per_inst_cyc_per_s=3.8991e+02 CHK0=550D6C1CFC42BBCE AGG=E1558723596DAE25
+FARM design=b17 dev="2x NVIDIA H100 PCIe" N=2097152 cycles=1000 block=128 secs=5.1169 agg_inst_cyc_per_s=4.0985e+08 per_inst_cyc_per_s=1.9543e+02 CHK0=652DD3A9C8A69A84 AGG=60B3E10DC34D22F2
+FARM design=b17 dev="4x NVIDIA H100 PCIe" N=4096 cycles=1000610 block=128 secs=47.1976 agg_inst_cyc_per_s=8.6837e+07 per_inst_cyc_per_s=2.1200e+04 CHK0=071766D53BD33CBF AGG=6BB448D78185FFF5
+FARM design=b17 dev="4x NVIDIA H100 PCIe" N=65536 cycles=62538 block=128 secs=6.6426 agg_inst_cyc_per_s=6.1701e+08 per_inst_cyc_per_s=9.4148e+03 CHK0=C4B5B489577A85DF AGG=AEEA7C31197B4A7B
+FARM design=b17 dev="4x NVIDIA H100 PCIe" N=1048576 cycles=3908 block=128 secs=4.9830 agg_inst_cyc_per_s=8.2236e+08 per_inst_cyc_per_s=7.8427e+02 CHK0=8EFE4183A7134E4B AGG=BBE857ECBDBF81E5
+FARM design=b17 dev="4x NVIDIA H100 PCIe" N=4194304 cycles=1000 block=128 secs=5.1158 agg_inst_cyc_per_s=8.1987e+08 per_inst_cyc_per_s=1.9547e+02 CHK0=652DD3A9C8A69A84 AGG=FA7E7B30B6B4AD1E
+FARM design=b17 dev="8x NVIDIA H100 PCIe" N=4096 cycles=2001635 block=128 secs=94.3072 agg_inst_cyc_per_s=8.6936e+07 per_inst_cyc_per_s=2.1225e+04 CHK0=AE019407222C1A89 AGG=5655320D90BA5456
+FARM design=b17 dev="8x NVIDIA H100 PCIe" N=65536 cycles=125102 block=128 secs=6.7738 agg_inst_cyc_per_s=1.2104e+09 per_inst_cyc_per_s=1.8469e+04 CHK0=558445C21D3392F1 AGG=4A06F6CEEFB3663F
+FARM design=b17 dev="8x NVIDIA H100 PCIe" N=1048576 cycles=7818 block=128 secs=5.1185 agg_inst_cyc_per_s=1.6016e+09 per_inst_cyc_per_s=1.5274e+03 CHK0=4EB514DB3967FE75 AGG=7B09C9803AEE99E6
+FARM design=b17 dev="8x NVIDIA H100 PCIe" N=8388608 cycles=1000 block=128 secs=5.1185 agg_inst_cyc_per_s=1.6389e+09 per_inst_cyc_per_s=1.9537e+02 CHK0=652DD3A9C8A69A84 AGG=FEFBB053B1059B0B
+SWEEP-END 2026-09-14T22:50:35Z
+15:50:35 RUN-EXIT=0
+15:50:35 destroying 51059491
+destroying instance 51059491.
+15:50:38 destroyed 51059491

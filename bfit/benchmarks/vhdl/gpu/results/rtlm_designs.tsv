@@ -1,0 +1,4 @@
+# name cells regs cpu_cyc_s(1 core, this VM) verilator_cyc_s(1T, this VM, same stimulus) rtlmeter_ci_khz(gcc 1T, dhry)
+serv_rf_top 466 49 2.40e5 4.68e5 1729.8
+veer_wrapper 23323 1447 5.4467e+03 1.3331e+04 144.5
+eh2_veer_wrapper 71966 4260 nan 5.617e3 44.0

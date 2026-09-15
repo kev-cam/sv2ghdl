@@ -1,0 +1,7 @@
+farm/farm_*
+farm/model_*.c
+accel/
+rtlm/farm_*_gpu
+vast_*.log
+farm/*.log
+farm/pod_*

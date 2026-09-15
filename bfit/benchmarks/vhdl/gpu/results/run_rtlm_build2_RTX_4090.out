@@ -1,0 +1,42 @@
+21:18:05 offer: 39184681 0.4280555555555556 RTX_4090 16.0 64476
+21:18:08 instance 51081071 on offer 39184681 (RTX_4090 $0.4280555555555556/h 16.0 cores 64476 MB)
+-rw-rw-r-- 1 claude claude 2552801 Sep 14 21:18 /tmp/tmp.VGkIvEi8Zd/src.tgz
+21:19:05 status=running ssh3.vast.ai:11070
+21:19:15 binaries shipped (attempt 1)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.4280555555555556 GPU=RTX_4090x1-build
+g++ (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Build cuda_12.4.r12.4/compiler.34097967_0
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:71:32: note: '__builtin___snprintf_chk' output between 4 and 260 bytes into a destination of size 256
+   71 |   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+      |        ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                              
+
+real	3m13.639s
+user	3m5.788s
+sys	0m8.630s
+-rwxr-xr-x 1 root root 4140656 Sep 15 04:22 ../farm_veer_wrapper_gpu
+SWEEP-START 2026-09-15T04:22:32Z host=bc2a86cae9f4
+name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+NVIDIA GeForce RTX 4090, 570.172.08, 3105 MHz, 24564 MiB, 450.00 W
+== serv_rf_top
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=100000 block=128 secs=0.1784 agg_inst_cyc_per_s=2.2959e+09 per_inst_cyc_per_s=5.6052e+05 CHK0=E873FB95F1959861 AGG=F97AC45C33A9FC52
+CERT serv_rf_top MATCH E873FB95F1959861
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=4.9914 agg_inst_cyc_per_s=6.1545e+08 per_inst_cyc_per_s=6.0103e+05 CHK0=DBCE61FA14750B80 AGG=9BD745841CBCAAE9
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=901538 block=128 secs=1.5068 agg_inst_cyc_per_s=2.4506e+09 per_inst_cyc_per_s=5.9830e+05 CHK0=125942BCB14F0C39 AGG=FD3E8D6D632CAB56
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=16384 cycles=897436 block=128 secs=3.3998 agg_inst_cyc_per_s=4.3249e+09 per_inst_cyc_per_s=2.6397e+05 CHK0=40381F1A93B2411F AGG=7E257D2CBBD723DC
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=395956 block=128 secs=5.7366 agg_inst_cyc_per_s=4.5235e+09 per_inst_cyc_per_s=6.9023e+04 CHK0=8FE33BE36FE1CAE9 AGG=B2ED645D6D3C40C3
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=103534 block=128 secs=5.8941 agg_inst_cyc_per_s=4.6047e+09 per_inst_cyc_per_s=1.7566e+04 CHK0=E2831C8ACFE4BF47 AGG=8676439455B5D880
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=1048576 cycles=26348 block=128 secs=5.9689 agg_inst_cyc_per_s=4.6286e+09 per_inst_cyc_per_s=4.4142e+03 CHK0=BB9AE141A4C9EE60 AGG=99288ADAA5CFA7CD
+== veer_wrapper
+CUDA: invalid argument @78
+FARM-ERROR design=veer_wrapper CUDA="invalid argument" state_t=1226192 inputs_t=608 outputs_t=912
+CERT veer_wrapper MISMATCH got= expected=9FE990618782A069
+eh2_veer_wrapper: no binary
+SWEEP-END 2026-09-15T04:23:30Z
+21:24:02 RUN-EXIT=0
+./vast_build_run.sh: line 31: syntax error near unexpected token `do'
+./vast_build_run.sh: line 31: `do cp $b $ST/src/; done'
+21:24:02 destroying 51081071
+destroying instance 51081071.
+21:24:06 destroyed 51081071

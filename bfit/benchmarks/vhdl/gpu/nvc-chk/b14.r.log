@@ -1,0 +1,4 @@
+b14 CHK=BE00000000000383
+** Note: 10000035ns+1: STOP called
+   Procedure STOP [] at lib/std.08/env-body.vhd:32
+   Process :b14_tb:main at /tmp/claude-1002/-home-claude/8b5bcc44-ee9b-4a37-b8a8-54362b29c82f/scratchpad/work/b14/b14_tb.vhd:55

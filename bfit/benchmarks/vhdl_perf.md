@@ -161,6 +161,17 @@ caught (async-reset drive path, four stacked defects) is fixed in nvc
 45059fe51 and guarded by the `arst` accelbench shape — this table's
 cross-engine gate keeps working in both directions.
 
+### The GPU-farm ceiling
+
+`gpu_farm.md` (2026-09-14) sweeps the same six designs over instance count,
+card class (RTX 3090/4090, A100, H100) and cards per node (1–8) on rented
+Vast.AI GPUs, all 30 card×design cells checksum-certified. Headline: a
+card is a constant ~4–5e12 comb-cell evaluations/s (4090; the 4090 beats
+the H100 and costs 10× less per instance-cycle), it saturates at about its
+resident-thread count of instances, and cards multiply linearly to 8 with
+no top-out — the only limit is instances per card. Rules and the RTLMeter
+Verilator comparison are there.
+
 ## Where we lead
 
 The table above is raw single-thread `std_logic` — the one axis where a

@@ -25,8 +25,8 @@ for i in $(seq 80); do
 done
 echo "$(date +%T) status=$ST $H:$P" | tee -a "$OUT"
 [ "$ST" = running ] || exit 2
-vastai attach ssh "$IID" "$(cat ~/.ssh/id_rsa.pub)" >/dev/null 2>&1 || true
-for t in $(seq 30); do
+vastai attach ssh "$IID" "$(cat ~/.ssh/id_rsa.pub)" >> "$OUT" 2>&1 || true
+for t in $(seq ${SCP_TRIES:-30}); do   # SCP_TRIES: devel images take longer to come up
     if scp -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -P "$P" \
         "$@" "root@$H:/root/" >> "$OUT" 2>&1; then
         echo "$(date +%T) binaries shipped (attempt $t)" | tee -a "$OUT"

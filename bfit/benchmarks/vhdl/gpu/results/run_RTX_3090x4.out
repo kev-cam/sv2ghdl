@@ -1,0 +1,109 @@
+15:17:38 offer: 43751723 0.5393518518518519 RTX_3090 13.0 ,_US
+15:17:50 instance 51059481 on offer 43751723 (RTX_3090 cuda<=13.0 $0.5393518518518519/h ,_US)
+15:18:20 status=running ssh1.vast.ai:19480
+15:19:47 binaries shipped (attempt 2)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.5393518518518519 GPU=RTX_3090x4
+SWEEP-START 2026-09-14T22:19:46Z host=6118b3bf02f5
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA GeForce RTX 3090, 580.159.03, 2130 MHz, 24576 MiB, 210.00 W
+1, NVIDIA GeForce RTX 3090, 580.159.03, 2100 MHz, 24576 MiB, 210.00 W
+2, NVIDIA GeForce RTX 3090, 580.159.03, 2100 MHz, 24576 MiB, 210.00 W
+3, NVIDIA GeForce RTX 3090, 580.159.03, 2100 MHz, 24576 MiB, 210.00 W
+NGPU=4
+== b01
+FARM design=b01 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=0.5339 agg_inst_cyc_per_s=2.3014e+10 per_inst_cyc_per_s=5.6188e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+CERT b01 MATCH A29A0B8A83930283
+FARM design=b01 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=0.5221 agg_inst_cyc_per_s=2.3534e+10 per_inst_cyc_per_s=5.7457e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=1755828 block=128 secs=2.3157 agg_inst_cyc_per_s=4.9692e+10 per_inst_cyc_per_s=7.5823e+05 CHK0=910989013AA0A92B AGG=D8B34FBF1E2DB4B8
+FARM design=b01 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=109739 block=128 secs=2.1024 agg_inst_cyc_per_s=5.4734e+10 per_inst_cyc_per_s=5.2198e+04 CHK0=88C08668A2AAC620 AGG=AF7A12E9546CA075
+FARM design=b01 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=109739 block=128 secs=2.1037 agg_inst_cyc_per_s=5.4698e+10 per_inst_cyc_per_s=5.2164e+04 CHK0=88C08668A2AAC620 AGG=AF7A12E9546CA075
+FARM design=b01 dev="2x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=0.5280 agg_inst_cyc_per_s=2.3273e+10 per_inst_cyc_per_s=5.6818e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="2x NVIDIA GeForce RTX 3090" N=65536 cycles=3000000 block=128 secs=2.2456 agg_inst_cyc_per_s=8.7553e+10 per_inst_cyc_per_s=1.3360e+06 CHK0=A29A0B8A83930283 AGG=7C10F94CBE72E8BB
+FARM design=b01 dev="2x NVIDIA GeForce RTX 3090" N=1048576 cycles=521640 block=128 secs=5.0279 agg_inst_cyc_per_s=1.0879e+11 per_inst_cyc_per_s=1.0375e+05 CHK0=018908B880202A92 AGG=6394EB77A94D6CE4
+FARM design=b01 dev="2x NVIDIA GeForce RTX 3090" N=2097152 cycles=260820 block=128 secs=5.0631 agg_inst_cyc_per_s=1.0803e+11 per_inst_cyc_per_s=5.1514e+04 CHK0=31A9218ABB02AA21 AGG=8651E48CB668995D
+FARM design=b01 dev="4x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=0.5252 agg_inst_cyc_per_s=2.3396e+10 per_inst_cyc_per_s=5.7118e+06 CHK0=A29A0B8A83930283 AGG=FC6CB993726E4288
+FARM design=b01 dev="4x NVIDIA GeForce RTX 3090" N=65536 cycles=3000000 block=128 secs=1.1255 agg_inst_cyc_per_s=1.7468e+11 per_inst_cyc_per_s=2.6655e+06 CHK0=A29A0B8A83930283 AGG=7C10F94CBE72E8BB
+FARM design=b01 dev="4x NVIDIA GeForce RTX 3090" N=1048576 cycles=1030254 block=128 secs=5.0481 agg_inst_cyc_per_s=2.1400e+11 per_inst_cyc_per_s=2.0409e+05 CHK0=80932A2AA2AB32BA AGG=D926CB87667F810F
+FARM design=b01 dev="4x NVIDIA GeForce RTX 3090" N=4194304 cycles=257563 block=128 secs=5.0589 agg_inst_cyc_per_s=2.1354e+11 per_inst_cyc_per_s=5.0913e+04 CHK0=E0E06C8848C28EAA AGG=E06174DB929E056B
+== b06
+FARM design=b06 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=2000000 block=128 secs=0.3764 agg_inst_cyc_per_s=2.1767e+10 per_inst_cyc_per_s=5.3141e+06 CHK0=574DA57280D8C019 AGG=FCF08D7BE4301478
+CERT b06 MATCH 574DA57280D8C019
+FARM design=b06 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=0.5646 agg_inst_cyc_per_s=2.1764e+10 per_inst_cyc_per_s=5.3135e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=1660690 block=128 secs=2.4080 agg_inst_cyc_per_s=4.5197e+10 per_inst_cyc_per_s=6.8966e+05 CHK0=2DAFC5D6B8BBEB23 AGG=716AC5689CF09327
+FARM design=b06 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=103793 block=128 secs=2.1839 agg_inst_cyc_per_s=4.9835e+10 per_inst_cyc_per_s=4.7527e+04 CHK0=CAB627055B47D093 AGG=1A9CAF096BC9B4BA
+FARM design=b06 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=103793 block=128 secs=2.1867 agg_inst_cyc_per_s=4.9771e+10 per_inst_cyc_per_s=4.7465e+04 CHK0=CAB627055B47D093 AGG=1A9CAF096BC9B4BA
+FARM design=b06 dev="2x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=0.5601 agg_inst_cyc_per_s=2.1941e+10 per_inst_cyc_per_s=5.3566e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="2x NVIDIA GeForce RTX 3090" N=65536 cycles=3000000 block=128 secs=2.4582 agg_inst_cyc_per_s=7.9980e+10 per_inst_cyc_per_s=1.2204e+06 CHK0=CAFE633135F5FBF9 AGG=A6B9541C06666A6E
+FARM design=b06 dev="2x NVIDIA GeForce RTX 3090" N=1048576 cycles=474653 block=128 secs=5.0509 agg_inst_cyc_per_s=9.8538e+10 per_inst_cyc_per_s=9.3973e+04 CHK0=BE4AD54A2FEED082 AGG=D7B13ACA61B0473E
+FARM design=b06 dev="2x NVIDIA GeForce RTX 3090" N=2097152 cycles=237326 block=128 secs=5.0759 agg_inst_cyc_per_s=9.8054e+10 per_inst_cyc_per_s=4.6756e+04 CHK0=7DBFC62B2C1AFD2C AGG=A1491ACFC554B4FF
+FARM design=b06 dev="4x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=0.5600 agg_inst_cyc_per_s=2.1941e+10 per_inst_cyc_per_s=5.3568e+06 CHK0=CAFE633135F5FBF9 AGG=B126156505B3D95A
+FARM design=b06 dev="4x NVIDIA GeForce RTX 3090" N=65536 cycles=3000000 block=128 secs=1.2277 agg_inst_cyc_per_s=1.6014e+11 per_inst_cyc_per_s=2.4436e+06 CHK0=CAFE633135F5FBF9 AGG=A6B9541C06666A6E
+FARM design=b06 dev="4x NVIDIA GeForce RTX 3090" N=1048576 cycles=935115 block=128 secs=5.0253 agg_inst_cyc_per_s=1.9512e+11 per_inst_cyc_per_s=1.8608e+05 CHK0=A97F5E8D89A01953 AGG=5A8D7306DE4509F2
+FARM design=b06 dev="4x NVIDIA GeForce RTX 3090" N=4194304 cycles=233778 block=128 secs=5.0405 agg_inst_cyc_per_s=1.9453e+11 per_inst_cyc_per_s=4.6380e+04 CHK0=67EC420EAE85D353 AGG=3B00967FF38A93BE
+== b14
+FARM design=b14 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=1000000 block=128 secs=1.5608 agg_inst_cyc_per_s=2.6243e+09 per_inst_cyc_per_s=6.4071e+05 CHK0=BE00000000000383 AGG=E9D22C0C7DE22325
+CERT b14 MATCH BE00000000000383
+FARM design=b14 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=4.6940 agg_inst_cyc_per_s=2.6178e+09 per_inst_cyc_per_s=6.3912e+05 CHK0=BE00000000000292 AGG=97D4AEB4B6D0A325
+FARM design=b14 dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=200218 block=128 secs=2.1118 agg_inst_cyc_per_s=6.2135e+09 per_inst_cyc_per_s=9.4811e+04 CHK0=135467DC2222220D AGG=D9546C97711E2325
+FARM design=b14 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=12513 block=128 secs=1.8904 agg_inst_cyc_per_s=6.9407e+09 per_inst_cyc_per_s=6.6192e+03 CHK0=2222222222222006 AGG=23FED38086222325
+FARM design=b14 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=12513 block=128 secs=1.8906 agg_inst_cyc_per_s=6.9401e+09 per_inst_cyc_per_s=6.6186e+03 CHK0=2222222222222006 AGG=23FED38086222325
+FARM design=b14 dev="2x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=4.6585 agg_inst_cyc_per_s=2.6377e+09 per_inst_cyc_per_s=6.4398e+05 CHK0=BE00000000000292 AGG=97D4AEB4B6D0A325
+FARM design=b14 dev="2x NVIDIA GeForce RTX 3090" N=65536 cycles=1058975 block=128 secs=6.3976 agg_inst_cyc_per_s=1.0848e+10 per_inst_cyc_per_s=1.6553e+05 CHK0=2E2222222222230B AGG=B6AA32B6E91C2325
+FARM design=b14 dev="2x NVIDIA GeForce RTX 3090" N=1048576 cycles=66185 block=128 secs=5.0922 agg_inst_cyc_per_s=1.3629e+10 per_inst_cyc_per_s=1.2997e+04 CHK0=00003FC1113578A0 AGG=434A4A9F98622325
+FARM design=b14 dev="2x NVIDIA GeForce RTX 3090" N=2097152 cycles=33092 block=128 secs=5.1071 agg_inst_cyc_per_s=1.3589e+10 per_inst_cyc_per_s=6.4796e+03 CHK0=0000000000381602 AGG=2B0E1F4ABF222325
+FARM design=b14 dev="4x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=4.6948 agg_inst_cyc_per_s=2.6174e+09 per_inst_cyc_per_s=6.3900e+05 CHK0=BE00000000000292 AGG=97D4AEB4B6D0A325
+FARM design=b14 dev="4x NVIDIA GeForce RTX 3090" N=65536 cycles=2073516 block=128 secs=6.3499 agg_inst_cyc_per_s=2.1400e+10 per_inst_cyc_per_s=3.2654e+05 CHK0=21DE155713DF9920 AGG=42D22355CD222325
+FARM design=b14 dev="4x NVIDIA GeForce RTX 3090" N=1048576 cycles=129594 block=128 secs=5.0330 agg_inst_cyc_per_s=2.7000e+10 per_inst_cyc_per_s=2.5749e+04 CHK0=753201BE0000006B AGG=7644B817BFE22325
+FARM design=b14 dev="4x NVIDIA GeForce RTX 3090" N=4194304 cycles=32398 block=128 secs=5.0719 agg_inst_cyc_per_s=2.6792e+10 per_inst_cyc_per_s=6.3877e+03 CHK0=FC1113579BDE0341 AGG=372E76C55C222325
+== b12
+FARM design=b12 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=9.4669 agg_inst_cyc_per_s=1.2980e+09 per_inst_cyc_per_s=3.1689e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+CERT b12 MATCH C946C4B187AEB9D3
+FARM design=b12 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=1584472 block=128 secs=5.0007 agg_inst_cyc_per_s=1.2978e+09 per_inst_cyc_per_s=3.1685e+05 CHK0=DDEBA05248152680 AGG=ADCB083313941144
+FARM design=b12 dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=99029 block=128 secs=2.2181 agg_inst_cyc_per_s=2.9259e+09 per_inst_cyc_per_s=4.4646e+04 CHK0=E191822E2B3D2257 AGG=8FF52532C29848F0
+FARM design=b12 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=6189 block=128 secs=1.9951 agg_inst_cyc_per_s=3.2528e+09 per_inst_cyc_per_s=3.1021e+03 CHK0=DAED85FC18F90451 AGG=754A78D38F9C294C
+FARM design=b12 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=6189 block=128 secs=1.9940 agg_inst_cyc_per_s=3.2546e+09 per_inst_cyc_per_s=3.1038e+03 CHK0=DAED85FC18F90451 AGG=754A78D38F9C294C
+FARM design=b12 dev="2x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=9.3616 agg_inst_cyc_per_s=1.3126e+09 per_inst_cyc_per_s=3.2046e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+FARM design=b12 dev="2x NVIDIA GeForce RTX 3090" N=65536 cycles=496612 block=128 secs=6.3640 agg_inst_cyc_per_s=5.1141e+09 per_inst_cyc_per_s=7.8034e+04 CHK0=8F2097D8E9813536 AGG=BCCCA601C43C123D
+FARM design=b12 dev="2x NVIDIA GeForce RTX 3090" N=1048576 cycles=31038 block=128 secs=5.0968 agg_inst_cyc_per_s=6.3856e+09 per_inst_cyc_per_s=6.0897e+03 CHK0=7D27AF49BD7DFA45 AGG=2756049687EDBB72
+FARM design=b12 dev="2x NVIDIA GeForce RTX 3090" N=2097152 cycles=15519 block=128 secs=5.0983 agg_inst_cyc_per_s=6.3837e+09 per_inst_cyc_per_s=3.0440e+03 CHK0=E7A34E4E6FA65F70 AGG=5D4E94C072992BCB
+FARM design=b12 dev="4x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=9.4027 agg_inst_cyc_per_s=1.3069e+09 per_inst_cyc_per_s=3.1906e+05 CHK0=C946C4B187AEB9D3 AGG=41215AAF04AA35EF
+FARM design=b12 dev="4x NVIDIA GeForce RTX 3090" N=65536 cycles=974075 block=128 secs=6.3079 agg_inst_cyc_per_s=1.0120e+10 per_inst_cyc_per_s=1.5442e+05 CHK0=635F1122A8C561DC AGG=9AD3717C1808D430
+FARM design=b12 dev="4x NVIDIA GeForce RTX 3090" N=1048576 cycles=60879 block=128 secs=5.0752 agg_inst_cyc_per_s=1.2578e+10 per_inst_cyc_per_s=1.1995e+04 CHK0=1D20C50350E6AFC6 AGG=3F4AB14A34D7FA2C
+FARM design=b12 dev="4x NVIDIA GeForce RTX 3090" N=4194304 cycles=15219 block=128 secs=5.1138 agg_inst_cyc_per_s=1.2483e+10 per_inst_cyc_per_s=2.9761e+03 CHK0=784132CE4C6FB65D AGG=ED12AA8F4C873500
+== b22
+FARM design=b22 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=1000000 block=128 secs=5.0688 agg_inst_cyc_per_s=8.0808e+08 per_inst_cyc_per_s=1.9728e+05 CHK0=64A596EC9D810F52 AGG=6A6C1EB7AC506325
+CERT b22 MATCH 64A596EC9D810F52
+FARM design=b22 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=986425 block=128 secs=5.0003 agg_inst_cyc_per_s=8.0803e+08 per_inst_cyc_per_s=1.9727e+05 CHK0=AC60CEC89A6C0EE8 AGG=1F5C6E9C8B0FA325
+FARM design=b22 dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=61651 block=128 secs=2.0350 agg_inst_cyc_per_s=1.9854e+09 per_inst_cyc_per_s=3.0295e+04 CHK0=1300580786F593E0 AGG=FFFDB007E2A22325
+FARM design=b22 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=3853 block=128 secs=1.8345 agg_inst_cyc_per_s=2.2024e+09 per_inst_cyc_per_s=2.1003e+03 CHK0=6DB381F6D683B580 AGG=11851FD802C22325
+FARM design=b22 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=3853 block=128 secs=1.8342 agg_inst_cyc_per_s=2.2026e+09 per_inst_cyc_per_s=2.1006e+03 CHK0=6DB381F6D683B580 AGG=11851FD802C22325
+FARM design=b22 dev="2x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=15.0355 agg_inst_cyc_per_s=8.1726e+08 per_inst_cyc_per_s=1.9953e+05 CHK0=ED8104A5B91343C0 AGG=AC453AE2805B8325
+FARM design=b22 dev="2x NVIDIA GeForce RTX 3090" N=65536 cycles=336090 block=128 secs=6.3683 agg_inst_cyc_per_s=3.4587e+09 per_inst_cyc_per_s=5.2776e+04 CHK0=00F0DEB2F1BFF0F0 AGG=1159614FDD962325
+FARM design=b22 dev="2x NVIDIA GeForce RTX 3090" N=1048576 cycles=21005 block=128 secs=5.1245 agg_inst_cyc_per_s=4.2981e+09 per_inst_cyc_per_s=4.0989e+03 CHK0=00055A36D683B35B AGG=D3A270268AC22325
+FARM design=b22 dev="2x NVIDIA GeForce RTX 3090" N=2097152 cycles=10502 block=128 secs=5.1295 agg_inst_cyc_per_s=4.2937e+09 per_inst_cyc_per_s=2.0474e+03 CHK0=6DB6DB6DB6FEF060 AGG=F4D93AD6D5222325
+FARM design=b22 dev="4x NVIDIA GeForce RTX 3090" N=4096 cycles=3000000 block=128 secs=15.1250 agg_inst_cyc_per_s=8.1243e+08 per_inst_cyc_per_s=1.9835e+05 CHK0=ED8104A5B91343C0 AGG=AC453AE2805B8325
+FARM design=b22 dev="4x NVIDIA GeForce RTX 3090" N=65536 cycles=655166 block=128 secs=6.5502 agg_inst_cyc_per_s=6.5550e+09 per_inst_cyc_per_s=1.0002e+05 CHK0=96244D3604AD6E21 AGG=A68FFF79C0102325
+FARM design=b22 dev="4x NVIDIA GeForce RTX 3090" N=1048576 cycles=40947 block=128 secs=5.1245 agg_inst_cyc_per_s=8.3787e+09 per_inst_cyc_per_s=7.9905e+03 CHK0=A5E37B4D26A00AFF AGG=09D0A74DD1822325
+FARM design=b22 dev="4x NVIDIA GeForce RTX 3090" N=4194304 cycles=10236 block=128 secs=5.1474 agg_inst_cyc_per_s=8.3407e+09 per_inst_cyc_per_s=1.9886e+03 CHK0=6935000000000A81 AGG=D5A28BB232222325
+== b17
+FARM design=b17 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=1000000 block=128 secs=86.0304 agg_inst_cyc_per_s=4.7611e+07 per_inst_cyc_per_s=1.1624e+04 CHK0=1CDC023B08293B0C AGG=C508981D8390D2E6
+CERT b17 MATCH 1CDC023B08293B0C
+FARM design=b17 dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=58118 block=128 secs=4.9973 agg_inst_cyc_per_s=4.7636e+07 per_inst_cyc_per_s=1.1630e+04 CHK0=D3BF1BDFFCF88795 AGG=B0125D5A859D1924
+FARM design=b17 dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=3632 block=128 secs=2.2335 agg_inst_cyc_per_s=1.0657e+08 per_inst_cyc_per_s=1.6261e+03 CHK0=2094C9CC8EFE4183 AGG=3A2C4400629D56E6
+FARM design=b17 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=1000 block=128 secs=9.4030 agg_inst_cyc_per_s=1.1152e+08 per_inst_cyc_per_s=1.0635e+02 CHK0=652DD3A9C8A69A84 AGG=405CB2FD3D08F1D2
+FARM design=b17 dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=1000 block=128 secs=9.4003 agg_inst_cyc_per_s=1.1155e+08 per_inst_cyc_per_s=1.0638e+02 CHK0=652DD3A9C8A69A84 AGG=405CB2FD3D08F1D2
+FARM design=b17 dev="2x NVIDIA GeForce RTX 3090" N=4096 cycles=272338 block=128 secs=11.8487 agg_inst_cyc_per_s=9.4145e+07 per_inst_cyc_per_s=2.2985e+04 CHK0=679D32F28D107B4E AGG=D26C8148F3A4A612
+FARM design=b17 dev="2x NVIDIA GeForce RTX 3090" N=65536 cycles=17021 block=128 secs=5.3103 agg_inst_cyc_per_s=2.1006e+08 per_inst_cyc_per_s=3.2053e+03 CHK0=B9BA1980942A5193 AGG=7B17A89DD18A9417
+FARM design=b17 dev="2x NVIDIA GeForce RTX 3090" N=1048576 cycles=1063 block=128 secs=5.0164 agg_inst_cyc_per_s=2.2220e+08 per_inst_cyc_per_s=2.1190e+02 CHK0=E27EC876A7C43838 AGG=1E7032F603B0E2B1
+FARM design=b17 dev="2x NVIDIA GeForce RTX 3090" N=2097152 cycles=1000 block=128 secs=9.5096 agg_inst_cyc_per_s=2.2053e+08 per_inst_cyc_per_s=1.0516e+02 CHK0=652DD3A9C8A69A84 AGG=60B3E10DC34D22F2
+FARM design=b17 dev="4x NVIDIA GeForce RTX 3090" N=4096 cycles=538403 block=128 secs=21.5100 agg_inst_cyc_per_s=1.0252e+08 per_inst_cyc_per_s=2.5030e+04 CHK0=CD309ED91644322D AGG=90DB0EC00B38993E
+FARM design=b17 dev="4x NVIDIA GeForce RTX 3090" N=65536 cycles=33650 block=128 secs=5.1614 agg_inst_cyc_per_s=4.2727e+08 per_inst_cyc_per_s=6.5196e+03 CHK0=195EFE727D4C777C AGG=93A05C15D59985FF
+FARM design=b17 dev="4x NVIDIA GeForce RTX 3090" N=1048576 cycles=2103 block=128 secs=5.1078 agg_inst_cyc_per_s=4.3173e+08 per_inst_cyc_per_s=4.1173e+02 CHK0=005C2A4B84BAB9F8 AGG=435851C96F78D1A1
+FARM design=b17 dev="4x NVIDIA GeForce RTX 3090" N=4194304 cycles=1000 block=128 secs=9.6690 agg_inst_cyc_per_s=4.3379e+08 per_inst_cyc_per_s=1.0342e+02 CHK0=652DD3A9C8A69A84 AGG=FA7E7B30B6B4AD1E
+SWEEP-END 2026-09-14T22:34:39Z
+15:34:44 RUN-EXIT=0
+15:34:44 destroying 51059481
+destroying instance 51059481.
+15:34:47 destroyed 51059481

@@ -1,0 +1,61 @@
+20:16:35 offer: 34926588 0.4298148148148148 RTX_4090 16.0 40205
+20:16:38 instance 51076990 on offer 34926588 (RTX_4090 $0.4298148148148148/h 16.0 cores 40205 MB)
+-rw-rw-r-- 1 claude claude 8346487 Sep 14 20:16 /tmp/tmp.b8Xk6Xr2Ao/src.tgz
+20:17:06 status=running ssh9.vast.ai:36990
+20:18:16 binaries shipped (attempt 2)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.4298148148148148 GPU=RTX_4090x1-build
+g++ (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Build cuda_12.4.r12.4/compiler.34097967_0
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:71:32: note: '__builtin___snprintf_chk' output between 4 and 260 bytes into a destination of size 256
+   71 |   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+      |        ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                              
+
+real	3m36.410s
+user	3m27.580s
+sys	0m9.691s
+-rwxr-xr-x 1 root root 4140656 Sep 15 03:22 ../farm_veer_wrapper_gpu
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:71:32: note: '__builtin___snprintf_chk' output between 4 and 260 bytes into a destination of size 256
+   71 |   return __builtin___snprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+      |        ~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                              
+-rwxr-xr-x 1 root root 9834160 Sep 15 04:14 ../farm_eh2_veer_wrapper_gpu
+
+real	52m3.820s
+user	50m52.520s
+sys	1m13.378s
+SWEEP-START 2026-09-15T04:14:29Z host=518d5dc73cca
+name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+NVIDIA GeForce RTX 4090, 580.126.09, 3120 MHz, 24564 MiB, 450.00 W
+== serv_rf_top
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=100000 block=128 secs=0.1704 agg_inst_cyc_per_s=2.4032e+09 per_inst_cyc_per_s=5.8672e+05 CHK0=E873FB95F1959861 AGG=F97AC45C33A9FC52
+CERT serv_rf_top MATCH E873FB95F1959861
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=4.8900 agg_inst_cyc_per_s=6.2822e+08 per_inst_cyc_per_s=6.1349e+05 CHK0=DBCE61FA14750B80 AGG=9BD745841CBCAAE9
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=920244 block=128 secs=1.4877 agg_inst_cyc_per_s=2.5336e+09 per_inst_cyc_per_s=6.1857e+05 CHK0=78AD7E5258BED5C3 AGG=B15133C5E549678F
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=16384 cycles=927832 block=128 secs=3.3117 agg_inst_cyc_per_s=4.5903e+09 per_inst_cyc_per_s=2.8017e+05 CHK0=50A449A0158F14CC AGG=3EEFD5FC5DE9C071
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=420254 block=128 secs=5.8832 agg_inst_cyc_per_s=4.6814e+09 per_inst_cyc_per_s=7.1433e+04 CHK0=4A1EF2A6E01F8CAE AGG=5FEFAAA92D55F89E
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=107148 block=128 secs=5.8148 agg_inst_cyc_per_s=4.8305e+09 per_inst_cyc_per_s=1.8427e+04 CHK0=37B5548BD0A893FD AGG=CB00DF251D4B735B
+FARM design=serv_rf_top dev="1x NVIDIA GeForce RTX 4090" N=1048576 cycles=27640 block=128 secs=5.8715 agg_inst_cyc_per_s=4.9362e+09 per_inst_cyc_per_s=4.7075e+03 CHK0=8CBF8AA09397A402 AGG=627A5309A2517616
+== veer_wrapper
+FARM design=veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=100000 block=128 secs=0.0000 agg_inst_cyc_per_s=1.1347e+14 per_inst_cyc_per_s=2.7702e+10 CHK0=0000000000000000 AGG=8F6955BF94EC2325
+CERT veer_wrapper MISMATCH got=0000000000000000 expected=9FE990618782A069
+FARM design=veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=1.1907e+15 per_inst_cyc_per_s=1.1628e+12 CHK0=0000000000000000 AGG=B9D103FD6854A325
+FARM design=veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=4.8763e+15 per_inst_cyc_per_s=1.1905e+12 CHK0=0000000000000000 AGG=8F6955BF94EC2325
+FARM design=veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=16384 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=1.9274e+16 per_inst_cyc_per_s=1.1764e+12 CHK0=0000000000000000 AGG=C74B47C8C74A2325
+FARM design=veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=7.8992e+16 per_inst_cyc_per_s=1.2053e+12 CHK0=0000000000000000 AGG=FC31BFF590C22325
+FARM design=veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=3.0601e+17 per_inst_cyc_per_s=1.1673e+12 CHK0=0000000000000000 AGG=7AB6A128B6A22325
+FARM design=veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=1048576 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=1.2288e+18 per_inst_cyc_per_s=1.1719e+12 CHK0=0000000000000000 AGG=637A2DF54E222325
+== eh2_veer_wrapper
+FARM design=eh2_veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=20000 block=128 secs=0.0000 agg_inst_cyc_per_s=2.0030e+13 per_inst_cyc_per_s=4.8901e+09 CHK0=0000000000000000 AGG=8F6955BF94EC2325
+CERT eh2_veer_wrapper MISMATCH got=0000000000000000 expected=026895944047D1AD
+FARM design=eh2_veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=1024 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=1.1770e+15 per_inst_cyc_per_s=1.1494e+12 CHK0=0000000000000000 AGG=B9D103FD6854A325
+FARM design=eh2_veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=4.6544e+15 per_inst_cyc_per_s=1.1363e+12 CHK0=0000000000000000 AGG=8F6955BF94EC2325
+FARM design=eh2_veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=16384 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=1.9276e+16 per_inst_cyc_per_s=1.1765e+12 CHK0=0000000000000000 AGG=C74B47C8C74A2325
+FARM design=eh2_veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=7.3085e+16 per_inst_cyc_per_s=1.1152e+12 CHK0=0000000000000000 AGG=FC31BFF590C22325
+FARM design=eh2_veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=3.0720e+17 per_inst_cyc_per_s=1.1719e+12 CHK0=0000000000000000 AGG=7AB6A128B6A22325
+FARM design=eh2_veer_wrapper dev="1x NVIDIA GeForce RTX 4090" N=1048576 cycles=3000000 block=128 secs=0.0000 agg_inst_cyc_per_s=1.2483e+18 per_inst_cyc_per_s=1.1905e+12 CHK0=0000000000000000 AGG=637A2DF54E222325
+SWEEP-END 2026-09-15T04:15:32Z
+21:15:32 RUN-EXIT=0
+21:15:32 destroying 51076990
+destroying instance 51076990.
+21:15:35 destroyed 51076990
