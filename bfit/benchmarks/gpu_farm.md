@@ -488,8 +488,9 @@ every instance's counters agree and its queues drain empty. One test is
 **Baselines on this 5-vCPU VM (2.2 GHz-class):** Verilator 5.040 on the
 unmodified `tb.sv` (`--binary --timing -O3`): **26.5 s**, 0.85M cycles/s.
 The gsm C model of the same port on one CPU core: 5.2 s, 4.2M cycles/s.
-(Icarus on this VM: see the run log when it finishes; Yuri's own Icarus
-numbers are 270 s / 105 s.)
+Icarus 12 on the same testbench on this VM: **828 s** (Yuri's own Icarus
+numbers are 270 s on his i5 and 105 s on his M4, so this VM is ~3× slower
+than his desktop).
 
 **RTX 4090, one GPU, binary shipped, all runs PASS with 0 errors:**
 
@@ -503,15 +504,22 @@ numbers are 270 s / 105 s.)
 | 65,536 seeds, 1M transfers each | 65,536 | 14.7 s | 9.88e9 | 4.45e9 | ×11,700 |
 | 262,144 seeds, 1M transfers each | 262,144 | 59.0 s | 9.88e9 | 4.44e9 | ×11,700 |
 | 1,048,576 seeds, 1M transfers each | 1,048,576 | 235 s | 9.93e9 | 4.47e9 | ×11,700 |
+| **32-bit carriers (`GSM_U32=1`), 1 GPU thread, 10M transfers** (3 seeds: 8.86 / 8.85 / 8.85 s) | 1 | **8.85 s** | 2.51e6 | 1.13e6 | **×3.0** (×94 vs Icarus here) |
+| 32-bit carriers, 4,096 seeds, 1M transfers | 4,096 | 1.00 s | 9.12e9 | 4.11e9 | ×10,800 |
+| 32-bit carriers, 65,536 seeds, 1M transfers | 65,536 | 12.1 s | 1.20e10 | 5.41e9 | ×14,200 |
+| 32-bit carriers, 262,144 seeds, 1M transfers | 262,144 | 48.2 s | 1.21e10 | 5.44e9 | ×14,300 |
 
 Speed-up = instance-cycles/s ÷ Verilator's 0.847M cycles/s on the same
 testbench on the same VM (for the single run, 26.5 s ÷ 11.24 s).
 
-**Reading.** The bet as worded — ONE sequential run under 10 s — is missed
-by 1.2 s on a lone GPU thread: a single CUDA thread is a weak scalar core
-(2M cycles/s here against 4.2M for the same model on one CPU core), and a
-sequential test cannot use the card's breadth. It still beats Verilator's
-single thread 2.4× on the real testbench. What the GPU is built for shows
+**Reading.** The bet as worded — ONE sequential run under 10 s — is met by
+the 32-bit-carrier build: **8.85 s on one GPU thread**, three seeds within
+10 ms of each other, zero errors. The 64-bit-carrier build missed it by
+1.2 s (11.24 s): a lone CUDA thread is a weak scalar core, 64-bit integer
+ops cost double on it, and a sequential test cannot use the card's breadth;
+the 32-bit emission (`GSM_U32=1`, 56 registers) is worth 27% per thread and
+22% at the plateau. Either way it beats Verilator's single thread on the
+real testbench (2.4× / 3.0×) and Icarus on the same VM by 74× / 94×. What the GPU is built for shows
 in the other rows: 4,096 complete copies of the 10M-transfer test, each
 self-checked, finish in the wall time of one, and at the plateau the card
 checks 4.4 billion transfers per second — 11,700× the Verilator thread, or
@@ -521,8 +529,8 @@ seeds, not latency of one run. The 4-bit design occupies 80 registers and a
 320-byte stack per thread, so it sits well inside rule 1; the harness does
 more per cycle than the plain farm (PRNG, scoreboard, 64-bit carriers),
 which is why its plateau is 9.9e9 rather than the ~1e11 of the ITC FSMs.
-A 32-bit-carrier build (`GSM_U32=1`) for the single-thread time is the
-next measurement.
+The 32-bit-carrier rows above are that build; raw log
+`results/vast_RTX_4090x1_51099583.log`.
 
 Reproduce: `rtlm/yuri/yuri.cu` + the model from `gen_statemachine dut.sv
 a_plus_b_using_wrapped_fifos width=4 depth=4`; `sweep_yuri.sh` on the

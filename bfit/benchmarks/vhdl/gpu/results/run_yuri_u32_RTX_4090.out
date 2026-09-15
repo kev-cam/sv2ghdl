@@ -1,0 +1,21 @@
+01:39:25 offer: 43681509 0.3613888888888889 RTX_4090 13.0 Malaysia,_MY
+01:39:28 instance 51099583 on offer 43681509 (RTX_4090 cuda<=13.0 $0.3613888888888889/h Malaysia,_MY)
+01:40:24 status=running ssh8.vast.ai:19582
+01:40:36 binaries shipped (attempt 1)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.3613888888888889 GPU=RTX_4090x1
+SWEEP-START 2026-09-15T08:40:40Z host=659a98b7277c
+name, driver_version, clocks.max.sm [MHz]
+NVIDIA GeForce RTX 4090, 580.105.08, 3105 MHz
+YURI dev="NVIDIA GeForce RTX 4090" N=1 max_transfers=10000000 secs=8.8633 inst0: cycles=22218516 sum=10000000 a=10000000 b=10000000 errors=0 | all: cycles=22218516 (min 22218516 max 22218516) sums=10000000 errors=0 | inst-cyc/s=2.5068e+06 transfers/s=1.1282e+06 PASS
+YURI dev="NVIDIA GeForce RTX 4090" N=1 max_transfers=10000000 secs=8.8492 inst0: cycles=22221353 sum=10000000 a=10000000 b=10000000 errors=0 | all: cycles=22221353 (min 22221353 max 22221353) sums=10000000 errors=0 | inst-cyc/s=2.5111e+06 transfers/s=1.1300e+06 PASS
+YURI dev="NVIDIA GeForce RTX 4090" N=1 max_transfers=10000000 secs=8.8537 inst0: cycles=22228209 sum=10000000 a=10000000 b=10000000 errors=0 | all: cycles=22228209 (min 22228209 max 22228209) sums=10000000 errors=0 | inst-cyc/s=2.5106e+06 transfers/s=1.1295e+06 PASS
+YURI dev="NVIDIA GeForce RTX 4090" N=4096 max_transfers=1000000 secs=0.9977 inst0: cycles=2222546 sum=1000000 a=1000000 b=1000000 errors=0 | all: cycles=9103613189 (min 2218079 max 2226435) sums=4096000000 errors=0 | inst-cyc/s=9.1242e+09 transfers/s=4.1053e+09 PASS
+YURI dev="NVIDIA GeForce RTX 4090" N=65536 max_transfers=1000000 secs=12.1133 inst0: cycles=2222546 sum=1000000 a=1000000 b=1000000 errors=0 | all: cycles=145657205437 (min 2218044 max 2226616) sums=65536000000 errors=0 | inst-cyc/s=1.2025e+10 transfers/s=5.4103e+09 PASS
+YURI dev="NVIDIA GeForce RTX 4090" N=262144 max_transfers=1000000 secs=48.1727 inst0: cycles=2222546 sum=1000000 a=1000000 b=1000000 errors=0 | all: cycles=582630230799 (min 2218044 max 2226616) sums=262144000000 errors=0 | inst-cyc/s=1.2095e+10 transfers/s=5.4418e+09 PASS
+SWEEP-END 2026-09-15T08:42:10Z
+01:42:10 RUN-EXIT=0
+01:42:10 destroying 51099583
+destroying instance 51099583.
+01:42:14 destroyed 51099583
