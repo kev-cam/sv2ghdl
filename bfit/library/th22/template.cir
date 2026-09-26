@@ -1,0 +1,52 @@
+* bfit candidate -- th22 C-element macromodel (tuner harness, 1 cell @ 3 fF).
+* Same stimulus as the transistor reference ref_th22_3f.cir: one full
+* DATA(rise@2n) -> NULL(fall@6n) op; energy window 1.9n..10n is injected by
+* the fit.json "energy" feature (.measure INTEG I(VDD) + PARAM), TD is the
+* deck-defined TRIG/TARG measure ("meas" feature).
+* Macromodel: stdcell2bfit v2 -- thresholded square-law gate-programmed
+* conductances, W/L-scaled, keeper devices (MPK/MNK) on the kfb knob.
+VDD vdd 0 1.2
+VSS vss 0 0
+VA a 0 PWL(0 0 1.9n 0 2n 1.2 5.9n 1.2 6n 0 12n 0)
+VB b 0 PWL(0 0 1.9n 0 2n 1.2 5.9n 1.2 6n 0 12n 0)
+X1 a b y vdd vss th22 PARAMS: vthr=__vthr__ ron=__ron__ kp=__kp__ kfb=__kfb__ cin=__cin__ cint=__cint__
+CL y 0 3f
+.tran 2p 12n
+.measure tran TD TRIG V(a) VAL=0.6 RISE=1 TARG V(y) VAL=0.6 RISE=1
+.measure tran TDF TRIG V(a) VAL=0.6 FALL=1 TARG V(y) VAL=0.6 FALL=1
+* 3-stage chain on its OWN supply (keeps the cell-under-test energy integral
+* clean): stages 2-3 see realistic slow edges, so TD3/TDF3 pin the SLOW-EDGE
+* delay -- fit only the fast-edge TD and a 20-deep chain accumulates +100%
+* delay error (measured). Same lesson as cmos_inv's 5-stage chain template.
+VDDC vddc 0 1.2
+XK1 a a yc1 vddc vss th22 PARAMS: vthr=__vthr__ ron=__ron__ kp=__kp__ kfb=__kfb__ cin=__cin__ cint=__cint__
+CK1 yc1 0 3f
+XK2 yc1 yc1 yc2 vddc vss th22 PARAMS: vthr=__vthr__ ron=__ron__ kp=__kp__ kfb=__kfb__ cin=__cin__ cint=__cint__
+CK2 yc2 0 3f
+XK3 yc2 yc2 yc3 vddc vss th22 PARAMS: vthr=__vthr__ ron=__ron__ kp=__kp__ kfb=__kfb__ cin=__cin__ cint=__cint__
+CK3 yc3 0 3f
+.measure tran TD3 TRIG V(a) VAL=0.6 RISE=1 TARG V(yc3) VAL=0.6 RISE=1
+.measure tran TDF3 TRIG V(a) VAL=0.6 FALL=1 TARG V(yc3) VAL=0.6 FALL=1
+.subckt th22 A B Y VDD VSS PARAMS: vsup=1.2 vthr=0.4 ron=28000 kp=1 kfb=8 gm0=1e-9 rfloat=1e9 cin=2f cint=5f
+Cin_A A VSS {cin}
+Cin_B B VSS {cin}
+Cin_Y Y VSS {cin}
+BMPA N1 VDD I={ (IF((vsup-V(A))>vthr,1*kp*((vsup-V(A)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(N1)-V(VDD)) }
+BMPB X N1 I={ (IF((vsup-V(B))>vthr,1*kp*((vsup-V(B)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(X)-V(N1)) }
+BMNA N2 VSS I={ (IF(V(A)>vthr,1*((V(A)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(N2)-V(VSS)) }
+BMNB X N2 I={ (IF(V(B)>vthr,1*((V(B)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(X)-V(N2)) }
+BMPY Y VDD I={ (IF((vsup-V(X))>vthr,1*kp*((vsup-V(X)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(Y)-V(VDD)) }
+BMNY Y VSS I={ (IF(V(X)>vthr,1*((V(X)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(Y)-V(VSS)) }
+BMPK X VDD I={ (IF((vsup-V(Y))>vthr,0.065*kp*kfb*((vsup-V(Y)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(X)-V(VDD)) }
+BMNK X VSS I={ (IF(V(Y)>vthr,0.0557143*kfb*((V(Y)-vthr)/(vsup-vthr))/ron,0)+gm0)*(V(X)-V(VSS)) }
+Rf_N1 N1 VSS {rfloat}
+Cn_N1 N1 VSS {cint}
+Rf_N2 N2 VSS {rfloat}
+Cn_N2 N2 VSS {cint}
+Rf_X X VSS {rfloat}
+Cn_X X VSS {cint}
+Rf_Y Y VSS {rfloat}
+Cn_Y Y VSS {cint}
+.ends
+.print tran format=gnuplot v(y)
+.end
