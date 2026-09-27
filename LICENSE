@@ -1,0 +1,22 @@
+sv2ghdl licensing
+=================
+
+Copyright (C) 2024-2026 Kevin Cameron
+
+Everything in this repository is licensed under the GNU General Public
+License, version 3 or (at your option) any later version
+(SPDX: GPL-3.0-or-later). The full text is in COPYING. This includes
+sv2ghdl, its wrappers and shims, and the vamos driver.
+
+EXCEPTION: bfit/
+  The bfit/ directory (the behavioral-fit accelerator) is NOT covered by the
+  GPL. It is licensed under the PolyForm Noncommercial License 1.0.0
+  (SPDX: PolyForm-Noncommercial-1.0.0). See bfit/LICENSE. Commercial use of
+  bfit requires a separate license from the copyright holder.
+
+  The GPL-licensed code in this repository does not import or link bfit. It
+  only invokes bfit as a separate program. The two remain separate works.
+
+Earlier releases: revisions published before this file was added were
+distributed under "GPL v2+" (see README). Anyone who received those revisions
+keeps those terms. The licensing above applies from this revision onward.

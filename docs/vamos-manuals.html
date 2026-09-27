@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vamos reference manuals</title>
+<style>
+  :root { --bg:#fbfbf9; --fg:#1d1d1b; --muted:#6b6b66; --line:#e2e1dc; --link:#1f5fa8; --tag:#eef2f7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17181a; --fg:#e6e5e0; --muted:#9a9a94; --line:#2d2e31; --link:#7fb0ea; --tag:#23272e; }
+  }
+  body { background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; margin:0 auto; max-width:920px; padding:24px 16px 64px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  h2 { font-size:1.1rem; margin:32px 0 8px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+  p.lede, .note { color:var(--muted); }
+  ul { padding-left:1.2em; margin:0; }
+  li { margin:6px 0; }
+  a { color:var(--link); }
+  code { background:var(--tag); padding:1px 4px; border-radius:3px; font-size:0.9em; }
+  .tag { font-size:0.75rem; background:var(--tag); padding:1px 6px; border-radius:8px; color:var(--muted); margin-left:6px; white-space:nowrap; }
+</style>
+</head>
+<body>
+<h1>vamos: simulator CLI reference manuals</h1>
+<p class="lede">Manuals collected for building <code>vamos</code>, the drop-in command-line front end (see <code>docs/VAMOS_PLAN.md</code>).
+Links were checked on 2026-09-27. Vendor manuals are unofficial mirrors: they are older releases and could disappear.
+A <span class="tag">403</span> tag means the site blocked a scripted check. It usually works in a browser.</p>
+
+<h2>Synopsys VCS / VCS MX / VCS AMS (phase 1 target)</h2>
+<ul>
+  <li><a href="https://github.com/hyf6661669/Synopsys-Documents/blob/main/VCS%20user%20guide%202019.06-SP1.pdf">VCS User Guide 2019.06-SP1</a> (GitHub mirror)<span class="tag">primary: newest full UG</span></li>
+  <li><a href="https://users.ece.utexas.edu/~patt/10s.382N/handouts/vcs.pdf">VCS/VCSi User Guide</a> (UT Austin; older, still has the full compile/runtime option chapters)</li>
+  <li><a href="https://cc.ee.ntu.edu.tw/~ric/teaching/SoC_Verification/S06/Homework/HW1/vcs.pdf">VCS/VCSi User Guide</a> (NTU mirror)</li>
+  <li><a href="https://users.ece.utexas.edu/~patt/20s.382N/tools/vcs_manual.html">EE 382N VCS quick manual</a> (the common options in real use)</li>
+  <li><a href="https://www.francisz.cn/download/vcsmx_ug.pdf">VCS MX / VCS MXi User Guide</a><span class="tag">slow/timeout</span>: the three-step flow (<code>vlogan</code>/<code>vhdlan</code>/<code>vcs</code>) and <code>synopsys_sim.setup</code></li>
+  <li><a href="https://manualzz.com/doc/o/n5aos/vcs%C2%AE-mx-vcs-mxi%E2%84%A2-user-guide---uth-e-vcs-mx-flow">VCS MX User Guide: VCS MX flow chapter</a> (manualzz)</li>
+  <li><a href="https://studylib.net/doc/26117766/vcs-ug">VCS User Guide (Verification Continuum)</a> (studylib)<span class="tag">403</span></li>
+  <li><a href="https://www.scribd.com/document/763089917/VCS-PrimeSim-AMS-User-Guide-U-2023-03-SP1">VCS PrimeSim AMS User Guide U-2023.03-SP1</a> (Scribd): <code>-ad</code>, <code>vcsAD.init</code>, analog partitioning</li>
+  <li><a href="https://web.eecs.utk.edu/~dbouldin/protected/651-hw10/NS-VCS-MX2.pdf">NanoSim-VCS-MX tutorial</a> (UTK): worked <code>vcsAD.init</code> with <code>partition -cell</code> and <code>choose nanosim</code></li>
+  <li><a href="https://www.synopsys.com/content/dam/synopsys/verification/datasheets/vcs-ams-ds.pdf">VCS AMS datasheet</a> (Synopsys; lists features only)</li>
+  <li><a href="https://tamoncimi.files.wordpress.com/2015/09/synopsys-vcs-coverage-user-guide.pdf">VCS Coverage User Guide</a><span class="tag">403</span>: <code>-cm</code> options</li>
+  <li><a href="https://www.scribd.com/document/843605530/vcs-usage">VCS usage and options guide</a> (Scribd)</li>
+</ul>
+
+<h2>Cadence ncverilog / irun / xrun (Xcelium, AMS Designer)</h2>
+<ul>
+  <li><a href="https://picture.iczhiku.com/resource/eetop/ShIgepQHdUhOexxx.pdf">irun User Guide 9.2</a> (eetop mirror)<span class="tag">403</span>: <code>+</code>/<code>-</code> option duality and the ncverilog compatibility options</li>
+  <li><a href="https://www.scribd.com/document/950592417/XceliumSC-Ref">Xcelium Simulator Reference</a> (Scribd): xrun options</li>
+  <li><a href="https://www.scribd.com/document/222838762/Cadence-Tools-Command-Reference">Cadence Tools Command Reference</a> (Scribd): ncvlog/ncelab/ncsim</li>
+  <li><a href="https://support1.cadence.com/public/docs/content/20512172.html">How to use the Xcelium xrun command</a> (Cadence support, public)</li>
+  <li><a href="https://cde.nus.edu.sg/ece/wp-content/uploads/sites/3/2024/09/Mix_Cadence_Manual_1_0.pdf">Cadence mixed-signal simulation manual</a> (NUS): AMS Designer flow</li>
+</ul>
+
+<h2>Siemens Questa / ModelSim (vlog, vcom, vsim)</h2>
+<ul>
+  <li><a href="https://ww1.microchip.com/downloads/aemDocuments/documents/FPGA/swdocs/modelsim/modelsim_ref_2024_2.pdf">ModelSim Command Reference 2024.2</a> (Microchip)</li>
+  <li><a href="https://www.microchip.com/content/dam/mchp/documents/FPGA/swdocs/modelsim/modelsim_ref_2026_1.pdf">ModelSim Command Reference 2025.3</a> (Microchip)<span class="tag">403</span></li>
+  <li><a href="https://faculty-web.msoe.edu/johnsontimoj/Common/FILES/modelsim_ref.pdf">ModelSim Command Reference 10.5b</a> (MSOE)</li>
+</ul>
+
+<h2>Open-source simulators (official docs)</h2>
+<ul>
+  <li><a href="https://steveicarus.github.io/iverilog/usage/command_line_flags.html">Icarus Verilog: iverilog command-line flags</a></li>
+  <li><a href="https://steveicarus.github.io/iverilog/usage/vvp_flags.html">Icarus Verilog: vvp flags</a></li>
+  <li><a href="https://www.nickg.me.uk/nvc/manual.html">NVC manual</a></li>
+  <li><a href="https://ghdl.github.io/ghdl/using/InvokingGHDL.html">GHDL: Invoking GHDL</a></li>
+  <li><a href="https://verilator.org/guide/latest/exe_verilator.html">Verilator: verilator arguments</a></li>
+  <li><a href="https://xyce.sandia.gov/documentation-tutorials/">Xyce documentation</a> (Users' and Reference Guides)</li>
+</ul>
+
+<h2>Real-world invocations (useful as test corpus)</h2>
+<ul>
+  <li><a href="https://eda-playground.readthedocs.io/en/latest/compile_run_options.html">EDA Playground compile/run options</a>: the same testbench run under VCS, Xcelium, Questa, Icarus and others</li>
+  <li><a href="https://www.intel.com/content/www/us/en/docs/programmable/683870/24-2/vcs-simulation-setup-script-example.html">Intel Quartus VCS setup script</a>: generated three-step <code>vlogan</code>/<code>vcs</code> script</li>
+  <li><a href="https://www.achronix.com/sites/default/files/docs/Simulation_User_Guide_UG072_5.pdf">Achronix Simulation User Guide UG072</a>: vendor VCS/Questa/Xcelium command lines</li>
+  <li><a href="https://spinalhdl.github.io/SpinalDoc-RTD/master/SpinalHDL/Simulation/install/VCS.html">SpinalHDL VCS configuration</a></li>
+  <li><a href="https://yodalee.me/en/2025/03/vcs/">Using VCS in digital circuits</a> (blog, 2025)</li>
+  <li><a href="https://github.com/cocotb/cocotb/tree/master/src/cocotb_tools/makefiles/simulators">cocotb simulator makefiles</a>: exact VCS/Xcelium/Questa/Icarus/GHDL/NVC/Verilator command lines, usable as an acceptance test</li>
+</ul>
+</body>
+</html>

@@ -588,7 +588,9 @@ end architecture;
 
 ## License
 
-GPL v2+
+GPL-3.0-or-later (see `COPYING`), **except `bfit/`**, which is under the
+PolyForm Noncommercial License 1.0.0 (see `bfit/LICENSE`). `LICENSE` has
+the details. Revisions published before this change were "GPL v2+".
 
 ## Author
 
