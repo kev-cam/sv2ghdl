@@ -271,6 +271,26 @@ class TestEndToEnd(TempDir):
                                stderr=subprocess.STDOUT, universal_newlines=True, timeout=300)
             self.assertIn(want, s.stdout, args)
 
+    def test_value_plusargs(self):
+        self.write("tb.v", "module tb;\n  reg [31:0] seed; reg [8*8:1] name; real r;\n"
+                           "  initial begin\n    seed = 7; name = \"none\"; r = 0.0;\n"
+                           "    if (!$value$plusargs(\"SEED=%d\", seed)) $display(\"no seed\");\n"
+                           "    if ($value$plusargs(\"TEST=%s\", name)) $display(\"test=%0s\", name);\n"
+                           "    if ($value$plusargs(\"R=%f\", r)) $display(\"r=%0.2f\", r);\n"
+                           "    $display(\"seed=%0d\", seed);\n    $finish;\n  end\nendmodule\n")
+        r = self.vcs("tb.v")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("deferred", r.stdout)
+        s = subprocess.run(["./simv", "+SEED=42", "+TEST=smoke", "+R=2.5"], cwd=self.tmp,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True, timeout=300)
+        for want in ("seed=42", "test=smoke", "r=2.50"):
+            self.assertIn(want, s.stdout)
+        s = subprocess.run(["./simv"], cwd=self.tmp, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, universal_newlines=True, timeout=300)
+        self.assertIn("no seed", s.stdout)
+        self.assertIn("seed=7", s.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

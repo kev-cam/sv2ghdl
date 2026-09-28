@@ -16,3 +16,6 @@ vhdl_output/
 *.o
 *.cf
 work/
+
+# Python bytecode
+__pycache__/

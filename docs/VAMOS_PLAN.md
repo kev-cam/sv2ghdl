@@ -500,8 +500,19 @@ There are 27 tests. All pass in WSL (Python 3.14, including end-to-end) and on C
        Verilog prefix semantics.
      - `vvp-sv2ghdl` forwards plusargs instead of dropping them.
      - ivtest `pr2202706b` now passes.
-     - **Still open:** `$value$plusargs` (ivtest br937, pr2202706, pr2202706c). It still defers
-       its module. vamos warns when that module is the top.
+     - **`$value$plusargs`: FIXED 2026-09-28.**
+       - iverilog `tgt-vhdl` emits a guarded pre-assignment,
+         `if sv_value_plusargs(fmt) /= 0 then var := sv_plusarg_vec/real(fmt[, w]); end if;`,
+         through a new pre-statement hook in `draw_stmt`.
+       - The C side in `libresolver` ports Icarus's validation and conversion (x/z digits,
+         two's-complement '-', bad input → all x with a warning, `%s` packing).
+       - A runtime format vector goes through `sv_math_pkg.l3d_to_string`.
+       - ivtest br937, pr2202706 and pr2202706c now pass.
+       - Two general translation bugs were found and fixed along the way:
+         - Verilog `!` on a multi-bit operand was a bitwise NOT (`!8'h01` was true). It is now a
+           NOR reduction.
+         - String constants kept iverilog's `\ooo` escapes, so a string widened into a reg was
+           padded with ASCII '0' instead of zero bytes. They are now decoded.
   2. **Default time unit.** With no `` `timescale `` and no `-timescale`, sv2ghdl uses 1 ms units.
      VCS (and iverilog) default to 1 s. vamos reports what nvc simulated.
   3. A testbench with no instantiated DUT (`$display` of `$time` only) printed nothing in the old flow
