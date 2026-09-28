@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# vamos - drop-in simulator command line (see docs/VAMOS_PLAN.md)
+#
+#   vamos -vcs [vcs args...]      explicit personality
+#   ln -s vamos vcs; vcs ...      personality from the invoked name
+#
+# Locates the Python package relative to this script's real path, so the same
+# launcher works from a source checkout (sv2ghdl/bin + sv2ghdl/vamos) and from
+# an install (PREFIX/bin + PREFIX/lib/vamos).  The package path goes on
+# sys.path directly rather than through PYTHONPATH, so it never leaks into the
+# tools vamos runs.
+
+self=$0
+case $self in */*) ;; *) self=$(command -v -- "$0") ;; esac
+real=$(readlink -f -- "$self") || { echo "vamos: cannot resolve $0" >&2; exit 2; }
+bindir=${real%/*}
+root=${bindir%/*}
+if [ -f "$root/vamos/__init__.py" ]; then
+    pkgdir=$root
+elif [ -f "$root/lib/vamos/__init__.py" ]; then
+    pkgdir=$root/lib
+else
+    echo "vamos: cannot find the vamos package near $real" >&2
+    exit 2
+fi
+
+VAMOS_ARGV0=${0##*/} VAMOS_LAUNCHER=$real \
+exec "${VAMOS_PYTHON:-python3}" -c '
+import sys
+sys.path.insert(0, sys.argv.pop(1))
+import vamos.cli
+sys.exit(vamos.cli.main(sys.argv[1:]))
+' "$pkgdir" "$@"

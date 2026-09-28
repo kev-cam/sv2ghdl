@@ -1,6 +1,6 @@
 # vamos: a drop-in simulator command line
 
-**Status:** plan, not yet implemented (2026-09-27). Manual links: `docs/vamos-manuals.html`.
+**Status:** phase 0 implemented (2026-09-27); see §10. Manual links: `docs/vamos-manuals.html`.
 
 `vamos` is one Python driver that accepts the command lines of commercial and open
 simulators and runs them on our stack: sv2ghdl → nvc for digital, nvc cosim → Xyce for
@@ -447,3 +447,41 @@ because they decide how much of the real world phase 1 can take on.
    reached over ssh as configured "sites" (siloed, probed per site, never assumed) (§2b).
 8. **use-vamos:** a wrapper plus shell macros that redirect vendor tools buried in scripts via
    PATH, fake tool homes, modulefiles and, optionally, a namespace overlay (§2c).
+
+## 10. Phase 0 status (2026-09-27)
+
+**Done**, in `bin/vamos`, `vamos/`, `shims/{vcs,nvc}` and `tests/vamos/test_vamos.py`.
+There are 27 tests. All pass in WSL (Python 3.14, including end-to-end) and on Cygwin
+(Python 3.9, where end-to-end is skipped because the stack is Linux-only).
+- **Exit criterion met.** `vcs -full64 -sverilog -F files.f tb.sv -R` prints the design's `$display`
+  output under a VAMOS banner and the tool/licence list, writes `./simv` + `simv.daidir/`, and
+  `./simv` re-runs it. An `nvc` shim first on PATH reaches the real nvc. A "real" tool that re-prepends
+  the shim dir and calls itself also lands on the real tool (lock-out). A fifth nested entry errors out.
+- **Also working:**
+  - `-f`/`-F`/`-file` option files (nesting, comments, `$VAR`, `-F` rebasing, self-inclusion
+    detected)
+  - `-o`, `-R`, `-l` (the compile and `-R` run share one log), `-top`, `+incdir+`, `+define+`, `-v`,
+    `-timescale` (as a generated `` `timescale `` file ahead of the first source)
+  - about 80 VCS options with ignored/noted/unsupported dispositions; `--vamos-strict`
+  - banner profiles with project/user/system layers and `--vamos-banner=none|name|path`
+  - `--vamos-licenses`, `--vamos-verbose`
+- **Deviations from the plan:**
+  - The backend calls `bin/iverilog-sv2ghdl` directly instead of `nvc -a`. It is the same
+    pipeline, but it also yields `_metadata` (top entity, std).
+  - Shipped banner profiles and `licenses.json` live inside the package (`vamos/banners`,
+    `vamos/licenses.json`) instead of `share/vamos`. The layered overrides are unchanged.
+- **Findings (not vamos bugs, but they limit "drop-in" today):**
+  1. **`$test$plusargs` defeats sv2ghdl.** Any use of it makes sv2ghdl emit the whole enclosing
+     module as an empty "deferred" stub. The design then simulates as *nothing* and exits 0. The same
+     happens in the existing `iverilog-sv2ghdl`/`vvp-sv2ghdl` flow. vamos now warns loudly when the
+     top module is deferred. Because of this gap, plusarg delivery into the simulation cannot be
+     verified end-to-end yet (vamos does pass them to `nvc -r`).
+  2. **Default time unit.** With no `` `timescale `` and no `-timescale`, sv2ghdl uses 1 ms units.
+     VCS (and iverilog) default to 1 s. vamos reports what nvc simulated.
+  3. A testbench with no instantiated DUT (`$display` of `$time` only) printed nothing in the old flow
+     either. This is not investigated yet.
+  4. The existing flow prints "cannot import sv2vhdl_resolver" because the resolver's Python module
+     is not on the path. vamos adds it in dev mode; the installed layout needs it placed next to
+     `libresolver.so`.
+- **Not yet done** (phase 1): `-y` library resolution (recorded and noted), runtime `+vcs+finish`,
+  VPD/FSDB/`-debug_access` waves, `-pvalue+`, and `vamos-install`.

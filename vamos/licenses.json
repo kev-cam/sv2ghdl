@@ -1,0 +1,13 @@
+{
+  "_comment": "Tool -> licence for the vamos provenance header. Site overrides: PREFIX/etc/vamos/licenses.json, ~/.config/vamos/licenses.json, ./.vamos/licenses.json (later wins, per tool).",
+  "vamos":     {"spdx": "GPL-3.0-or-later", "url": "https://github.com/kev-cam/sv2ghdl"},
+  "sv2ghdl":   {"spdx": "GPL-3.0-or-later", "url": "https://github.com/kev-cam/sv2ghdl"},
+  "nvc":       {"spdx": "GPL-3.0-or-later", "url": "https://github.com/nickg/nvc"},
+  "iverilog":  {"spdx": "GPL-2.0-or-later", "url": "https://github.com/steveicarus/iverilog"},
+  "Xyce":      {"spdx": "GPL-3.0-or-later", "url": "https://xyce.sandia.gov"},
+  "ghdl":      {"spdx": "GPL-2.0-or-later", "url": "https://github.com/ghdl/ghdl"},
+  "verilator": {"spdx": "LGPL-3.0-only OR Artistic-2.0", "url": "https://verilator.org"},
+  "yosys":     {"spdx": "ISC", "url": "https://github.com/YosysHQ/yosys"},
+  "bfit":      {"spdx": "PolyForm-Noncommercial-1.0.0", "url": "https://polyformproject.org/licenses/noncommercial/1.0.0"},
+  "stat-sim":  {"spdx": "PolyForm-Noncommercial-1.0.0 (commercial licence available)", "url": "https://polyformproject.org/licenses/noncommercial/1.0.0"}
+}
