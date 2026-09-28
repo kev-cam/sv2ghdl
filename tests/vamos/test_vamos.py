@@ -258,6 +258,19 @@ class TestEndToEnd(TempDir):
         self.assertEqual(s.returncode, 0, s.stdout)
         self.assertIn("n=3 V=7", s.stdout)
 
+    def test_plusargs_reach_the_simulation(self):
+        self.write("tb.v", "module tb;\n  initial begin\n"
+                           "    if ($test$plusargs(\"verbose\")) $display(\"verbose ON\");\n"
+                           "    else $display(\"verbose OFF\");\n    $finish;\n  end\nendmodule\n")
+        r = self.vcs("tb.v")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertNotIn("deferred", r.stdout)
+        for args, want in (([], "verbose OFF"), (["+verbose"], "verbose ON"),
+                           (["+verbose_level=2"], "verbose ON")):
+            s = subprocess.run(["./simv"] + args, cwd=self.tmp, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, universal_newlines=True, timeout=300)
+            self.assertIn(want, s.stdout, args)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -471,11 +471,15 @@ There are 27 tests. All pass in WSL (Python 3.14, including end-to-end) and on C
   - Shipped banner profiles and `licenses.json` live inside the package (`vamos/banners`,
     `vamos/licenses.json`) instead of `share/vamos`. The layered overrides are unchanged.
 - **Findings (not vamos bugs, but they limit "drop-in" today):**
-  1. **`$test$plusargs` defeats sv2ghdl.** Any use of it makes sv2ghdl emit the whole enclosing
-     module as an empty "deferred" stub. The design then simulates as *nothing* and exits 0. The same
-     happens in the existing `iverilog-sv2ghdl`/`vvp-sv2ghdl` flow. vamos now warns loudly when the
-     top module is deferred. Because of this gap, plusarg delivery into the simulation cannot be
-     verified end-to-end yet (vamos does pass them to `nvc -r`).
+  1. **`$test$plusargs`: FIXED 2026-09-27.** It used to make sv2ghdl emit the whole enclosing
+     module as an empty "deferred" stub, which simulated as nothing and exited 0. Now:
+     - iverilog `tgt-vhdl` translates it to `sv_math_pkg.sv_test_plusargs`, a VHPIDIRECT call
+       into `libresolver`. That function reads the plusargs from the VHPI tool argv, with
+       Verilog prefix semantics.
+     - `vvp-sv2ghdl` forwards plusargs instead of dropping them.
+     - ivtest `pr2202706b` now passes.
+     - **Still open:** `$value$plusargs` (ivtest br937, pr2202706, pr2202706c). It still defers
+       its module. vamos warns when that module is the top.
   2. **Default time unit.** With no `` `timescale `` and no `-timescale`, sv2ghdl uses 1 ms units.
      VCS (and iverilog) default to 1 s. vamos reports what nvc simulated.
   3. A testbench with no instantiated DUT (`$display` of `$time` only) printed nothing in the old flow

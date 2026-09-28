@@ -39,6 +39,7 @@ RESOLVER="${NVC_LIBDIR}/sv2vhdl/libresolver.so"
 # Parse arguments (vvp-compatible)
 SIMDIR=""
 ACCEL_REQ=""
+PLUSARGS=()
 for arg in "$@"; do
     case "$arg" in
         -n|-N|-compatible|-i|-v|-q|-s) ;;  # Silently accepted
@@ -48,7 +49,7 @@ for arg in "$@"; do
         --accel)     ACCEL_REQ="auto" ;;            # accelerate (auto-pick leaves)
         --accel=*)   ACCEL_REQ="${arg#--accel=}" ;; # accelerate a named module
         -l*|-m*|-M*) ;;  # Silently ignored
-        +*)          ;;  # Plusargs - ignored
+        +*)          PLUSARGS+=("$arg") ;;  # Plusargs -> $test$plusargs in the sim
         *)
             if [[ -z "$SIMDIR" ]]; then
                 SIMDIR="$arg"
@@ -120,7 +121,7 @@ fi
 
 nvc_log=$(mktemp)
 trap 'rm -f "$nvc_log"' EXIT
-timeout "$RUN_TIMEOUT" $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r $ACCEL_FLAG "$TOP_ENTITY" > "$nvc_log" 2>&1
+timeout "$RUN_TIMEOUT" $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r $ACCEL_FLAG "$TOP_ENTITY" "${PLUSARGS[@]}" > "$nvc_log" 2>&1
 nvc_exit=$?
 awk '
     /^\*\* Note: loading VHPI/  { next }
