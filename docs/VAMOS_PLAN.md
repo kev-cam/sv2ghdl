@@ -368,9 +368,31 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
 - Exit status follows VCS: 0 on `$finish`, non-zero on `$fatal` or errors.
 
 ### 5d. Known gaps to size up early (they decide what "drop-in" can honestly claim)
-- **UVM** (`-ntb_opts uvm`): this needs SystemVerilog classes, constraints and so on through sv2ghdl. It is almost
-  certainly the biggest real-world blocker. For now, detect it and fail clearly (or fall through to
-  the real tool). Handle it as its own sv2ghdl project.
+- **UVM** (`-ntb_opts uvm`): this is almost certainly the biggest real-world blocker. The route and
+  scope are in **`docs/TODO-uvm-translator.md`** (the authoritative document):
+  - The design's RTL goes through sv2ghdl → nvc as usual.
+  - Only the *user* UVM code (agents, drivers, monitors, sequences, env, test) is translated to
+    Python. It runs on a hand-written UVM-subset runtime ("VVM"; not pyuvm, and `uvm_pkg` is not
+    ported), driven through nvc's direct cocotb bridge (`nvc/contrib/cocotb`,
+    `nvc --cocotb=bridge.so`).
+  - UVM-AMS: the analog cores are hand-written in VHDL-AMS, not translated.
+  - The bridge blockers are listed there:
+    - ReadWrite/delta semantics;
+    - calling a subprogram in the model;
+    - analog quantity and threshold callbacks;
+    - Nuitka not wired in yet.
+
+  vamos's part:
+  - `-ntb_opts uvm` plus the SV class sources select this route.
+  - Split the sources into DUT RTL and UVM user code.
+  - Run the translator, then build `./simv` so that it launches nvc with the bridge.
+  - Map plusargs: `+UVM_TESTNAME` picks the test; `+UVM_VERBOSITY` and `+uvm_set_config_*` go to the
+    runtime.
+  - Extra blocker from here: the bridge does not see plusargs yet (`$test$plusargs` reads the
+    VHPI tool argv, which the bridge bypasses).
+
+  Until the translator exists, vamos detects UVM and reports it as unsupported, or falls through to
+  the real tool with `VAMOS_FALLTHROUGH=1`.
 - **DPI-C** (`.c` sources on the vcs line, `-CFLAGS`, `-LDFLAGS`): compile them to a `.so`. Check
   how far nvc/sv2ghdl get with `import "DPI-C"`.
 - **Coverage** (`-cm`, `urg`): map line and toggle coverage onto nvc coverage. The `urg` report is out of scope at first.
@@ -421,7 +443,7 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
 | 6 | Cadence: ncverilog, irun, xrun (+ `-ams` via cosim backend) | EDA Playground xrun lines parse; tests-RTL parity |
 | 7 | Questa (vlib/vmap/vlog/vcom/vsim), ghdl (`-a/-e/-r` → nvc), nvc pass-through with vamos extensions | cocotb `SIM=questa`/`ghdl` smoke |
 
-Phase 0+1 is the VCS MVP. UVM and DPI (§5d) run as their own sv2ghdl tracks in parallel,
+Phase 0+1 is the VCS MVP. UVM (via Python on the nvc cocotb bridge, §5d) and DPI run as their own tracks in parallel,
 because they decide how much of the real world phase 1 can take on.
 
 ## 9. Decisions (settled 2026-09-27)
