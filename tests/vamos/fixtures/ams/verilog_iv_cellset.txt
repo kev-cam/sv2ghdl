@@ -1,0 +1,9 @@
+a.v:6: error: Unknown module type: inv_sp
+a.v:3: error: Unknown module type: vamos_ams_probe_0
+a.v:6: error: Unknown module type: inv_sp
+a.v:3: error: Unknown module type: vamos_ams_probe_0
+5 error(s) during elaboration.
+*** These modules were missing:
+        inv_sp referenced 2 times.
+        vamos_ams_probe_0 referenced 2 times.
+***

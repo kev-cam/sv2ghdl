@@ -1,0 +1,19 @@
+x-heep's AMS example in x-heep's directory layout, for test_netlist_spice.py and
+test_netlist_integ.py.
+
+  hw/ip_examples/ams/analog/adc.sp        x-heep's adc.sp, verbatim (Apache-2.0)
+  hw/ip_examples/ams/analog/65nm_bulk.pm  a subset of PTM's 65 nm bulk card, which adc.sp
+                                          includes and x-heep does not ship (the same
+                                          file as the copy in tests/vamos/fixtures/ams/
+                                          e2e_supplies/xheep)
+  build/openhwgroup.org_systems_core-v-mini-mcu_0/sim-vcs/
+                                          the directory adc.sp's paths are relative to
+                                          (see its README)
+
+adc.sp comes from x-heep (https://github.com/x-heep/x-heep, formerly
+https://github.com/esl-epfl/x-heep), hw/ip_examples/ams/analog/adc.sp, as added in
+commit 494237ce3b792c099eb06d30182c9eeb9f19dcb6 (2023-06-14; unchanged on x-heep's
+main branch on 2026-10-03).  It keeps its licence, Apache-2.0, whose text is
+LICENSES/Apache-2.0.txt at the repository root.  65nm_bulk.pm's header gives its
+source, the Predictive Technology Model (http://ptm.asu.edu/), and the publications
+PTM asks users to cite.  tests/vamos/fixtures/README has the details.

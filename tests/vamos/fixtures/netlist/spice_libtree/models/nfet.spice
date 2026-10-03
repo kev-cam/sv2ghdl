@@ -1,0 +1,21 @@
+* A wrapper subckt with binned BSIM4 cards inside, in sky130's style: body
+* .param defaults, 'name = value' with blanks, '*' lines inside a .model card,
+* an empty '+' line, .ends with the name.
+
+.subckt  nfet d g s b
++
+.param  l = 1 w = 1 nf = 1.0 ad = 0 as = 0 pd = 0 ps = 0 mult = 1
+mnfet d g s b nfet__model l = {l} w = {w} nf = {nf} ad = {ad} as = {as} pd = {pd} ps = {ps}
+.model nfet__model.0 nmos
+* Model Flag Parameters
++ lmin = 1.5e-07 lmax = 1e-06 wmin = 4.2e-07 wmax = 1e-06
++ level = 54.0
++ version = 4.5
+* Process Parameters
++ vth0 = {0.45+corner_dvt}
+.model nfet__model.1 nmos
++ lmin = 1.5e-07 lmax = 1e-06 wmin = 1e-06 wmax = 1e-05
++ level = 54.0
++ version = 4.5
++ vth0 = {0.44+corner_dvt}
+.ends nfet

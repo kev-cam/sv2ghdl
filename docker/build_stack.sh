@@ -150,9 +150,15 @@ if [[ $BUILD_DIGITAL = 1 ]]; then
           && make install PREFIX="$PREFIX" )
     fi
 
-    # Always re-copy wrappers and helpers (cheap)
+    # Always re-copy wrappers and helpers (cheap). bin/ has subdirectories
+    # (as-verilator/), and the installed bin/vamos finds its package in
+    # PREFIX/lib/vamos.
     echo "===== sv2ghdl wrappers + sv2vhdl library ====="
-    cp "$SV2GHDL_DIR"/bin/* "$PREFIX/bin/"
+    cp -r "$SV2GHDL_DIR"/bin/. "$PREFIX/bin/"
+    rm -rf "${PREFIX:?}/lib/vamos"
+    mkdir -p "$PREFIX/lib"
+    cp -r "$SV2GHDL_DIR"/vamos "$PREFIX/lib/vamos"
+    find "$PREFIX/lib/vamos" -name __pycache__ -prune -exec rm -rf {} +
     mkdir -p "$PREFIX/lib/nvc"
     if [[ -d "$SV2GHDL_DIR"/packages/sv2vhdl ]]; then
         cp -r "$SV2GHDL_DIR"/packages/sv2vhdl "$PREFIX/lib/nvc/"

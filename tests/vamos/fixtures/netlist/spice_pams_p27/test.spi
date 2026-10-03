@@ -1,0 +1,14 @@
+* test.spi
+.lib 'models' TT
+.inc 'cells.spi'
+.options scale=1e-6
+.temp 27
+.global vdd gnd
+.subckt test a b c d
+x1 a b n1 vdd cell1
+x2 c n1 d ref cell2
+vref ref gnd 2.0
+.ends
+vvdd vdd 0 dc 3.3
+vgnd gnd 0 dc 0
+.end

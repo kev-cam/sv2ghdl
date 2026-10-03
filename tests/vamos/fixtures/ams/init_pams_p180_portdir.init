@@ -1,0 +1,8 @@
+// port.rpt lines pasted back (PAMS p180): "-cell name(" with no space, a
+// body over several lines, no ';' after ')', a trailing comment.
+port_dir -cell addr4b(
+ input a, b, cin;
+ output s, cout
+) //derived from verilog
+port_dir -cell invs1(input a; output y)
+choose xa addr4.spi

@@ -1,0 +1,40 @@
+// vamos interface elements (docs/VAMOS_AMS_DESIGN.md §4.7).
+//
+// Compiled at compile time with OpenVAF-r into ams/va/<k>_vamos_ie.osdi and
+// loaded by absolute path into the VACASK deck.  The Xyce deck implements the
+// same element as a B source (vamos/netlist/xyce.py), so both engines see one
+// element law.
+//
+// vamos_gcond(n, nd, ne): the gated conductance of a D2A bridge.
+//
+//     i(nd -> n) = v(ne) * (v(nd) - v(n)) / rr
+//
+//   n    the analog node the bridge drives
+//   nd   the value node (an ideal source holds the digital value there)
+//   ne   the enable node (an ideal source holds the enable: 1.0 for a strong
+//        driver, weak_frac for a weak or pull driver, 0.0 for Z); it is only
+//        sensed, never loaded
+//   rr   the series resistance (the D2A's r_series)
+//
+// The current flows from nd through the element into n, so the element is a
+// positive conductance v(ne)/rr between nd and n: with v(nd)=1, v(ne)=1,
+// rr=500 and a 1 kOhm load on n, v(n) = 1000/1500 = 0.6667; with v(ne)=0 the
+// element carries no current (the node then needs its shunt, §4.7).
+//
+// rr is an instance parameter, so every bridge shares one model card
+// (`model vamos_gcond vamos_gcond`) and VACASK compiles one module, not one
+// behavioral source per pin.
+
+`include "disciplines.vams"
+
+module vamos_gcond(n, nd, ne);
+    inout n, nd, ne;
+    electrical n, nd, ne;
+
+    (* desc = "Series resistance at enable 1.0", type = "instance", units = "Ohm" *)
+    parameter real rr = 500.7 from (0:inf);
+
+    analog begin
+        I(nd, n) <+ V(ne) * (V(nd) - V(n)) / rr;
+    end
+endmodule

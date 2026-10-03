@@ -1,0 +1,15 @@
+C-side: two D2A sources (q -> nin, q2 -> nin2), each into 1k
+
+load "resistor.osdi"
+
+model vsrc vsource
+model r resistor
+
+v_d2a (nin 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:nin"
+v_d2b (nin2 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:nin2"
+r1 (nin 0) r r=1k
+r2 (nin2 0) r r=1k
+
+control
+  analysis tran1 tran step=1n stop=100n
+endc

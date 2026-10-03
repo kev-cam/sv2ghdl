@@ -1,0 +1,40 @@
+// Every vcsAD.init command form vamos knows (docs/VAMOS_AMS_DESIGN.md §2.2).
+/* A block comment hides a ';' and a keyword at a line start:
+choose xa never.sp;
+*/
+choose xa -hspice net.sp -nspice extra.sp -n third.sp fourth.sp -c init_xa.cfg -o out/ana -wavefmt wdb -afile run1.spi -skipdc -spice;
+use_spice -cell inv1 port_map ( z => y, n =>snps_open, d[0] => d_0, * => snps_by_name) port_index_order (*=>same, a=>dec, s=>inc);
+use_spice -cell CPU:SPICE_CPU -inst top.dut.blk1 top.dut.blk2;
+partition -cell chargepump_com chargepump_seg;
+set bus_format <%d>;
+bus_format <%d> _%d;
+port_dir -cell invs1 (input a, b; output y; inout z);
+port_connect -cell inv1 ( vdd => vdd! , vss => snps_open, real vref => top.my_vref );
+port_connect -cell inv2 -inst top.i1 top.i2 ( vdd => top.pwr.vdd );
+port_connect -cell inv3 (-inst top.i3 vdd => vdd, vss => gnd);
+a2d loth=20% hith=80% node=top.i1.clk vdd=top.i2.vdd;
+d2a powernet hiv=1.2 lov=0 node=top.vdd;
+d2a rise_time=100p fall_time=100p delay=300p hiv=3.3 lov=0 node=top.dut.a*;
+a2d hith=0.7 loth=0.2 midv_time=10n midv_logic=x xband=4 cell=adc port=d<0>;
+d2a hiv=100% lov=0% inst=top.x2 port=* x2v=2;
+d2a hiv=1.0 lov= 0.2 node=top.rst;
+remove_d2a dc=2.5 node=top.V* ;
+remove_d2a node=top.u.y;
+disable_ie node=top.i1.outa;
+ie_reference_voltage node=A1 voltage=1.5;
+ie_reference_voltage node=A2;
+ie_reference_voltage skip_node=vss;
+downgrade_to_warn MSV-IE-OPT-TNF
+upgrade_to_error MSV-MV-PND-POD;
+transient_analysis $finish;
+e2r type=i node=top.i1.ictrl res=10;
+map_by_node r=5 node=top.n1;
+ams_cm vsup=3.3;
+report_option interface_element = verbose;
+ie_activity_rpt enable -flush 2ns;
+resolve_x_inst_prefix enable;
+param_pass disable;
+use_vhdl -cell cell1:cfg1;
+netlist_commands_begin;
+.temp 45
+netlist_commands_end;

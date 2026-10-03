@@ -96,23 +96,35 @@ def licenses() -> Dict[str, dict]:
 
 
 def provenance(used: List[Tuple[str, str, str]], personality: str) -> str:
-    """used: [(tool, version, path)] -> the 'tools used' header."""
+    """used: [(tool, version, path)] -> the 'tools used' header.  The columns are as wide
+    as their longest entry, so a long version or licence never shifts the next column."""
     from vamos import VERSION
     lic = licenses()
+    rows = [(tool, ver or "?", lic.get(tool, {}).get("spdx", "licence unknown"), path)
+            for tool, ver, path in used]
+    wt = max([len(r[0]) for r in rows] + [8])
+    wv = max([len(r[1]) for r in rows] + [14])
+    ws = max([len(r[2]) for r in rows] + [26])
     lines = ["vamos %s (%s personality) - tools used:" % (VERSION, personality)]
-    w = max([len(t) for t, _, _ in used] + [8])
-    for tool, ver, path in used:
-        spdx = lic.get(tool, {}).get("spdx", "licence unknown")
-        lines.append("  %-*s  %-14s %-26s %s" % (w, tool, ver, spdx, path))
+    for tool, ver, spdx, path in rows:
+        lines.append("  %-*s  %-*s %-*s %s" % (wt, tool, wv, ver, ws, spdx, path))
     return "\n".join(lines)
 
 
 def license_report() -> str:
+    """vamos --vamos-licenses: every tool in the licence table, its licence, the source
+    the stack runs and, for a fork, the project it forks."""
     lic = licenses()
+    names = sorted(lic, key=str.lower)
+    wt = max([len(t) for t in names] + [10])
+    ws = max([len(lic[t].get("spdx", "?")) for t in names] + [20])
     lines = ["Tools vamos may run, and their licences:"]
-    for tool in sorted(lic, key=str.lower):
-        lines.append("  %-10s %-44s %s" % (tool, lic[tool].get("spdx", "?"),
-                                           lic[tool].get("url", "")))
+    for tool in names:
+        e = lic[tool]
+        line = "  %-*s %-*s %s" % (wt, tool, ws, e.get("spdx", "?"), e.get("url", ""))
+        if e.get("upstream"):
+            line += " (a fork of %s)" % e["upstream"]
+        lines.append(line.rstrip())
     lines.append("")
     lines.append("vamos never reproduces vendor licence or copyright text.")
     return "\n".join(lines)

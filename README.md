@@ -4,6 +4,22 @@
 
 sv2ghdl translates SystemVerilog RTL into VHDL for use with GHDL and NVC simulators. The generated VHDL leverages simulator extensions that go beyond what SystemVerilog offers, including multi-UDN wires, bidirectional components, and improved unknown-state handling.
 
+## vamos: VCS command lines on this stack
+
+vamos is a drop-in replacement for a simulator's command line: your `vcs ...` compile and `./simv ...` run
+lines compile and simulate the design through sv2ghdl and nvc, with no vendor tool or licence. `vcs-ams`
+adds HSPICE-dialect SPICE cells, simulated on VACASK (the default) or Xyce and co-simulated by nvc.
+
+```sh
+export SV2GHDL=/usr/local/src/sv2ghdl               # your sv2ghdl checkout
+export PATH=$SV2GHDL/shims:$PATH                    # vcs, vcs-ams, nvc (vamos personalities)
+vcs -sverilog tb.sv rtl/counter.v -R                # compile and run
+./simv +CYCLES=9                                    # run again, with plusargs
+```
+
+Start with **[docs/VAMOS_GUIDE.md](docs/VAMOS_GUIDE.md)**: setup, digital and AMS quick starts, options,
+troubleshooting and limitations, including how to build the AMS stack (§2).
+
 ## Quick start: clean build via container
 
 The full simulation stack (iverilog with VHDL backend, NVC, GHDL, Yosys, plus
@@ -101,8 +117,9 @@ for the distributed Xyce.
   Note: a serial single-node Xyce is faster on small circuits — MPI pays off on
   large designs / distributed (laptop → cloud) runs, not small-circuit speed.
 
-The build runs directly in WSL and installs into `/home/claude/sv2ghdl-stack/usr`;
-copy onto the WSL `/usr/local` with `sudo rsync -a /home/claude/sv2ghdl-stack/usr/ /usr/local/`.
+The build runs directly in WSL and installs into `~/sv2ghdl-stack/usr` (run as root, the script
+builds as the user `claude`, in `/home/claude/sv2ghdl-stack/usr`); copy onto the WSL `/usr/local`
+with `sudo rsync -a ~/sv2ghdl-stack/usr/ /usr/local/`.
 
 Visit <http://localhost:8080> after starting the container for instructions.
 Default SSH password is `sv2ghdl` — change it before exposing the port.

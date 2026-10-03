@@ -1,0 +1,30 @@
+C-side co-simulation tests (docs/VAMOS_AMS_DESIGN.md §7 P1-P7, §9 "C-side").
+
+run_cside.py      the runner and the case list (python3 run_cside.py --help);
+                  tests/vamos/test_cside_engine.py wraps it, one test per case
+                  and engine
+cside.vhd         the digital halves (VHDL-2008, real-valued boundary signals)
+*.sim / *.cir     VACASK / Xyce decks (rc, rc2, sense07, senseramp, a2d,
+                  fail.sim, a2dfail.cir, rc_nope); the stop_time_*, finish_*
+                  and interrupt_running cases write rc with another stop (2 us
+                  to 3 ms) into their run directory, finish_a2d_at_candidate a
+                  slow divider deck, the ramp_* cases a divider deck with the
+                  .tran line under test
+*.boundary        boundary files (q: default ramps; q_r11: 10 ps; q_r0:
+                  rise=0 clamped; q_rev: 10 ps rise / 1 ns fall; q2; ain; a2d)
+stub_bridge.c     an old libcosim_bridge.so (no cosim_bridge_abi, or ABI 1)
+stub_engine.c     a stand-in engine C interface: no <engine>_cosim_abi, or
+                  ABI 2 with STUB_MODE=stall|fail|complete for nvc's run loop,
+                  sigint_init|sigint_run for an interrupt in it
+xyce_abi_shim.c   TEST ONLY: adds xyce_cosim_abi to a Xyce without the cosim
+                  patches (--xyce-shim; the finish cases are then skipped)
+
+Typical runs (WSL):
+  python3 run_cside.py                                   # the default nvc build ($NVCB), both engines
+  python3 run_cside.py --nvc-build DIR --engines vacask -k finish   # another nvc build tree
+  python3 run_cside.py --engines xyce --xyce-shim        # before the Xyce patches
+  python3 run_cside.py --old-bridge OLD.so --old-vacask OLDCI.so   # real old libraries
+  python3 run_cside.py -k stop_time       # --stop-time counts of 2^32 fs and more (§6)
+  python3 run_cside.py -k finish_10 -k finish_ms -k finish_a2d_at   # exact end-line times
+  python3 run_cside.py -k ramp_late -k ramp_1p5s -k ramp_below      # P3 late in a run
+  python3 run_cside.py -k interrupt       # SIGINT: "co-simulation interrupted at", exit 130

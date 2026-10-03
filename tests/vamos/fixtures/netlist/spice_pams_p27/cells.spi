@@ -1,0 +1,15 @@
+* Cells for the PAMS p27 example netlist (written for the vamos tests).
+* Geometry is in microns: test.spi sets .options scale=1e-6.
+
+.subckt cell1 a b y vdd
+mp1 y a vdd vdd pch w=2 l=0.35
+mp2 y b vdd vdd pch w=2 l=0.35
+mn1 y a mid gnd nch w=1 l=0.35
+mn2 mid b gnd gnd nch w=1 l=0.35
+.ends cell1
+
+.subckt cell2 a b y ref
+r1 a y 10k
+r2 b y 10k
+c1 y ref 1p
+.ends cell2

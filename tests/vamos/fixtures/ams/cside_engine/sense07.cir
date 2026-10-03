@@ -1,0 +1,6 @@
+* C-side: A2D probe on nsense, held at 0.7 V from the operating point on
+Vsense nsense 0 DC 0.7
+I_a2d nsense 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:a2d:ain"
+.tran 1n 1u
+.print tran format=raw file=xyce_tran.raw V(nsense)
+.end

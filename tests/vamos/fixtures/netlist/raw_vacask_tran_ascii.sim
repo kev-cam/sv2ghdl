@@ -1,0 +1,20 @@
+rc fixture
+load "resistor.osdi"
+load "capacitor.osdi"
+model vsrc vsource
+model r resistor
+model c capacitor
+v1 (a 0) vsrc type="pulse" val0=0.0 val1=1.0 delay=0.0 rise=1e-10 fall=1e-10 width=1.0 mag=1.0
+r1 (a b) r r=1000.0
+c1 (b 0) c c=1e-12
+subckt hold (x)
+  r9 (x n) r r=1000.0
+  c9 (n 0) c c=1e-12
+ends
+x1 (b) hold
+control
+  abort always
+  options rawfile="ascii"
+  save v(a) v(b) i(v1) v('x1:n')
+  analysis tran1 tran step=1e-10 stop=1e-9 maxstep=2e-10
+endc

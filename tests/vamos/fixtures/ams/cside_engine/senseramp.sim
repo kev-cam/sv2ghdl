@@ -1,0 +1,11 @@
+C-side: A2D probe on nsense, a step from 0 to 1 V over 99..100 ns
+
+model vsrc vsource
+model isrc isource
+
+vsense (nsense 0) vsrc type="pwl" wave=[0, 0, 99n, 0, 100n, 1, 1u, 1]
+i_a2d (nsense 0) isrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:a2d:ain"
+
+control
+  analysis tran1 tran step=1n stop=1u
+endc

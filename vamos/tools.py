@@ -105,13 +105,54 @@ def scrubbed_path(path: Optional[str] = None) -> str:
     return _scrub_cache[key]
 
 
+class ToolError(Exception):
+    """A VAMOS_<TOOL> override that does not name a usable real tool."""
+
+
+def override_var(name: str) -> str:
+    """The environment variable that overrides tool `name`: VAMOS_NVC, VAMOS_IVERILOG, ..."""
+    return "VAMOS_" + re.sub(r"\W", "_", name).upper()
+
+
+def checked_override(var: str, what: str) -> Optional[str]:
+    """The tool an override variable names, checked.
+
+    None when `var` is unset or empty.  A value with a '/' must be an executable
+    file (a relative one is made absolute); a bare name is looked up on the
+    scrubbed PATH.  Raises ToolError when it names nothing executable, or names
+    vamos itself (that would recurse): an override is never silently ignored,
+    and never falls back to another copy of the tool.  `what` names the tool in
+    the message.
+    """
+    val = os.environ.get(var, "")
+    if not val:
+        return None
+    if "/" not in val and os.sep not in val:
+        for d in scrubbed_path().split(os.pathsep):
+            c = os.path.join(d, val) if d else ""
+            if c and os.path.isfile(c) and os.access(c, os.X_OK) and not is_vamos(c):
+                return c
+        raise ToolError("%s=%s: no executable '%s' on PATH (it must name the real %s)"
+                        % (var, val, val, what))
+    path = os.path.abspath(val)
+    if not os.path.exists(path):
+        raise ToolError("%s=%s: no such file (it must name the real %s)" % (var, val, what))
+    if os.path.isdir(path):
+        raise ToolError("%s=%s is a directory (it must name the real %s)" % (var, val, what))
+    if not os.access(path, os.X_OK):
+        raise ToolError("%s=%s is not executable (it must name the real %s)" % (var, val, what))
+    if is_vamos(path):
+        raise ToolError("%s=%s is vamos itself (it must name the real %s)" % (var, val, what))
+    return path
+
+
 def find_real(name: str) -> Optional[str]:
     """Locate the real `name`, never a vamos shim.
 
-    Order: $VAMOS_<NAME> override, vamos's own bin dir, scrubbed PATH,
-    dev-mode build areas.
+    Order: $VAMOS_<NAME> override (checked: ToolError when it names no usable
+    tool), vamos's own bin dir, scrubbed PATH, dev-mode build areas.
     """
-    override = os.environ.get("VAMOS_" + re.sub(r"\W", "_", name).upper())
+    override = checked_override(override_var(name), name)
     if override:
         return override
     key = (name, os.environ.get("PATH", ""))
@@ -196,8 +237,33 @@ def nvc_libdir(nvc: str) -> str:
     return os.path.join(prefix, "lib", "nvc")
 
 
+def guide_path() -> str:
+    """Where the user guide is: the checkout's docs/VAMOS_GUIDE.md, else its name."""
+    p = os.path.join(package_root(), "docs", "VAMOS_GUIDE.md")
+    return p if os.path.isfile(p) else "docs/VAMOS_GUIDE.md (in the sv2ghdl sources)"
+
+
+_VERSION_RES = (re.compile(r"(\d+\.\d+[\w.\-]*)"),        # 1.19-devel, 13.0, 0.3.4-91-g64489cf7
+                re.compile(r"\b(\d{6,}[\w.\-]*)"))        # OpenVAF-reloaded 20260616-3-g0e83f1ed
+_NOT_A_VERSION = re.compile(r"\berror\b|^usage:|not found|no such file|cannot|permission denied", re.I)
+
+
+def version_text(output: str) -> str:
+    """The version in a tool's --version output: the first line's dotted number, else
+    its date-like build number; "?" when there is neither, or the line is an error or
+    usage message (a tool that exists but cannot run)."""
+    lines = [ln.strip() for ln in (output or "").splitlines() if ln.strip()]
+    if not lines or _NOT_A_VERSION.search(lines[0]):
+        return "?"
+    for rx in _VERSION_RES:
+        m = rx.search(lines[0])
+        if m:
+            return m.group(1).rstrip(".-")
+    return "?"
+
+
 def version_of(name: str, path: str) -> str:
-    """One-line version string for the provenance header."""
+    """One-line version string for the provenance header ("?": cannot be run or read)."""
     if name == "sv2ghdl" or name == "vamos":
         root = package_root()
         if os.path.isdir(os.path.join(root, ".git")) and shutil.which("git"):
@@ -213,15 +279,11 @@ def version_of(name: str, path: str) -> str:
             from vamos import VERSION
             return VERSION
         return "installed"
-    flag = {"iverilog": "-V"}.get(name, "--version")
+    flag = {"iverilog": "-V", "Xyce": "-v"}.get(name, "--version")
     try:
         r = subprocess.run([path, flag], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            universal_newlines=True, timeout=20,
                            env=child_env())
     except (OSError, subprocess.SubprocessError):
         return "?"
-    first = (r.stdout or "").strip().splitlines()[:1]
-    if not first:
-        return "?"
-    m = re.search(r"(\d+\.\d+[\w.\-]*)", first[0])
-    return m.group(1) if m else first[0][:40]
+    return version_text(r.stdout or "")

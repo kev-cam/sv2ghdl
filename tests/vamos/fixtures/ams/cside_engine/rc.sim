@@ -1,0 +1,16 @@
+C-side: D2A q -> nin, RC -> nout (deck stop 1 us)
+
+load "resistor.osdi"
+load "capacitor.osdi"
+
+model vsrc vsource
+model r resistor
+model c capacitor
+
+v_d2a (nin 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:nin"
+r1 (nin nout) r r=1k
+c1 (nout 0) c c=100p
+
+control
+  analysis tran1 tran step=1n stop=1u
+endc

@@ -11,6 +11,17 @@
 # Options:
 #   -I dir          Include directory (passed to iverilog)
 #   --top module    Top module name (emitted last)
+#   --log file      Append iverilog's output (stdout and stderr) for every
+#                   module to <file>. Default with -o: iverilog.log next to
+#                   the output file, started afresh. Without -o or --log the
+#                   output is discarded.
+#
+# The log is a sequence of sections, one per iverilog run:
+#   === sv2vhdl-modules: iverilog -tvhdl -s <module>: <status>
+#   <iverilog's output for that run>
+# where <status> is "translated", "deferred (iverilog exit <rc>)",
+# "deferred (timed out after <n> s)" or "deferred (no VHDL written)".
+# A module that ends deferred also gets its section echoed on stderr.
 #
 # Pipeline position:
 #   iverilog -E | sv-normalize | sv2vhdl-modules > design.vhd
@@ -48,11 +59,13 @@ NVC_FLAGS="-psv2vhdl=1 -g2012"
 OUTFILE=""
 TOPMOD=""
 INFILE=""
+LOGFILE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -o)     OUTFILE="$2"; shift 2 ;;
         --top)  TOPMOD="$2"; shift 2 ;;
+        --log)  LOGFILE="$2"; shift 2 ;;
         -I*)    IVL_FLAGS="$IVL_FLAGS $1"; shift ;;
         -*)     shift ;;
         *)      INFILE="$1"; shift ;;
@@ -63,6 +76,16 @@ if [[ -z "$INFILE" ]]; then
     echo "Usage: sv2vhdl-modules input.sv -o output.vhd" >&2
     exit 1
 fi
+
+# iverilog's messages: an explicit --log is appended to (the caller owns it);
+# the default one next to -o belongs to this run.
+if [[ -z "$LOGFILE" && -n "$OUTFILE" ]]; then
+    _odir="${OUTFILE%/*}"
+    [[ "$_odir" == "$OUTFILE" ]] && _odir="."
+    LOGFILE="$_odir/iverilog.log"
+    : > "$LOGFILE"
+fi
+[[ -z "$LOGFILE" ]] && LOGFILE=/dev/null
 
 WORKDIR=$(mktemp -d)
 trap "rm -rf $WORKDIR" EXIT
@@ -81,35 +104,52 @@ for mod in $MODULES; do
     [[ "$mod" == "__rtlmeter_utils" ]] && continue
 
     MODFILE="$WORKDIR/${mod}.vhd"
+    MODLOG="$WORKDIR/${mod}.ivl.log"
 
     # Per-module translate timeout. Large modules like VeeR's veer_wrapper
     # take ~130s; 120s was too tight and silently deferred them to a
     # port-less stub (which a VHDL testbench then can't port-map). Allow
     # override via SV2VHDL_MOD_TIMEOUT; default raised to 600s.
-    if timeout "${SV2VHDL_MOD_TIMEOUT:-600}" "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
-            -s "$mod" -o "$MODFILE" "$INFILE" >/dev/null 2>&1; then
-        if [[ -s "$MODFILE" ]]; then
-            # Rename helper entities by port-signature hash so cross-module
-            # collisions (e.g. rvdff5 with different WIDTHs) become distinct
-            # names. Leave the user's module name un-renamed so elaboration
-            # commands stay stable.
-            RENAMED="$WORKDIR/${mod}_renamed.vhd"
-            if "${SCRIPT_DIR:-$(dirname "$0")}/sv-rename-variants" \
-                    "$MODFILE" -o "$RENAMED" --top "$mod" 2>/dev/null; then
-                mv "$RENAMED" "$MODFILE"
-            fi
-            PASS=$((PASS + 1))
-        else
-            FAIL=$((FAIL + 1))
-            MODFILE=""
+    timeout "${SV2VHDL_MOD_TIMEOUT:-600}" "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
+            -s "$mod" -o "$MODFILE" "$INFILE" > "$MODLOG" 2>&1
+    rc=$?
+    if [[ $rc -eq 0 && -s "$MODFILE" ]]; then
+        STATUS="translated"
+        # Rename helper entities by port-signature hash so cross-module
+        # collisions (e.g. rvdff5 with different WIDTHs) become distinct
+        # names. Leave the user's module name un-renamed so elaboration
+        # commands stay stable.
+        RENAMED="$WORKDIR/${mod}_renamed.vhd"
+        if "${SCRIPT_DIR:-$(dirname "$0")}/sv-rename-variants" \
+                "$MODFILE" -o "$RENAMED" --top "$mod" 2>/dev/null; then
+            mv "$RENAMED" "$MODFILE"
         fi
+        PASS=$((PASS + 1))
     else
+        if [[ $rc -eq 124 ]]; then
+            STATUS="deferred (timed out after ${SV2VHDL_MOD_TIMEOUT:-600} s)"
+        elif [[ $rc -ne 0 ]]; then
+            STATUS="deferred (iverilog exit $rc)"
+        else
+            STATUS="deferred (no VHDL written)"
+        fi
         FAIL=$((FAIL + 1))
+        rm -f "$MODFILE"    # a killed run may leave part of a file behind
         MODFILE=""
     fi
+    {
+        echo "=== sv2vhdl-modules: iverilog -tvhdl -s $mod: $STATUS"
+        cat "$MODLOG"
+    } >> "$LOGFILE"
 
     # Generate stub for failed modules
     if [[ -z "$MODFILE" ]]; then
+        echo "sv2vhdl-modules: module $mod: $STATUS; iverilog said:" >&2
+        if [[ -s "$MODLOG" ]]; then
+            sed 's/^/    /' "$MODLOG" >&2
+        else
+            echo "    (nothing)" >&2
+        fi
         MODFILE="$WORKDIR/${mod}_stub.vhd"
         # Extract port declarations from the Verilog source
         # For now, emit a minimal stub — the foreign plugin will

@@ -1,0 +1,30 @@
+Xyce-side C tests of the co-simulation engine patches (docs/VAMOS_AMS_DESIGN.md
+§7 P1, P5 and the ABI handshake).  nvc's side, on both engines, is in
+../cside_engine; this directory tests what the Xyce patches do themselves.
+E1 and E2 in run_cside_xyce.py name work items of docs/VAMOS_AMS_DESIGN.md
+§10: E1 wrote the patches in nvc, libcosim_bridge and VACASK and
+../cside_engine/run_cside.py ("E1's runner"), E2 the Xyce patches and this
+directory.
+
+run_cside_xyce.py  the runner and the case list (python3 run_cside_xyce.py --help);
+                   tests/vamos/test_cside_xyce.py wraps it, one test per case
+stepstub.cpp       TEST ONLY: a code: URI library for standalone Xyce runs that
+                   answers the candidate-step protocol like nvc's stepper
+                   (modes accept, stop, vetofirst, odd; env STEPSTUB_<TAG>_*),
+                   and an init function that returns no callback (null_init)
+abi_probe.c        prints xyce_cosim_abi() of a libxycecinterface.so the way
+                   nvc reads it
+
+The nvc cases reuse ../cside_engine/run_cside.py (its Env/Ctx, cside.vhd, rc.cir,
+q.boundary, and xyce_abi_shim.c to run a pre-patch Xyce).  The pre-patch
+libraries are --old-xyce-lib and --old-xyce-ci, else $VAMOS_CSIDE_XYCE_OLD_LIB
+and $VAMOS_CSIDE_XYCE_OLD_CI, else copies of the unpatched libraries saved in
+the Xyce build tree, /usr/local/src/xyce-build, before the co-simulation
+patches were built into it: src/libxyce.so.pre-e2 and
+utils/XyceCInterface/libxycecinterface.so.pre-e2 (from before E2).  The cases
+that need them skip when they are missing.
+
+Typical runs (WSL):
+  python3 run_cside_xyce.py                     # every case
+  python3 run_cside_xyce.py -k stub -k bindcb   # standalone Xyce only (no nvc)
+  python3 run_cside_xyce.py --old-xyce-lib '' --old-xyce-ci ''   # skip the pre-patch cases

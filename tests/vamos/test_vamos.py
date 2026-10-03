@@ -24,24 +24,7 @@ from vamos.personalities import vcs  # noqa: E402
 LAUNCHER = os.path.join(ROOT, "bin", "vamos")
 
 
-class TempDir(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="vamos-test-")
-        self._env = dict(os.environ)
-        tools._scrub_cache.clear()
-        tools._real_cache.clear()
-
-    def tearDown(self):
-        os.environ.clear()
-        os.environ.update(self._env)
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def write(self, rel, text):
-        p = os.path.join(self.tmp, rel)
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w") as fh:
-            fh.write(text)
-        return p
+from vamos_testlib import TempDir  # noqa: E402
 
 
 class TestOptionFiles(TempDir):
@@ -290,6 +273,24 @@ class TestEndToEnd(TempDir):
                            stderr=subprocess.STDOUT, universal_newlines=True, timeout=300)
         self.assertIn("no seed", s.stdout)
         self.assertIn("seed=7", s.stdout)
+
+    def test_override_timescale_and_vcs_finish(self):
+        # No `timescale in the source: -override_timescale supplies it, the
+        # precision is recorded, and simv's +vcs+finish+N stops at N ps.
+        self.write("tb.v", "module tb;\n  reg clk = 0; integer n = 0;\n"
+                           "  always #5 clk = ~clk;\n"
+                           "  always @(posedge clk) begin n = n + 1; $display(\"edge %0d at %0t\", n, $time); end\n"
+                           "  initial #1000 $finish;\nendmodule\n")
+        r = self.vcs("-override_timescale=1ns/1ps", "tb.v")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        with open(os.path.join(self.tmp, "simv.daidir", "vamos.job.json")) as fh:
+            self.assertEqual(json.load(fh)["precision"], "1ps")
+        s = subprocess.run(["./simv", "+vcs+finish+30000"], cwd=self.tmp, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, universal_newlines=True, timeout=300)
+        self.assertEqual(s.returncode, 0, s.stdout)
+        self.assertIn("edge 1 at 5000", s.stdout)
+        self.assertIn("edge 3 at 25000", s.stdout)
+        self.assertNotIn("edge 4 at", s.stdout)        # 35 ns is past the 30 ns finish
 
 
 if __name__ == "__main__":

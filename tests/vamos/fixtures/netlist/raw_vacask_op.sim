@@ -1,0 +1,12 @@
+op fixture
+load "resistor.osdi"
+model vsrc vsource
+model r resistor
+v1 (a 0) vsrc dc=1.0
+r1 (a b) r r=1000.0
+r2 (b 0) r r=1000.0
+control
+  abort always
+  save v(a) v(b) i(v1)
+  analysis op1 op
+endc

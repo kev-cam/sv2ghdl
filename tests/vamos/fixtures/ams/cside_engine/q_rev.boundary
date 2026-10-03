@@ -1,0 +1,2 @@
+# 10 ps rise, 1 ns fall
+D2A .q nin rise=1e-11 fall=1e-09  # trailing comment

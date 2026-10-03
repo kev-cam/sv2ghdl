@@ -10,11 +10,22 @@ import json
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+# Version of the vamos.job.json layout.  from_json refuses anything newer, or
+# any key it does not know, so a daidir from a newer vamos says "recompile"
+# instead of silently running without what the newer vamos recorded.
+SCHEMA = 2
+
+
+class JobVersionError(ValueError):
+    pass
+
+
 # Dispositions for options that were accepted but not (fully) acted on.
 IGNORED = "ignored"          # meaningless here (e.g. -full64); silent
 NOTED = "noted"              # accepted, one-line note to the user
 UNSUPPORTED = "unsupported"  # accepted, warned, logged
 UNKNOWN = "unknown"          # not in the option table at all
+INAPPLICABLE = "inapplicable"  # a vamos option that has no effect in this invocation; warned
 
 
 @dataclass
@@ -43,7 +54,8 @@ class Job:
     lib_exts: List[str] = field(default_factory=list)      # +libext+
     incdirs: List[str] = field(default_factory=list)
     defines: Dict[str, Optional[str]] = field(default_factory=dict)
-    timescale: Optional[str] = None
+    timescale: Optional[str] = None                        # -timescale (prelude only)
+    override_timescale: Optional[str] = None               # -override_timescale (rewrites every directive)
     std: str = "verilog"                                   # verilog | sv
     tops: List[str] = field(default_factory=list)
 
@@ -61,11 +73,21 @@ class Job:
     # runtime
     plusargs: List[str] = field(default_factory=list)
     run_log: Optional[str] = None
+    finish: Optional[str] = None         # simv +vcs+finish+N (N units of job.precision)
     seed: Optional[str] = None
 
     debug: List[str] = field(default_factory=list)
     coverage: List[str] = field(default_factory=list)
     unmapped: List[Unmapped] = field(default_factory=list)
+
+    # AMS (vcs-ams).  ams_control is the parse-time request (-ad/+ad/vcs-ams:
+    # the control file, "" = vcsAD.init); ams is the compile-to-run record,
+    # written only when the AMS compile finishes (docs/VAMOS_AMS_DESIGN.md §1.1).
+    ams_control: Optional[str] = None
+    ams: Optional[dict] = None
+    precision: Optional[str] = None      # simulation precision, when the preprocess step ran
+
+    schema: int = SCHEMA
 
     def note(self, option: str, disposition: str, note: str = "") -> None:
         self.unmapped.append(Unmapped(option, disposition, note))
@@ -75,7 +97,15 @@ class Job:
 
     @classmethod
     def from_json(cls, text: str) -> "Job":
+        """Rebuild a Job.  A daidir written by a newer vamos (a newer schema,
+        or keys this vamos does not know) raises JobVersionError."""
         d = json.loads(text)
+        schema = d.get("schema", 1)
+        names = {f.name for f in dataclasses.fields(cls)}
+        unknown = sorted(k for k in d if k not in names)
+        if schema > SCHEMA or unknown:
+            raise JobVersionError("compiled by a newer vamos (schema %s%s); recompile"
+                                  % (schema, ", unknown " + ", ".join(unknown) if unknown else ""))
         d["sources"] = [Source(**s) for s in d.get("sources", [])]
         d["unmapped"] = [Unmapped(**u) for u in d.get("unmapped", [])]
         return cls(**d)

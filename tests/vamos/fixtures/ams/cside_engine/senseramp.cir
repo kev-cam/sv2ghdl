@@ -1,0 +1,6 @@
+* C-side: A2D probe on nsense, a step from 0 to 1 V over 99..100 ns
+Vsense nsense 0 PWL(0 0  99n 0  100n 1  1u 1)
+I_a2d nsense 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:a2d:ain"
+.tran 1n 1u
+.print tran format=raw file=xyce_tran.raw V(nsense)
+.end

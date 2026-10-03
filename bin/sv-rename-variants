@@ -26,6 +26,22 @@ import re, sys, hashlib, argparse
 def shorthash(s):
     return hashlib.md5(s.encode()).hexdigest()[:4]
 
+_PARAM_LINE = re.compile(r'^--\s+(\w+) = (.*?)\s*$')
+
+def param_lines(content, start):
+    """The "--   P = v" lines of the comment right above the entity that
+    starts at `start`: tgt-vhdl writes every parameter value there, reals and
+    strings too (nvc_verilog_params holds the integers only)."""
+    lines = content[:start].split('\n')
+    if lines and lines[-1].strip() == '':
+        lines.pop()
+    out = []
+    while lines and lines[-1].lstrip().startswith('--'):
+        m = _PARAM_LINE.match(lines.pop().strip())
+        if m:
+            out.append('%s=%s' % (m.group(1), m.group(2)))
+    return ' '.join(reversed(out))
+
 def parse_entities(content):
     """Return list of (name, port_sig, start, end) for each entity block."""
     entities = []
@@ -56,6 +72,12 @@ def parse_entities(content):
             body, re.IGNORECASE)
         if pm:
             sig += ' PARAMS:' + re.sub(r'\s+', ' ', pm.group(1).strip())
+        # ... and every parameter value, reals and strings included: a value
+        # the body does not use (a multi-view cell's Verilog view) leaves the
+        # body alike, yet the variants must stay apart (the cut reads them)
+        pl = param_lines(content, m.start())
+        if pl:
+            sig += ' PLINES:' + pl
         entities.append((name, sig, m.start(), m.end()))
     return entities
 

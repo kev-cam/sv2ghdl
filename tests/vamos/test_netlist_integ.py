@@ -1,0 +1,752 @@
+"""N4 netlist integration: spice.parse -> both emitters -> both engines (docs/VAMOS_AMS_DESIGN.md §4, §9).
+
+    python3 -m unittest discover -s tests/vamos -p 'test_netlist_integ*.py' -v
+
+Every deck here is HSPICE text, read by spice.parse exactly as the vcs-ams flow
+reads a choose netlist, printed by both emitters and (WSL) run standalone on both
+engines; nothing is co-simulated.  The decks are fixtures: integ_*.sp (written for
+these tests) and the parser's own fixtures (x-heep adc.sp in its directory layout,
+the PAMS p27 / p349 examples, the sky130-shaped library tree).  The real sky130
+PDK is used where it is installed (VAMOS_SKY130_LIB, default
+/opt/pdk/sky130A/libs.tech/ngspice/sky130.lib.spice).
+
+TestIntegText (no engine)   what the parse -> emit seam must print: only the
+    definitions a deck uses, per-path bin variants on Xyce, the §9 control-block
+    floats, the refusals (level 9, Xyce's level-3 diode and Verilog-A overrides,
+    PARHIER=GLOBAL collisions, a geometry no bin holds), the BSIM4 version note.
+TestFixtureRuns (WSL)   the parser fixtures, sky130, Verilog-A, element currents,
+    nested definitions and the smoke checks, on both engines with one answer.
+TestE2E21 / 22 / 23 / 25, TestControlDeck (WSL)   the §9 end-to-end items 21
+    (cross-engine parameters), 22 (binned BSIM4), 23 (PULSE holds v2), 25
+    (.option scale applied once, and only where HSPICE applies it; the default
+    temperature) and the netlist unit deck (.tran 1n 'tsim', .temp tt,
+    .ic v(b)='vh'), standalone.
+TestMaxStep (WSL)   HSPICE's maximum internal step without .option delmax: the
+    e2e 6 inverter's delay against the level-1 closed form, on both engines.
+"""
+
+import math
+import os
+import re
+import unittest
+
+from vamos_testlib import (TempDir, fixture, have_vacask, have_xyce, needs_vacask, openvaf_bin, run, vacask_bin,
+                           xyce_bin, xyce_env)
+
+from vamos.netlist import expr as X  # noqa: E402
+from vamos.netlist import rawfile, spice, vacask, xyce  # noqa: E402
+from vamos.netlist.ir import ParseOpts  # noqa: E402
+from vamos.notes import ERROR, NOTE, NoteError  # noqa: E402
+
+FX = fixture("netlist")
+XHEEP_CWD = fixture("netlist", "spice_xheep", "build", "openhwgroup.org_systems_core-v-mini-mcu_0", "sim-vcs")
+XHEEP_ADC = "../../../hw/ip_examples/ams/analog/adc.sp"
+SKY130 = os.environ.get("VAMOS_SKY130_LIB", "/opt/pdk/sky130A/libs.tech/ngspice/sky130.lib.spice")
+
+needs_both = unittest.skipUnless(have_vacask() and have_xyce(), "needs VACASK and Xyce (Linux/WSL)")
+needs_sky130 = unittest.skipUnless(os.path.isfile(SKY130), "needs the sky130 PDK (%s)" % SKY130)
+
+
+def lines(text, origin="tb"):
+    """netlist_commands-style (line, origin) pairs."""
+    return [(l, "%s:%d" % (origin, k + 1)) for k, l in enumerate(text.strip("\n").split("\n"))]
+
+
+def deck(name, extra="", **opts):
+    """spice.parse of the fixture deck <name> (run directory: the fixture directory)."""
+    return spice.parse([fixture("netlist", name)], lines(extra) if extra else [], FX, ParseOpts(**opts))
+
+
+def libtree(extra):
+    return spice.parse([], lines(".lib 'lib.spice' tt\n" + extra), fixture("netlist", "spice_libtree"))
+
+
+def xheep(sel1=0.0, sel0=0.0, tran=".tran 1n 3u"):
+    return spice.parse([XHEEP_ADC], lines("""
+xadc gnd out sel1 sel0 vdd ams_adc_1b
+vs1 sel1 0 %r
+vs0 sel0 0 %r
+%s
+.print tran v(out) v(xadc.vmux_out) v(xadc.vin)
+""" % (sel1, sel0, tran)), XHEEP_CWD)
+
+
+def pams27():
+    return spice.parse([fixture("netlist", "spice_pams_p27", "test.spi")], lines("""
+xt a b c d test
+va a 0 pulse(0 3.3 2n 0.1n 0.1n 4n 10n)
+vb b 0 3.3
+vc c 0 1
+rd d 0 1meg
+.tran 0.01n 10n
+.print tran v(a) v(xt.n1) v(d)
+"""), fixture("netlist", "spice_pams_p27"))
+
+
+def pams349():
+    return spice.parse([fixture("netlist", "spice_pams_p349", "01_test.spi")], lines("""
+x1 in o1 sp1
+x2 o1 o2 sp2
+vin in 0 pulse(0 3.3 2n 0.1n 0.1n 5n 10n)
+.tran 0.01n 20n
+.print tran v(in) v(o1) v(o2)
+"""), fixture("netlist", "spice_pams_p349"))
+
+
+def sky130_inverter():
+    return spice.parse([], lines("""
+.lib '%s' tt
+xn out in 0 0 sky130_fd_pr__nfet_01v8 w=1 l=0.15
+xp out in vdd vdd sky130_fd_pr__pfet_01v8 w=2 l=0.15
+vdd vdd 0 1.8
+vin in 0 pulse(0 1.8 1n 0.1n 0.1n 2n 5n)
+cl out 0 5f
+.tran 0.01n 6n
+.print tran v(in) v(out) i(vdd)
+""" % SKY130), os.path.dirname(SKY130))
+
+
+def text_lines(text, pattern):
+    return [l for l in text.splitlines() if re.search(pattern, l)]
+
+
+# -- no engine ----------------------------------------------------------------------------------
+
+class TestIntegText(unittest.TestCase):
+    def test_parser_fixtures_render_on_both_engines(self):
+        for nl in (pams27(), pams349(), libtree("x1 d g 0 0 nfet w=2 l=0.5\nvd d 0 1\nvg g 0 1\n.tran 1n 10n"),
+                   xheep()):
+            for render in (vacask.render, xyce.render):
+                text = render(nl)
+                self.assertIn("generated by vamos", text)
+
+    def test_only_used_definitions_are_printed(self):
+        """A library defines more than a deck uses; HSPICE never instantiates the rest, so
+        nothing unused is printed or judged (an unused level-9 card, a geometric diode and a
+        subckt using them would otherwise fail both decks)."""
+        nl = spice.parse([], lines("""
+.model m9 nmos level=9 vto=0.5
+.model dgeo d level=3 is=1e-14
+.model dok d is=1e-14
+.subckt unused a
+m1 a a 0 0 m9 w=1u l=1u
+d1 a 0 dgeo
+.ends unused
+.subckt used a
+d1 a 0 dok
+.ends used
+v1 a 0 0.6
+x1 a used
+.tran 1n 10n
+"""), FX)
+        for render in (vacask.render, xyce.render):
+            text = render(nl)
+            self.assertNotIn("unused", text)
+            self.assertNotRegex(text, r"(?m)^\s*\.?model (?:m_)?(?:m9|dgeo) ")
+            self.assertRegex(text, r"(?m)^\s*\.?model (?:m_)?dok ")
+        used = spice.parse([], lines("""
+.model m9 nmos level=9 vto=0.5
+v1 a 0 1
+m1 a a 0 0 m9 w=1u l=1u
+.tran 1n 10n
+"""), FX)
+        for render in (vacask.render, xyce.render):
+            with self.assertRaisesRegex(NoteError, "level 9 has no faithful"):
+                render(used)
+
+    def test_control_block_values_are_evaluated_floats(self):
+        """§9: .tran 1n 'tsim', .temp tt, .ic v(b)='vh' print as numbers on both engines;
+        the maximum step is HSPICE's min(TSTOP/50, 5*TSTEP) = 2e-10 s."""
+        nl = deck("integ_control.sp")
+        self.assertEqual((nl.temp, nl.tnom), (50.0, 25.0))
+        v = vacask.render(nl)
+        self.assertEqual(text_lines(v, r"^  (options|analysis) "),
+                         ["  options tran_lteimplicit=0 temp=50.0 tnom=25.0",
+                          '  analysis vamos_tran tran step=1e-09 stop=1e-08 maxstep=2e-10 ic={"b", 0.7}'])
+        x = xyce.render(nl)
+        self.assertEqual(text_lines(x, r"^\.(options|ic|tran) "),
+                         [".options device temp=50.0 tnom=25.0", ".ic v(b)=0.7", ".tran 1e-09 1e-08 0.0 2e-10"])
+        for text in (v, x):
+            self.assertNotRegex(text, r"\b(?:tsim|tt|vh)\b(?!=)")      # defined, never read by the control
+
+    def test_parhier_global_collision_is_an_error(self):
+        with self.assertRaises(NoteError) as cm:
+            deck("integ_params.sp")
+        msgs = [n.message for n in cm.exception.notes if n.severity == ERROR]
+        self.assertEqual(len(msgs), 1, msgs)
+        self.assertIn("parameter wcol is defined at top level", msgs[0])
+        self.assertIn("--vamos-parhier=local", msgs[0])
+        nl = deck("integ_params.sp", parhier_local=True)
+        notes = [n.message for n in nl.notes if n.severity == NOTE]
+        self.assertTrue(any("parameter dup is defined again" in m for m in notes), notes)
+        self.assertTrue(any("inner definition wins" in m for m in notes), notes)
+
+    def test_refusals_are_the_same_through_the_parser(self):
+        nl = deck("integ_params.sp", "\n".join([".model dgeo d level=3 is=1e-14", "vdg dg 0 0.6", "ddg dg 0 dgeo"]),
+                  parhier_local=True)
+        self.assertIn("model m_dgeo sp_diode level=3.0 is=1e-14", vacask.render(nl))
+        with self.assertRaisesRegex(NoteError, "geometric diode"):
+            xyce.render(nl)
+        hdl = deck("integ_hdl.sp")
+        text = vacask.render(hdl)
+        self.assertIn("model x2__va vres r=500.0\nx2 (s2 0) x2__va $mfactor=2.0\n", text)
+        self.assertIn("model x3__va vres r=250.0\nx3 (s3 0) x3__va\n", text)
+        with self.assertRaises(NoteError) as cm:
+            xyce.render(hdl)
+        self.assertEqual(sorted(n.origin.rsplit(":", 1)[-1] for n in cm.exception.notes), ["10", "12"])
+        self.assertTrue(all("PyMS ignores" in n.message for n in cm.exception.notes))
+
+    def test_no_bin_is_an_error_on_both_engines(self):
+        nl = deck("integ_bins.sp", "vd9 d9 0 1\nm9 d9 g 0 0 nch w=0.5u l=20u")
+        for render in (vacask.render, xyce.render):
+            with self.assertRaises(NoteError) as cm:
+                render(nl)
+            self.assertEqual([n.message for n in cm.exception.notes],
+                             ["no bin of nch for l=2e-05, w=5e-07 (instance m9)"])
+            self.assertEqual(cm.exception.notes[0].origin, "tb:2")
+
+    def test_bins_through_the_parser(self):
+        nl = deck("integ_bins.sp")
+        v = vacask.render(nl)
+        # m2 at l = 0.22*1e-6 = 2.1999999999999998e-07: bins 2 and 4 hold it (the lower-bound
+        # tolerance), the first wins; "0.22u" is exactly 2.2e-07 (expr.number)
+        m2 = v[v.index("  m2 (d2 g 0 0)") - 200:v.index("@end", v.index("  m2 (d2 g 0 0)"))]
+        self.assertEqual(text_lines(m2, r"^@(?:else)?if "), ["@if 0.0", "@elseif 1.0", "@elseif 0.0", "@elseif 1.0"])
+        x = xyce.render(nl)
+        self.assertIn("m1 d1 g 0 0 nch.1 w=1.6e-06 l=2e-07 nf=2.0", x)         # nf=2: vamos picks
+        self.assertIn("m2 d2 g 0 0 nch w=2e-06 l=2.1999999999999998e-07\n", x)  # native binning
+        # the wrapper reads nf={nf}: one copy per binding, the plain definition unused
+        self.assertEqual(text_lines(x, r"^\.subckt fet"), [
+            ".subckt fet__vb1 d g s b params: l=1e-06 w=1e-06 nf=1.0 vamos_mfactor=1.0",
+            ".subckt fet__vb2 d g s b params: l=1e-06 w=1e-06 nf=1.0 vamos_mfactor=1.0",
+            ".subckt fet__vb3 d g s b params: l=1e-06 w=1e-06 nf=1.0 vamos_mfactor=1.0"])
+        self.assertEqual(text_lines(x, r"^mfet "), ["mfet d g s b nch.1 l={l} w={w} nf={nf} m={vamos_mfactor}",
+                                                    "mfet d g s b nch.3 l={l} w={w} nf={nf} m={vamos_mfactor}",
+                                                    "mfet d g s b nch.4 l={l} w={w} nf={nf} m={vamos_mfactor}"])
+        self.assertEqual(text_lines(x, r"^x[456] "), ["x4 d4 g 0 0 fet__vb1 w=1.6e-06 l=2e-07 nf=2.0",
+                                                      "x5 d5 g 0 0 fet__vb2 w=1.6e-06 l=5e-07 nf=2.0",
+                                                      "x6 d6 g 0 0 fet__vb3 w=3e-06 l=5e-07"])
+
+    def test_bsim4_version_note_once_per_binned_model(self):
+        nl = libtree("x1 d g 0 0 nfet w=2 l=0.5\nx2 d g 0 0 nfet w=0.8 l=0.5\nvd d 0 1\nvg g 0 1\n.tran 1n 10n")
+        for render, runs in ((vacask.render, "4.8.3 on VACASK"), (xyce.render, "4.6.1 on Xyce")):
+            notes = []
+            render(nl, notes=notes)
+            self.assertEqual([n.message for n in notes],
+                             ["binned model nfet__model: BSIM4 version=4.5 is simulated as BSIM4 %s (HSPICE uses "
+                              "4.5; the versions differ by bug fixes and new, default-off features)"
+                              % (runs if "Xyce" in runs else runs.replace("on VACASK", "on VACASK (sp_bsim4v8)"))])
+        self.assertIn('sp_bsim4v8 type=1.0 version="4.5"', vacask.render(nl))
+
+    def test_xheep_deck(self):
+        nl = xheep()
+        self.assertNotIn("gnd", nl.globals)                                    # .global VDD GND: GND is 0
+        v = vacask.render(nl)
+        self.assertIn("subckt ams_adc_1b (out 'sel<1>' 'sel<0>' vdd)", v)      # GND port gone
+        self.assertIn("xadc (out sel1 sel0 vdd) ams_adc_1b", v)
+        self.assertIn("load \"spice/bsim4v8.osdi\"", v)
+        self.assertIn("model m_nmos sp_bsim4v8 type=1.0 version=\"4.5\"", v)
+        x = xyce.render(nl)
+        self.assertIn(".subckt ams_adc_1b out sel<1> sel<0> vdd params: vamos_mfactor=1.0", x)
+        self.assertNotIn("v_gnd", x)                                            # dropped by the ground pass
+
+
+# -- engine runs ----------------------------------------------------------------------------------
+
+class _Runs(TempDir):
+    def vacask(self, nl, sub, osdi=()):
+        text = vacask.render(nl, osdi=list(osdi))
+        d = os.path.join(self.tmp, sub + ".v")
+        os.makedirs(d)
+        with open(os.path.join(d, "deck.sim"), "w") as fh:
+            fh.write(text)
+        r = run([vacask_bin(), "deck.sim"], cwd=d, env=dict(os.environ, SIM_OPENVAF=openvaf_bin()))
+        self.assertEqual(r.returncode, 0, "VACASK failed:\n%s" % r.stdout[-3000:])
+        return rawfile.read(os.path.join(d, "vamos_tran.raw"))
+
+    def xyce(self, nl, sub):
+        text = xyce.render(nl)
+        d = os.path.join(self.tmp, sub + ".x")
+        os.makedirs(d)
+        with open(os.path.join(d, "deck.cir"), "w") as fh:
+            fh.write(text)
+        r = run([xyce_bin(), "deck.cir"], cwd=d, env=xyce_env())
+        self.assertEqual(r.returncode, 0, "Xyce failed:\n%s" % r.stdout[-3000:])
+        return rawfile.read(os.path.join(d, xyce.RAW))
+
+    def both(self, nl, sub):
+        return self.vacask(nl, sub), self.xyce(nl, sub)
+
+    def agree(self, rv, rx, cols, times, rel, abs_, msg=""):
+        for c in cols:
+            for t in times:
+                a, b = rv.at(c, t), rx.at(c, t)
+                self.assertAlmostEqual(a, b, delta=max(rel * abs(b), abs_),
+                                       msg="%s %s at %g: VACASK %r, Xyce %r" % (msg, c, t, a, b))
+
+
+@needs_both
+class TestFixtureRuns(_Runs):
+    def test_pams_examples(self):
+        rv, rx = self.both(pams27(), "p27")
+        self.agree(rv, rx, ("xt.n1", "d"), (1e-9, 5e-9, 9e-9), 2e-3, 1e-3, "PAMS p27")
+        self.assertGreater(rv.at("xt.n1", 1e-9), 3.0)                          # a low: NAND output high
+        self.assertLess(rv.at("xt.n1", 5e-9), 0.4)
+        rv, rx = self.both(pams349(), "p349")
+        for raw in (rv, rx):
+            self.assertAlmostEqual(raw.at("o1", 4e-9), 0.0, delta=1e-6)
+            self.assertAlmostEqual(raw.at("o2", 4e-9), 3.3, delta=1e-6)
+            self.assertAlmostEqual(raw.at("o1", 8e-9), 3.3, delta=1e-6)
+
+    def test_library_tree_bins_per_instance_path(self):
+        body = "x1 d g 0 0 nfet w=2 l=0.5\nx2 d2 g 0 0 nfet w=0.8 l=0.5\nvd d 0 1\nvd2 d2 0 1\n" \
+               "vg g 0 1\n.tran 1n 10n\n.print tran i(vd) i(vd2)"
+        rv, rx = self.both(libtree(body), "lib")
+        self.agree(rv, rx, ("i(vd)", "i(vd2)"), (0.0,), 1e-5, 0, "libtree")
+        self.assertLess(rv.at("i(vd)", 0.0), -1e-4)
+        ff = spice.parse([], lines(".lib 'lib.spice' ff\n" + body), fixture("netlist", "spice_libtree"))
+        fv, fx = self.both(ff, "libff")                                # corner_dvt = -0.05: faster
+        self.agree(fv, fx, ("i(vd)", "i(vd2)"), (0.0,), 1e-5, 0, "libtree ff")
+        for col in ("i(vd)", "i(vd2)"):
+            self.assertLess(fv.at(col, 0.0), rv.at(col, 0.0) * 1.05, col)
+
+    def test_xheep_adc(self):
+        """x-heep adc.sp verbatim: the mux selects the ladder tap, the comparator's 0.6 V
+        crossings agree between the engines within 0.1 % of the 1 us input period (e2e 7).
+
+        .tran 1n 3u bounds the step at HSPICE's 5 ns (spice.py): the engines then agree within
+        0.4-0.7 ns; with only their own bounds (VACASK 60 ns, Xyce 300 ns) up to 14 ns apart."""
+        for sel1, sel0, tap in ((0.0, 0.0, 0.24), (1.2, 0.0, 0.72)):
+            nl = xheep(sel1, sel0)
+            self.assertEqual(nl.tran().args["maxstep"], 5e-9)
+            rv, rx = self.both(nl, "xh%d%d" % (sel1 > 0, sel0 > 0))
+            for raw in (rv, rx):
+                self.assertAlmostEqual(raw.at("xadc.vmux_out", 1e-6), tap, delta=2e-3)
+            cv, cx = rv.crossings("out", 0.6), rx.crossings("out", 0.6)
+            self.assertEqual(len(cv), len(cx))
+            self.assertGreaterEqual(len(cv), 4)
+            for a, b in zip(cv, cx):
+                self.assertAlmostEqual(a, b, delta=1e-9, msg="crossing %g vs %g" % (a, b))
+
+    @needs_sky130
+    def test_sky130_inverter(self):
+        nl = sky130_inverter()
+        rv, rx = self.both(nl, "sky")
+        for raw in (rv, rx):
+            self.assertAlmostEqual(raw.at("out", 0.5e-9), 1.8, delta=1e-3)
+            self.assertAlmostEqual(raw.at("out", 2e-9), 0.0, delta=1e-3)
+            self.assertAlmostEqual(raw.at("out", 4.5e-9), 1.8, delta=1e-3)
+        for direction, tin in ((-1, 1.05e-9), (+1, 3.15e-9)):          # input edges cross 0.9 V there
+            dv = rv.crossings("out", 0.9, direction)[0] - tin
+            dx = rx.crossings("out", 0.9, direction)[0] - tin
+            self.assertGreater(dx, 1e-11)
+            self.assertAlmostEqual(dv, dx, delta=0.03 * dx, msg="delay VACASK %g, Xyce %g" % (dv, dx))
+
+    def test_verilog_a(self):
+        nl = deck("integ_hdl.sp")
+        rv = self.vacask(nl, "hdl")
+        self.assertAlmostEqual(rv.at("i(v1)", 0.0), -1.0 / 2000.0, delta=1e-12)   # the module default
+        self.assertAlmostEqual(rv.at("i(v2)", 0.0), -2.0 / 500.0, delta=1e-12)    # the card, m=2
+        self.assertAlmostEqual(rv.at("i(v3)", 0.0), -1.0 / 250.0, delta=1e-12)    # the X-line override
+        plain = spice.parse([], lines('.hdl "emit_vres.va"\nv1 s1 0 1\nx1 s1 0 vres\n.tran 0.1n 1n\n'
+                                      '.print tran i(v1)'), FX)
+        rx = self.xyce(plain, "hdlx")
+        self.assertAlmostEqual(rx.at("i(v1)", 0.0), -1.0 / 2000.0, delta=1e-12)
+
+    def test_element_currents(self):
+        rv, rx = self.both(deck("integ_probes.sp"), "probes")
+        want = {"i(v1)": -1.5e-3, "i(r1)": 0.5e-3, "i(l1)": 0.5e-3, "i(e1)": -1e-3, "i(h1)": 1.5e-3,
+                "i(eb)": -0.25e-3, "i(x1.rx)": 0.5e-3, "i(x1.vx)": 0.5e-3, "v(a,b)": 0.5}
+        for raw in (rv, rx):
+            for col, v in want.items():
+                self.assertAlmostEqual(raw.at(col, 0.0), v, delta=1e-9, msg="%s: %s" % (raw.path, col))
+
+    def test_source_waveforms(self):
+        """Every waveform as HSPICE defines it, on both engines (PWL TD= holds the first value
+        before the delay: Xyce's own TD= would give 0 there, so the times are shifted)."""
+        rv, rx = self.both(deck("integ_sources.sp"), "src")
+        exact = {("p1", 1.5e-9): 0.5, ("p1", 3.3e-9): 0.9, ("p1", 6.1e-9): 0.46, ("p1", 13e-9): 0.9,
+                 ("w1", 0.5e-9): 0.3, ("w1", 2.5e-9): 0.3, ("w1", 3.3e-9): 0.405, ("w1", 6.1e-9): 0.175,
+                 ("w1", 19e-9): -0.5, ("w2", 0.5e-9): 0.1, ("w2", 6.1e-9): 0.835, ("w2", 19e-9): 0.25,
+                 ("i1", 1.5e-9): 1.0, ("i1", 9e-9): 0.0,
+                 ("s1", 1.5e-9): 0.9, ("e1", 1.5e-9): 0.0, ("e2", 2.5e-9): 1.0}   # before their delays
+        for raw in (rv, rx):
+            for (node, t), v in exact.items():
+                self.assertAlmostEqual(raw.at(node, t), v, delta=1e-9, msg="%s: %s at %g" % (raw.path, node, t))
+            # SIN(0 1) with freq omitted: 1/TSTOP; EXP's td2 omitted: td1+TSTEP, tau2 omitted: TSTEP
+            self.assertAlmostEqual(raw.at("s2", 13e-9), math.sin(2 * math.pi * 13e-9 / 20e-9), delta=2e-3)
+            t = 3.3e-9
+            e2 = 1.0 - (1.0 - math.exp(-(t - 3e-9) / 2e-9)) + (1.0 - math.exp(-(t - 3.05e-9) / 0.05e-9))
+            self.assertAlmostEqual(raw.at("e2", t), e2, delta=2e-3)
+        self.agree(rv, rx, ("s1", "s2", "e1", "e2"), (2.5e-9, 4.7e-9, 9e-9, 19e-9), 0, 2e-3, "smooth")
+
+    def test_nested_definitions_temper_and_ic(self):
+        rv, rx = self.both(deck("integ_misc.sp"), "misc")
+        for raw in (rv, rx):
+            self.assertAlmostEqual(raw.at("i(vt)", 0.0), -1.0 / 1250.0, delta=1e-12)   # rt at temper=50
+            self.assertAlmostEqual(raw.at("i(vo)", 0.0), -(0.5e-3 + 0.5e-6), delta=1e-9)
+            self.assertAlmostEqual(raw.at("x1.n", 0.0), 0.5, delta=1e-4)
+        self.agree(rv, rx, ("x1.n",), (1e-8,), 1e-4, 0, "misc")
+
+    def test_smoke_checks_pass(self):
+        decks = {"p27": pams27(), "p349": pams349(), "xheep": xheep(tran=".tran 1n 10n"),
+                 "params": deck("integ_params.sp", parhier_local=True), "bins": deck("integ_bins.sp"),
+                 "lib": libtree("x1 d g 0 0 nfet w=2 l=0.5 nf=2\nvd d 0 1\nvg g 0 1\n.tran 1n 10n")}
+        for name, nl in decks.items():
+            self.assertEqual(vacask.smoke(nl, os.path.join(self.tmp, name + "_sv")), [], name)
+            self.assertEqual(xyce.smoke(nl, os.path.join(self.tmp, name + "_sx")), [], name)
+
+    @needs_sky130
+    def test_sky130_smoke_checks_pass(self):
+        nl = sky130_inverter()
+        self.assertEqual(vacask.smoke(nl, os.path.join(self.tmp, "sv")), [])
+        self.assertEqual(xyce.smoke(nl, os.path.join(self.tmp, "sx")), [])
+
+
+# HSPICE values of the built-in rows of integ_params.sp (the same row k in the np<k> parameter
+# sources and the nb<k> behavioral sources), with the §9 spot values.
+BUILTINS = {1: 2.0,                      # pow(2, 1.5) = 2**T(1.5)
+            2: 0.0,                      # sgn(0)
+            3: -20.0,                    # db(-10)
+            4: -math.log(2.0),           # log(-2) = -0.693
+            5: -2.0,                     # sqrt(-4)
+            6: -3.0,                     # nint(-2.5)
+            7: -math.sqrt(2.0),          # pwr(-2, 0.5)
+            8: -8.0 + 4.0 + 2.0 ** 1.5,  # (-2)**3 + (-2)**2 + 2**1.5
+            9: 0.5,                      # int(-2.5) + abs(-2.5)
+            10: -2.0,                    # sign(-4, 0) + sign(2, -10)
+            11: math.atan2(1.0, -2.0),   # quadrant II
+            12: 3.0}                     # if(0,1,2) + limit(-4,-1,1) + max(-2,2,1)
+
+
+@needs_both
+class TestE2E21(_Runs):
+    """§9 e2e 21: the cross-engine parameter deck, parsed under --vamos-parhier=local."""
+
+    def test_parameter_deck(self):
+        nl = deck("integ_params.sp", parhier_local=True)
+        insts = {i.name: i for i in nl.instances()}
+        for k, v in BUILTINS.items():                       # the evaluator agrees with the table
+            self.assertAlmostEqual(X.evaluate(insts["vp%d" % k].source.dc, nl.values), v, delta=1e-12, msg=k)
+        rv, rx = self.both(nl, "params")
+        for raw in (rv, rx):
+            name = os.path.basename(os.path.dirname(raw.path))
+            self.assertEqual(raw.at("ndup", 0.0), 3.0, name)                # the last .param dup wins
+            self.assertEqual(raw.at("nchain", 0.0), 4.0, name)              # out-of-order chain
+            self.assertAlmostEqual(raw.at("i(vcol)", 0.0), -0.5e-3, delta=1e-12, msg=name)   # inner wcol=2
+            for k, v in BUILTINS.items():
+                self.assertAlmostEqual(raw.at("np%d" % k, 0.0), v, delta=1e-12 * max(1.0, abs(v)),
+                                       msg="%s parameter row %d" % (name, k))
+                self.assertAlmostEqual(raw.at("nb%d" % k, 0.0), v, delta=1e-9 * max(1.0, abs(v)),
+                                       msg="%s behavioral row %d" % (name, k))
+            self.assertAlmostEqual(raw.at("i(vx)", 0.0), -6e-3, delta=1e-12, msg=name)    # m=2 inside m=3
+            self.assertAlmostEqual(raw.at("nz", 0.0), 3.0, delta=1e-9, msg=name)          # G cur= in m=3
+            self.assertAlmostEqual(raw.at("c", 0.0), 0.9977, delta=2e-3, msg=name)        # PNP bias point
+            self.assertLess(raw.at("i(vd3)", 0.0), -1e-5, name)
+        for col in ["np%d" % k for k in BUILTINS] + ["nb%d" % k for k in BUILTINS]:
+            self.assertAlmostEqual(rv.at(col, 0.0), rx.at(col, 0.0), delta=1e-9, msg=col)   # identical
+        self.assertAlmostEqual(rv.at("c", 0.0), rx.at("c", 0.0), delta=1e-4)
+        iv, ix = rv.at("i(vd3)", 0.0), rx.at("i(vd3)", 0.0)
+        self.assertAlmostEqual(iv, ix, delta=0.05 * abs(ix))     # BSIM3v3.3 against Xyce's v3.2.2
+
+    def test_level3_diode_and_level9(self):
+        # HSPICE's geometric diode: IS per square metre, the area from W*L (or AREA in m^2)
+        d = spice.parse([], lines(".model dgeo d level=3 is=1e-2\n.model dlin d is=1e-12\nva a 0 0.5\n"
+                                  "d1 a 0 dgeo w=10u l=10u\nvb b 0 0.5\nd2 b 0 dlin\n.tran 0.1n 1n\n"
+                                  ".print tran i(va) i(vb)"), FX)
+        raw = self.vacask(d, "d3")
+        ref = raw.at("i(vb)", 0.0)
+        self.assertLess(ref, -1e-4)
+        self.assertAlmostEqual(raw.at("i(va)", 0.0), ref, delta=abs(ref) * 1e-9)
+        with self.assertRaisesRegex(NoteError, "geometric diode"):
+            xyce.render(d)
+        nine = spice.parse([], lines(".model m9 nmos level=9 vto=0.5\nvd d 0 1\nm1 d d 0 0 m9 w=1u l=1u\n"
+                                     ".tran 0.1n 1n"), FX)
+        for render in (vacask.render, xyce.render):
+            with self.assertRaisesRegex(NoteError, "level 9 has no faithful"):
+                render(nine)
+
+
+@needs_both
+class TestE2E22(_Runs):
+    """§9 e2e 22: binned BSIM4 (nf>1, a bin edge, no ad/as, a wrapper with nf={nf})."""
+
+    def test_binned_bsim4(self):
+        rv, rx = self.both(deck("integ_bins.sp"), "bins")
+        for raw in (rv, rx):
+            for k in range(1, 7):
+                d, r = raw.at("i(vd%d)" % k, 0.0), raw.at("i(vr%d)" % k, 0.0)
+                self.assertLess(d, -1e-6)
+                self.assertAlmostEqual(d, r, delta=abs(r) * 1e-9, msg="%s: device %d is not in its bin"
+                                       % (raw.path, k))
+        for k in range(1, 7):
+            a, b = rv.at("i(vd%d)" % k, 0.0), rx.at("i(vd%d)" % k, 0.0)
+            self.assertAlmostEqual(a, b, delta=abs(b) * 0.02, msg="device %d: VACASK %g, Xyce %g" % (k, a, b))
+
+
+@needs_both
+class TestE2E23(_Runs):
+    def test_pulse_holds_v2(self):
+        rv, rx = self.both(deck("integ_pulse.sp"), "pulse")
+        for raw in (rv, rx):
+            self.assertAlmostEqual(raw.at("a", 0.5e-9), 0.0, places=9)
+            for t in (1.2e-9, 5e-9, 1e-8, 1.99e-8):
+                self.assertAlmostEqual(raw.at("a", t), 1.0, places=9, msg=t)      # pw = TSTOP, no period
+            for t, v in ((1.5e-9, 0.0), (2.5e-9, 1.0), (6e-9, 0.0), (12.5e-9, 1.0), (16e-9, 0.0)):
+                self.assertAlmostEqual(raw.at("b", t), v, places=9, msg=t)        # zero edges -> TSTEP
+
+
+@needs_both
+class TestE2E25(_Runs):
+    """§9 e2e 25: .option scale applied once; the default temperature against tnom=25 cards."""
+
+    def test_scale_and_default_temperature(self):
+        scaled, plain = self.both(deck("integ_scale.sp"), "s1"), self.both(deck("integ_unscaled.sp"), "s0")
+        for raw in scaled + plain:
+            self.assertAlmostEqual(raw.at("i(vd1)", 0.0), -4.1667e-5, delta=1e-9, msg=raw.path)
+        for a, b in zip(scaled, plain):
+            self.assertAlmostEqual(a.at("i(vd54)", 0.0), b.at("i(vd54)", 0.0),
+                                   delta=abs(b.at("i(vd54)", 0.0)) * 1e-9)
+        self.assertAlmostEqual(scaled[0].at("i(vd54)", 0.0), scaled[1].at("i(vd54)", 0.0),
+                               delta=abs(scaled[1].at("i(vd54)", 0.0)) * 1e-4)
+        # a LEVEL 1 diode's AREA is a unitless factor .option scale does not touch (HSPICE)
+        for a, b in zip(scaled, plain):
+            self.assertAlmostEqual(a.at("i(vdl)", 0.0), b.at("i(vdl)", 0.0), delta=abs(b.at("i(vdl)", 0.0)) * 1e-9)
+        self.assertAlmostEqual(scaled[0].at("i(vdl)", 0.0), -2.7742e-4, delta=1e-8)   # 2 * 1e-14 * exp(0.6/Vt)
+        self.assertAlmostEqual(scaled[0].at("i(vdl)", 0.0), scaled[1].at("i(vdl)", 0.0),
+                               delta=abs(scaled[1].at("i(vdl)", 0.0)) * 2e-3)          # Xyce's k/q differ
+        warm = self.both(deck("integ_scale.sp", ".temp 27"), "s27")      # 27 C moves kp and vto
+        for raw in warm:
+            self.assertGreater(abs(raw.at("i(vd1)", 0.0) / -4.1667e-5 - 1.0), 1e-3, raw.path)
+
+    @needs_vacask
+    def test_scale_reaches_a_geometric_diode(self):
+        raw = self.vacask(deck("integ_dscale.sp"), "dscale")           # Xyce has no LEVEL 3 diode
+        ref = raw.at("i(vr)", 0.0)
+        self.assertLess(ref, -1e-4)
+        for col in ("i(vg)", "i(vh)"):                                 # W*L and AREA, each scaled once
+            self.assertAlmostEqual(raw.at(col, 0.0), ref, delta=abs(ref) * 1e-9, msg=col)
+
+
+@needs_both
+class TestControlDeck(_Runs):
+    def test_runs_with_evaluated_control_values(self):
+        for raw in self.both(deck("integ_control.sp"), "ctl"):
+            self.assertAlmostEqual(raw.at("b", 0.0), 0.7, delta=1e-4)         # .ic v(b)='vh'
+            self.assertAlmostEqual(raw.at("c", 1e-8), 1.25, delta=1e-6)       # .temp tt = 50
+            self.assertAlmostEqual(raw.last_time(), 1e-8, delta=1e-20)        # .tran 1n 'tsim'
+
+
+def level1_delay(c, beta, vt, vdd, n=4000):
+    """Step-input delay of a level-1 inverter to vdd/2: C * integral(dV / Ids) of the on device."""
+    vov = vdd - vt
+
+    def ids(v):
+        return 0.5 * beta * vov * vov if v >= vov else beta * (vov * v - 0.5 * v * v)
+
+    h = (vdd / 2) / n
+    return c * h * (0.5 * (1 / ids(vdd / 2) + 1 / ids(vdd)) + sum(1 / ids(vdd / 2 + i * h) for i in range(1, n)))
+
+
+@needs_both
+class TestMaxStep(_Runs):
+    """HSPICE's maximum internal step (spice.py, no .option delmax: min(TSTOP/50, RMAX*TSTEP)).
+
+    The e2e 6 inverter, standalone: with only the engines' own bounds VACASK steps 0.34 ns
+    across the 0.45 ns output edge and its interpolated crossings are 458-471 ps (Xyce 456 ps),
+    up to 4.6 % from the 450.4 ps closed form; with HSPICE's 5 ps bound both give 452.7-453 ps."""
+
+    def test_level1_inverter_delay(self):
+        nl = spice.parse([], lines("""
+.model nch nmos level=1 vto=0.5 kp=120u
+.model pch pmos level=1 vto=-0.5 kp=40u
+.subckt inv y a
+mp y a vdd vdd pch w=6u l=1u
+mn y a 0 0 nch w=2u l=1u
+cl y 0 100f
+.ends
+.global vdd
+vdd vdd 0 1.8
+vin a 0 pulse(0 1.8 10n 10p 10p 9.99n 20n)
+x1 y a inv
+.tran 1p 60n
+.print tran v(a) v(y)
+"""), FX)
+        self.assertEqual(nl.tran().args["maxstep"], 5e-12)
+        stage = level1_delay(100e-15, 240e-6, 0.5, 1.8)                     # 450.4 ps, both devices
+        delays = {}
+        for raw in self.both(nl, "inv"):
+            xa, xy = raw.crossings("a", 0.9), raw.crossings("y", 0.9)
+            self.assertEqual((len(xa), len(xy)), (5, 5), raw.path)
+            delays[raw.path] = [ty - ta for ta, ty in zip(xa, xy)]
+            for d in delays[raw.path]:
+                self.assertAlmostEqual(d, stage, delta=0.015 * stage, msg="%s: delay %.5g s vs level-1 %.5g s"
+                                       % (raw.path, d, stage))
+        dv, dx = delays.values()
+        for a, b in zip(dv, dx):
+            self.assertAlmostEqual(a, b, delta=0.003 * b, msg="VACASK %.5g s vs Xyce %.5g s" % (a, b))
+
+
+@needs_both
+class TestHspiceDefaults(_Runs):
+    """HSPICE's model defaults and number syntax on both engines, against HSPICE's own values
+    (tables.hspice_card, tables.coupled_inductance, expr.number; Star-HSPICE 2001.2): every
+    expected value is computed from the manual's equations or is its published result."""
+
+    def check(self, raws, col, t, want, rel=2e-3, sign=1.0):
+        for raw in raws:
+            got = sign * raw.at(col, t)
+            self.assertAlmostEqual(got, want, delta=rel * abs(want), msg="%s %s at %g" % (raw.path, col, t))
+
+    def test_mos_level1_kp_tox_gamma(self):
+        nl = spice.parse([], lines("""
+vdd vdd 0 3
+vga ga 0 1.7
+vda da 0 3
+ma da ga 0 0 na l=1u w=10u
+.model na nmos level=1 vto=0.7
+vgb gb 0 1.3
+vdb db 0 0
+mb db gb vdd vdd pb l=1u w=10u
+.model pb pmos level=1 vto=-0.7
+vgc gc 0 1.7
+vdc dc 0 3
+mc dc gc 0 0 nc l=1u w=10u
+.model nc nmos level=1 vto=0.7 tox=200 uo=600 capop=0
+vs s 0 1
+vgd gd 0 2.7
+vdd2 dd 0 5
+md dd gd s 0 nd l=1u w=10u
+.model nd nmos level=1 vto=0.7 kp=50u
+.tran 1n 10n
+.print tran i(vda) i(vdb) i(vdc) i(vdd2)
+"""), FX)
+        raws = self.both(nl, "kp")
+        self.check(raws, "i(vda)", 5e-9, 2.0718e-5 / 2 * 10, sign=-1)         # KP default, NMOS (21-2)
+        self.check(raws, "i(vdb)", 5e-9, 8.632e-6 / 2 * 10)                   # KP default, PMOS
+        self.check(raws, "i(vdc)", 5e-9, 600e-4 * 3.45314379969e-11 / 2e-8 / 2 * 10, sign=-1)  # TOX in Angstrom
+        g, phi = 0.527625219, 0.576036504                                     # GAMMA, PHI from NSUB=1e15
+        vth = 0.7 + g * (math.sqrt(phi + 1.0) - math.sqrt(phi))
+        self.check(raws, "i(vdd2)", 5e-9, 50e-6 / 2 * 10 * (1.7 - vth) ** 2, sign=-1)
+
+    def test_mos_level3_manual_example_and_ld(self):
+        """The manual's LEVEL 3 example (21-30: uo=600 tox=172.6572 Angstrom, HSPICE id=6.91200e-04)
+        and the LD=0.75*XJ default: the card without LD equals the card with ld=0.15u."""
+        card = ".model nch nmos LEVEL=3 uo=600 tox=172.6572 vto=0.8 gamma=0.8 phi=0.64 kappa=%s xj=0 nsub=1e16 rsh=0"
+        deck = "vd d 0 5\nvg g 0 2\nm1 d g 0 0 nch w=10u L=1u\n%s\n.tran 1n 10n\n.print tran i(vd)"
+        rx = self.xyce(spice.parse([], lines(deck % (card % "0")), FX), "l3x")
+        self.check([rx], "i(vd)", 5e-9, 6.912e-4, rel=1e-5, sign=-1)
+        # VACASK's sp_mos3 gives NaN at exactly kappa=0 (an engine defect, reported); 1e-12 is the same model
+        rv = self.vacask(spice.parse([], lines(deck % (card % "1e-12")), FX), "l3v")
+        self.check([rv], "i(vd)", 5e-9, 6.912e-4, rel=1e-4, sign=-1)
+        c3 = "level=3 vto=0.7 kp=50u tox=2e-8 xj=0.2u nsub=1e16 gamma=0.4 phi=0.7 capop=0"
+        nl = spice.parse([], lines("vg g 0 1.7\nvda da 0 2\nvdb db 0 2\nma da g 0 0 na l=1u w=10u\n"
+                                   ".model na nmos %s\nmb db g 0 0 nb l=1u w=10u\n.model nb nmos %s ld=0.15u\n"
+                                   ".tran 1n 10n\n.print tran i(vda) i(vdb)" % (c3, c3)), FX)
+        for raw in self.both(nl, "ld"):
+            self.assertAlmostEqual(raw.at("i(vda)", 5e-9), raw.at("i(vdb)", 5e-9), delta=1e-12)
+            self.assertLess(raw.at("i(vda)", 5e-9), -4.9e-4)
+
+    def test_mos_level2_pmos_uo_and_tox_parameter(self):
+        nl = spice.parse([], lines("""
+.param toxp=200
+vdd vdd 0 3
+vg g 0 1.3
+vd d 0 0
+m1 d g vdd vdd p2 l=10u w=100u
+.model p2 pmos level=2 vto=-0.7 tox=toxp gamma=0 lambda=0 capop=0
+.tran 1n 10n
+.print tran i(vd)
+"""), FX)
+        self.check(self.both(nl, "l2"), "i(vd)", 5e-9, 250e-4 * 3.45314379969e-11 / 2e-8 / 2 * 10, rel=2e-2)
+
+    def test_junction_capacitance_dcap2_and_defaults(self):
+        """C(v)*dv/dt of junctions ramped through 0: HSPICE's DCAP=2 (15-27, 16-35, 17-26), diode
+        PB 0.8 and PHP=PB (15-12), BJT MJS 0.5 (16-11), JFET PB 0.8 (17-18)."""
+        nl = spice.parse([], lines("""
+v1 a 0 pwl(0 -1 1u 0.7)
+d1 a 0 dcj
+.model dcj d is=1e-30 cjo=1p m=0.5 vj=0.8 fc=0.5
+v2 b 0 pwl(0 -3 1u 0)
+d2 b 0 dpb
+.model dpb d is=1e-30 cjo=1p m=0.5
+v3 c 0 pwl(0 -1 1u 0.6)
+d3 c 0 dsw pj=1
+.model dsw d is=1e-30 cjo=1p m=0.5 cjsw=1p mjsw=0.33 pb=0.7
+v4 qb 0 pwl(0 0 1u 0.7)
+vqc qc 0 0
+q4 qc qb 0 qn
+.model qn npn is=1e-30 bf=100 cje=1p vje=0.75 mje=0.33 fc=0.5
+v5 qs 0 pwl(0 0 1u -3)
+vqc5 qc5 0 0
+vqb5 qb5 0 0
+q5 qc5 qb5 0 qs qns
+.model qns npn is=1e-30 bf=100 cjs=1p vjs=0.75
+v6 jg 0 pwl(0 -2 1u 0.5)
+vjd jd 0 0
+j6 jd jg 0 jn
+.model jn njf vto=-3 beta=1e-4 cgs=1p is=1e-30
+.tran 1n 1u
+.option delmax=1n
+.print tran i(v1) i(v2) i(v3) i(v4) i(v5) i(v6)
+"""), FX)
+        raws = self.both(nl, "dcap")
+        for vd in (-0.5, 0.3, 0.6):                                           # DCAP=2: FC ignored
+            c = 1e-12 * ((1 - vd / 0.8) ** -0.5 if vd < 0 else 1 + 0.5 * vd / 0.8)
+            self.check(raws, "i(v1)", (vd + 1.0) / 1.7e6, c * 1.7e6, sign=-1)
+        for vd in (-2.5, -1.0):                                               # PB 0.8
+            self.check(raws, "i(v2)", (vd + 3.0) / 3e6, 1e-12 * (1 - vd / 0.8) ** -0.5 * 3e6, sign=-1)
+        for vd in (-0.5, 0.4):                                                # sidewall: PHP=PB=0.7
+            c = 1e-12 * ((1 - vd / 0.7) ** -0.5 + (1 - vd / 0.7) ** -0.33 if vd < 0
+                         else 2 + (0.5 + 0.33) * vd / 0.7)
+            self.check(raws, "i(v3)", (vd + 1.0) / 1.6e6, c * 1.6e6, rel=5e-3, sign=-1)
+        for v in (0.35, 0.65):                                                # BJT CJE, DCAP=2
+            self.check(raws, "i(v4)", v / 0.7e6, 1e-12 * (1 + 0.33 * v / 0.75) * 0.7e6, sign=-1)
+        self.check(raws, "i(v5)", 2.9 / 3e6, 1e-12 * (1 + 2.9 / 0.75) ** -0.5 * 3e6, rel=5e-3)   # MJS 0.5
+        for v in (-1.5, 0.4):                                                 # JFET CGS, PB 0.8
+            c = 1e-12 * ((1 - v / 0.8) ** -0.5 if v < 0 else 1 + 0.5 * v / 0.8)
+            self.check(raws, "i(v6)", (v + 2.0) / 2.5e6, c * 2.5e6, rel=5e-3, sign=-1)
+
+    def test_coupled_inductors_under_a_multiplier(self):
+        """M parallel transformers (4-8: M "simulates parallel inductors"; X M: "M subcircuits in
+        parallel"): v(p) = L/M * dI/dt, v(s) = k*sqrt(L1*L2) * d(I/M)/dt; TC1 on coupled inductors."""
+        sub = ".subckt xfmr a b\nl1 a 0 1u\nl2 b 0 1u\nk1 l1 l2 0.5\n.ends\n"
+        drive = "i1 0 p pwl(0 0 1u 1)\nrp p 0 1meg\nr2 s 0 1meg\n.tran 1n 1u\n.option delmax=1n\n.print tran v(s) v(p)\n"
+        for m in (2.0, 3.0):
+            raws = self.both(spice.parse([], lines(sub + "x1 p s xfmr m=%g\n" % m + drive), FX), "x%g" % m)
+            self.check(raws, "s", 0.5e-6, 0.5 / m)
+            self.check(raws, "p", 0.5e-6, 1.0 / m)
+        raws = self.both(spice.parse([], lines("l1 p 0 1u m=2\nl2 s 0 1u\nk1 l1 l2 0.5\n" + drive), FX), "top")
+        self.check(raws, "s", 0.5e-6, 0.25 * math.sqrt(2.0))
+        self.check(raws, "p", 0.5e-6, 0.5)
+        raws = self.both(spice.parse([], lines(".temp 125\nl1 p 0 1u tc1=0.01\nl2 s 0 1u tc1=0.01\n"
+                                               "k1 l1 l2 0.5\n" + drive), FX), "tc")
+        self.check(raws, "s", 0.5e-6, 1.0)
+        self.check(raws, "p", 0.5e-6, 2.0)
+
+    def test_d_exponents(self):
+        """3-4: "Exponents are designated by D or E": the D deck simulates as the E deck."""
+        deck = "v1 a 0 1\nr1 a b 1.0%s+3\nr2 b 0 1e3\n.param cl=50%s-15\nc1 b 0 cl\n" \
+               ".model dd d is=1.0%s-14 n=1.0%s+00\nd1 b 0 dd\n.tran 1n 10n\n.print tran v(b)"
+        d = spice.parse([], lines(deck % ("D", "D", "D", "D")), FX)
+        e = spice.parse([], lines(deck % ("E", "e", "E", "E")), FX)
+        self.assertEqual(d.values, {"cl": 5e-14})
+        for (rd, re_) in zip(self.both(d, "dexp"), self.both(e, "eexp")):
+            self.assertEqual(rd.at("b", 5e-9), re_.at("b", 5e-9))
+            self.assertAlmostEqual(rd.at("b", 5e-9), 0.4987, delta=1e-3)
+
+    def test_bsim3_level49_defaults_run(self):
+        nl = spice.parse([], lines("vd d 0 1\nvg g 0 1\nm1 d g 0 0 n3 l=1u w=10u\n.model n3 nmos level=49 "
+                                   "version=3.1 tox=4e-9 vth0=0.4 u0=0.04 k1=0.5 k2=0 nch=1.7e17 xj=1e-7\n"
+                                   ".tran 1n 10n\n.print tran i(vd)"), FX)
+        for render in (vacask.render, xyce.render):
+            notes = []
+            text = render(nl, notes=notes)
+            self.assertRegex(text, r"xpart=1(\.0)? capmod=2(\.0)?")
+            self.assertEqual(len([n for n in notes if n.severity == "warning"]), 2)   # ACM=0, CAPMOD=0
+        rv, rx = self.both(nl, "b3")
+        self.assertAlmostEqual(rv.at("i(vd)", 5e-9), rx.at("i(vd)", 5e-9), delta=0.02 * abs(rx.at("i(vd)", 5e-9)))
+
+
+if __name__ == "__main__":
+    unittest.main()

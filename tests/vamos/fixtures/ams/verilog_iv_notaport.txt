@@ -1,0 +1,4 @@
+p.v:2: error: port ``b'' is not a port of u.
+p.v:2: warning: Port 1 (a) of module c expects 2 bit(s), given 1.
+p.v:2:        : Padding 1 high bits of the port.
+1 error(s) during elaboration.

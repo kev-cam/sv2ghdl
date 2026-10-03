@@ -1,0 +1,7 @@
+* C-side: the deck names a bridge signal (nope) the boundary file does not have
+V_d2a nin 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:d2a:nope"
+R1 nin nout 1k
+C1 nout 0 100p
+.tran 1n 1u
+.print tran format=raw file=xyce_tran.raw V(nin) V(nout)
+.end

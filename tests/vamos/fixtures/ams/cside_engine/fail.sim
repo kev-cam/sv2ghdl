@@ -1,0 +1,22 @@
+C-side: the transient fails mid-run (a negative-resistance node kicked at 100 ns grows without bound)
+
+load "resistor.osdi"
+load "capacitor.osdi"
+
+model vsrc vsource
+model isrc isource
+model r resistor
+model c capacitor
+model g vccs
+
+v_d2a (nin 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:nin"
+r0 (nin 0) r r=1k
+
+ikick (0 n) isrc type="pulse" val0=0 val1=1u delay=100n rise=1n fall=1n width=1n
+g1 (n 0 n 0) g gain=-11m
+r1 (n 0) r r=1k
+c1 (n 0) c c=1p
+
+control
+  analysis tran1 tran step=1n stop=1u
+endc

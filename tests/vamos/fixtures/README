@@ -1,0 +1,39 @@
+Test fixtures for the vamos AMS tests (docs/VAMOS_AMS_DESIGN.md §9).
+
+netlist/  SPICE inputs and emitter goldens
+vhdl/     design.vhd files captured from iverilog-sv2ghdl (WSL) for the cut tests
+ams/      control files and small mixed-signal designs
+
+Third-party files
+-----------------
+Two sets of files here come from other projects and keep their own licences
+(see the repository's LICENSE).
+
+x-heep, https://github.com/x-heep/x-heep (formerly
+https://github.com/esl-epfl/x-heep): hw/ip_examples/ams/analog/adc.sp and
+control.init, byte for byte.  Both came in with x-heep commit
+494237ce3b792c099eb06d30182c9eeb9f19dcb6 ("integration of an AMS peripheral
+example (#270)", 2023-06-14), and x-heep's main branch still had them unchanged
+on 2026-10-03.  Copyright EPFL contributors; Apache License 2.0 (SPDX:
+Apache-2.0), whose text is LICENSES/Apache-2.0.txt at the root of this
+repository (the "see LICENSE" in their headers means x-heep's LICENSE file).
+The copies:
+  ams/e2e_supplies/xheep/hw/ip_examples/ams/analog/adc.sp
+  ams/e2e_supplies/xheep/hw/ip_examples/ams/analog/control.init
+  netlist/spice_xheep/hw/ip_examples/ams/analog/adc.sp
+  ams/init_xheep_control.init                          (control.init)
+
+PTM, the Predictive Technology Model (Nanoscale Integration and Modeling Group,
+Arizona State University), http://ptm.asu.edu/: the two identical
+hw/ip_examples/ams/analog/65nm_bulk.pm files, in ams/e2e_supplies/xheep/ and
+netlist/spice_xheep/, are a subset of PTM's 65 nm bulk CMOS BSIM4 cards
+(65nm_bulk.pm, released 22 February 2006).  x-heep's adc.sp includes that file,
+and x-heep does not ship it.  The file's header says what was kept and what
+differs from PTM's card.  PTM asks every user to acknowledge its URL,
+http://ptm.asu.edu/, and its publications:
+  W. Zhao, Y. Cao, "New generation of Predictive Technology Model for sub-45nm
+  early design exploration," IEEE Transactions on Electron Devices, vol. 53,
+  no. 11, pp. 2816-2823, November 2006.
+  Y. Cao, T. Sato, D. Sylvester, M. Orshansky, C. Hu, "New paradigm of
+  predictive MOSFET and interconnect modeling for early circuit design,"
+  CICC, pp. 201-204, 2000.

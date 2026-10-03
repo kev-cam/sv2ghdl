@@ -1,0 +1,4 @@
+The directory vcs runs in for the x-heep fixture (x-heep builds into
+build/<core>/sim-vcs).  adc.sp's .include "../../../hw/ip_examples/ams/analog/65nm_bulk.pm"
+and control.init's "choose xa ../../../hw/ip_examples/ams/analog/adc.sp" are
+relative to it.

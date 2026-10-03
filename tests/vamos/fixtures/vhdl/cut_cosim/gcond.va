@@ -1,0 +1,9 @@
+// Gated conductance for the cut co-simulation tests (the shape of vamos_ie.va's
+// vamos_gcond, docs/VAMOS_AMS_DESIGN.md §4.7): i(nd -> n) = v(ne)*(v(nd)-v(n))/rr.
+`include "disciplines.vams"
+module vamos_gcond(n, nd, ne);
+  inout n, nd, ne;
+  electrical n, nd, ne;
+  parameter real rr = 500.7;
+  analog I(nd, n) <+ V(ne) * (V(nd) - V(n)) / rr;
+endmodule

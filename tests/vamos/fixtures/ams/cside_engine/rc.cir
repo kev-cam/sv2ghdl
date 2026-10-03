@@ -1,0 +1,7 @@
+* C-side: D2A q -> nin, RC -> nout (deck stop 1 us)
+V_d2a nin 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:d2a:nin"
+R1 nin nout 1k
+C1 nout 0 100p
+.tran 1n 1u
+.print tran format=raw file=xyce_tran.raw V(nin) V(nout)
+.end

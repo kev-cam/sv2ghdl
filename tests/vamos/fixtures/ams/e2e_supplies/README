@@ -1,0 +1,23 @@
+Fixtures for tests/vamos/test_ams_e2e_supplies.py (docs/VAMOS_AMS_DESIGN.md §9 e2e 7).
+
+xheep/ mirrors the x-heep tree the AMS example lives in:
+
+  hw/ip_examples/ams/analog/adc.sp        x-heep's adc.sp, verbatim (Apache-2.0)
+  hw/ip_examples/ams/analog/control.init  x-heep's control.init, verbatim (Apache-2.0)
+  hw/ip_examples/ams/analog/65nm_bulk.pm  a subset of PTM's 65 nm bulk card, which adc.sp
+                                          includes and x-heep does not ship (the same
+                                          file as the copy in tests/vamos/fixtures/
+                                          netlist/spice_xheep, used by the netlist tests)
+  hw/ip_examples/ams/rtl/tb_ams_adc.sv    a small testbench shaped like x-heep's ams.sv
+  build/openhwgroup.org_systems_core-v-mini-mcu_0/sim-vcs/
+                                          where vcs runs (see its README)
+
+adc.sp and control.init come from x-heep (https://github.com/x-heep/x-heep, formerly
+https://github.com/esl-epfl/x-heep), hw/ip_examples/ams/analog/, as added in commit
+494237ce3b792c099eb06d30182c9eeb9f19dcb6 (2023-06-14; unchanged on x-heep's main branch
+on 2026-10-03).  They keep their licence, Apache-2.0, whose text is
+LICENSES/Apache-2.0.txt at the repository root.  65nm_bulk.pm's header gives its
+source, the Predictive Technology Model (http://ptm.asu.edu/), and the publications
+PTM asks users to cite.  tests/vamos/fixtures/README has the details.
+
+The other e2e designs of the test file are inline strings.

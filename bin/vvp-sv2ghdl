@@ -35,6 +35,25 @@ if [[ -z "$NVC_LIBDIR" ]]; then
     fi
 fi
 RESOLVER="${NVC_LIBDIR}/sv2vhdl/libresolver.so"
+# The sv_math_pkg foreign functions ($sqrt, $ln, $pow, $sin, $hypot, $rtoi, $dist_*, ...):
+# without this library each of them stops the run ("foreign function sv_sqrt not found").
+SV_MATH="${NVC_LIBDIR}/sv2vhdl/libsv_math.so"
+
+# The resolver plugin's Python half, sv2vhdl_resolver.py.  The plugin looks for it only in
+# its own directory, which in a build tree holds no copy (make install puts one next to the
+# plugin); without it every run prints "resolver: ERROR - cannot import sv2vhdl_resolver"
+# and Python's ModuleNotFoundError, and per-net resolution is off.  Look next to the plugin,
+# then in the nvc source tree the build was configured from (its Makefile's abs_top_srcdir),
+# then beside the build directory (vamos's NvcBackend does the same).
+_resolver_py=""
+for _d in "${NVC_LIBDIR}/sv2vhdl" \
+          "$(sed -n 's/^abs_top_srcdir = //p' "${NVC_LIBDIR}/../Makefile" 2>/dev/null)/lib/sv2vhdl" \
+          "$(dirname "$NVC_LIBDIR")/../nvc/lib/sv2vhdl"; do
+    if [[ -f "$_d/sv2vhdl_resolver.py" ]]; then
+        _resolver_py=$(cd "$_d" && pwd)     # absolute: the run happens after a cd
+        break
+    fi
+done
 
 # Parse arguments (vvp-compatible)
 SIMDIR=""
@@ -112,22 +131,33 @@ fi
 #
 # The awk filter extracts message text from ** Note lines, strips Process
 # continuation lines, and routes warnings/errors to stderr.
-# Load resolver plugin if available (generates per-net resolution via Python)
-LOAD_RESOLVER=""
+# Load the resolver plugin if available (generates per-net resolution via Python), and the
+# math library.  The resolver goes first: both export the $random generator (sv_random), and
+# the first library loaded wins, so the design keeps the resolver's one design-wide seed.
+PLUGINS=""
 if [[ -f "$RESOLVER" ]]; then
-    LOAD_RESOLVER="--load=$RESOLVER"
+    PLUGINS="$RESOLVER"
     export SV2VHDL_QUIET=1
+    if [[ -n "$_resolver_py" ]]; then
+        export PYTHONPATH="$_resolver_py${PYTHONPATH:+:$PYTHONPATH}"
+    fi
 fi
+if [[ -f "$SV_MATH" ]]; then
+    PLUGINS="${PLUGINS:+$PLUGINS,}$SV_MATH"
+fi
+LOAD_PLUGINS=""
+[[ -n "$PLUGINS" ]] && LOAD_PLUGINS="--load=$PLUGINS"
 
 nvc_log=$(mktemp)
 trap 'rm -f "$nvc_log"' EXIT
-timeout "$RUN_TIMEOUT" $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_RESOLVER -r $ACCEL_FLAG "$TOP_ENTITY" "${PLUSARGS[@]}" > "$nvc_log" 2>&1
+timeout "$RUN_TIMEOUT" $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_PLUGINS -r $ACCEL_FLAG "$TOP_ENTITY" "${PLUSARGS[@]}" > "$nvc_log" 2>&1
 nvc_exit=$?
 awk '
     /^\*\* Note: loading VHPI/  { next }
     /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
     /^   Process /    { next }
     /^   Procedure /  { next }
+    /^   Function .* at .+:[0-9]+$/ { next }   # trace of a report inside a function
     /^\*\* Debug: /   { next }
     /^\*\* (Warning|Error|Fatal): / { print > "/dev/stderr"; next }
     /^plugin loaded/  { next }

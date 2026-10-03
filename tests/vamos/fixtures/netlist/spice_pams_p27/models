@@ -1,0 +1,12 @@
+* Model library for the PAMS p27 example netlist (VCS PrimeSim AMS User Guide
+* U-2023.03-SP1, p27: ".lib 'models' TT").  Written for the vamos tests.
+
+.lib TT
+.model nch nmos level=1 vto=0.7 kp=110u gamma=0.4 lambda=0.04 phi=0.7
+.model pch pmos level=1 vto=-0.7 kp=50u gamma=0.57 lambda=0.05 phi=0.8
+.endl TT
+
+.lib FF
+.model nch nmos level=1 vto=0.6 kp=130u gamma=0.4 lambda=0.04 phi=0.7
+.model pch pmos level=1 vto=-0.6 kp=60u gamma=0.57 lambda=0.05 phi=0.8
+.endl FF

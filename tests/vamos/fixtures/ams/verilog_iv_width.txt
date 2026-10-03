@@ -1,0 +1,2 @@
+w.v:2: warning: Port 1 (a) of module c expects 2 bit(s), given 1.
+w.v:2:        : Padding 1 high bits of the port.

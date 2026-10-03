@@ -1,0 +1,10 @@
+* C-side: the Xyce a2d round trip plus a comparator that makes the transient fail at 150 ns
+Vsense nsense 0 PWL(0 0  99n 0  100n 1  200n 1)
+I_a2d nsense 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:a2d:ain"
+V_d2a nout 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:d2a:dq"
+Bcmp out 0 V={IF(TIME < 150n, 0, IF(V(cap) > 0.5, 0, 1))}
+R1 out cap 1k
+C1 cap 0 1p
+.tran 1n 200n
+.print tran format=raw file=xyce_tran.raw V(nsense) V(nout) V(cap)
+.end

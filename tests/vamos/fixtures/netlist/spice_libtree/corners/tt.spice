@@ -1,0 +1,3 @@
+* tt corner (paths relative to this file, as in sky130)
+.include "../models/nfet.spice"
+.include "../all.spice"

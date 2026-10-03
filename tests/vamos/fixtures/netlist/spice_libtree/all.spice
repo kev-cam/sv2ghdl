@@ -1,0 +1,4 @@
+* Applies to every corner (sky130 puts .option scale here)
+.option scale=1.0u
+.param vdd_nom=1.8
++ vth_spread = 'corner_dvt*2'  ; a ';' comment, as in sky130

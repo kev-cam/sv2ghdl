@@ -1,0 +1,47 @@
+Cut fixtures (tests/vamos/test_ams_vhdl.py, test_ams_cut.py; docs/VAMOS_AMS_DESIGN.md §5.3-5.5)
+
+Each cut_<case>/ holds tb.v (a small design with hand-written shells in the
+§5.1 form, per-bit markers), and design.vhd + _norm.sv as iverilog-sv2ghdl
+wrote them (cut_regen.sh regenerates them in WSL).  Every design.vhd but
+cut_portbuf's predates the translator patches (docs/VAMOS_AMS_DESIGN.md §7):
+no T3 '-- Verilog instance:' comments, no T5 pulls, no T8 port buffers;
+design_t2.vhd and design_t3.vhd are hand-edited copies in the T2/T3 form.
+
+  ports      reserved-word / odd port names (in out signal bus open _a b_ c__d),
+             a port named after another module (inv -> inv_sig in the variant
+             only), OUT/In on a second cell (out and OUT on one cell both
+             mapped to formal out_sig before translator patch T10, which this
+             design.vhd predates), cells named buffer, block, register,
+             my__cell, cell_, _cell
+  shared     a wrapper holding a cut cell, instantiated twice (shared parent)
+  bidir      bidirectional pad: tri-state driver + pullup + reader
+  readable   _Readable shapes a/b/c/e; bandgap -> ADC exported (comb_fused :=)
+  prims      nand, pullup, bufif1, weak assign, and-assign, initial deposits,
+             supply1/supply0/supply1 [1:0], pullup (supply1), an undriven wire
+  vec        instance array, generate loop, plain instances on vector bits, a
+             vector with one digitally driven bit, {code[0], code[1]}, code[3:2]
+             (design_t3.vhd: with T3 '-- Verilog instance:' comments)
+  temps      .d({x, gnd}) with supply0 gnd, .a(vdd), out -> v[0] -> in, w[5:4]
+  dac        a parameterised multi-view cell with N=4 and N=8 (generate-loop
+             markers), a SPICE-only cell split by 'wire t; assign t = 1'b1'
+  force      force/release on a cut net (an error)
+  real       real ports of a multi-view cell
+  swvp       inout cut ports on bus bits (generate pad ring, bit-selects):
+             SW_ivl_*_b one-way copies (rejected); design_t2.vhd: the T2 alias form
+  tri        tri1/tri0 nets on cut inputs, translated before patch T5 (no pulls
+             drawn): the cut's "its pull needs translator patch T5" error
+  pullshare  a pullup in a wrapper instantiated twice, needed digitally on one
+             path and moved into the deck on the other (an error in v1)
+  portbuf    port buffers, captured with translator patch T8: wrapper input
+             ports whose net a cut port's marker or a digital driver also
+             drives inside, fed from a variable (we, beside the variable's own
+             SPICE input c1), a bit of a vector variable (wb), an expression
+             (wx), a vector variable on a vector port (wv); a wrapper that also
+             reads the port (wr), an output cut port (wo), a digital driver
+             inside the wrapper (wd).  tgt-vhdl draws each buffer in tb as
+             PB_<label>_<port> <= <actual>; the cut joins it one way, keeps
+             wd's side a net of its own and rejects wr and wo
+             (test_ams_cut.py TestPortBuffers, test_ams_vhdl.py)
+
+cut_cosim/   VACASK decks for the two co-simulation tests (shared, bidir) and
+             gcond.va, the gated conductance of the D2A (vamos_gcond's shape).

@@ -1,0 +1,12 @@
+The directory vcs runs in for the x-heep e2e test (x-heep builds into
+build/<core>/sim-vcs).  The test copies the whole xheep/ tree to a scratch
+directory and runs, from here,
+
+    vcs -sverilog ../../../hw/ip_examples/ams/rtl/tb_ams_adc.sv \
+        -ad=../../../hw/ip_examples/ams/analog/control.init --vamos-analog=<engine> \
+        --vamos-analog-maxstep=1n
+
+as x-heep's patch_vcs_ams_Makefile.py appends -ad=... to its vcs line.
+control.init's "choose xa ../../../hw/ip_examples/ams/analog/adc.sp" and
+adc.sp's .include "../../../hw/ip_examples/ams/analog/65nm_bulk.pm" are relative
+to this directory.

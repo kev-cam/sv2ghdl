@@ -1,0 +1,15 @@
+rc ac fixture ascii
+load "resistor.osdi"
+load "capacitor.osdi"
+model vsrc vsource
+model r resistor
+model c capacitor
+v1 (a 0) vsrc dc=0.0 mag=1.0
+r1 (a b) r r=1000.0
+c1 (b 0) c c=1e-12
+control
+  abort always
+  options rawfile="ascii"
+  save v(a) v(b)
+  analysis ac2 ac from=1e6 to=1e9 mode="dec" points=1
+endc

@@ -1,0 +1,7 @@
+* C-side: A2D round trip (nsense -> ain, threshold in the digital, dq -> nout)
+Vsense nsense 0 PWL(0 0  99n 0  100n 1  200n 1)
+I_a2d nsense 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:a2d:ain"
+V_d2a nout 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:d2a:dq"
+.tran 1n 200n
+.print tran format=raw file=xyce_tran.raw V(nsense) V(nout)
+.end

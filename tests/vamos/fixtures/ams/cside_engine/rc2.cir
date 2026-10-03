@@ -1,0 +1,8 @@
+* C-side: two D2A sources (q -> nin, q2 -> nin2), each into 1k
+V_d2a nin 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:d2a:nin"
+V_d2b nin2 0 PWL FILE "code:libcosim_bridge.so:nvc_bridge_init:d2a:nin2"
+R1 nin 0 1k
+R2 nin2 0 1k
+.tran 1n 100n
+.print tran format=raw file=xyce_tran.raw V(nin) V(nin2)
+.end

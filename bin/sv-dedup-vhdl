@@ -30,6 +30,14 @@ def port_sig(block):
 def shorthash(s):
     return hashlib.md5(s.encode()).hexdigest()[:4]
 
+def code_and_params(block):
+    """A block without its comments -- except tgt-vhdl's "--   P = v"
+    parameter lines: two variants whose code is alike but whose parameter
+    values differ (a real or string the body does not use) are not the
+    same entity, and keeping either one's lines would be a lie."""
+    b = re.sub(r'--(?!\s+\w+ = )[^\n]*', '', block)
+    return re.sub(r'\s+', ' ', b)
+
 def main():
     infile = sys.argv[1] if len(sys.argv) > 1 else '-'
     outfile = None
@@ -60,12 +68,11 @@ def main():
             # body hash into names, so a clash here means that invariant
             # broke upstream — fail loudly (SV2VHDL_DEDUP_LAX=1 to keep
             # the old first-wins behaviour while debugging).
-            kept = re.sub(r'--[^\n]*', '', variants[name][sig])
-            mine = re.sub(r'--[^\n]*', '', b)
-            if re.sub(r'\s+', ' ', kept) != re.sub(r'\s+', ' ', mine):
+            if code_and_params(variants[name][sig]) != code_and_params(b):
                 body_clash += 1
                 print(f"sv-dedup-vhdl: BODY CLASH on {name} "
-                      f"(same name+ports, different architecture)",
+                      f"(same name+ports, different architecture or "
+                      f"parameter values)",
                       file=sys.stderr)
 
     # Build output: for names with one variant, keep as-is.

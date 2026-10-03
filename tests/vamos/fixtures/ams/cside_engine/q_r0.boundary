@@ -1,0 +1,2 @@
+# rise=0 is clamped to 1 fs with a warning
+D2A .q nin rise=0 fall=0

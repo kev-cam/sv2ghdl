@@ -1,0 +1,13 @@
+choose xa top.sp -c init_xa.cfg -o out/ana;
+netlist_commands_begin;
+* a SPICE comment line ; with a semicolon
+.temp 45 $ an inline dollar comment
+.param vsup=1.2 ; an inline semicolon comment
+// a double-slash line, kept as written
+   .option post=1
+netlist_commands_end;
+xa_commands_begin
+set_sim_level 5
+probe_waveform_voltage tb.dut.* -limit 3
+xa_commands_end
+bus_format <%d>;

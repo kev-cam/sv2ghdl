@@ -1,0 +1,4 @@
+c.v:3: warning: ignoring 1 extra parameter override(s) for instance 'u1' of module 'inv_sp' which expects 0 parameter(s).
+c.v:4: error: parameter `W` not found in `tbc.u2`.
+c.v:5: error: parameter `Q` not found in `tbc.u1`.
+3 error(s) during elaboration.

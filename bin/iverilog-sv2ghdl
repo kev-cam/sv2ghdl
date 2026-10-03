@@ -13,6 +13,12 @@
 # library, and a _metadata file.  The test runner's "rm -rf ./vsim" cleans
 # everything up between tests.
 #
+# iverilog's diagnostics from every stage are kept in <outdir>/iverilog.log,
+# next to design.vhd, as "=== <tool>: <run>" sections (sv2vhdl-modules
+# writes one "=== sv2vhdl-modules: iverilog -tvhdl -s <module>: <status>"
+# section per module). Each module that ends as a deferred stub in
+# design.vhd is reported on stderr with its section.
+#
 
 set -o pipefail
 export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
@@ -188,6 +194,11 @@ esac
 rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR"
 
+# iverilog's messages: one "=== iverilog-sv2ghdl: <run>" section per run
+IVL_LOG="$OUTDIR/iverilog.log"
+: > "$IVL_LOG"
+ivl_log_section() { echo "=== iverilog-sv2ghdl: $*" >> "$IVL_LOG"; }
+
 # --- Stage 0: preprocess + normalize ---
 # The iverilog tgt-vhdl elaborator rejects some SystemVerilog the VeeR-class
 # RTL uses (notably chained dynamic-then-range indexing `arr[VAR][HI:LO]`).
@@ -199,8 +210,9 @@ NORM_SRC=""
 if [[ -x "$SV_NORMALIZE" ]]; then
     _pp="$OUTDIR/_pp.v"
     _norm="$OUTDIR/_norm.sv"
+    ivl_log_section "iverilog -E (preprocess)"
     if "$IVERILOG" -E -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
-            -o "$_pp" "${ABS_SOURCES[@]}" 2>/dev/null \
+            -o "$_pp" "${ABS_SOURCES[@]}" 2>>"$IVL_LOG" \
        && [[ -s "$_pp" ]] \
        && "$SV_NORMALIZE" < "$_pp" > "$_norm" 2>/dev/null \
        && [[ -s "$_norm" ]]; then
@@ -227,7 +239,8 @@ SV2VHDL_MODULES="${BASH_SOURCE[0]%/*}/sv2vhdl-modules"
 SV_DEDUP="${BASH_SOURCE[0]%/*}/sv-dedup-vhdl"
 if [[ -n "$NORM_SRC" && -x "$SV2VHDL_MODULES" ]]; then
     _mods="$OUTDIR/_mods.vhd"
-    if IVERILOG="$IVERILOG" "$SV2VHDL_MODULES" "$NORM_SRC" -o "$_mods" 2>/dev/null \
+    if IVERILOG="$IVERILOG" "$SV2VHDL_MODULES" "$NORM_SRC" -o "$_mods" \
+            --log "$IVL_LOG" 2>/dev/null \
             && [[ -s "$_mods" ]]; then
         # sv2vhdl-modules emits each parameterised helper (rvdff, rvdffe, ...)
         # once per referencing module; the same __hash variant therefore
@@ -253,8 +266,9 @@ fi
 # Produces a single VHDL file with entity instantiations for sv2vhdl
 # primitives.  Uses --std=2040 for NVC compilation.
 
+[[ $IVERILOG_OK -eq 0 ]] && ivl_log_section "iverilog -tvhdl (whole design)"
 if [[ $IVERILOG_OK -eq 0 ]] && \
-   timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}" 2>/dev/null; then
+   timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}" 2>>"$IVL_LOG"; then
     if [[ -s "$VHDL_OUT" ]]; then
         two_state_clean_vhdl "$VHDL_OUT"
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
@@ -311,8 +325,9 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
         [[ "$modname" == "_preamble" ]] && continue
         mod_vhd="$OUTDIR/${modname}.vhd"
 
+        ivl_log_section "iverilog -tvhdl $modname (per-module fallback)"
         if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
-                -o "$mod_vhd" "$mod_v" 2>/dev/null \
+                -o "$mod_vhd" "$mod_v" 2>>"$IVL_LOG" \
                 && [[ -s "$mod_vhd" ]] \
                 && $NVC --std=2040 -L "$NVC_LIBDIR" -a "$mod_vhd" >/dev/null 2>&1; then
             MODULES_OK=$((MODULES_OK + 1))
@@ -336,6 +351,21 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
         echo "iverilog-sv2ghdl: no modules translated" >&2
         exit 1
     fi
+fi
+
+# A module left as a deferred stub in design.vhd (sv2vhdl-modules could not
+# translate it) elaborates as an empty entity: say so on stderr, with what
+# iverilog said when it tried.
+if [[ -s "$VHDL_OUT" ]]; then
+    for _dm in $(grep -o 'sv2vhdl:deferred source=.* module=[A-Za-z0-9_$]*' "$VHDL_OUT" \
+                 | sed 's/.* module=//' | sort -u); do
+        echo "iverilog-sv2ghdl: module $_dm was not translated (a deferred stub in design.vhd); iverilog said:" >&2
+        awk -v hdr="=== sv2vhdl-modules: iverilog -tvhdl -s $_dm: " '
+            index($0, hdr) == 1 { on = 1; next }
+            /^=== /             { on = 0 }
+            on                  { print "    " $0; n++ }
+            END                 { if (!n) print "    (nothing)" }' "$IVL_LOG" >&2
+    done
 fi
 
 # For -t null (CN tests), compilation is all we need
@@ -369,7 +399,26 @@ if [[ -z "$TOP_MODULE" ]]; then
     exit 1
 fi
 
-# Write metadata for vvp-sv2ghdl
+# Under vamos (VAMOS_STACK is set; vamos shows the translator's output),
+# tgt-vhdl's warnings about connections it does not translate faithfully --
+# a part-select tran or an inout concatenation part connected one way only,
+# a tri1/tri0 pull with nothing to sit on, a construct "not translated" --
+# are said on stderr, not only in iverilog.log. Only those of the run that
+# translated the top module (or the whole design) count: every module's own
+# elaboration-root run also warns about its root ports, which the design
+# does not have. (The ivtest harness compares this script's output with gold
+# files, so it stays silent there.)
+if [[ -n "$VAMOS_STACK" && -s "$IVL_LOG" ]]; then
+    awk -v hdr="=== sv2vhdl-modules: iverilog -tvhdl -s $TOP_MODULE: " '
+        /^=== / { on = (index($0, hdr) == 1 \
+                        || index($0, "=== iverilog-sv2ghdl: iverilog -tvhdl (whole design)") == 1)
+                  next }
+        on && /^Warning: / && /connected one way only|not translated/ {
+            if (!seen[$0]++) print "iverilog-sv2ghdl: " $0 }' "$IVL_LOG" >&2
+fi
+
+# Write metadata for vvp-sv2ghdl (with what the stages recorded on the way,
+# SV2VHDL_MODULES=1 / IVERILOG_BACKEND=1; _metadata.tmp keeps them too)
 {
     echo "TOP_ENTITY=\"$TOP_MODULE\""
     if [[ $IVERILOG_OK -eq 1 ]]; then
@@ -377,6 +426,7 @@ fi
     else
         echo "NVC_STD=\"2040\""
     fi
+    [[ -s "$OUTDIR/_metadata.tmp" ]] && cat "$OUTDIR/_metadata.tmp"
 } > "$OUTDIR/_metadata"
 
 exit 0

@@ -1,0 +1,7 @@
+tbp.sv:8: error: Variable 'l1' cannot have multiple drivers.
+tbp.sv:8: error: Variable 'r1' cannot have multiple drivers.
+tbp.sv:8: error: Output port expression must support a continuous assignment.
+tbp.sv:8:      : Port 3 (b) of inv_sp is connected to tbp.{l1, r1}
+tbp.sv:9: error: Cannot perform procedural assignment to variable 'r1' because it is also continuously assigned.
+tbp.sv:9: error: Cannot perform procedural assignment to variable 'r1' because it is also continuously assigned.
+7 error(s) during elaboration.

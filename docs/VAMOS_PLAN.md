@@ -2,6 +2,16 @@
 
 **Status:** phase 0 implemented (2026-09-27); see §10. Manual links: `docs/vamos-manuals.html`.
 
+> **Superseded in part (2026-10-02).** This plan is kept as written; where it is out of date, a note like
+> this one says so and points to the current document.
+> - **AMS** (the analog side below, §1, §2, §6, §7 and phase 4 in §8): `vcs-ams` is built, as specified in
+>   **docs/VAMOS_AMS_DESIGN.md**. `choose xa|finesim|primesim|hsim|nanosim` maps to the default engine,
+>   **VACASK**; **Xyce is an option** (`--vamos-analog=xyce`, `VAMOS_ANALOG=xyce` or `choose xyce`). nvc
+>   co-simulates either one.
+> - **spectre**: the planned `spectre` personality is designed in **docs/VAMOS_SPECTRE_DESIGN.md** (not
+>   built).
+> - **How to use vamos today**: **docs/VAMOS_GUIDE.md**.
+
 `vamos` is one Python driver that accepts the command lines of commercial and open
 simulators and runs them on our stack: sv2ghdl → nvc for digital, nvc cosim → Xyce for
 analog, and stat-sim for variability. There are two ways to call it:
@@ -25,7 +35,7 @@ UVM regressions) and CI jobs run unchanged. VCS comes first.
 | `shims/{iverilog,vvp,verilator}` | symlinks | `vcs`, `vlogan`, `vhdlan`, `xrun`… get added here |
 | `nvc -a x.v x.sv …` | nvc.c:329 | Translates all Verilog sources together through sv2ghdl, forwarding `+incdir`/`+define`. **vamos should call this path, not re-implement translation** |
 | `nvc --load=lib.so` + plusargs | nvc.c:941, 1115 | VPI (`-P`/`-load`) and `+plusargs` at run time |
-| `nvc --xyce-netlist/--xyce-config` | nvc.c:948, cosim.c | Backend for the AMS personalities (`vcs -ad`, `xrun -ams`) |
+| `nvc --xyce-netlist/--xyce-config` | nvc.c:948, cosim.c | Backend for the AMS personalities (`vcs -ad`, `xrun -ams`). *Superseded: as built, `vcs-ams` runs `nvc -r --vacask-netlist=` (VACASK, the default) or `--xyce-netlist=` with `--cosim-config=`; see docs/VAMOS_AMS_DESIGN.md §6* |
 | `xyce/utils/simetrix_cosim.pl`, bfit, PyMS | xyce, sv2ghdl/bfit | Verilog-A/AMS and behavioral models on the analog side |
 | stat-sim (ensemble, sky130 mismatch) | /usr/local/src/stat-sim | Monte Carlo and seeds exposed as vamos extensions |
 
@@ -55,6 +65,8 @@ sv2ghdl/
     backends/
       nvc.py                 # analyse (nvc -a, which routes .v/.sv through sv2ghdl), elaborate, run
       cosim.py               # nvc + Xyce: builds the netlist and config from the analog partition
+                             #   (superseded: as built, nvc + VACASK or Xyce; the deck and boundary
+                             #   file come from vamos/ams/, docs/VAMOS_AMS_DESIGN.md §1, §6)
       statsim.py             # MC / corner sweeps driving the nvc/Xyce backends
       native.py              # optional fall-through to the real tool (like verilator-sv2ghdl)
     personalities/
@@ -62,6 +74,8 @@ sv2ghdl/
       vlogan.py, vhdlan.py   # VCS MX analysis steps + synopsys_sim.setup
       simv.py                # runtime personality for the generated ./simv
       vcs_ams.py             # -ad / vcsAD.init / analog files layered on vcs.py
+                             #   (superseded: as built, vcs.py's vcs-ams personality calls vamos/ams/flow.py,
+                             #   docs/VAMOS_AMS_DESIGN.md §1, §8)
       ncverilog.py, xrun.py  # Cadence (xrun is a superset of irun/ncverilog; + and - aliases)
       questa.py              # vlib/vmap/vlog/vcom/vopt/vsim
       iverilog.py, vvp.py, verilator.py, ghdl.py, nvc.py
@@ -365,6 +379,8 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
 - `$vcdpluson`, `$fsdbDumpvars`, `$dumpfile`: `$dumpfile`/`$dumpvars` already work through sv2ghdl.
   The VPD/FSDB system tasks map to nvc wave dumping (they need sv2ghdl/nvc system-task stubs;
   check which exist).
+  *(Corrected 2026-10-02: `$dumpfile`/`$dumpvars` are not translated; tgt-vhdl drops them with an
+  "Unsupported system task" comment and vamos warns at the source line. See docs/VAMOS_GUIDE.md §3.)*
 - Exit status follows VCS: 0 on `$finish`, non-zero on `$fatal` or errors.
 
 ### 5d. Known gaps to size up early (they decide what "drop-in" can honestly claim)
@@ -400,6 +416,16 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
 - **`-xprop`**: nvc's X semantics differ. Record it as a known behaviour difference.
 
 ## 6. VCS AMS (phase 2)
+
+> **Superseded (2026-10-02).** `vcs-ams` (`vcs -ad`, `+ad`) is built; its contract is
+> **docs/VAMOS_AMS_DESIGN.md** and its user guide **docs/VAMOS_GUIDE.md** §5–§6. Where it differs from the
+> plan below: `choose xa|finesim|primesim|hsim|nanosim` selects the default engine, **VACASK**, and **Xyce
+> is an option** (`--vamos-analog=xyce`, `VAMOS_ANALOG=xyce` or `choose xyce`); `./simv` runs
+> `nvc -r --vacask-netlist=|--xyce-netlist= --cosim-config=` with a deck and boundary file vamos builds
+> itself (no ltz); Verilog-A in the netlist (`.hdl`) is compiled by openvaf-r for VACASK and by Xyce itself;
+> `.va`/`.vams` sources (the Verilog-AMS flow) and the stat-sim hook are not built. The text below is the
+> plan as written on 2026-09-27.
+
 - Trigger: `-ad`, `-ad=vcsAD.init`, `-ad_hsopt`, `.sp`/`.spi`/`.scs` analog files, or `vams` sources.
 - Parse `vcsAD.init`: `choose <engine> <netlist> …;` (the netlist and analog options go to Xyce;
   `xa`/`finesim`/`hsim`/`nanosim` are all read as "Xyce"), `partition -cell / -inst`,
@@ -425,7 +451,8 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
   any difference is a vamos bug.
 - **cocotb acceptance**: run `SIM=vcs make` with our `vcs` shim first on PATH (VPI through `nvc --load`).
   This one test covers the plusargs, VPI, top selection and exit-code contracts.
-- **AMS**: `xyce/utils/test_inv_chain` rebuilt as a `vcs -ad` testcase.
+- **AMS**: `xyce/utils/test_inv_chain` rebuilt as a `vcs -ad` testcase. *(Superseded: the AMS tests are
+  `tests/vamos/test_ams_*.py`, end to end on VACASK and Xyce; docs/VAMOS_AMS_DESIGN.md §9 lists them.)*
 - Hook into `regress/` (`delegate-regressions`) so vamos parity gets tracked with the rest.
 
 ## 8. Phases
@@ -442,6 +469,11 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
 | 5 | Move iverilog/vvp/verilator bash logic into personalities; bash scripts become shims | existing iverilog/verilator regressions unchanged |
 | 6 | Cadence: ncverilog, irun, xrun (+ `-ams` via cosim backend) | EDA Playground xrun lines parse; tests-RTL parity |
 | 7 | Questa (vlib/vmap/vlog/vcom/vsim), ghdl (`-a/-e/-r` → nvc), nvc pass-through with vamos extensions | cocotb `SIM=questa`/`ghdl` smoke |
+
+*Status notes (2026-10-02):* phase 4 is superseded by docs/VAMOS_AMS_DESIGN.md: `vcs-ams` co-simulates
+nvc with VACASK by default and Xyce as an option, not "nvc+Xyce cosim"; the stat-sim MC extension is not
+built. The `spectre` personality, not in this table, is designed in docs/VAMOS_SPECTRE_DESIGN.md (not
+built). How to use what exists: docs/VAMOS_GUIDE.md.
 
 Phase 0+1 is the VCS MVP. UVM (via Python on the nvc cocotb bridge, §5d) and DPI run as their own tracks in parallel,
 because they decide how much of the real world phase 1 can take on.

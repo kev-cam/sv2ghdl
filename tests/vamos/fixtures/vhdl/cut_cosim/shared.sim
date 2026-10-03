@@ -1,0 +1,41 @@
+vamos cut test: a wrapper with a cut cell instantiated twice (shared parent)
+
+// u1 and w2.u3 share both nets (clk in, yb out): u1 hosts the D2A (1.8 V) and
+// the A2D; on the w2.u3 path both bits are passive.  w1.u3 hosts its own D2A
+// at 3.3 V and A2D with 1.1/2.2 V thresholds: same architecture, different
+// role and levels per path.
+load "gcond.osdi"
+load "resistor.osdi"
+load "capacitor.osdi"
+model vsrc vsource
+model isrc isource
+model r resistor
+model c capacitor
+model gc vamos_gcond rr=500.7
+
+subckt rc_sp (a y)
+  r1 (a y) r r=1k
+  c1 (y 0) c c=1p
+ends
+
+xv_u1 (n_u1_a n_u1_y) rc_sp
+xv_w1_u3 (n_w1_u3_a n_w1_u3_y) rc_sp
+xv_w2_u3 (n_u1_a n_u1_y) rc_sp
+
+vd_n_u1_a (n_u1_a_d 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:tb.u1.a__d"
+ve_n_u1_a (n_u1_a_e 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:tb.u1.a__e"
+g_n_u1_a (n_u1_a n_u1_a_d n_u1_a_e) gc
+rsh_n_u1_a (n_u1_a 0) r r=1e12
+vd_n_w1_u3_a (n_w1_u3_a_d 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:tb.w1.u3.a__d"
+ve_n_w1_u3_a (n_w1_u3_a_e 0) vsrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:d2a:tb.w1.u3.a__e"
+g_n_w1_u3_a (n_w1_u3_a n_w1_u3_a_d n_w1_u3_a_e) gc
+rsh_n_w1_u3_a (n_w1_u3_a 0) r r=1e12
+ia_n_u1_y (n_u1_y 0) isrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:a2d:tb.u1.y__a"
+rsh_n_u1_y (n_u1_y 0) r r=1e12
+ia_n_w1_u3_y (n_w1_u3_y 0) isrc type="pwl" file="code:libcosim_bridge.so:vacask_bridge_init:a2d:tb.w1.u3.y__a"
+rsh_n_w1_u3_y (n_w1_u3_y 0) r r=1e12
+
+control
+  options tran_lteimplicit=0
+  analysis tran1 tran step=0.1n stop=95n
+endc

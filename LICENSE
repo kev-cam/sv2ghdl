@@ -17,6 +17,15 @@ EXCEPTION: bfit/
   The GPL-licensed code in this repository does not import or link bfit. It
   only invokes bfit as a separate program. The two remain separate works.
 
+EXCEPTION: third-party test fixtures
+  Test fixtures under tests/ that come from other projects keep their own
+  licences: x-heep's adc.sp and control.init in tests/vamos/fixtures (one
+  copy named init_xheep_control.init) are Apache-2.0, with the licence text
+  in LICENSES/Apache-2.0.txt, and the 65nm_bulk.pm model cards there are
+  derived from the Predictive Technology Model's 65 nm bulk card
+  (http://ptm.asu.edu/), whose terms ask every user to acknowledge that URL
+  and PTM's publications, as tests/vamos/fixtures/README does.
+
 Earlier releases: revisions published before this file was added were
 distributed under "GPL v2+" (see README). Anyone who received those revisions
 keeps those terms. The licensing above applies from this revision onward.

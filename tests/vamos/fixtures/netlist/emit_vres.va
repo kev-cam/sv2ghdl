@@ -1,0 +1,9 @@
+// A Verilog-A resistor with a model parameter (the netlist emitter tests).
+`include "disciplines.vams"
+
+module vres(a, b);
+    inout a, b;
+    electrical a, b;
+    parameter real r = 2000.0 from (0:inf);
+    analog I(a, b) <+ V(a, b) / r;
+endmodule

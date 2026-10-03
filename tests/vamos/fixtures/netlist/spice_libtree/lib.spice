@@ -1,0 +1,13 @@
+* A model library laid out like sky130's libs.tech/ngspice: .lib sections whose
+* includes are relative to the including file, not to the run directory.
+* Written for the vamos tests.
+
+.lib tt
+.param corner_dvt=0
+.include "corners/tt.spice"
+.endl tt
+
+.lib ff
+.param corner_dvt=-0.05
+.include "corners/ff.spice"
+.endl ff

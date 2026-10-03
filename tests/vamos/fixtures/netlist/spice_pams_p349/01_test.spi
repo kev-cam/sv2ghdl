@@ -1,0 +1,15 @@
+* SUBCKT inverter
+.inc '01_test.mod'
+.subckt sp1 sp_in sp_out
+mn1 sp_out sp_in gnd gnd n w=1.00u l=0.35u
+mp1 sp_out sp_in vdd vdd p w=2.00u l=0.35u
+.ends
+
+.subckt sp2 sp_in sp_out
+mn1 sp_out sp_in gnd gnd n w=1.00u l=0.35u
+mp1 sp_out sp_in vdd vdd p w=2.00u l=0.35u
+.ends
+
+.global vdd gnd
+vsu vdd gnd 3.3
+.end

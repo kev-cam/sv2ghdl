@@ -1,0 +1,28 @@
+`line 1 "f1.v" 0
+// f1 line 1
+
+`line 1 "inc/a.vh" 1
+
+`line 1 "inc/b.vh" 1
+// in b.vh line 1
+
+
+
+
+`line 2 "inc/a.vh" 2
+// in a.vh line 2
+
+`line 3 "f1.v" 2
+module m1; wire [3:0] x = 
+   (2 + 1)
+
+`line 3 "f1.v" 2
+; endmodule
+
+`line 1 "f2.v" 0
+module m2; endmodule
+`line 1 "f3.v" 0
+
+
+
+module m3; endmodule

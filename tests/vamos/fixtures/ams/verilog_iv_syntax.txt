@@ -1,0 +1,2 @@
+s.v:3: syntax error
+s.v:3: error: Invalid module item.
