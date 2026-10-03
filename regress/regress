@@ -4,7 +4,7 @@
 #
 # Subcommands:
 #   regress list                       show blocks (the suite x engine matrix) + readiness
-#   regress run [block...]             run blocks (default: all ready), record results
+#   regress run [block...]             run blocks (default: all ready, not opt-in), record results
 #   regress run-one <block> --run ID   run one block into an existing run (used by dispatch)
 #   regress report [--run N]           per-block summary + regressions vs the previous run
 #   regress diff <runA> <runB>         compare two runs test-by-test
@@ -54,11 +54,15 @@ $fn->(@ARGV);
 sub cmd_list {
     printf "%-26s %-10s %-13s %-6s\n", 'BLOCK', 'SUITE', 'ENGINE', 'READY';
     print  '-' x 60, "\n";
+    my $optin = 0;
     for my $b (Regress::Block::all_blocks()) {
-        printf "%-26s %-10s %-13s %-6s\n",
+        printf "%-26s %-10s %-13s %-6s%s\n",
             $b->{name}, $b->{suite}, $b->{engine},
-            Regress::Block::is_ready($b) ? 'yes' : 'NO';
+            Regress::Block::is_ready($b) ? 'yes' : 'NO',
+            $b->{optin} ? '  (opt-in)' : '';
+        $optin++ if $b->{optin};
     }
+    print "\n(opt-in blocks run only when named: regress run <block>)\n" if $optin;
 }
 
 # ---- run -----------------------------------------------------------------
@@ -73,7 +77,8 @@ sub cmd_run {
     $db   //= $DEFAULT_DB;
     $jobs //= 8;
 
-    my @want = @argv ? @argv : Regress::Block::names();
+    # no blocks named: all of them except the opt-in ones
+    my @want = @argv ? @argv : Regress::Block::default_names();
     my @blocks;
     for my $name (@want) {
         my $b = Regress::Block::get($name) or do {
@@ -453,6 +458,9 @@ regress - multi-simulator regression harness (SQLite-tracked)
   regress gate --repo R [--ref REF] [--push]        # CI gate: build+test a candidate, FF main if clean
   regress baseline --repo R [--run N] | --list      # set/show the main baseline a gate compares to
   regress serve [--port N] [--host H] [--db PATH]   # live web dashboard
+
+With no blocks named, `run` runs every ready block except the opt-in ones
+(marked in `regress list`), which run only when named.
 
 Blocks (suite x engine) come from `regress list`. Default `run` dispatches
 blocks in parallel via smak; --seq runs in-process; --make forces GNU make.

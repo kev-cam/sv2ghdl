@@ -15,7 +15,8 @@ use Regress::Tools qw(
     xyce_bin xyce_regr_runner gnucap_bin ihp_pdk_dir gnucap2xyce_bin
     cadence2xyce_bin adms_examples_dir
     ltz_bin ltz_tests_dir ltz_community_dir
-    qspice_qux_bin qspice2xyce_bin qspice_tests_dir);
+    qspice_qux_bin qspice2xyce_bin qspice_tests_dir
+    vamos_vcs_bin hazard3_bench_cxx);
 
 use Regress::Adapter::Ivtest;
 use Regress::Adapter::NvcNative;
@@ -26,6 +27,7 @@ use Regress::Adapter::XyceIHP;
 use Regress::Adapter::XycePyMS;
 use Regress::Adapter::Ltz;
 use Regress::Adapter::Qspice;
+use Regress::Adapter::Hazard3;
 
 my %ADAPTER = (
     ivtest      => 'Regress::Adapter::Ivtest',
@@ -37,6 +39,7 @@ my %ADAPTER = (
     'xyce-pyms' => 'Regress::Adapter::XycePyMS',
     ltz         => 'Regress::Adapter::Ltz',
     qspice      => 'Regress::Adapter::Qspice',
+    hazard3     => 'Regress::Adapter::Hazard3',
 );
 
 # ---- engines -------------------------------------------------------------
@@ -118,6 +121,15 @@ my %ENGINES = (
     qspice => sub {
         my %e; my $x = xyce_bin(); $e{XYCE} = $x if $x;
         return { env => \%e, path_prepend => _base_path() };
+    },
+    # vamos (VCS command lines on sv2ghdl + nvc): the nvc env profile, with
+    # vamos pinned (VAMOS_NVC/VAMOS_IVERILOG) to the same build-area nvc and
+    # iverilog the other engines resolve.
+    vamos => sub {
+        my $e = _nvc_env();
+        $e->{VAMOS_NVC}      = $e->{NVC}      if $e->{NVC};
+        $e->{VAMOS_IVERILOG} = $e->{IVERILOG} if $e->{IVERILOG};
+        return { env => $e, path_prepend => _base_path() };
     },
 );
 
@@ -214,11 +226,49 @@ my @BLOCKS = (
       params => {},
       ready  => sub { qspice_qux_bin() && qspice2xyce_bin()
                       && qspice_tests_dir() && xyce_bin() ? 1 : 0 } },
+
+    # hazard3: the Verijit test case (github.com/verijit/
+    # verilator-hazard3-mandelbrot-testbench), a Hazard3 RISC-V SoC running a
+    # fixed-point Mandelbrot. Each block runs every variant of
+    # tests/hazard3_mandelbrot on the same Verilog testbench and generated SoC;
+    # PASS = the TOHOST stream equals the native golden exactly (and the cycle
+    # count equals the recorded reference). One test per variant; --filter
+    # takes comma-separated substrings of variant names. The upstream checkout
+    # is set up on first use (tests/hazard3_mandelbrot/setup.sh).
+    { name => 'hazard3/verilator',   suite => 'hazard3', engine => 'verilator',
+      params => { sim => 'verilator', timeout => 1800 },
+      ready  => sub { verilator_bin() && Regress::Adapter::Hazard3::ready() ? 1 : 0 } },
+
+    { name => 'hazard3/iverilog',    suite => 'hazard3', engine => 'iverilog',
+      params => { sim => 'iverilog', timeout => 1800 },
+      ready  => sub { iverilog_bin() && vvp_bin()
+                      && Regress::Adapter::Hazard3::ready() ? 1 : 0 } },
+
+    # vamos's vcs personality (vcs, then ./simv) through sv2ghdl/shims/vcs.
+    { name => 'hazard3/vamos',       suite => 'hazard3', engine => 'vamos',
+      params => { sim => 'vamos', timeout => 3600 },
+      ready  => sub { vamos_vcs_bin() && nvc_bin() && iverilog_bin()
+                      && Regress::Adapter::Hazard3::ready() ? 1 : 0 } },
+
+    # OPT-IN (runs only when named): upstream's own 1024x1024 benchmark, built
+    # with Verilator as upstream's Makefile builds it (-O3, -march=native),
+    # from upstream's committed firmware. Records cycles, MCycles/s and the
+    # output.ppm md5, which must equal the native golden's. 4.6 G cycles,
+    # ~21 min at Verilator's ~3.6 MCycles/s.
+    { name => 'hazard3/bench-verilator', suite => 'hazard3', engine => 'verilator',
+      optin  => 1,
+      params => { mode => 'bench', timeout => 14400 },
+      ready  => sub { verilator_bin() && (hazard3_bench_cxx())[0]
+                      && Regress::Adapter::Hazard3::ready() ? 1 : 0 } },
 );
 
 sub all_blocks { @BLOCKS }
 
 sub names { map { $_->{name} } @BLOCKS }
+
+# The blocks `regress run` runs when none are named: every block except the
+# opt-in ones (optin => 1), which run only when named on the command line.
+sub default_names { map { $_->{name} } grep { !$_->{optin} } @BLOCKS }
 
 sub get {
     my $name = shift;

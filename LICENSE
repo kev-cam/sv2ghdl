@@ -24,7 +24,14 @@ EXCEPTION: third-party test fixtures
   in LICENSES/Apache-2.0.txt, and the 65nm_bulk.pm model cards there are
   derived from the Predictive Technology Model's 65 nm bulk card
   (http://ptm.asu.edu/), whose terms ask every user to acknowledge that URL
-  and PTM's publications, as tests/vamos/fixtures/README does.
+  and PTM's publications, as tests/vamos/fixtures/README does. In
+  tests/hazard3_mandelbrot, the files derived from
+  verilator-hazard3-mandelbrot-testbench
+  (https://github.com/verijit/verilator-hazard3-mandelbrot-testbench) are
+  Apache-2.0 as well: elf2hex.py, gen_soc.py, fw/rv32_tohost.c,
+  fw/native_tohost.c, tb/tb_hazard3.v, and the firmware images and golden
+  outputs in variants/ (tests/hazard3_mandelbrot/README.md and
+  variants/README name the upstream file each one comes from).
 
 Earlier releases: revisions published before this file was added were
 distributed under "GPL v2+" (see README). Anyone who received those revisions

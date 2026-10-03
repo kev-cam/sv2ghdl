@@ -1,0 +1,8 @@
+# The upstream test case this suite is built from, pinned. Read by setup.sh,
+# gen_soc.py, build_firmware.py and regress's Hazard3 adapter (KEY=VALUE).
+UPSTREAM_URL=https://github.com/verijit/verilator-hazard3-mandelbrot-testbench
+UPSTREAM_COMMIT=9e768306a3cb03b9894aee609545fe3ed829d6be
+HAZARD3_URL=https://github.com/Wren6991/Hazard3.git
+HAZARD3_COMMIT=8af992930f71a69b0e06c38734c1094f41a05ca0
+# The directory name setup.sh clones into (under <src root> or $HOME).
+UPSTREAM_DIRNAME=verilator-hazard3-mandelbrot-testbench

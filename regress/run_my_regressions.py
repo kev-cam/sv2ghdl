@@ -10,6 +10,7 @@ Usage:
     run_my_regressions.py iverilog        # iverilog: ivtest + sv-tests under Icarus
     run_my_regressions.py nvc             # nvc/VHDL tests
     run_my_regressions.py verilator       # verilator + rtlmeter
+    run_my_regressions.py hazard3         # the Hazard3 Mandelbrot suite on every engine
     run_my_regressions.py gate --repo iverilog --push   # CI gate locally (FF origin/main if clean)
     run_my_regressions.py --list          # show targets and their blocks
     run_my_regressions.py nvc --seq --notes "checking worker X"   # extra opts pass through to ./regress
@@ -42,6 +43,9 @@ GROUPS = {
                     "ivtest/nvc-vhdl", "ivtest/iverilog-steve"],
     # upstream Icarus A/B reference
     "steve":       ["ivtest/iverilog-steve"],
+    # the Verijit Hazard3 Mandelbrot test case on every engine (tests/hazard3_mandelbrot;
+    # its opt-in 1024x1024 benchmark is the block hazard3/bench-verilator)
+    "hazard3":     ["hazard3/verilator", "hazard3/iverilog", "hazard3/vamos"],
 }
 ALIASES = {"icarus": "iverilog", "vl": "verilator", "sv-tests": "svtests"}
 

@@ -19,6 +19,8 @@ our @EXPORT_OK = qw(
     cadence2xyce_bin adms_examples_dir
     ltz_bin ltz_tests_dir ltz_community_dir ltspice_bin
     qspice_dir qspice_sim_bin qspice_qux_bin qspice2xyce_bin qspice_tests_dir
+    vamos_vcs_bin python3_bin
+    hazard3_suite_dir hazard3_mandelbrot_dir hazard3_bench_cxx
 );
 
 # Root that holds the sibling source/build trees (nvc, nvc-build, iverilog, ...)
@@ -292,6 +294,58 @@ sub qspice_tests_dir {
         return $d if defined $d && length $d && -d $d;
     }
     return undef;
+}
+
+# vamos's vcs personality: the checkout's drop-in shim (shims/vcs -> bin/vamos).
+# $VAMOS_VCS override -> <src root>/sv2ghdl/shims/vcs.
+sub vamos_vcs_bin {
+    my $r = src_root();
+    return _first_exe($ENV{VAMOS_VCS}, "$r/sv2ghdl/shims/vcs");
+}
+
+sub python3_bin { _first_exe($ENV{PYTHON3}, _which('python3')) }
+
+# The hazard3 suite's fixtures (testbench, firmware images, goldens, scripts):
+# tests/hazard3_mandelbrot of the sv2ghdl checkout this harness runs from.
+sub hazard3_suite_dir {
+    return $ENV{HAZARD3_SUITE_DIR} if $ENV{HAZARD3_SUITE_DIR};
+    require File::Basename;
+    require Cwd;
+    my $lib = File::Basename::dirname(Cwd::abs_path(__FILE__));   # regress/lib/Regress
+    my $d = Cwd::abs_path("$lib/../../../tests/hazard3_mandelbrot");
+    return (defined $d && -d $d) ? $d : undef;
+}
+
+# Checkout of verilator-hazard3-mandelbrot-testbench (the Verijit test case the
+# hazard3 suite is built from), with its Hazard3 submodule.
+# $HAZARD3_MANDELBROT_DIR (when set, the only place looked at) ->
+# <src root>/verilator-hazard3-mandelbrot-testbench -> the same under $HOME
+# (the src root may not be writable). tests/hazard3_mandelbrot/setup.sh
+# clones it into the first of those it can write to.
+sub hazard3_mandelbrot_dir {
+    my $name = 'verilator-hazard3-mandelbrot-testbench';
+    my @c = (defined $ENV{HAZARD3_MANDELBROT_DIR} && length $ENV{HAZARD3_MANDELBROT_DIR})
+          ? ($ENV{HAZARD3_MANDELBROT_DIR})
+          : (src_root() . "/$name", ($ENV{HOME} ? "$ENV{HOME}/$name" : ()));
+    for my $d (@c) { return $d if -f "$d/soc.tmpl.v" && -d "$d/Hazard3/hdl" }
+    return undef;
+}
+
+# C++ compiler for the hazard3 benchmark build (upstream's Makefile verilates
+# with --compiler clang). $HAZARD3_BENCH_CXX -> clang++-19 -> clang++ -> g++.
+# Returns (path, verilator --compiler value).
+sub hazard3_bench_cxx {
+    if (my $o = $ENV{HAZARD3_BENCH_CXX}) {
+        my $p = ($o =~ m{/}) ? $o : _which($o);
+        return ($p, ($o =~ /clang/ ? 'clang' : 'gcc')) if $p && -x $p;
+        return (undef, undef);
+    }
+    for my $n (qw(clang++-19 clang++)) {
+        my $p = _which($n);
+        return ($p, 'clang') if $p;
+    }
+    my $g = _which('g++');
+    return $g ? ($g, 'gcc') : (undef, undef);
 }
 
 1;

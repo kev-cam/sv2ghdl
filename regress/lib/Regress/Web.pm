@@ -254,6 +254,8 @@ the simulators; everything runs against <b>build-area</b> tool binaries
 <tr><td>nvc/regr, nvc/unit</td><td class=l>nvc's own functional regression + C unit tests</td></tr>
 <tr><td>sv-tests/verilator, sv-tests/iverilog</td><td class=l>the CHIPS-Alliance sv-tests corpus under verilator / Icarus</td></tr>
 <tr><td>rtlmeter/verilator, rtlmeter/verilator-nvc</td><td class=l>RTLMeter designs under verilator / the verilator-sv2ghdl shim (heavy; run scoped)</td></tr>
+<tr><td>hazard3/verilator, hazard3/iverilog, hazard3/vamos</td><td class=l>the Verijit Hazard3 Mandelbrot test case: a RISC-V SoC's TOHOST output vs a native golden, one test per variant (tests/hazard3_mandelbrot)</td></tr>
+<tr><td>hazard3/bench-verilator</td><td class=l>opt-in (runs only when named): upstream's 1024x1024 benchmark under Verilator, ~21 min</td></tr>
 </table>
 
 <h3>Statuses &amp; indicators</h3>
@@ -275,9 +277,9 @@ rebuilds history from all recorded runs. <b>Triage</b> opinions (waive/investiga
 + note) persist per (block,test) across runs.</p>
 
 <h3>Running tests</h3>
-<pre class=log>./regress run [block...]            # default: all ready blocks; smak-parallel dispatch
+<pre class=log>./regress run [block...]            # default: all ready blocks except opt-in ones; smak-parallel dispatch
 ./regress run ivtest/iverilog --seq # in-process, no dispatcher
-./run_my_regressions.py iverilog    # friendly groups: everything|iverilog|nvc|verilator|vhdl|ivtest|svtests|steve</pre>
+./run_my_regressions.py iverilog    # friendly groups: everything|iverilog|nvc|verilator|vhdl|ivtest|svtests|steve|hazard3</pre>
 <p class=muted>The dispatcher runs blocks via smak (or GNU make with <code>--make</code>);
 blocks that share a working dir (ivtest, nvc, sv-tests, rtlmeter) are serialized,
 others run in parallel.</p>
