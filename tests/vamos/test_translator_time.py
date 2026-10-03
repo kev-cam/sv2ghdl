@@ -245,6 +245,8 @@ class TestTickIsSI(XlatCase):
                 self.assertIn(units(5), waits, (ts, d.vhdl))
                 self.assertIn(units(30), waits, (ts, d.vhdl))
                 for w in waits:                     # #2.5, #5, #30: nothing 10x or 100x short
+                    if w == 0:                      # the clocked process's NBA hop, not a delay
+                        continue
                     self.assertTrue(units(2) <= w <= units(30), (ts, w, waits))
 
     def test_time_functions_use_the_same_base(self):

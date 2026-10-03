@@ -624,11 +624,13 @@ endmodule
 
 @needs_stack
 class TestFileTasksLocated(Translated):
-    """Every file-I/O and dump task keeps its located comment, in any context."""
+    """Every untranslated file-I/O and dump task keeps its located comment, in any context;
+    $readmemh / $readmemb are translated (sv_readmem_load, nvc's logic3d_types_pkg)."""
 
     TASKS = ("$dumpfile", "$dumpvars", "$dumpoff", "$dumpon", "$dumpall", "$dumpflush",
-             "$dumplimit", "$readmemh", "$readmemb", "$writememh", "$writememb", "$fflush",
+             "$dumplimit", "$writememh", "$writememb", "$fflush",
              "$fdisplay", "$fwriteh", "$fwrite", "$fstrobe", "$fdisplayb", "$fmonitor", "$fclose")
+    READMEM = (r'\bsv_readmem_load\("m\.hex", true, 0\);$', r'\bsv_readmem_load\("m\.bin", false, 0\);$')
 
     SOURCE = """\
 module tb;
@@ -677,6 +679,11 @@ endmodule
             hits = self.lines(r"null;\s+-- Unsupported system task %s omitted here \(\S+:\d+\)$"
                               % re.escape(task))
             self.assertTrue(hits, task)
+
+    def test_readmem_translated(self):
+        for pat in self.READMEM:
+            self.assertTrue(self.lines(pat), pat)
+        self.assertFalse(self.lines(r"Unsupported system task \$readmem"))
 
     def test_runs(self):
         n = self.nvc()

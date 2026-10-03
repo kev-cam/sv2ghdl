@@ -39,6 +39,17 @@ class TestNaming(unittest.TestCase):
         for v, h in cases.items():
             self.assertEqual(vhdl.make_safe_name(v), h, v)
         self.assertEqual(vhdl.make_safe_name("inv", entity_collision=True), "inv_sig")
+        for v in ("view", "pipe", "fairness", "vunit", "private", "reverse_range"):   # VHDL-2008+/nvc
+            self.assertEqual(vhdl.make_safe_name(v), v + "_sig", v)
+
+    def test_origin_of_merged_process(self):
+        st = vhdl.Stmt(kind="process", index=0, arch="top", comments=[
+            " Generated from always process in top (t.v:13) "
+            "[+ merged same-edge always block(s): t.v:14, t.v:20]"])
+        self.assertEqual(st.origin, "t.v:13")
+        st = vhdl.Stmt(kind="process", index=0, arch="top",
+                       comments=[" Generated from always process in top (t.v:13)"])
+        self.assertEqual(st.origin, "t.v:13")
 
     def test_safe_name_matches(self):
         self.assertTrue(vhdl.safe_name_matches("inv_sig", "inv"))       # entity collision
@@ -50,7 +61,8 @@ class TestNaming(unittest.TestCase):
 
     def test_valid_entity_name(self):
         for m, e in (("buffer", "buffer_module"), ("my__cell", "my_cell"), ("cell_", "cell_module"),
-                     ("_cell", "module_cell"), ("register", "register_module"), ("inv", "inv")):
+                     ("_cell", "module_cell"), ("register", "register_module"), ("inv", "inv"),
+                     ("pipe", "pipe_module")):
             self.assertEqual(vhdl.valid_entity_name(m), e)
 
 

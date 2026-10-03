@@ -75,9 +75,9 @@ from vamos.notes import Note, NoteError, error
 
 # -- tgt-vhdl naming (iverilog/tgt-vhdl/scope.cc) ------------------------------
 
-# is_vhdl_reserved_word(): the exact list tgt-vhdl renames (VHDL-93), matched
-# case-insensitively.  Later reserved words (force, release, context, ...) are
-# not renamed by tgt-vhdl and so are not in here either.
+# is_vhdl_reserved_word(): the exact list tgt-vhdl renames, matched
+# case-insensitively: VHDL-93, then the words later revisions, PSL and nvc reserve
+# (iverilog df8369d00: protected, context, force, release, ..., pipe).
 VHDL_RESERVED = frozenset((
     "abs", "access", "after", "alias", "all", "and", "architecture", "array", "assert",
     "attribute", "begin", "block", "body", "buffer", "bus", "case", "component",
@@ -89,7 +89,17 @@ VHDL_RESERVED = frozenset((
     "range", "record", "register", "reject", "rem", "report", "return", "rol", "ror",
     "select", "severity", "signal", "shared", "sla", "sll", "sra", "srl", "subtype", "then",
     "to", "transport", "type", "unaffected", "units", "until", "use", "variable", "wait",
-    "when", "while", "with", "xnor", "xor"))
+    "when", "while", "with", "xnor", "xor",
+    # IEEE 1076-2000/2002
+    "protected",
+    # IEEE 1076-2008: keywords and PSL reserved words
+    "assume", "assume_guarantee", "context", "cover", "default", "fairness", "force",
+    "parameter", "property", "release", "restrict", "restrict_guarantee", "sequence",
+    "strong", "vmode", "vprop", "vunit",
+    # IEEE 1076-2019
+    "private", "view", "vpkg",
+    # nvc: reverse_range (every standard), pipe (the kev-cam fork's --std=2040 construct)
+    "reverse_range", "pipe"))
 
 
 def _collapse_underscores(s: str) -> str:
@@ -469,7 +479,10 @@ class Stmt:
             m = re.match(r"\s*Generated from instantiation at (\S+)\s*$", c)
             if m:
                 return m.group(1)
-            m = re.match(r"\s*Generated from .* \((\S+:\d+)\)\s*$", c)
+            # a merged same-edge process (tgt-vhdl merge_cluster) appends
+            # " [+ merged same-edge always block(s): f:l, ...]": the first f:l is its own
+            m = re.match(r"\s*Generated from .* \((\S+:\d+)\)"
+                         r"(?:\s*\[\+ merged same-edge always block\(s\):[^\]]*\])?\s*$", c)
             if m:
                 return m.group(1)
         return ""

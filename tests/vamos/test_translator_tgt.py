@@ -617,7 +617,9 @@ endmodule
         labels = [ln.split(":")[0] for ln in self.lines(r"^\s*\w+: entity work\.leaf")]
         self.assertEqual(len(labels), 4, labels)
         self.assertEqual(len(set(l.lower() for l in labels)), 4, labels)
-        self.assertEqual(labels, ["u_g0", "u_g1", "gb_u_g0", "gb_u_g1"])
+        # the generate-scope path is the suffix (tgt-vhdl genvar_unique_suffix); vamos itself
+        # only relies on the T3 paths below
+        self.assertEqual(labels, ["u_ga_0", "u_ga_1", "u_gb_0", "u_gb_1"])
         paths = re.findall(r"-- Verilog instance: (\S+)", self.vhdl)
         self.assertEqual(paths, ["ga[0].u", "ga[1].u", "gb[0].u", "gb[1].u"])
 

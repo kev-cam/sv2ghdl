@@ -289,6 +289,15 @@ class NvcBackend:
 
     def _resolver_pydir(self) -> Optional[str]:
         cands = [os.path.join(self.libdir, "sv2vhdl")]
+        # the source tree the build was configured from (bin/vvp-sv2ghdl does the same)
+        try:
+            with open(os.path.join(os.path.dirname(self.libdir), "Makefile")) as fh:
+                for ln in fh:
+                    if ln.startswith("abs_top_srcdir = "):
+                        cands.append(os.path.join(ln.split("=", 1)[1].strip(), "lib", "sv2vhdl"))
+                        break
+        except OSError:
+            pass
         if tools.dev_mode():
             prefix = os.path.dirname(os.path.dirname(os.path.realpath(self.nvc)))
             cands.append(os.path.join(os.path.dirname(prefix), "nvc", "lib", "sv2vhdl"))
