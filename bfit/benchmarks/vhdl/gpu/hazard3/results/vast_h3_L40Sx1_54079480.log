@@ -1,0 +1,79 @@
+16:48:25 status=running ssh9.vast.ai:28560
+{'success': True, 'msg': 'SSH key added to instance.', 'key': '{"id": 1485348, "user_id": null, "default": null, "public_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCwh+bCFVq6crBIa/z6fPYM3ykBVpbDQkcNfCf+A2L8WqLRfxH42DFQ1WKlYjmewJZ9yEtlA3b6Kq0CjWKmq6iYfNCi1OIvWYN3g5j5uvK6BlGAmAwpRwFABabteP5whyJg4eBJbr++M2vX8oUK9XuuNTYwG2qs7AzadfXnnrRFuXTjYfuIiUQwddamLir6RjHGJ12+mpY426CpsYBEy6dWy6w6hoUuZ3qWFOEJ88kZ78iuVY/7OqSd+v4gxnaES6mxBnixDhfm0Sxw0MjO0890Do2S03afitl/ctBhgbxc2DyCJvJfGReAkm9wShBdJlQE4TrZNoc9OIyn5Bj+en6vSbBYVti6OLwvvTF/isYGvrOS8555SC5qeiV3d95sddTsflXMHsW5cHudt5j1QGttdt1q1622fYvT38Hejp/CZUYQIJFpiCyKX1jrgP4KmC0lZ4GAWPgewaOzsXxBTDOZMa+X6WtQntdYACOvqqhJbAeu5MU/xEIbT8stYyYEc50= Claude@DESKTOP-3SRS8MD", "private_key": null, "created_at": 1791071306.9485188, "deleted_at": null}'}
+ssh: connect to host ssh9.vast.ai port 28560: Connection refused
+scp: Connection closed
+Warning: Permanently added '[ssh9.vast.ai]:28560' (ED25519) to the list of known hosts.
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+root@ssh9.vast.ai: Permission denied (publickey).
+scp: Connection closed
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+16:49:03 binaries shipped (attempt 3)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.8009259259259258 GPU=L40Sx1
+SWEEP-START 2026-10-03T23:49:06Z host=fe40756e1564
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA L40S, 570.211.01, 2520 MHz, 46068 MiB, 350.00 W
+NGPU=1
+== thr cert (N=4096, 1 GPU, each kernel variant)
+FARM design=h3thr dev="1x NVIDIA L40S" N=4096 cycles=100000 block=128 secs=0.4072 agg_inst_cyc_per_s=9.5591e+08 per_inst_cyc_per_s=2.3338e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+WALL cmd_secs=0.869
+CERT thr minb=1 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA L40S" N=4096 cycles=100000 block=128 secs=0.4538 agg_inst_cyc_per_s=8.5781e+08 per_inst_cyc_per_s=2.0943e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=3 ilv=0
+WALL cmd_secs=0.856
+CERT thr minb=3 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA L40S" N=4096 cycles=100000 block=128 secs=0.5104 agg_inst_cyc_per_s=7.6263e+08 per_inst_cyc_per_s=1.8619e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=4 ilv=0
+WALL cmd_secs=0.894
+CERT thr minb=4 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+== thr: kernel variant choice at N=65536 262144 (1 GPU)
+FARM design=h3thr dev="1x NVIDIA L40S" N=65536 cycles=100000 block=128 secs=1.1688 agg_inst_cyc_per_s=5.3290e+09 per_inst_cyc_per_s=8.1315e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=262144 cycles=100000 block=128 secs=4.1398 agg_inst_cyc_per_s=6.0180e+09 per_inst_cyc_per_s=2.2957e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=65536 cycles=100000 block=128 secs=1.9087 agg_inst_cyc_per_s=3.2632e+09 per_inst_cyc_per_s=4.9792e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=262144 cycles=100000 block=128 secs=6.9410 agg_inst_cyc_per_s=3.5893e+09 per_inst_cyc_per_s=1.3692e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=65536 cycles=100000 block=128 secs=7.2602 agg_inst_cyc_per_s=8.5789e+08 per_inst_cyc_per_s=1.3090e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=4 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=262144 cycles=100000 block=128 secs=35.8817 agg_inst_cyc_per_s=6.9433e+08 per_inst_cyc_per_s=2.6486e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=4 ilv=0
+BEST thr minb=1 agg=6.0180e+09
+== thr: N sweep, best variant, 1 GPU
+FARM design=h3thr dev="1x NVIDIA L40S" N=1 cycles=100000 block=128 secs=0.3813 agg_inst_cyc_per_s=2.4927e+05 per_inst_cyc_per_s=2.4927e+05 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=32 cycles=100000 block=128 secs=0.3813 agg_inst_cyc_per_s=7.9766e+06 per_inst_cyc_per_s=2.4927e+05 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=4096 cycles=100000 block=128 secs=0.4072 agg_inst_cyc_per_s=9.5591e+08 per_inst_cyc_per_s=2.3338e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=16384 cycles=100000 block=128 secs=0.4603 agg_inst_cyc_per_s=3.3831e+09 per_inst_cyc_per_s=2.0649e+05 CHK0=47E5C3CA649F77AD AGG=E1D4AA0136E22325 DONE0=95038 CAGG=3ACED0356FA9A325 ndone=16384 done_min=95038 done_max=95038 argmax=0 inst_cyc=1557102592 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=65536 cycles=100000 block=128 secs=1.1796 agg_inst_cyc_per_s=5.2801e+09 per_inst_cyc_per_s=8.0568e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=262144 cycles=100000 block=128 secs=4.1937 agg_inst_cyc_per_s=5.9407e+09 per_inst_cyc_per_s=2.2662e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA L40S" N=1048576 cycles=100000 block=128 secs=16.4551 agg_inst_cyc_per_s=6.0561e+09 per_inst_cyc_per_s=5.7756e+03 CHK0=47E5C3CA649F77AD AGG=AAC3241134222325 DONE0=95038 CAGG=92E1E99F66022325 ndone=1048576 done_min=95038 done_max=95038 argmax=0 inst_cyc=99654565888 gid0=0 m=0 minb=1 ilv=0
+== split render: every tile of upstream's 1024x1024 image, N = NT tiles, all 1 GPU(s)
+FARM design=h3split dev="1x NVIDIA L40S" N=1048576 cycles=2000000000 block=32 secs=1.0727 agg_inst_cyc_per_s=4.7711e+09 per_inst_cyc_per_s=4.5500e+03 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=1.611
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=32 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=1.0727
+FARM design=h3split dev="1x NVIDIA L40S" N=1048576 cycles=2000000000 block=128 secs=1.0591 agg_inst_cyc_per_s=4.8319e+09 per_inst_cyc_per_s=4.6081e+03 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=1.566
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=128 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=1.0591
+FARM design=h3split dev="1x NVIDIA L40S" N=262144 cycles=2000000000 block=32 secs=1.1464 agg_inst_cyc_per_s=4.4239e+09 per_inst_cyc_per_s=1.6876e+04 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=1.622
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=32 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=1.1464
+FARM design=h3split dev="1x NVIDIA L40S" N=262144 cycles=2000000000 block=128 secs=1.1204 agg_inst_cyc_per_s=4.5264e+09 per_inst_cyc_per_s=1.7267e+04 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=1.594
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=128 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=1.1204
+FARM design=h3split dev="1x NVIDIA L40S" N=65536 cycles=2000000000 block=32 secs=1.5765 agg_inst_cyc_per_s=3.2094e+09 per_inst_cyc_per_s=4.8971e+04 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.055
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=32 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=1.5765
+FARM design=h3split dev="1x NVIDIA L40S" N=65536 cycles=2000000000 block=128 secs=1.5873 agg_inst_cyc_per_s=3.1877e+09 per_inst_cyc_per_s=4.8640e+04 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.056
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=128 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=1.5873
+CLOCKS gpu=0 busy_samples=89 sm_mhz_mean=2492 min=2370 max=2520 power_w_mean=272
+SWEEP-END 2026-10-03T23:50:48Z
+16:50:48 RUN-EXIT=0

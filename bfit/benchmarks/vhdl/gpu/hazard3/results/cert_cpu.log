@@ -1,0 +1,25 @@
+== cert_h3.sh 2026-10-03T21:35:18Z host=P620A cpu=AMD Ryzen Threadripper PRO 5955WX 16-Cores
+FARM design=hazard3 dev="cpu" N=1 cycles=200000 block=128 secs=0.0380 agg_inst_cyc_per_s=2.4988e+06 per_inst_cyc_per_s=2.4988e+06 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0
+VERILATOR design=hazard3 N=1 cap=200000 secs=0.0311 cyc_per_s=3.0571e+06 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 inst_cyc=95038 gid0=0 m=0
+FARM design=hazard3 dev="cpu" N=1 cycles=200000 block=128 secs=0.0382 agg_inst_cyc_per_s=2.4902e+06 per_inst_cyc_per_s=2.4902e+06 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0
+VERILATOR design=hazard3 N=1 cap=200000 secs=0.0319 cyc_per_s=2.9801e+06 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 inst_cyc=95038 gid0=0 m=0
+FARM design=hazard3 dev="cpu" N=1 cycles=200000 block=128 secs=0.0386 agg_inst_cyc_per_s=2.4609e+06 per_inst_cyc_per_s=2.4609e+06 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0
+VERILATOR design=hazard3 N=1 cap=200000 secs=0.0315 cyc_per_s=3.0193e+06 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 inst_cyc=95038 gid0=0 m=0
+CERT-CPU thr MATCH gsm CHK0=47E5C3CA649F77AD DONE0=95038 verilator CHK0=47E5C3CA649F77AD DONE0=95038 expected CHK0=47E5C3CA649F77AD DONE0=95038
+RATE thr gsm_1core_cyc_per_s=2.4988e+06 verilator_twin_1core_cyc_per_s=3.0571e+06
+FARM design=hazard3 dev="cpu" N=1048576 cycles=2000000000 block=128 secs=267.9918 agg_inst_cyc_per_s=1.9096e+07 per_inst_cyc_per_s=1.8212e+01 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0
+IMAGE file=gsm_m0.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+CERT-CPU split m=0 MATCH AGG=E9759185332B77C1 (native E9759185332B77C1) image_md5=693d2391e979a114a82af00b3e64e54c ndone=1048576/1048576
+EXPECT split m=0 NT=1048576 CAGG=CF19776297554A6B inst_cyc=5117698414 done_max=11866 done_min=223 wall_8threads=267.9918
+CERT-VERILATOR split m=0 MATCH per-tile (chk, done, words) identical for 1048576/1048576 tiles (966s on 8 processes)
+FARM design=hazard3 dev="cpu" N=262144 cycles=2000000000 block=128 secs=266.5259 agg_inst_cyc_per_s=1.9027e+07 per_inst_cyc_per_s=7.2584e+01 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2
+IMAGE file=gsm_m2.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+CERT-CPU split m=2 MATCH AGG=8594CF12954973DC (native 8594CF12954973DC) image_md5=693d2391e979a114a82af00b3e64e54c ndone=262144/262144
+EXPECT split m=2 NT=262144 CAGG=FC6453B38B167425 inst_cyc=5071298926 done_max=47287 done_min=1037 wall_8threads=266.5259
+CERT-VERILATOR split m=2 MATCH per-tile (chk, done, words) identical for 262144/262144 tiles (373s on 8 processes)
+FARM design=hazard3 dev="cpu" N=65536 cycles=2000000000 block=128 secs=284.9993 agg_inst_cyc_per_s=1.7753e+07 per_inst_cyc_per_s=2.7089e+02 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4
+IMAGE file=gsm_m4.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+CERT-CPU split m=4 MATCH AGG=741C1DC5AEFF29E6 (native 741C1DC5AEFF29E6) image_md5=693d2391e979a114a82af00b3e64e54c ndone=65536/65536
+EXPECT split m=4 NT=65536 CAGG=23212D8FD2F06F0A inst_cyc=5059699054 done_max=180366 done_min=4155 wall_8threads=284.9993
+CERT-VERILATOR split m=4 MATCH per-tile (chk, done, words) identical for 65536/65536 tiles (237s on 8 processes)
+CERT-H3-DONE

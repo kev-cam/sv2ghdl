@@ -1,0 +1,4 @@
+upstream benchmark ELF: memset=0x000110e6 mandelbrot=0x0001119e
+gen_farm_soc: soc_farm.v reset_vector=0x000110d4 i_ram 128 words (114 nonzero) d_ram 2097152 words preload=none
+PCHIT addr=0x1119c first_cycle=29360156
+MEMSET upstream_pre_render_cycles=29360156 (4194304-byte memset) thr_pre_render_cycles=7187 (1024-byte memset) per_byte=7.0000 of upstream's 4637655132 total = 0.633%

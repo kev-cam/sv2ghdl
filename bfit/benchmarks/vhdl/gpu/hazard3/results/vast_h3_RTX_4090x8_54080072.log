@@ -1,0 +1,127 @@
+16:54:52 status=running ssh7.vast.ai:39584
+{'success': True, 'msg': 'SSH key added to instance.', 'key': '{"id": 1485370, "user_id": null, "default": null, "public_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCwh+bCFVq6crBIa/z6fPYM3ykBVpbDQkcNfCf+A2L8WqLRfxH42DFQ1WKlYjmewJZ9yEtlA3b6Kq0CjWKmq6iYfNCi1OIvWYN3g5j5uvK6BlGAmAwpRwFABabteP5whyJg4eBJbr++M2vX8oUK9XuuNTYwG2qs7AzadfXnnrRFuXTjYfuIiUQwddamLir6RjHGJ12+mpY426CpsYBEy6dWy6w6hoUuZ3qWFOEJ88kZ78iuVY/7OqSd+v4gxnaES6mxBnixDhfm0Sxw0MjO0890Do2S03afitl/ctBhgbxc2DyCJvJfGReAkm9wShBdJlQE4TrZNoc9OIyn5Bj+en6vSbBYVti6OLwvvTF/isYGvrOS8555SC5qeiV3d95sddTsflXMHsW5cHudt5j1QGttdt1q1622fYvT38Hejp/CZUYQIJFpiCyKX1jrgP4KmC0lZ4GAWPgewaOzsXxBTDOZMa+X6WtQntdYACOvqqhJbAeu5MU/xEIbT8stYyYEc50= Claude@DESKTOP-3SRS8MD", "private_key": null, "created_at": 1791071693.8376532, "deleted_at": null}'}
+ssh: connect to host ssh7.vast.ai port 39584: Connection refused
+scp: Connection closed
+Warning: Permanently added '[ssh7.vast.ai]:39584' (ED25519) to the list of known hosts.
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+root@ssh7.vast.ai: Permission denied (publickey).
+scp: Connection closed
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+16:55:32 binaries shipped (attempt 3)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=3.0946296296296296 GPU=RTX_4090x8
+SWEEP-START 2026-10-03T23:55:37Z host=886e61fa7702
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+1, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+2, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+3, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+4, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+5, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+6, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+7, NVIDIA GeForce RTX 4090, 595.71.05, 3105 MHz, 24564 MiB, 450.00 W
+NGPU=8
+== thr cert (N=4096, 1 GPU, each kernel variant)
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=100000 block=128 secs=0.3828 agg_inst_cyc_per_s=1.0169e+09 per_inst_cyc_per_s=2.4827e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+WALL cmd_secs=1.559
+CERT thr minb=1 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=100000 block=128 secs=0.4194 agg_inst_cyc_per_s=9.2808e+08 per_inst_cyc_per_s=2.2658e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=3 ilv=0
+WALL cmd_secs=1.480
+CERT thr minb=3 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=100000 block=128 secs=0.4748 agg_inst_cyc_per_s=8.1982e+08 per_inst_cyc_per_s=2.0015e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=4 ilv=0
+WALL cmd_secs=1.541
+CERT thr minb=4 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+== thr: kernel variant choice at N=65536 262144 (1 GPU)
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=100000 block=128 secs=1.2866 agg_inst_cyc_per_s=4.8411e+09 per_inst_cyc_per_s=7.3869e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=100000 block=128 secs=4.7442 agg_inst_cyc_per_s=5.2514e+09 per_inst_cyc_per_s=2.0032e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=100000 block=128 secs=2.1029 agg_inst_cyc_per_s=2.9618e+09 per_inst_cyc_per_s=4.5193e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=100000 block=128 secs=7.9116 agg_inst_cyc_per_s=3.1490e+09 per_inst_cyc_per_s=1.2013e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=100000 block=128 secs=6.2257 agg_inst_cyc_per_s=1.0004e+09 per_inst_cyc_per_s=1.5265e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=4 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=100000 block=128 secs=25.7190 agg_inst_cyc_per_s=9.6869e+08 per_inst_cyc_per_s=3.6952e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=4 ilv=0
+BEST thr minb=1 agg=5.2514e+09
+== thr: N sweep, best variant, 1 GPU
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=1 cycles=100000 block=128 secs=0.3562 agg_inst_cyc_per_s=2.6681e+05 per_inst_cyc_per_s=2.6681e+05 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=32 cycles=100000 block=128 secs=0.3563 agg_inst_cyc_per_s=8.5362e+06 per_inst_cyc_per_s=2.6676e+05 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=4096 cycles=100000 block=128 secs=0.3802 agg_inst_cyc_per_s=1.0240e+09 per_inst_cyc_per_s=2.4999e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=16384 cycles=100000 block=128 secs=0.4300 agg_inst_cyc_per_s=3.6215e+09 per_inst_cyc_per_s=2.2104e+05 CHK0=47E5C3CA649F77AD AGG=E1D4AA0136E22325 DONE0=95038 CAGG=3ACED0356FA9A325 ndone=16384 done_min=95038 done_max=95038 argmax=0 inst_cyc=1557102592 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=65536 cycles=100000 block=128 secs=1.2974 agg_inst_cyc_per_s=4.8008e+09 per_inst_cyc_per_s=7.3255e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=262144 cycles=100000 block=128 secs=4.7806 agg_inst_cyc_per_s=5.2115e+09 per_inst_cyc_per_s=1.9880e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 4090" N=1048576 cycles=100000 block=128 secs=18.5657 agg_inst_cyc_per_s=5.3677e+09 per_inst_cyc_per_s=5.1190e+03 CHK0=47E5C3CA649F77AD AGG=AAC3241134222325 DONE0=95038 CAGG=92E1E99F66022325 ndone=1048576 done_min=95038 done_max=95038 argmax=0 inst_cyc=99654565888 gid0=0 m=0 minb=1 ilv=0
+== thr: all 8 GPUs (contiguous gid slices, one wall clock)
+FARM design=h3thr dev="8x NVIDIA GeForce RTX 4090" N=1048576 cycles=100000 block=128 secs=2.5570 agg_inst_cyc_per_s=3.8973e+10 per_inst_cyc_per_s=3.7168e+04 CHK0=47E5C3CA649F77AD AGG=AAC3241134222325 DONE0=95038 CAGG=92E1E99F66022325 ndone=1048576 done_min=95038 done_max=95038 argmax=0 inst_cyc=99654565888 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="8x NVIDIA GeForce RTX 4090" N=2097152 cycles=100000 block=128 secs=4.8816 agg_inst_cyc_per_s=4.0829e+10 per_inst_cyc_per_s=1.9469e+04 CHK0=47E5C3CA649F77AD AGG=BAF3AB3DE4222325 DONE0=95038 CAGG=5584F65A47E22325 ndone=2097152 done_min=95038 done_max=95038 argmax=0 inst_cyc=199309131776 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="8x NVIDIA GeForce RTX 4090" N=8388608 cycles=100000 block=128 secs=18.5691 agg_inst_cyc_per_s=4.2933e+10 per_inst_cyc_per_s=5.1181e+03 CHK0=47E5C3CA649F77AD AGG=28F6D64A04222325 DONE0=95038 CAGG=8B1602BB93222325 ndone=8388608 done_min=95038 done_max=95038 argmax=0 inst_cyc=797236527104 gid0=0 m=0 minb=1 ilv=0
+== split render: every tile of upstream's 1024x1024 image, N = NT tiles, all 8 GPU(s)
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=1048576 cycles=2000000000 block=32 secs=0.2400 agg_inst_cyc_per_s=2.1326e+10 per_inst_cyc_per_s=2.0338e+04 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=1
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.091
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=32 ilv=1 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=0.2400
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=1048576 cycles=2000000000 block=128 secs=0.2480 agg_inst_cyc_per_s=2.0633e+10 per_inst_cyc_per_s=1.9677e+04 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=1
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.910
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=128 ilv=1 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=0.2480
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=1048576 cycles=2000000000 block=32 secs=0.2947 agg_inst_cyc_per_s=1.7363e+10 per_inst_cyc_per_s=1.6559e+04 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.938
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=32 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=0.2947
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=1048576 cycles=2000000000 block=128 secs=0.2965 agg_inst_cyc_per_s=1.7261e+10 per_inst_cyc_per_s=1.6461e+04 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.920
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=128 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=0.2965
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=262144 cycles=2000000000 block=32 secs=0.3010 agg_inst_cyc_per_s=1.6847e+10 per_inst_cyc_per_s=6.4267e+04 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=1
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.893
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=32 ilv=1 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=0.3010
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=262144 cycles=2000000000 block=128 secs=0.3119 agg_inst_cyc_per_s=1.6258e+10 per_inst_cyc_per_s=6.2019e+04 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=1
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.952
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=128 ilv=1 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=0.3119
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=262144 cycles=2000000000 block=32 secs=0.3001 agg_inst_cyc_per_s=1.6897e+10 per_inst_cyc_per_s=6.4458e+04 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.914
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=32 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=0.3001
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=262144 cycles=2000000000 block=128 secs=0.3090 agg_inst_cyc_per_s=1.6410e+10 per_inst_cyc_per_s=6.2600e+04 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.930
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=128 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=0.3090
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=65536 cycles=2000000000 block=32 secs=0.7232 agg_inst_cyc_per_s=6.9967e+09 per_inst_cyc_per_s=1.0676e+05 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=1
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.346
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=32 ilv=1 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=0.7232
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=65536 cycles=2000000000 block=128 secs=0.7036 agg_inst_cyc_per_s=7.1917e+09 per_inst_cyc_per_s=1.0974e+05 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=1
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.319
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=128 ilv=1 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=0.7036
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=65536 cycles=2000000000 block=32 secs=0.6303 agg_inst_cyc_per_s=8.0278e+09 per_inst_cyc_per_s=1.2249e+05 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.292
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=32 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=0.6303
+FARM design=h3split dev="8x NVIDIA GeForce RTX 4090" N=65536 cycles=2000000000 block=128 secs=0.7304 agg_inst_cyc_per_s=6.9277e+09 per_inst_cyc_per_s=1.0571e+05 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.354
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=128 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=0.7304
+CLOCKS gpu=3 busy_samples=35 sm_mhz_mean=2827 min=2520 max=2850 power_w_mean=267
+CLOCKS gpu=6 busy_samples=29 sm_mhz_mean=2697 min=2685 max=2715 power_w_mean=304
+CLOCKS gpu=5 busy_samples=30 sm_mhz_mean=2734 min=2520 max=2760 power_w_mean=314
+CLOCKS gpu=2 busy_samples=30 sm_mhz_mean=2686 min=2520 max=2715 power_w_mean=301
+CLOCKS gpu=1 busy_samples=33 sm_mhz_mean=2659 min=2520 max=2685 power_w_mean=267
+CLOCKS gpu=4 busy_samples=36 sm_mhz_mean=2722 min=2520 max=2745 power_w_mean=273
+CLOCKS gpu=0 busy_samples=107 sm_mhz_mean=2694 min=2685 max=2730 power_w_mean=326
+CLOCKS gpu=7 busy_samples=29 sm_mhz_mean=2718 min=2715 max=2730 power_w_mean=305
+SWEEP-END 2026-10-03T23:58:22Z
+16:58:21 RUN-EXIT=0

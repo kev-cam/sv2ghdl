@@ -535,3 +535,65 @@ The 32-bit-carrier rows above are that build; raw log
 Reproduce: `rtlm/yuri/yuri.cu` + the model from `gen_statemachine dut.sv
 a_plus_b_using_wrapped_fifos width=4 depth=4`; `sweep_yuri.sh` on the
 instance; raw log `results/vast_RTX_4090x1_51098213.log`.
+
+## Hazard3 Mandelbrot: Verijit's test case (2026-10-03)
+
+*Verijit (verijit.com, a JIT Verilog simulator; not downloadable) publishes one
+test case, github.com/verijit/verilator-hazard3-mandelbrot-testbench: a Hazard3
+RV32IMAC SoC running fixed-point Mandelbrot (1024x1024, 256 iterations) until
+EBREAK. Its README: Verilator 3.6 MCycles/s, Verijit 766.8 MCycles/s (213x) on a
+Ryzen 7 PRO 7840U. Kit: `vhdl/gpu/hazard3/` (README there).*
+
+**Workload.** The SPLIT RENDER is upstream's whole job, cut into tiles: one
+simulated Hazard3 SoC per tile, the tile chosen by a `tile_id` input, the
+upstream fixed-point code untouched (only the loops are re-tiled, and the 29.4M-
+cycle zero-fill of the whole image is dropped). m=0 is 1,048,576 tiles (one
+pixel each). Together the tiles simulate 5,117,698,414 instance-cycles; that is
+more than upstream's 4,637,655,132 because our clang-19 firmware schedules the
+multiplies worse than upstream's clang-20 binary (46 vs 42.4 cycles/iteration),
+so the comparison below is conservative. THROUGHPUT is every instance running
+the same 16x16/8 image (95,038 cycles). Model: gen_statemachine, 1,253 cells,
+112 registers, 2.6 KB state per instance (16 data-RAM words for the split
+render), array-of-structs, 255 registers and 0 spill on sm_80-90.
+
+**Certification.** Every row passed (22-31 checks per card): every tile's
+checksum equals the native per-tile golden, the population hashes equal the CPU
+tables, and the union of the tiles has upstream's `output.ppm` md5
+693d2391e979a114a82af00b3e64e54c; on CPU the Verilator twin agreed on every one
+of the 1,376,256 tiles of the three geometries (m = 0, 2, 4).
+
+| node | $/h paid | whole image (m=0, kernel) | split agg inst-cyc/s | thr plateau inst-cyc/s | session | cost |
+| :-- | --: | --: | --: | --: | --: | --: |
+| RTX 3090 | 0.123 | 3.339 s | 1.53e9 | 1.74e9 | 5.0 min | $0.010 |
+| H100 SXM | 1.895 | 1.883 s | 2.72e9 | 3.60e9 | 3.0 min | $0.096 |
+| RTX 4090 | 0.308 | 1.141 s | 4.49e9 | 5.36e9 | 2.8 min | $0.014 |
+| L40S | 0.801 | 1.059 s | 4.83e9 | 6.06e9 | 3.5 min | $0.047 |
+| 8x RTX 4090 | 3.095 | **0.240 s** | 2.13e10 | 4.29e10 | 4.4 min | $0.226 |
+
+Total rental spend for the five sessions: $0.39 (create to verified destroy).
+
+**Against the baselines.** Upstream's own Verilator benchmark (Verilator 5.032,
+one thread, clang -O3 -march=native, upstream Makefile) runs the whole image in
+1,240-1,274 s on a Threadripper PRO 5955WX (3.64-3.74 MCycles/s); Verijit's
+claimed 766.8 MCycles/s is 6.05 s for the same 4.64e9 cycles. One RTX 4090
+renders it in 1.14 s (about 1,100x Verilator, 5.3x Verijit's claim); eight
+4090s in 0.24 s (about 5,200x Verilator, 25x Verijit's claim). The throughput
+plateau of one 4090, 5.36e9 instance-cycles/s, is about 1,450x one Verilator
+thread.
+
+**Reading.** This is breadth, not depth (rule 4): one GPU thread runs one
+Hazard3 at about 2.5e5 cycles/s when the card is lightly loaded, roughly 15x
+slower than Verilator, and the win comes from a million cycle-exact copies
+running at once. Verijit's 213x is one simulated core running faster; these
+numbers are the same SoC and the same arithmetic simulated cycle-exactly, with
+the job spread over many cores. The design is not spill-bound, so it sits near
+rule 1: the L40S edges out the 4090 again (latency-bound per thread, more SMs),
+and eight cards give 4.75x on the 1M-tile split (the image is too small to
+saturate eight cards; the throughput plateau scales 8.0x). A projection
+anchored on the local T1000 (1.4e9 per 4090, 4.4 s) undershot by about 3.8x;
+the rule-1 projection from the cell count (3.6e9, 1.7 s) was closer.
+
+Reproduce: `vhdl/gpu/hazard3/` (`build_h3.sh`, `cert_h3.sh`, `build_gpu_h3.sh`,
+then `./vast_h3.sh RTX_4090`, `NGPUS=8 MAXDPH=5.00 ./vast_h3.sh RTX_4090`; the
+key comes from the vastai CLI's key file, never a command line); raw logs
+`vhdl/gpu/hazard3/results/vast_h3_*.log`.

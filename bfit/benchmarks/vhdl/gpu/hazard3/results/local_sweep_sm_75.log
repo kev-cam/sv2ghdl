@@ -1,0 +1,43 @@
+DPH=0 GPU=T1000x1-local
+SWEEP-START 2026-10-03T23:28:39Z host=P620A
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA T1000, 596.59, 2100 MHz, 4096 MiB, 50.00 W
+NGPU=1
+== thr cert (N=4096, 1 GPU, each kernel variant)
+FARM design=h3thr dev="1x NVIDIA T1000" N=4096 cycles=100000 block=128 secs=4.4758 agg_inst_cyc_per_s=8.6974e+07 per_inst_cyc_per_s=2.1234e+04 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+WALL cmd_secs=4.818
+CERT thr minb=1 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA T1000" N=4096 cycles=100000 block=128 secs=4.3945 agg_inst_cyc_per_s=8.8583e+07 per_inst_cyc_per_s=2.1627e+04 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=3 ilv=0
+WALL cmd_secs=4.712
+CERT thr minb=3 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA T1000" N=4096 cycles=100000 block=128 secs=5.9243 agg_inst_cyc_per_s=6.5708e+07 per_inst_cyc_per_s=1.6042e+04 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=4 ilv=0
+WALL cmd_secs=6.226
+CERT thr minb=4 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+== thr: kernel variant choice at N=7168 (1 GPU)
+FARM design=h3thr dev="1x NVIDIA T1000" N=7168 cycles=100000 block=128 secs=6.6492 agg_inst_cyc_per_s=1.0245e+08 per_inst_cyc_per_s=1.4293e+04 CHK0=47E5C3CA649F77AD AGG=E1BB696C12562325 DONE0=95038 CAGG=1A7A96CE092D6B25 ndone=7168 done_min=95038 done_max=95038 argmax=0 inst_cyc=681232384 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=7168 cycles=100000 block=128 secs=7.8642 agg_inst_cyc_per_s=8.6624e+07 per_inst_cyc_per_s=1.2085e+04 CHK0=47E5C3CA649F77AD AGG=E1BB696C12562325 DONE0=95038 CAGG=1A7A96CE092D6B25 ndone=7168 done_min=95038 done_max=95038 argmax=0 inst_cyc=681232384 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=7168 cycles=100000 block=128 secs=10.7653 agg_inst_cyc_per_s=6.3280e+07 per_inst_cyc_per_s=8.8282e+03 CHK0=47E5C3CA649F77AD AGG=E1BB696C12562325 DONE0=95038 CAGG=1A7A96CE092D6B25 ndone=7168 done_min=95038 done_max=95038 argmax=0 inst_cyc=681232384 gid0=0 m=0 minb=4 ilv=0
+BEST thr minb=1 agg=1.0245e+08
+== thr: N sweep, best variant, 1 GPU
+FARM design=h3thr dev="1x NVIDIA T1000" N=1 cycles=100000 block=128 secs=0.9770 agg_inst_cyc_per_s=9.7279e+04 per_inst_cyc_per_s=9.7279e+04 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=32 cycles=100000 block=128 secs=0.9773 agg_inst_cyc_per_s=3.1118e+06 per_inst_cyc_per_s=9.7243e+04 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=3584 cycles=100000 block=128 secs=3.3314 agg_inst_cyc_per_s=1.0224e+08 per_inst_cyc_per_s=2.8528e+04 CHK0=47E5C3CA649F77AD AGG=AF5B8E418B3C2325 DONE0=95038 CAGG=4E582E5E7727C725 ndone=3584 done_min=95038 done_max=95038 argmax=0 inst_cyc=340616192 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=7168 cycles=100000 block=128 secs=6.6519 agg_inst_cyc_per_s=1.0241e+08 per_inst_cyc_per_s=1.4287e+04 CHK0=47E5C3CA649F77AD AGG=E1BB696C12562325 DONE0=95038 CAGG=1A7A96CE092D6B25 ndone=7168 done_min=95038 done_max=95038 argmax=0 inst_cyc=681232384 gid0=0 m=0 minb=1 ilv=0
+== split render: every tile of upstream's 1024x1024 image, N = NT tiles, all 1 GPU(s)
+FARM design=h3split dev="1x NVIDIA T1000" N=1048576 cycles=2000000000 block=32 secs=59.1876 agg_inst_cyc_per_s=8.6466e+07 per_inst_cyc_per_s=8.2460e+01 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=59.685
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=32 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=59.1876
+FARM design=h3split dev="1x NVIDIA T1000" N=262144 cycles=2000000000 block=32 secs=59.9969 agg_inst_cyc_per_s=8.4526e+07 per_inst_cyc_per_s=3.2244e+02 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=60.349
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=32 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=59.9969
+FARM design=h3split dev="1x NVIDIA T1000" N=65536 cycles=2000000000 block=32 secs=60.6876 agg_inst_cyc_per_s=8.3373e+07 per_inst_cyc_per_s=1.2722e+03 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=61.003
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=32 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=60.6876
+CLOCKS gpu=0 busy_samples=234 sm_mhz_mean=1805 min=1785 max=1845 power_w_mean=0
+SWEEP-END 2026-10-03T23:32:36Z

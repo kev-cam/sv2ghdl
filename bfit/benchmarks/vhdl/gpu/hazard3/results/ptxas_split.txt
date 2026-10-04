@@ -1,0 +1,13 @@
+split binary=2145048 bytes nvcc=22s (podman gpu-cc.sh, nvcc 12.4.131)
+split sm_80 MINB=1 registers=255 stack_frame=656 spill_stores=0 spill_loads=0
+split sm_80 MINB=3 registers=168 stack_frame=912 spill_stores=396 spill_loads=328
+split sm_80 MINB=4 registers=128 stack_frame=1208 spill_stores=824 spill_loads=688
+split sm_86 MINB=1 registers=255 stack_frame=656 spill_stores=0 spill_loads=0
+split sm_86 MINB=3 registers=168 stack_frame=912 spill_stores=396 spill_loads=328
+split sm_86 MINB=4 registers=128 stack_frame=1208 spill_stores=824 spill_loads=688
+split sm_89 MINB=1 registers=255 stack_frame=656 spill_stores=0 spill_loads=0
+split sm_89 MINB=3 registers=168 stack_frame=912 spill_stores=396 spill_loads=328
+split sm_89 MINB=4 registers=128 stack_frame=1208 spill_stores=824 spill_loads=688
+split sm_90 MINB=1 registers=254 stack_frame=656 spill_stores=0 spill_loads=0
+split sm_90 MINB=3 registers=168 stack_frame=904 spill_stores=384 spill_loads=332
+split sm_90 MINB=4 registers=128 stack_frame=1208 spill_stores=828 spill_loads=700

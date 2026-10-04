@@ -1,0 +1,81 @@
+16:42:52 status=running ssh4.vast.ai:32806
+{'success': True, 'msg': 'SSH key added to instance.', 'key': '{"id": 1485324, "user_id": null, "default": null, "public_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCwh+bCFVq6crBIa/z6fPYM3ykBVpbDQkcNfCf+A2L8WqLRfxH42DFQ1WKlYjmewJZ9yEtlA3b6Kq0CjWKmq6iYfNCi1OIvWYN3g5j5uvK6BlGAmAwpRwFABabteP5whyJg4eBJbr++M2vX8oUK9XuuNTYwG2qs7AzadfXnnrRFuXTjYfuIiUQwddamLir6RjHGJ12+mpY426CpsYBEy6dWy6w6hoUuZ3qWFOEJ88kZ78iuVY/7OqSd+v4gxnaES6mxBnixDhfm0Sxw0MjO0890Do2S03afitl/ctBhgbxc2DyCJvJfGReAkm9wShBdJlQE4TrZNoc9OIyn5Bj+en6vSbBYVti6OLwvvTF/isYGvrOS8555SC5qeiV3d95sddTsflXMHsW5cHudt5j1QGttdt1q1622fYvT38Hejp/CZUYQIJFpiCyKX1jrgP4KmC0lZ4GAWPgewaOzsXxBTDOZMa+X6WtQntdYACOvqqhJbAeu5MU/xEIbT8stYyYEc50= Claude@DESKTOP-3SRS8MD", "private_key": null, "created_at": 1791070974.189539, "deleted_at": null}'}
+Warning: Permanently added '[ssh4.vast.ai]:32806' (ED25519) to the list of known hosts.
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+root@ssh4.vast.ai: Permission denied (publickey).
+scp: Connection closed
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+root@ssh4.vast.ai: Permission denied (publickey).
+scp: Connection closed
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+16:43:32 binaries shipped (attempt 3)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=0.12324074074074075 GPU=RTX_3090x1
+SWEEP-START 2026-10-03T23:44:36Z host=9ba2277de0f6
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA GeForce RTX 3090, 580.173.02, 2130 MHz, 24576 MiB, 290.00 W
+NGPU=1
+== thr cert (N=4096, 1 GPU, each kernel variant)
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=100000 block=128 secs=0.5745 agg_inst_cyc_per_s=6.7763e+08 per_inst_cyc_per_s=1.6544e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+WALL cmd_secs=1.013
+CERT thr minb=1 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=100000 block=128 secs=0.6092 agg_inst_cyc_per_s=6.3902e+08 per_inst_cyc_per_s=1.5601e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=3 ilv=0
+WALL cmd_secs=0.938
+CERT thr minb=3 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=100000 block=128 secs=0.6862 agg_inst_cyc_per_s=5.6731e+08 per_inst_cyc_per_s=1.3850e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=4 ilv=0
+WALL cmd_secs=1.047
+CERT thr minb=4 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+== thr: kernel variant choice at N=65536 262144 (1 GPU)
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=100000 block=128 secs=3.7527 agg_inst_cyc_per_s=1.6597e+09 per_inst_cyc_per_s=2.5325e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=262144 cycles=100000 block=128 secs=14.9111 agg_inst_cyc_per_s=1.6708e+09 per_inst_cyc_per_s=6.3736e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=100000 block=128 secs=6.8282 agg_inst_cyc_per_s=9.1216e+08 per_inst_cyc_per_s=1.3918e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=262144 cycles=100000 block=128 secs=25.9915 agg_inst_cyc_per_s=9.5853e+08 per_inst_cyc_per_s=3.6565e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=100000 block=128 secs=10.9752 agg_inst_cyc_per_s=5.6750e+08 per_inst_cyc_per_s=8.6594e+03 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=4 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=262144 cycles=100000 block=128 secs=44.5594 agg_inst_cyc_per_s=5.5911e+08 per_inst_cyc_per_s=2.1328e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=4 ilv=0
+BEST thr minb=1 agg=1.6708e+09
+== thr: N sweep, best variant, 1 GPU
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=1 cycles=100000 block=128 secs=0.5096 agg_inst_cyc_per_s=1.8650e+05 per_inst_cyc_per_s=1.8650e+05 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=32 cycles=100000 block=128 secs=0.5097 agg_inst_cyc_per_s=5.9665e+06 per_inst_cyc_per_s=1.8645e+05 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=4096 cycles=100000 block=128 secs=0.5484 agg_inst_cyc_per_s=7.0988e+08 per_inst_cyc_per_s=1.7331e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=16384 cycles=100000 block=128 secs=1.0679 agg_inst_cyc_per_s=1.4581e+09 per_inst_cyc_per_s=8.8998e+04 CHK0=47E5C3CA649F77AD AGG=E1D4AA0136E22325 DONE0=95038 CAGG=3ACED0356FA9A325 ndone=16384 done_min=95038 done_max=95038 argmax=0 inst_cyc=1557102592 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=100000 block=128 secs=3.7593 agg_inst_cyc_per_s=1.6568e+09 per_inst_cyc_per_s=2.5281e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=262144 cycles=100000 block=128 secs=14.9270 agg_inst_cyc_per_s=1.6690e+09 per_inst_cyc_per_s=6.3668e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=100000 block=128 secs=57.2912 agg_inst_cyc_per_s=1.7394e+09 per_inst_cyc_per_s=1.6589e+03 CHK0=47E5C3CA649F77AD AGG=AAC3241134222325 DONE0=95038 CAGG=92E1E99F66022325 ndone=1048576 done_min=95038 done_max=95038 argmax=0 inst_cyc=99654565888 gid0=0 m=0 minb=1 ilv=0
+== split render: every tile of upstream's 1024x1024 image, N = NT tiles, all 1 GPU(s)
+FARM design=h3split dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=2000000000 block=32 secs=3.3737 agg_inst_cyc_per_s=1.5170e+09 per_inst_cyc_per_s=1.4467e+03 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.861
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=32 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=3.3737
+FARM design=h3split dev="1x NVIDIA GeForce RTX 3090" N=1048576 cycles=2000000000 block=128 secs=3.3390 agg_inst_cyc_per_s=1.5327e+09 per_inst_cyc_per_s=1.4617e+03 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.915
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=128 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=3.3390
+FARM design=h3split dev="1x NVIDIA GeForce RTX 3090" N=262144 cycles=2000000000 block=32 secs=3.4045 agg_inst_cyc_per_s=1.4896e+09 per_inst_cyc_per_s=5.6824e+03 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.865
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=32 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=3.4045
+FARM design=h3split dev="1x NVIDIA GeForce RTX 3090" N=262144 cycles=2000000000 block=128 secs=3.4323 agg_inst_cyc_per_s=1.4775e+09 per_inst_cyc_per_s=5.6363e+03 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=3.873
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=128 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=3.4323
+FARM design=h3split dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=2000000000 block=32 secs=3.8741 agg_inst_cyc_per_s=1.3060e+09 per_inst_cyc_per_s=1.9929e+04 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=4.298
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=32 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=3.8741
+FARM design=h3split dev="1x NVIDIA GeForce RTX 3090" N=65536 cycles=2000000000 block=128 secs=3.9706 agg_inst_cyc_per_s=1.2743e+09 per_inst_cyc_per_s=1.9444e+04 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=4.410
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=128 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=3.9706
+CLOCKS gpu=0 busy_samples=203 sm_mhz_mean=1761 min=1650 max=1950 power_w_mean=286
+SWEEP-END 2026-10-03T23:48:14Z
+16:47:12 RUN-EXIT=0

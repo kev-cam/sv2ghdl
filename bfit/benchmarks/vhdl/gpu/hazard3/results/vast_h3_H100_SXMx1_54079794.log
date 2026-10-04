@@ -1,0 +1,77 @@
+16:51:46 status=running ssh6.vast.ai:16468
+{'success': True, 'msg': 'SSH key added to instance.', 'key': '{"id": 1485357, "user_id": null, "default": null, "public_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCwh+bCFVq6crBIa/z6fPYM3ykBVpbDQkcNfCf+A2L8WqLRfxH42DFQ1WKlYjmewJZ9yEtlA3b6Kq0CjWKmq6iYfNCi1OIvWYN3g5j5uvK6BlGAmAwpRwFABabteP5whyJg4eBJbr++M2vX8oUK9XuuNTYwG2qs7AzadfXnnrRFuXTjYfuIiUQwddamLir6RjHGJ12+mpY426CpsYBEy6dWy6w6hoUuZ3qWFOEJ88kZ78iuVY/7OqSd+v4gxnaES6mxBnixDhfm0Sxw0MjO0890Do2S03afitl/ctBhgbxc2DyCJvJfGReAkm9wShBdJlQE4TrZNoc9OIyn5Bj+en6vSbBYVti6OLwvvTF/isYGvrOS8555SC5qeiV3d95sddTsflXMHsW5cHudt5j1QGttdt1q1622fYvT38Hejp/CZUYQIJFpiCyKX1jrgP4KmC0lZ4GAWPgewaOzsXxBTDOZMa+X6WtQntdYACOvqqhJbAeu5MU/xEIbT8stYyYEc50= Claude@DESKTOP-3SRS8MD", "private_key": null, "created_at": 1791071507.3474905, "deleted_at": null}'}
+Warning: Permanently added '[ssh6.vast.ai]:16468' (ED25519) to the list of known hosts.
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+root@ssh6.vast.ai: Permission denied (publickey).
+scp: Connection closed
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+16:52:11 binaries shipped (attempt 2)
+Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
+Have fun!
+DPH=1.8951851851851849 GPU=H100_SXMx1
+SWEEP-START 2026-10-03T23:52:14Z host=95a07cc1cc02
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA H100 80GB HBM3, 595.71.05, 1980 MHz, 81559 MiB, 500.00 W
+NGPU=1
+== thr cert (N=4096, 1 GPU, each kernel variant)
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=4096 cycles=100000 block=128 secs=0.6283 agg_inst_cyc_per_s=6.1961e+08 per_inst_cyc_per_s=1.5127e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+WALL cmd_secs=1.022
+CERT thr minb=1 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=4096 cycles=100000 block=128 secs=0.6593 agg_inst_cyc_per_s=5.9045e+08 per_inst_cyc_per_s=1.4415e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=3 ilv=0
+WALL cmd_secs=0.967
+CERT thr minb=3 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=4096 cycles=100000 block=128 secs=0.6798 agg_inst_cyc_per_s=5.7267e+08 per_inst_cyc_per_s=1.3981e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=4 ilv=0
+WALL cmd_secs=0.983
+CERT thr minb=4 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+== thr: kernel variant choice at N=65536 262144 (1 GPU)
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=65536 cycles=100000 block=128 secs=1.7869 agg_inst_cyc_per_s=3.4856e+09 per_inst_cyc_per_s=5.3186e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=262144 cycles=100000 block=128 secs=7.1310 agg_inst_cyc_per_s=3.4937e+09 per_inst_cyc_per_s=1.3327e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=65536 cycles=100000 block=128 secs=2.6956 agg_inst_cyc_per_s=2.3106e+09 per_inst_cyc_per_s=3.5257e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=262144 cycles=100000 block=128 secs=10.1669 agg_inst_cyc_per_s=2.4505e+09 per_inst_cyc_per_s=9.3478e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=3 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=65536 cycles=100000 block=128 secs=3.4208 agg_inst_cyc_per_s=1.8208e+09 per_inst_cyc_per_s=2.7783e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=4 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=262144 cycles=100000 block=128 secs=13.4381 agg_inst_cyc_per_s=1.8540e+09 per_inst_cyc_per_s=7.0723e+03 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=4 ilv=0
+BEST thr minb=1 agg=3.4937e+09
+== thr: N sweep, best variant, 1 GPU
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=1 cycles=100000 block=128 secs=0.4814 agg_inst_cyc_per_s=1.9743e+05 per_inst_cyc_per_s=1.9743e+05 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=32 cycles=100000 block=128 secs=0.4814 agg_inst_cyc_per_s=6.3178e+06 per_inst_cyc_per_s=1.9743e+05 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=4096 cycles=100000 block=128 secs=0.6282 agg_inst_cyc_per_s=6.1965e+08 per_inst_cyc_per_s=1.5128e+05 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=16384 cycles=100000 block=128 secs=0.6348 agg_inst_cyc_per_s=2.4528e+09 per_inst_cyc_per_s=1.4971e+05 CHK0=47E5C3CA649F77AD AGG=E1D4AA0136E22325 DONE0=95038 CAGG=3ACED0356FA9A325 ndone=16384 done_min=95038 done_max=95038 argmax=0 inst_cyc=1557102592 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=65536 cycles=100000 block=128 secs=1.8320 agg_inst_cyc_per_s=3.3997e+09 per_inst_cyc_per_s=5.1876e+04 CHK0=47E5C3CA649F77AD AGG=ECED55574F222325 DONE0=95038 CAGG=0B01CD9032402325 ndone=65536 done_min=95038 done_max=95038 argmax=0 inst_cyc=6228410368 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=262144 cycles=100000 block=128 secs=7.2480 agg_inst_cyc_per_s=3.4373e+09 per_inst_cyc_per_s=1.3112e+04 CHK0=47E5C3CA649F77AD AGG=E705BEAFB0222325 DONE0=95038 CAGG=861596133C9A2325 ndone=262144 done_min=95038 done_max=95038 argmax=0 inst_cyc=24913641472 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA H100 80GB HBM3" N=1048576 cycles=100000 block=128 secs=27.6590 agg_inst_cyc_per_s=3.6030e+09 per_inst_cyc_per_s=3.4361e+03 CHK0=47E5C3CA649F77AD AGG=AAC3241134222325 DONE0=95038 CAGG=92E1E99F66022325 ndone=1048576 done_min=95038 done_max=95038 argmax=0 inst_cyc=99654565888 gid0=0 m=0 minb=1 ilv=0
+== split render: every tile of upstream's 1024x1024 image, N = NT tiles, all 1 GPU(s)
+FARM design=h3split dev="1x NVIDIA H100 80GB HBM3" N=1048576 cycles=2000000000 block=32 secs=1.8979 agg_inst_cyc_per_s=2.6965e+09 per_inst_cyc_per_s=2.5715e+03 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.268
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=32 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=1.8979
+FARM design=h3split dev="1x NVIDIA H100 80GB HBM3" N=1048576 cycles=2000000000 block=128 secs=1.8829 agg_inst_cyc_per_s=2.7180e+09 per_inst_cyc_per_s=2.5920e+03 CHK0=026D36081A3B674D AGG=E9759185332B77C1 DONE0=223 CAGG=CF19776297554A6B ndone=1048576 done_min=223 done_max=11866 argmax=768 inst_cyc=5117698414 gid0=0 m=0 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.254
+IMAGE-MD5 m=0 693d2391e979a114a82af00b3e64e54c
+CERT split m=0 minb=1 block=128 ilv=0 MATCH AGG=E9759185332B77C1 CAGG=CF19776297554A6B md5=693d2391e979a114a82af00b3e64e54c secs=1.8829
+FARM design=h3split dev="1x NVIDIA H100 80GB HBM3" N=262144 cycles=2000000000 block=32 secs=1.9911 agg_inst_cyc_per_s=2.5470e+09 per_inst_cyc_per_s=9.7162e+03 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.357
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=32 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=1.9911
+FARM design=h3split dev="1x NVIDIA H100 80GB HBM3" N=262144 cycles=2000000000 block=128 secs=1.9248 agg_inst_cyc_per_s=2.6347e+09 per_inst_cyc_per_s=1.0051e+04 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC DONE0=12450 CAGG=FC6453B38B167425 ndone=262144 done_min=1037 done_max=47287 argmax=768 inst_cyc=5071298926 gid0=0 m=2 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.264
+IMAGE-MD5 m=2 693d2391e979a114a82af00b3e64e54c
+CERT split m=2 minb=1 block=128 ilv=0 MATCH AGG=8594CF12954973DC CAGG=FC6453B38B167425 md5=693d2391e979a114a82af00b3e64e54c secs=1.9248
+FARM design=h3split dev="1x NVIDIA H100 80GB HBM3" N=65536 cycles=2000000000 block=32 secs=2.5463 agg_inst_cyc_per_s=1.9871e+09 per_inst_cyc_per_s=3.0321e+04 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.884
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=32 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=2.5463
+FARM design=h3split dev="1x NVIDIA H100 80GB HBM3" N=65536 cycles=2000000000 block=128 secs=2.4485 agg_inst_cyc_per_s=2.0664e+09 per_inst_cyc_per_s=3.1531e+04 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=1 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=2.787
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=128 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=2.4485
+CLOCKS gpu=0 busy_samples=94 sm_mhz_mean=1701 min=1035 max=1980 power_w_mean=466
+SWEEP-END 2026-10-03T23:53:54Z
+16:53:53 RUN-EXIT=0

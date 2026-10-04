@@ -1,0 +1,23 @@
+DPH=0 GPU=cpu-dryrun
+SWEEP-START 2026-10-03T22:15:36Z host=P620A
+index, name, driver_version, clocks.max.sm [MHz], memory.total [MiB], power.limit [W]
+0, NVIDIA T1000, 596.59, 2100 MHz, 4096 MiB, 50.00 W
+NGPU=1
+== thr cert (N=4096, 1 GPU, each kernel variant)
+FARM design=h3thr dev="cpu" N=4096 cycles=100000 block=128 secs=20.9549 agg_inst_cyc_per_s=1.8577e+07 per_inst_cyc_per_s=4.5354e+03 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=0 ilv=0
+WALL cmd_secs=21.040
+CERT thr minb=1 MATCH CHK0=47E5C3CA649F77AD DONE0=95038
+== thr: kernel variant choice at N=4096 (1 GPU)
+FARM design=h3thr dev="cpu" N=4096 cycles=100000 block=128 secs=21.0400 agg_inst_cyc_per_s=1.8502e+07 per_inst_cyc_per_s=4.5170e+03 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=0 ilv=0
+BEST thr minb=1 agg=1.8502e+07
+== thr: N sweep, best variant, 1 GPU
+FARM design=h3thr dev="cpu" N=1 cycles=100000 block=128 secs=0.0389 agg_inst_cyc_per_s=2.4433e+06 per_inst_cyc_per_s=2.4433e+06 CHK0=47E5C3CA649F77AD AGG=32ADC98D08EF9E25 DONE0=95038 CAGG=6B1E765B6855091F ndone=1 done_min=95038 done_max=95038 argmax=0 inst_cyc=95038 gid0=0 m=0 minb=0 ilv=0
+FARM design=h3thr dev="cpu" N=32 cycles=100000 block=128 secs=0.6039 agg_inst_cyc_per_s=5.0358e+06 per_inst_cyc_per_s=1.5737e+05 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=0 ilv=0
+FARM design=h3thr dev="cpu" N=4096 cycles=100000 block=128 secs=21.6439 agg_inst_cyc_per_s=1.7985e+07 per_inst_cyc_per_s=4.3910e+03 CHK0=47E5C3CA649F77AD AGG=2AE5561BB0D22325 DONE0=95038 CAGG=0633702B1F040325 ndone=4096 done_min=95038 done_max=95038 argmax=0 inst_cyc=389275648 gid0=0 m=0 minb=0 ilv=0
+== split render: every tile of upstream's 1024x1024 image, N = NT tiles, all 1 GPU(s)
+FARM design=h3split dev="cpu" N=65536 cycles=2000000000 block=32 secs=275.8524 agg_inst_cyc_per_s=1.8342e+07 per_inst_cyc_per_s=2.7988e+02 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 DONE0=15614 CAGG=23212D8FD2F06F0A ndone=65536 done_min=4155 done_max=180366 argmax=6847 inst_cyc=5059699054 gid0=0 m=4 minb=0 ilv=0
+IMAGE file=img.ppm size=1024 covered=1048576 of 1048576 multi=0 bad_instances=0 complete=1
+WALL cmd_secs=275.903
+IMAGE-MD5 m=4 693d2391e979a114a82af00b3e64e54c
+CERT split m=4 minb=1 block=32 ilv=0 MATCH AGG=741C1DC5AEFF29E6 CAGG=23212D8FD2F06F0A md5=693d2391e979a114a82af00b3e64e54c secs=275.8524
+SWEEP-END 2026-10-03T22:21:17Z

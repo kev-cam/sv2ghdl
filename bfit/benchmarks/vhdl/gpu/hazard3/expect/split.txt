@@ -1,0 +1,8 @@
+# split: upstream 1024x1024 MAX_ITERS=256 rendered as NT = 2^(20-m) tiles of 2^m pixels (fw/tile_geom.h)
+# CHK0/AGG = fw/tile_native.h (the same generated mandelbrot_tile() compiled natively by gcc -O2):
+#   per-tile FNV-1a-64 over (tile word, pixels, DONE) and FNV-1a-64 over the CHK vector in tile order
+# md5 = the union of the native tiles written as upstream's output.ppm; must be 693d2391e979a114a82af00b3e64e54c
+workload=split m=0 NT=1048576 CHK0=026D36081A3B674D AGG=E9759185332B77C1 words=3 md5=693d2391e979a114a82af00b3e64e54c
+workload=split m=2 NT=262144 CHK0=F9C98C4C25C68E25 AGG=8594CF12954973DC words=6 md5=693d2391e979a114a82af00b3e64e54c
+workload=split m=4 NT=65536 CHK0=BDE98A80DDE4E38D AGG=741C1DC5AEFF29E6 words=18 md5=693d2391e979a114a82af00b3e64e54c
+provenance tile.elf=c48e03c2f527f703 i_ram=82fa03450e67284d model_m=3ddbd3092560011e mandelbrot.c=9e92e4d9eec49f75 rv32.c=49bcc9b9fc891607 soc.tmpl.v=ce64622f6a50d269 gsm_src=e1a6ee835621cae9

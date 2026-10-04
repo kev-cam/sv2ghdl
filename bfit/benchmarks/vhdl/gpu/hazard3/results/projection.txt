@@ -1,0 +1,176 @@
+PROJECTION from gpu_farm.md rules 1-3; cells=1253, 255 registers / 0 spill (ptxas) -> 256 threads/SM
+
+| card | N_sat (rule 3) | thr plateau inst-cyc/s low / central / high (rule 1) | spill-class (rule 2) | per-instance cyc/s (central) | thr images/s (central) | $ per 1e12 inst-cyc |
+| :-- | --: | --: | --: | --: | --: | --: |
+| RTX 4090 | 32768 | 3.19e+09 / 3.59e+09 / 4.47e+09 | 9.38e+08 | 1.10e+05 | 3.78e+04 | $0.028 |
+| RTX 3090 | 20992 | 1.28e+09 / 1.60e+09 / 2.00e+09 | 2.27e+08 | 7.60e+04 | 1.68e+04 | $0.019 |
+| H100 SXM | 33792 | 2.23e+09 / 2.79e+09 / 3.43e+09 | 5.38e+08 | 8.27e+04 | 2.94e+04 | $0.292 |
+| L40S | 36352 | 3.19e+09 / 3.98e+09 / 5.68e+09 | 7.22e+08 | 1.10e+05 | 4.19e+04 | $0.056 |
+
+gsm_m0.txt: N=1048576 tiles, sum 5.1177e+09 inst-cycles, mean 4881, max 11866; SIMT efficiency warp(32) 0.886, block(128) 0.750
+| card | GPUs | layout | block | wall s low / central / high (rule 1) | spill-class | slowest card share |
+| :-- | --: | :-- | --: | --: | --: | --: |
+| RTX 4090 | 1 | - | 32 | 1.90 / 1.69 / 1.36 | 6.46 | 1.00 of total |
+| RTX 4090 | 1 | - | 128 | 2.22 / 1.98 / 1.59 | 7.57 | 1.00 of total |
+| RTX 4090 | 8 | contiguous | 32 | 0.49 / 0.43 / 0.35 | 1.66 | 0.24 of total |
+| RTX 4090 | 8 | contiguous | 128 | 0.49 / 0.43 / 0.35 | 1.66 | 0.24 of total |
+| RTX 4090 | 8 | interleaved | 32 | 0.38 / 0.33 / 0.27 | 1.28 | 0.13 of total |
+| RTX 4090 | 8 | interleaved | 128 | 0.49 / 0.43 / 0.35 | 1.66 | 0.13 of total |
+| RTX 3090 | 1 | - | 32 | 4.67 / 3.74 / 2.99 | 26.28 | 1.00 of total |
+| RTX 3090 | 1 | - | 128 | 5.49 / 4.39 / 3.51 | 30.87 | 1.00 of total |
+| RTX 3090 | 8 | contiguous | 32 | 1.17 / 0.94 / 0.75 | 6.58 | 0.24 of total |
+| RTX 3090 | 8 | contiguous | 128 | 1.19 / 0.95 / 0.76 | 6.69 | 0.24 of total |
+| RTX 3090 | 8 | interleaved | 32 | 0.86 / 0.69 / 0.55 | 4.86 | 0.13 of total |
+| RTX 3090 | 8 | interleaved | 128 | 1.20 / 0.96 / 0.77 | 6.75 | 0.13 of total |
+| H100 SXM | 1 | - | 32 | 2.71 / 2.17 / 1.77 | 11.26 | 1.00 of total |
+| H100 SXM | 1 | - | 128 | 3.18 / 2.54 / 2.07 | 13.19 | 1.00 of total |
+| H100 SXM | 8 | contiguous | 32 | 0.72 / 0.57 / 0.47 | 2.98 | 0.24 of total |
+| H100 SXM | 8 | contiguous | 128 | 0.72 / 0.57 / 0.47 | 2.98 | 0.24 of total |
+| H100 SXM | 8 | interleaved | 32 | 0.55 / 0.44 / 0.36 | 2.29 | 0.13 of total |
+| H100 SXM | 8 | interleaved | 128 | 0.72 / 0.57 / 0.47 | 2.98 | 0.13 of total |
+| L40S | 1 | - | 32 | 1.91 / 1.53 / 1.07 | 8.42 | 1.00 of total |
+| L40S | 1 | - | 128 | 2.23 / 1.79 / 1.25 | 9.86 | 1.00 of total |
+| L40S | 8 | contiguous | 32 | 0.45 / 0.36 / 0.25 | 2.00 | 0.24 of total |
+| L40S | 8 | contiguous | 128 | 0.54 / 0.43 / 0.30 | 2.39 | 0.24 of total |
+| L40S | 8 | interleaved | 32 | 0.41 / 0.33 / 0.23 | 1.81 | 0.13 of total |
+| L40S | 8 | interleaved | 128 | 0.54 / 0.43 / 0.30 | 2.39 | 0.13 of total |
+
+gsm_m2.txt: N=262144 tiles, sum 5.0713e+09 inst-cycles, mean 19345, max 47287; SIMT efficiency warp(32) 0.889, block(128) 0.754
+| card | GPUs | layout | block | wall s low / central / high (rule 1) | spill-class | slowest card share |
+| :-- | --: | :-- | --: | --: | --: | --: |
+| RTX 4090 | 1 | - | 32 | 2.09 / 1.85 / 1.49 | 7.10 | 1.00 of total |
+| RTX 4090 | 1 | - | 128 | 2.38 / 2.12 / 1.70 | 8.11 | 1.00 of total |
+| RTX 4090 | 8 | contiguous | 32 | 0.49 / 0.43 / 0.35 | 1.65 | 0.13 of total |
+| RTX 4090 | 8 | contiguous | 128 | 0.49 / 0.43 / 0.35 | 1.65 | 0.13 of total |
+| RTX 4090 | 8 | interleaved | 32 | 0.49 / 0.43 / 0.35 | 1.65 | 0.13 of total |
+| RTX 4090 | 8 | interleaved | 128 | 0.49 / 0.43 / 0.35 | 1.65 | 0.13 of total |
+| RTX 3090 | 1 | - | 32 | 4.90 / 3.92 / 3.14 | 27.58 | 1.00 of total |
+| RTX 3090 | 1 | - | 128 | 5.66 / 4.53 / 3.62 | 31.84 | 1.00 of total |
+| RTX 3090 | 8 | contiguous | 32 | 1.17 / 0.94 / 0.75 | 6.61 | 0.13 of total |
+| RTX 3090 | 8 | contiguous | 128 | 1.22 / 0.98 / 0.78 | 6.86 | 0.13 of total |
+| RTX 3090 | 8 | interleaved | 32 | 1.22 / 0.97 / 0.78 | 6.84 | 0.13 of total |
+| RTX 3090 | 8 | interleaved | 128 | 1.55 / 1.24 / 1.00 | 8.75 | 0.13 of total |
+| H100 SXM | 1 | - | 32 | 2.99 / 2.39 / 1.95 | 12.41 | 1.00 of total |
+| H100 SXM | 1 | - | 128 | 3.42 / 2.74 / 2.23 | 14.20 | 1.00 of total |
+| H100 SXM | 8 | contiguous | 32 | 0.72 / 0.57 / 0.47 | 2.97 | 0.13 of total |
+| H100 SXM | 8 | contiguous | 128 | 0.72 / 0.57 / 0.47 | 2.97 | 0.13 of total |
+| H100 SXM | 8 | interleaved | 32 | 0.72 / 0.57 / 0.47 | 2.97 | 0.13 of total |
+| H100 SXM | 8 | interleaved | 128 | 0.72 / 0.57 / 0.47 | 2.97 | 0.13 of total |
+| L40S | 1 | - | 32 | 2.11 / 1.69 / 1.19 | 9.34 | 1.00 of total |
+| L40S | 1 | - | 128 | 2.42 / 1.94 / 1.36 | 10.69 | 1.00 of total |
+| L40S | 8 | contiguous | 32 | 0.54 / 0.43 / 0.30 | 2.38 | 0.13 of total |
+| L40S | 8 | contiguous | 128 | 0.54 / 0.43 / 0.30 | 2.38 | 0.13 of total |
+| L40S | 8 | interleaved | 32 | 0.54 / 0.43 / 0.30 | 2.38 | 0.13 of total |
+| L40S | 8 | interleaved | 128 | 0.54 / 0.43 / 0.30 | 2.38 | 0.13 of total |
+
+gsm_m4.txt: N=65536 tiles, sum 5.0597e+09 inst-cycles, mean 77205, max 180366; SIMT efficiency warp(32) 0.898, block(128) 0.766
+| card | GPUs | layout | block | wall s low / central / high (rule 1) | spill-class | slowest card share |
+| :-- | --: | :-- | --: | --: | --: | --: |
+| RTX 4090 | 1 | - | 32 | 3.07 / 2.73 / 2.19 | 10.43 | 1.00 of total |
+| RTX 4090 | 1 | - | 128 | 3.20 / 2.85 / 2.29 | 10.90 | 1.00 of total |
+| RTX 4090 | 8 | contiguous | 32 | 1.85 / 1.65 / 1.32 | 6.30 | 0.13 of total |
+| RTX 4090 | 8 | contiguous | 128 | 1.85 / 1.65 / 1.32 | 6.30 | 0.13 of total |
+| RTX 4090 | 8 | interleaved | 32 | 1.85 / 1.65 / 1.32 | 6.30 | 0.13 of total |
+| RTX 4090 | 8 | interleaved | 128 | 1.85 / 1.65 / 1.32 | 6.30 | 0.13 of total |
+| RTX 3090 | 1 | - | 32 | 6.41 / 5.13 / 4.10 | 36.06 | 1.00 of total |
+| RTX 3090 | 1 | - | 128 | 7.08 / 5.66 / 4.53 | 39.83 | 1.00 of total |
+| RTX 3090 | 8 | contiguous | 32 | 2.97 / 2.37 / 1.90 | 16.68 | 0.13 of total |
+| RTX 3090 | 8 | contiguous | 128 | 2.97 / 2.37 / 1.90 | 16.68 | 0.13 of total |
+| RTX 3090 | 8 | interleaved | 32 | 2.97 / 2.37 / 1.90 | 16.68 | 0.13 of total |
+| RTX 3090 | 8 | interleaved | 128 | 2.97 / 2.37 / 1.90 | 16.68 | 0.13 of total |
+| H100 SXM | 1 | - | 32 | 4.50 / 3.60 / 2.93 | 18.68 | 1.00 of total |
+| H100 SXM | 1 | - | 128 | 4.70 / 3.76 / 3.06 | 19.51 | 1.00 of total |
+| H100 SXM | 8 | contiguous | 32 | 2.73 / 2.18 / 1.78 | 11.32 | 0.13 of total |
+| H100 SXM | 8 | contiguous | 128 | 2.73 / 2.18 / 1.78 | 11.32 | 0.13 of total |
+| H100 SXM | 8 | interleaved | 32 | 2.73 / 2.18 / 1.78 | 11.32 | 0.13 of total |
+| H100 SXM | 8 | interleaved | 128 | 2.73 / 2.18 / 1.78 | 11.32 | 0.13 of total |
+| L40S | 1 | - | 32 | 3.26 / 2.61 / 1.83 | 14.41 | 1.00 of total |
+| L40S | 1 | - | 128 | 3.43 / 2.75 / 1.93 | 15.18 | 1.00 of total |
+| L40S | 8 | contiguous | 32 | 2.05 / 1.65 / 1.16 | 9.08 | 0.13 of total |
+| L40S | 8 | contiguous | 128 | 2.05 / 1.65 / 1.16 | 9.08 | 0.13 of total |
+| L40S | 8 | interleaved | 32 | 2.05 / 1.65 / 1.16 | 9.08 | 0.13 of total |
+| L40S | 8 | interleaved | 128 | 2.05 / 1.65 / 1.16 | 9.08 | 0.13 of total |
+
+Sweep estimate (sweep_h3.sh run list; launch overhead 0.6 s/run; +240 s boot/ship/teardown per rental):
+| card | GPUs | sweep min central / spill-class | session min | $/h paid (gpu_farm.md) | $ central / spill-class |
+| :-- | --: | --: | --: | --: | --: |
+| RTX 4090 | 1 | 1.6 / 5.4 | 9.4 (spill-class) | $0.36 | $0.033 / $0.057 |
+| RTX 4090 | 8 | 2.3 / 7.7 | 11.7 (spill-class) | $3.76 | $0.392 / $0.736 |
+| RTX 3090 | 1 | 3.3 / 21.7 | 25.7 (spill-class) | $0.11 | $0.013 / $0.047 |
+| H100 SXM | 1 | 2.0 / 9.6 | 13.6 (spill-class) | $2.94 | $0.295 / $0.665 |
+| L40S | 1 | 1.5 / 7.4 | 11.4 (spill-class) | $0.80 | $0.074 / $0.152 |
+
+All 5 rentals: $0.81 central, $1.66 spill-class (at the paid $/h; a failed boot costs a few cents)
+
+MEASUREMENT-ANCHORED PROJECTION (anchor: NVIDIA T1000 (local, WSL2, local_gpu_h3.sh 2026-10-03), 14 SMs at 1.86 GHz, thr plateau 1.04e+08 inst-cyc/s, lone warp 1e+05 cyc/s; still a projection for the rented cards)
+| card | thr plateau inst-cyc/s low / central / high | x one Verilator thread (central) | rule-1 central above | thr images/s (central) |
+| :-- | --: | --: | --: | --: |
+| RTX 4090 | 1.27e+09 / 1.41e+09 / 1.69e+09 | 380-402 | 3.59e+09 (0.39x) | 14792 |
+| RTX 3090 | 5.44e+08 / 6.12e+08 / 7.42e+08 | 165-175 | 1.60e+09 (0.38x) | 6435 |
+| H100 SXM | 9.87e+08 / 1.12e+09 / 1.37e+09 | 302-319 | 2.79e+09 (0.40x) | 11760 |
+| L40S | 1.27e+09 / 1.56e+09 / 2.14e+09 | 422-446 | 3.98e+09 (0.39x) | 16420 |
+calibration m=0: anchor one-launch image 59.19 s measured, 55.64 s modelled -> x 1.064
+calibration m=2: anchor one-launch image 60.00 s measured, 54.92 s modelled -> x 1.093
+calibration m=4: anchor one-launch image 60.69 s measured, 54.71 s modelled -> x 1.109
+
+split render, whole 1024x1024 image, kernel seconds (processor sharing x calibration; 8 GPUs = H3_GPU_INTERLEAVE=1)
+| card | GPUs | m | block | s at the high / central / low plateau | x Verilator 1,240-1,274 s (central) | vs Verijit claim 6.05 s (central) |
+| :-- | --: | --: | --: | --: | --: | --: |
+| RTX 4090 | 1 | 0 | 32 | 3.67 / 4.40 / 4.89 | 282-289 | 1.37x |
+| RTX 4090 | 1 | 0 | 128 | 3.68 / 4.41 / 4.90 | 281-289 | 1.37x |
+| RTX 4090 | 8 | 0 | 32 | 0.63 / 0.75 / 0.84 | 1646-1691 | 8.03x |
+| RTX 4090 | 8 | 0 | 128 | 0.65 / 0.78 / 0.86 | 1595-1639 | 7.78x |
+| RTX 4090 | 1 | 2 | 32 | 3.79 / 4.55 / 5.05 | 273-280 | 1.33x |
+| RTX 4090 | 1 | 2 | 128 | 3.79 / 4.55 / 5.05 | 273-280 | 1.33x |
+| RTX 4090 | 8 | 2 | 32 | 0.67 / 0.80 / 0.89 | 1548-1591 | 7.55x |
+| RTX 4090 | 8 | 2 | 128 | 0.67 / 0.80 / 0.89 | 1548-1591 | 7.55x |
+| RTX 4090 | 1 | 4 | 32 | 4.16 / 4.99 / 5.54 | 249-255 | 1.21x |
+| RTX 4090 | 1 | 4 | 128 | 4.09 / 4.91 / 5.45 | 253-260 | 1.23x |
+| RTX 4090 | 8 | 4 | 32 | 1.13 / 1.35 / 1.50 | 916-941 | 4.47x |
+| RTX 4090 | 8 | 4 | 128 | 1.13 / 1.35 / 1.50 | 916-941 | 4.47x |
+| RTX 3090 | 1 | 0 | 32 | 8.33 / 10.11 / 11.36 | 123-126 | 0.60x |
+| RTX 3090 | 1 | 0 | 128 | 8.34 / 10.12 / 11.38 | 122-126 | 0.60x |
+| RTX 3090 | 8 | 0 | 32 | 1.45 / 1.75 / 1.97 | 707-726 | 3.45x |
+| RTX 3090 | 8 | 0 | 128 | 1.47 / 1.78 / 2.01 | 695-714 | 3.39x |
+| RTX 3090 | 1 | 2 | 32 | 8.51 / 10.33 / 11.61 | 120-123 | 0.59x |
+| RTX 3090 | 1 | 2 | 128 | 8.51 / 10.33 / 11.61 | 120-123 | 0.59x |
+| RTX 3090 | 8 | 2 | 32 | 1.55 / 1.88 / 2.12 | 659-677 | 3.21x |
+| RTX 3090 | 8 | 2 | 128 | 1.56 / 1.89 / 2.13 | 655-673 | 3.20x |
+| RTX 3090 | 1 | 4 | 32 | 9.06 / 10.99 / 12.36 | 113-116 | 0.55x |
+| RTX 3090 | 1 | 4 | 128 | 9.07 / 11.00 / 12.37 | 113-116 | 0.55x |
+| RTX 3090 | 8 | 4 | 32 | 1.83 / 2.22 / 2.50 | 558-574 | 2.72x |
+| RTX 3090 | 8 | 4 | 128 | 1.83 / 2.22 / 2.50 | 558-574 | 2.72x |
+| H100 SXM | 1 | 0 | 32 | 4.53 / 5.54 / 6.27 | 224-230 | 1.09x |
+| H100 SXM | 1 | 0 | 128 | 4.54 / 5.55 / 6.28 | 224-230 | 1.09x |
+| H100 SXM | 8 | 0 | 32 | 0.77 / 0.95 / 1.07 | 1309-1345 | 6.39x |
+| H100 SXM | 8 | 0 | 128 | 0.82 / 1.00 / 1.13 | 1243-1277 | 6.06x |
+| H100 SXM | 1 | 2 | 32 | 4.68 / 5.72 / 6.48 | 217-223 | 1.06x |
+| H100 SXM | 1 | 2 | 128 | 4.68 / 5.73 / 6.49 | 216-222 | 1.06x |
+| H100 SXM | 8 | 2 | 32 | 0.83 / 1.01 / 1.14 | 1227-1260 | 5.98x |
+| H100 SXM | 8 | 2 | 128 | 0.83 / 1.01 / 1.14 | 1227-1260 | 5.98x |
+| H100 SXM | 1 | 4 | 32 | 5.19 / 6.35 / 7.19 | 195-201 | 0.95x |
+| H100 SXM | 1 | 4 | 128 | 5.10 / 6.23 / 7.06 | 199-204 | 0.97x |
+| H100 SXM | 8 | 4 | 32 | 1.44 / 1.76 / 1.99 | 706-726 | 3.45x |
+| H100 SXM | 8 | 4 | 128 | 1.44 / 1.76 / 1.99 | 706-726 | 3.45x |
+| L40S | 1 | 0 | 32 | 2.89 / 3.97 / 4.89 | 313-321 | 1.52x |
+| L40S | 1 | 0 | 128 | 2.89 / 3.97 / 4.90 | 312-321 | 1.52x |
+| L40S | 8 | 0 | 32 | 0.51 / 0.70 / 0.86 | 1783-1832 | 8.70x |
+| L40S | 8 | 0 | 128 | 0.54 / 0.74 / 0.91 | 1681-1728 | 8.20x |
+| L40S | 1 | 2 | 32 | 2.99 / 4.11 / 5.06 | 302-310 | 1.47x |
+| L40S | 1 | 2 | 128 | 2.99 / 4.11 / 5.07 | 302-310 | 1.47x |
+| L40S | 8 | 2 | 32 | 0.53 / 0.73 / 0.90 | 1699-1745 | 8.29x |
+| L40S | 8 | 2 | 128 | 0.53 / 0.73 / 0.90 | 1699-1745 | 8.29x |
+| L40S | 1 | 4 | 32 | 3.37 / 4.63 / 5.70 | 268-275 | 1.31x |
+| L40S | 1 | 4 | 128 | 3.31 / 4.54 / 5.60 | 273-280 | 1.33x |
+| L40S | 8 | 4 | 32 | 0.99 / 1.35 / 1.67 | 917-942 | 4.47x |
+| L40S | 8 | 4 | 128 | 0.99 / 1.35 / 1.67 | 917-942 | 4.47x |
+
+sweep_h3.sh wall time and rental cost (central plateau; MINB 3/4 at 0.80/0.66 of MINB 1 as on the anchor; 0.6 s per invocation; +240 s create->sweep start and destroy, measured 1.2-3.8 min on the 2026-09 rentals)
+| node | sweep min | session min | $/h paid (gpu_farm.md) | $ expected |
+| :-- | --: | --: | --: | --: |
+| RTX 4090 x1 | 3.7 | 7.7 | $0.36 | $0.05 |
+| RTX 3090 x1 | 8.5 | 12.5 | $0.11 | $0.02 |
+| L40S x1 | 3.6 | 7.6 | $0.80 | $0.10 |
+| H100 SXM x1 | 4.7 | 8.7 | $2.94 | $0.43 |
+| RTX 4090 x8 | 5.2 | 9.2 | $3.76 | $0.57 |
+| all five | | | | $1.17 |

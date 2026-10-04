@@ -1,0 +1,4 @@
+bin/*_gpu
+h3expect.txt
+/vast_*.log
+!/results/vast_h3_*.log

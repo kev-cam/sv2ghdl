@@ -1,0 +1,24 @@
+DEV name="NVIDIA T1000" sm=7.5 SMS=14 clock_mhz=1395 watchdog=1
+== rates (thr plateau at 1/2/4 waves of 3584, 5,000 cycles; lone warp; one wave of in-set split tiles)
+FARM design=h3thr dev="1x NVIDIA T1000" N=3584 cycles=5000 block=128 secs=0.1753 agg_inst_cyc_per_s=1.0223e+08 per_inst_cyc_per_s=2.8524e+04 CHK0=CBF29CE484222325 AGG=4958FCAE0C80A325 DONE0=0 CAGG=E0820B281AD2E325 ndone=0 done_min=0 done_max=0 argmax=0 inst_cyc=17920000 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=7168 cycles=5000 block=128 secs=0.3465 agg_inst_cyc_per_s=1.0343e+08 per_inst_cyc_per_s=1.4430e+04 CHK0=CBF29CE484222325 AGG=202EECF4F4DF2325 DONE0=0 CAGG=969672350183A325 ndone=0 done_min=0 done_max=0 argmax=0 inst_cyc=35840000 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=14336 cycles=5000 block=128 secs=0.6921 agg_inst_cyc_per_s=1.0357e+08 per_inst_cyc_per_s=7.2245e+03 CHK0=CBF29CE484222325 AGG=0A7F1EFAE59C2325 DONE0=0 CAGG=045B5AAABEE52325 ndone=0 done_min=0 done_max=0 argmax=0 inst_cyc=71680000 gid0=0 m=0 minb=1 ilv=0
+FARM design=h3thr dev="1x NVIDIA T1000" N=32 cycles=20000 block=128 secs=0.1980 agg_inst_cyc_per_s=3.2331e+06 per_inst_cyc_per_s=1.0103e+05 CHK0=CBF29CE484222325 AGG=E798A0CDF852FB25 DONE0=0 CAGG=D80AC658736BB725 ndone=0 done_min=0 done_max=0 argmax=0 inst_cyc=640000 gid0=0 m=0 minb=1 ilv=0
+minb=1 FARM design=h3split dev="1x NVIDIA T1000" N=3584 cycles=2000000000 block=32 secs=0.3867 agg_inst_cyc_per_s=9.4945e+07 per_inst_cyc_per_s=2.6491e+04 CHK0=67445D5386977996 AGG=E3DD3B9AA544F273 DONE0=11866 CAGG=29C0E14D46B4756B ndone=3584 done_min=361 done_max=11866 argmax=524544 inst_cyc=36717488 gid0=524544 m=0 minb=1 ilv=0
+minb=3 FARM design=h3split dev="1x NVIDIA T1000" N=3584 cycles=2000000000 block=32 secs=0.4787 agg_inst_cyc_per_s=7.6703e+07 per_inst_cyc_per_s=2.1401e+04 CHK0=67445D5386977996 AGG=E3DD3B9AA544F273 DONE0=11866 CAGG=29C0E14D46B4756B ndone=3584 done_min=361 done_max=11866 argmax=524544 inst_cyc=36717488 gid0=524544 m=0 minb=3 ilv=0
+minb=4 FARM design=h3split dev="1x NVIDIA T1000" N=3584 cycles=2000000000 block=32 secs=0.5874 agg_inst_cyc_per_s=6.2508e+07 per_inst_cyc_per_s=1.7441e+04 CHK0=67445D5386977996 AGG=E3DD3B9AA544F273 DONE0=11866 CAGG=29C0E14D46B4756B ndone=3584 done_min=361 done_max=11866 argmax=524544 inst_cyc=36717488 gid0=524544 m=0 minb=4 ilv=0
+CLOCK sm_mhz_busy_mean=1871 samples=35
+== thr certification: complete renders, N=32
+FARM design=h3thr dev="1x NVIDIA T1000" N=32 cycles=100000 block=128 secs=0.9534 agg_inst_cyc_per_s=3.1898e+06 per_inst_cyc_per_s=9.9681e+04 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=1 ilv=0
+CERT-LOCAL thr minb=1 N=32 MATCH
+FARM design=h3thr dev="1x NVIDIA T1000" N=32 cycles=100000 block=128 secs=1.0110 agg_inst_cyc_per_s=3.0081e+06 per_inst_cyc_per_s=9.4003e+04 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=3 ilv=0
+CERT-LOCAL thr minb=3 N=32 MATCH
+FARM design=h3thr dev="1x NVIDIA T1000" N=32 cycles=100000 block=128 secs=1.0500 agg_inst_cyc_per_s=2.8963e+06 per_inst_cyc_per_s=9.0509e+04 CHK0=47E5C3CA649F77AD AGG=C21CBC70F53B8325 DONE0=95038 CAGG=5D725C347D530A65 ndone=32 done_min=95038 done_max=95038 argmax=0 inst_cyc=3041216 gid0=0 m=0 minb=4 ilv=0
+CERT-LOCAL thr minb=4 N=32 MATCH
+== split m=0: every tile, one-wave slices of 3584
+slices=293 wall=155s kernel_secs_sum=64.64 errors=0
+CERT-LOCAL split m=0 MATCH tiles=1048576 table_rows_differing_from_cpu=0 AGG=E9759185332B77C1 CAGG=CF19776297554A6B image_md5=693d2391e979a114a82af00b3e64e54c bad_streams=0
+== sweep_h3.sh end to end (complete renders; whole-image launches take ~1 min on a T1000)
+AGG consistent across GPU counts/cards for equal (workload, N, cycles, m): YES
+rows checked (FARM lines, errors, incomplete logs): 13, failing certification: 0
+LOCAL-GPU-DONE
