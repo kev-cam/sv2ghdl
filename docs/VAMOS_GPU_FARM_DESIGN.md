@@ -925,6 +925,21 @@ Found while reading for this design; none is fixed here (no changes in the share
 
 ## 17. Open questions for the user
 
+**Decided 2026-10-03** (after the first Hazard3 run, `bfit/benchmarks/gpu_farm.md`):
+- **Q1/Q2, licensing:** anything not inherited as GPL is PolyForm (Noncommercial 1.0.0), as the
+  kit already is. So there is no GPL duplicate of the kit's harness: whatever vamos adds on the farm
+  side is PolyForm, and the contract (§7.2-7.3) lives with the kit. (Whether this also applies to
+  vamos itself, GPL-3.0-or-later so far, is being confirmed.)
+- **Q8, the default model:** the default for logic simulation is the 3D-logic family; 2-state only on
+  request. So `./simv` after a farm compile runs the nvc 3D reference, and the 2-state gsm model (CPU
+  or GPU farm) runs only on an explicit request (`--vamos-farm=N`, or a 2-state option).
+- **Q4, budget:** a $10/day limit on GPU spend for now, as a safety cap (replacing the $2/run, $20
+  ledger defaults above).
+- **Q9, single-run speed:** not pursued here. vamos/sv2ghdl aims to be an accuracy-capable framework,
+  not a fast digital simulator; fast single runs come from federation with Verilator and Verijit.
+
+The remaining questions (Q3, Q5-Q7, Q10, Q11) are still open.
+
 1. **Who writes contract v1?** The kit is PolyForm-NC and yours; vamos needs §7.2-7.3 on the kit
    side (the hazard3 port already has `H3_GID0`/`H3_DUMP`, close to it). Or would you rather vamos
    carry its own GPL harness generator, so commercial vamos users need no bfit licence? That
