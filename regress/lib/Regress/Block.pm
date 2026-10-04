@@ -89,7 +89,13 @@ my %ENGINES = (
     # native verilator (system tool).
     verilator => sub {
         my %e; my $v = verilator_bin(); $e{VERILATOR} = $v if $v;
-        return { env => \%e, path_prepend => _base_path() };
+        # sv-tests' runner and verilated.mk invoke bare `verilator`/`ccache`
+        # by PATH lookup: put the build-area bin dir first, and drop the
+        # OBJCACHE default when no ccache is installed (else Error 127).
+        (my $vdir = $v // '') =~ s{/verilator$}{};
+        $e{OBJCACHE} = '' unless Regress::Tools::_which('ccache');
+        return { env => \%e,
+                 path_prepend => join(':', grep { length } $vdir, _base_path()) };
     },
     # nvc via the verilator shim: put verilator-sv2ghdl first as `verilator`.
     # rtlmeter invokes literal `verilator` by PATH lookup (it does NOT consult
