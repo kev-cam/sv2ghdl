@@ -14,7 +14,15 @@ a time value)") and fails --vamos-strict.
 
 A run that a signal interrupted (Ctrl-C, SIGTERM, SIGHUP; backends/nvc.py)
 prints its footer, then ends vamos with that same signal, so a calling shell
-or script sees an interrupted command, not an exit status.
+or script sees an interrupted command, not an exit status.  The footer's time
+is the time nvc reports the run ended at (backends/nvc.end_time).
+
+Waves (wave_request): a design that calls $dumpvars, or was compiled with
++vcs+dumpvars, writes a VCD (vcs.dump_request recorded the calls in the job).
+The file is the design's $dumpfile name, else +vcs+dumpfile+<file> or
+-vcd <file>, else verilog.dump, relative to where ./simv runs.  A call made
+only when $test$plusargs("x") is true (or false) counts only when ./simv's
+plusargs say so; +vcs+dumparrays adds memories.
 """
 
 import json
@@ -26,7 +34,7 @@ from fractions import Fraction
 from typing import List, Optional, Tuple
 
 from vamos import banner, tools
-from vamos.backends.nvc import BackendError, NvcBackend, cpu_time
+from vamos.backends.nvc import DEFAULT_DUMPFILE, BackendError, NvcBackend, Waves, cpu_time
 from vamos.console import Console
 from vamos.job import IGNORED, NOTED, UNKNOWN, UNSUPPORTED, Job, JobVersionError
 from vamos.optable import Opt, ScanError, Table, report_unmapped, scan, strict_failures
@@ -59,6 +67,19 @@ def _help(job: Job, val):
     setattr(job, "help_requested", True)
 
 
+def _dumpfile(job: Job, val):
+    # +vcs+dumpfile+<file> / -vcd <file>: the VCD file, unless the design's own $dumpfile
+    # names one (VCS: "A $dumpfile system task in the Verilog source code overrides this")
+    if not val:
+        job.note("+vcs+dumpfile+", UNKNOWN, "no file name: +vcs+dumpfile+<file>")
+        return
+    setattr(job, "dumpfile", val)
+
+
+def _dumparrays(job: Job, val):
+    setattr(job, "dump_arrays", True)
+
+
 OPTIONS = [
     Opt("-l", "next", _run_log),
     Opt("+ntb_random_seed", "eq", _seed),
@@ -67,6 +88,12 @@ OPTIONS = [
     Opt("-q", "flag", IGNORED),
     Opt("-k", "next", IGNORED),
     Opt("+vcs+finish+", "prefix", _finish),
+    Opt("+vcs+dumpfile+", "prefix", _dumpfile),
+    Opt("-vcd", "next", _dumpfile),
+    Opt("+vcs+dumparrays", "flag", _dumparrays),
+    Opt("+vcs+dumpon+", "prefix", NOTED, "not honoured: the VCD records the whole run"),
+    Opt("+vcs+dumpoff+", "prefix", NOTED, "not honoured: the VCD records the whole run"),
+    Opt("+vcs+flush+dump", "flag", NOTED, "the VCD is written when the run ends"),
     Opt("-h", "flag", _help),
     Opt("-help", "flag", _help),
     Opt("--help", "flag", _help),
@@ -166,6 +193,70 @@ def finish_fs(rt: Job, compiled: Job, con: Console) -> Optional[int]:
     return fs
 
 
+def plusarg_test(name: str, plusargs: List[str]) -> bool:
+    """$test$plusargs(name): some plusarg starts with +name (IEEE 1800-2017 21.6)."""
+    return any(p.startswith("+" + name) for p in plusargs)
+
+
+def _plusarg_value(prefix: str, plusargs: List[str]) -> Optional[str]:
+    """$value$plusargs("<prefix>%s", v): the rest of the first plusarg starting with
+    +<prefix>; None if there is none."""
+    for p in plusargs:
+        if p.startswith("+" + prefix):
+            return p[1 + len(prefix):]
+    return None
+
+
+def _holds(conds, plusargs: List[str]) -> bool:
+    """A dump record's "if": every [plusarg, present] test is as recorded."""
+    return all(plusarg_test(name, plusargs) == bool(present) for name, present in conds)
+
+
+def wave_request(compiled: Job, rt: Job) -> Optional[Waves]:
+    """The run's waveform dump (backends/nvc.Waves): the $dumpvars calls the compile
+    recorded (compiled.dump; vcs.dump_request), those under $test$plusargs tests counted
+    only when this run's plusargs pass them.  None when no call counts.
+
+    The file: the first $dumpfile that counts (a literal name, or the value of the plusarg
+    a $value$plusargs test read it from), else +vcs+dumpfile+<file> / -vcd <file>, else
+    verilog.dump; a relative name is relative to where ./simv runs (rt.cwd), as under VCS.
+    The scopes: the union of the calls' (none when one dumps the whole design)."""
+    dump = compiled.dump or {}
+    plus = rt.plusargs
+    calls = [c for c in dump.get("calls", []) if _holds(c.get("if", []), plus)]
+    if not calls:
+        return None
+    name = None
+    for f in dump.get("files", []):
+        if _holds(f.get("if", []), plus):
+            name = f.get("name") or _plusarg_value(f.get("plusarg") or "", plus)
+            if name:
+                break
+    name = name or getattr(rt, "dumpfile", None) or DEFAULT_DUMPFILE
+    scopes: List[Tuple[int, str]] = []
+    if all(c.get("scopes") for c in calls):
+        for c in calls:
+            for n, p in c["scopes"]:
+                if (int(n), p) not in scopes:
+                    scopes.append((int(n), p))
+    path = os.path.normpath(os.path.join(rt.cwd or os.getcwd(), name))
+    return Waves(path, scopes, arrays=bool(getattr(rt, "dump_arrays", False)))
+
+
+def waves_problem(path: str) -> Optional[str]:
+    """Why nvc could not write the VCD at path (nvc would stop before simulating), or None."""
+    d = os.path.dirname(path) or "."
+    if not os.path.isdir(d):
+        return "no such directory"
+    if os.path.isdir(path):
+        return "it is a directory"
+    if os.path.exists(path) and not os.access(path, os.W_OK):
+        return "the file is not writable"
+    if not os.path.exists(path) and not os.access(d, os.W_OK):
+        return "the directory is not writable"
+    return None
+
+
 def usage(daidir: Optional[str] = None) -> str:
     """simv's help: the runtime options vamos acts on, notes or rejects."""
     rows = {"mapped": [], NOTED: [], IGNORED: [], UNSUPPORTED: []}
@@ -191,6 +282,10 @@ def usage(daidir: Optional[str] = None) -> str:
         ("+vcs+finish+<time>", "end the run at <time>: N units of the precision,\n"
                                "%25sN<unit> (+vcs+finish+9001us), or <low>+<high> (VCS's\n"
                                "%25sform for 2^32 units and more)" % ("", "")),
+        ("+vcs+dumpfile+<file>", "the VCD file of the design's $dumpvars when no $dumpfile\n"
+                                 "%25snames one (%s without either); -vcd <file> too"
+                                 % ("", DEFAULT_DUMPFILE)),
+        ("+vcs+dumparrays", "memories in the VCD too"),
         ("-h, -help", "this help")])
     lines += [""] + block("Accepted with a note (no effect):", rows[NOTED])
     lines += [""] + block("Accepted and ignored:", rows[IGNORED])
@@ -286,6 +381,14 @@ def run_daidir(daidir: str, args: List[str], opts: dict) -> int:
                  for n in eng if n in known]
     con.out(banner.provenance(used, "simv"))
     stop_fs = finish_fs(rt, compiled, con)
+    be.waves = wave_request(compiled, rt)
+    if be.waves is not None:
+        why = waves_problem(be.waves.path)
+        if why:
+            # nvc would stop before simulating; VCS runs on without the file
+            con.err("vamos: warning: the run writes no waves: %s cannot be written (%s)"
+                    % (be.waves.path, why))
+            be.waves = None
     report_unmapped(rt, con.err)
     bad = strict_failures(rt)
     if opts.get("strict") and bad:

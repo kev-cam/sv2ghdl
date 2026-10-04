@@ -131,6 +131,7 @@ sub _run_ver {
     my $out = `$cmd 2>&1`;
     return undef unless defined $out;
     ($out) = split /\n/, $out;       # first line
+    return undef unless defined $out;    # no output at all
     $out =~ s/^\s+|\s+$//g;
     return $out;
 }

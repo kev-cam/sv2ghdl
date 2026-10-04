@@ -742,7 +742,7 @@ j6 jd jg 0 jn
         for render in (vacask.render, xyce.render):
             notes = []
             text = render(nl, notes=notes)
-            self.assertRegex(text, r"xpart=1(\.0)? capmod=2(\.0)?")
+            self.assertRegex(text, r"xpart=1(\.0)? cj=0\.000579 cjsw=0(\.0)? capmod=2(\.0)?")
             self.assertEqual(len([n for n in notes if n.severity == "warning"]), 2)   # ACM=0, CAPMOD=0
         rv, rx = self.both(nl, "b3")
         self.assertAlmostEqual(rv.at("i(vd)", 5e-9), rx.at("i(vd)", 5e-9), delta=0.02 * abs(rx.at("i(vd)", 5e-9)))

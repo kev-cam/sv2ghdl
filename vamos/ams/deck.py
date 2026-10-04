@@ -900,7 +900,16 @@ def _analysis(ctx: _Ctx, dk: ir.Netlist, opts: dict) -> Tuple[float, bool]:
     stop_notes: List[Note] = []
     stop = analog_stop(opts, stop_notes)
     ctx.notes.extend(n for n in stop_notes if n.severity == "error")
-    maxstep = _time(opts, "analog_maxstep", DEFAULT_MAXSTEP, "--vamos-analog-maxstep", ctx.notes)
+    # the maximum time step: --vamos-analog-maxstep (explicit), else the netlist's .option
+    # delmax (spice.py keeps it for this analysis: it was ignored, with a warning), else
+    # DEFAULT_MAXSTEP
+    delmax = dk.options.get("delmax")
+    if opts.get("analog_maxstep") or delmax is None:
+        maxstep = _time(opts, "analog_maxstep", DEFAULT_MAXSTEP, "--vamos-analog-maxstep",
+                        ctx.notes)
+    else:
+        maxstep = float(delmax.value)
+        ctx.notes.append(note("", "no .tran: maximum time step %g s, from .option delmax" % maxstep))
     dk.analyses = [ir.Analysis("tran", {"step": SYNTH_STEP, "stop": stop, "start": 0.0,
                                         "maxstep": maxstep, "uic": uic}, origin="vamos")]
     ctx.notes.append(note("", "no .tran: the run ends at $finish/$stop or at %g s" % stop))

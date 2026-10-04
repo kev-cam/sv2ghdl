@@ -10,8 +10,8 @@ model vamos_vsource vsource
 model vamos_gcond vamos_gcond
 model vamos_resistor resistor
 model vamos_isource isource
-model m_nch sp_mos1 type=1.0 vto=0.5 kp=0.0001 lambda=0.02 gamma=0.5276252190748421 phi=0.5760365037084703
-model m_pch sp_mos1 type=-1.0 vto=-0.5 kp=4e-05 lambda=0.02 gamma=0.5276252190748421 phi=0.5760365037084703
+model m_nch sp_mos1 type=1.0 vto=0.5 kp=0.0001 lambda=0.02 gamma=0.5276252190748421 phi=0.5760365037084703 cj=0.00010185098195480395 fc=0.0
+model m_pch sp_mos1 type=-1.0 vto=-0.5 kp=4e-05 lambda=0.02 gamma=0.5276252190748421 phi=0.5760365037084703 cj=0.00010185098195480395 fc=0.0
 subckt inv (a y vdd)
   parameters $mfactor=1.0
   mn (y a 0 0) m_nch w=1e-06 l=1e-06 $mfactor=$mfactor

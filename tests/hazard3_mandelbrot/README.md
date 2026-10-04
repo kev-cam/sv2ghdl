@@ -162,8 +162,10 @@ Each portable block runs every variant as one test. The message of each result g
 count, the compile and run wall times and the simulated cycles per second (for Verilator the short
 variants mostly measure start-up; the benchmark block measures throughput). The cycle cap
 (`CYCLE_CAP`) is twice the reference plus 100000, or the manifest's worst-case `cycle_cap` when no
-reference is recorded. Work directories are `regress/out/run-<n>/hazard3/<block>/<variant>`, or
-under `$HAZARD3_WORKDIR/run-<n>/` when that is set (a local disk speeds up the Verilator builds).
+reference is recorded. Work directories are `regress/out/run-<n>-<tag>/hazard3/<block>/<variant>`
+(`<tag>`: 8 hex digits from the results DB's path and the run's start, so two copies of one DB
+never share a work directory; runs recorded before that used `run-<n>`), or under
+`$HAZARD3_WORKDIR/run-<n>-<tag>/` when that is set (a local disk speeds up the Verilator builds).
 `regress run` with no block names runs the three portable blocks (with every other ready block)
 but not the benchmark.
 

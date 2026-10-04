@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Xyce-side tests of the co-simulation engine patches (docs/VAMOS_AMS_DESIGN.md §7 P1, P5, ABI).
 
-The nvc side, and both engines end to end, are covered by E1's runner
-(../cside_engine/run_cside.py).  E1 and E2 name work items of
-docs/VAMOS_AMS_DESIGN.md §10: E1 wrote the patches in nvc, libcosim_bridge and
-VACASK and that runner, E2 the Xyce patches and this one.  This runner covers
+The nvc side, and both engines end to end, are covered by the nvc-side runner
+(../cside_engine/run_cside.py), which goes with the patches in nvc,
+libcosim_bridge and VACASK; this one goes with the Xyce patches.  It covers
 what the Xyce patches do on their own, and what only Xyce has:
 
 - standalone Xyce (no nvc) with stepstub.cpp, a code: URI library that answers
@@ -31,9 +30,10 @@ fails; a case whose tool or input is missing is skipped with the reason.
 --old-xyce-lib / --old-xyce-ci name the libxyce.so and libxycecinterface.so of
 a Xyce without the patches, for the cases that compare with it or check that
 it is refused; they default to $VAMOS_CSIDE_XYCE_OLD_LIB / _OLD_CI, else to
-copies of the unpatched libraries saved in the Xyce build tree before E2's
+copies of the unpatched libraries saved in the Xyce build tree before the Xyce
 patches were built into it (src/libxyce.so.pre-e2,
-utils/XyceCInterface/libxycecinterface.so.pre-e2), when present ("" = none).
+utils/XyceCInterface/libxycecinterface.so.pre-e2, as those copies are named on
+disk), when present ("" = none).
 Other defaults: $VAMOS_XYCE, $VAMOS_XYCE_LIBS (as in vamos_testlib), $NVCB.
 The unittest wrapper is tests/vamos/test_cside_xyce.py.
 """
@@ -53,7 +53,7 @@ import time
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-E1_RUNNER = os.path.join(os.path.dirname(HERE), "cside_engine", "run_cside.py")
+NVC_RUNNER = os.path.join(os.path.dirname(HERE), "cside_engine", "run_cside.py")
 XYCE_BUILD = "/usr/local/src/xyce-build"
 OLD_LIB_DEFAULT = os.path.join(XYCE_BUILD, "src", "libxyce.so.pre-e2")
 OLD_CI_DEFAULT = os.path.join(XYCE_BUILD, "utils", "XyceCInterface", "libxycecinterface.so.pre-e2")
@@ -71,13 +71,14 @@ class Skip(Exception):
     """The case cannot run here (missing tool, library or input)."""
 
 
-def _load_e1():
-    """E1's runner as a module (its Env/Ctx run nvc), or None when it is missing."""
-    if not os.path.isfile(E1_RUNNER):
+def _load_nvc_runner():
+    """The nvc-side runner as a module (its Env/Ctx run nvc), or None when it is
+    missing."""
+    if not os.path.isfile(NVC_RUNNER):
         return None
     saved, sys.dont_write_bytecode = sys.dont_write_bytecode, True
     try:
-        spec = importlib.util.spec_from_file_location("vamos_run_cside_for_xyce", E1_RUNNER)
+        spec = importlib.util.spec_from_file_location("vamos_run_cside_for_xyce", NVC_RUNNER)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
     finally:
@@ -85,9 +86,9 @@ def _load_e1():
     return mod
 
 
-E1 = _load_e1()
-FAILURES = (Failure,) + ((E1.Failure,) if E1 else ())
-SKIPS = (Skip,) + ((E1.Skip,) if E1 else ())
+NVC_SIDE = _load_nvc_runner()
+FAILURES = (Failure,) + ((NVC_SIDE.Failure,) if NVC_SIDE else ())
+SKIPS = (Skip,) + ((NVC_SIDE.Skip,) if NVC_SIDE else ())
 
 
 # -- rawfiles and stub logs ---------------------------------------------------------
@@ -265,7 +266,7 @@ class Env(object):
         self.old_lib = old_lib
         self.old_ci = old_ci
         self._built = {}   # type: Dict[str, str]
-        self._e1 = {}      # type: Dict[str, object]
+        self._nvc_envs = {}   # type: Dict[str, object]
         self._ref = None   # type: Optional[Raw]
 
     # -- availability --
@@ -357,25 +358,26 @@ class Env(object):
                            timeout=120)
         return p.stdout.strip()
 
-    # -- E1's runner, for the nvc cases --
+    # -- the nvc-side runner, for the nvc cases --
 
-    def e1(self, old: bool = False):
-        """E1's runner Env on this Xyce, or (old=True) on the pre-patch Xyce through
-        E1's xyce_abi_shim (which supplies the xyce_cosim_abi it lacks)."""
-        if E1 is None:
-            raise Skip("needs E1's runner %s" % E1_RUNNER)
+    def nvc_env(self, old: bool = False):
+        """The nvc-side runner's Env on this Xyce, or (old=True) on the pre-patch Xyce
+        through that runner's xyce_abi_shim (which supplies the xyce_cosim_abi it
+        lacks)."""
+        if NVC_SIDE is None:
+            raise Skip("needs the nvc-side runner %s" % NVC_RUNNER)
         key = "old" if old else "new"
-        if key not in self._e1:
+        if key not in self._nvc_envs:
             libs = list(self.xyce_libs)
             if old:
                 libs = [self.need_old("ci"), self.need_old("lib")] + libs
-            env = E1.Env(self.nvcb, os.environ.get("VCB", "/opt/build.VACASK/Release"), libs,
-                         os.path.join(self.scratch, "e1_" + key), xyce_shim=old)
+            env = NVC_SIDE.Env(self.nvcb, os.environ.get("VCB", "/opt/build.VACASK/Release"), libs,
+                               os.path.join(self.scratch, "nvc_" + key), xyce_shim=old)
             why = env.suite_problem() or env.engine_problem("xyce")
             if why:
                 raise Skip(why)
-            self._e1[key] = env
-        return self._e1[key]
+            self._nvc_envs[key] = env
+        return self._nvc_envs[key]
 
 
 # -- one standalone Xyce run ---------------------------------------------------------
@@ -494,12 +496,13 @@ class Ctx(object):
             self.env._ref = r.raw()
         return self.env._ref
 
-    def e1ctx(self, old: bool = False):
-        """An E1 runner Ctx on Xyce in a subdirectory of this case's directory."""
-        env = self.env.e1(old)
+    def nvc_ctx(self, old: bool = False):
+        """A Ctx of the nvc-side runner on Xyce in a subdirectory of this case's
+        directory."""
+        env = self.env.nvc_env(old)
         d = self.path("old" if old else "new")
         os.makedirs(d, exist_ok=True)
-        return E1.Ctx(env, "xyce", d, self.timeout)
+        return NVC_SIDE.Ctx(env, "xyce", d, self.timeout)
 
 
 # -- the cases ---------------------------------------------------------------------------
@@ -526,8 +529,8 @@ def _near(what: str, got: float, want: float, tol: float) -> None:
         raise Failure("%s is %.9g, expected %.9g +- %.3g" % (what, got, want, tol))
 
 
-def _e1_fail(res, msg: str) -> None:
-    """Fail on an E1 runner Result (its public cmd/rc/out)."""
+def _runner_fail(res, msg: str) -> None:
+    """Fail on a Result of the nvc-side runner (its public cmd/rc/out)."""
     raise Failure("%s\n  command: %s\n  rc %d; output tail:\n%s"
                   % (msg, " ".join(res.cmd), res.rc, res.out[-2500:]))
 
@@ -715,7 +718,7 @@ def _abi_old_lib(t):
     if got != "xyce_cosim_abi=1":
         raise Failure("abi_probe with the pre-patch libxyce.so says %r, expected xyce_cosim_abi=1"
                       % got)
-    c = t.e1ctx()
+    c = t.nvc_ctx()
     res = c.cosim("cs_edge", c.deck("rc"), c.fixture("q.boundary"), first=[old_dir])
     res.expect_rc(1).end_line(None)
     res.expect(r"^\*\* Fatal: co-simulation ABI mismatch: \S*libxycecinterface\.so has "
@@ -727,7 +730,7 @@ def _abi_old_ci(t):
     """nvc refuses the pre-patch libxycecinterface.so ('does not export
     xyce_cosim_abi()') before anything runs."""
     old_dir = t.env.need_old("ci")
-    c = t.e1ctx()
+    c = t.nvc_ctx()
     res = c.cosim("cs_edge", c.deck("rc"), c.fixture("q.boundary"), first=[old_dir])
     res.expect_rc(1).end_line(None)
     res.expect(r"^\*\* Fatal: co-simulation ABI mismatch: \S*libxycecinterface\.so does not "
@@ -739,15 +742,15 @@ def _nvc_finish_raw(t):
     """Through nvc, std.env.finish at 120 ns with the deck stop at 1 us: nvc's
     end line, Xyce's finish line, and a finished rawfile (No. Points: = the
     points written) ending at the stop (+ at most one step)."""
-    c = t.e1ctx()
+    c = t.nvc_ctx()
     res = c.cosim("cs_fin120", c.deck("rc"), c.fixture("q.boundary"))
     res.expect_rc(0).end_line(r"^\*\* Note: co-simulation finished: digital stop at 1\.2e-07 s$")
     m = FINISH_RE.findall(res.out)
     if len(m) != 1:
-        _e1_fail(res, "expected one Xyce 'Co-simulation finish at' line, got %d" % len(m))
+        _runner_fail(res, "expected one Xyce 'Co-simulation finish at' line, got %d" % len(m))
     tf = float(m[0])
     if not 1.2e-7 * (1 - 1e-5) <= tf <= 1.2e-7 + 2e-9:
-        _e1_fail(res, "Xyce finished at %.6g s, expected 1.2e-07 s (+ up to 2 ns)" % tf)
+        _runner_fail(res, "Xyce finished at %.6g s, expected 1.2e-07 s (+ up to 2 ns)" % tf)
     raw = Raw(c.path("xyce_tran.raw")).expect_points_filled()
     raw.expect_tlast(1.2e-7, after=2e-9)
 
@@ -757,14 +760,14 @@ def _nvc_pause_raw(t):
     """Through nvc, --stop-time before the deck stop: Xyce ends paused, so its
     rawfile reaches the stop time with No. Points: left blank (what §6's
     rawfile.fix_points repairs) or, if a later Xyce fills it, correct."""
-    c = t.e1ctx()
+    c = t.nvc_ctx()
     res = c.cosim("cs_edge", c.deck("rc"), c.fixture("q.boundary"), stop_time="100ns")
     res.expect_rc(0).end_line(r"analog end at 1e-07 s$")
     if FINISH_RE.search(res.out):
-        _e1_fail(res, "a co-simulation finish at a pause")
+        _runner_fail(res, "a co-simulation finish at a pause")
     raw = Raw(c.path("xyce_tran.raw")).expect_tlast(1e-7)
     if raw.points_field not in ("", str(len(raw.rows))):
-        _e1_fail(res, "No. Points: is %r with %d points" % (raw.points_field, len(raw.rows)))
+        _runner_fail(res, "No. Points: is %r with %d points" % (raw.points_field, len(raw.rows)))
 
 
 @case("nvc_demos_vs_old")
@@ -773,30 +776,30 @@ def _nvc_demos(t):
     output on the patched Xyce as on the pre-patch Xyce (run through
     ../cside_engine's xyce_abi_shim): the patches change nothing until the digital
     stops."""
-    if E1 is None:
-        raise Skip("needs E1's runner %s" % E1_RUNNER)
+    if NVC_SIDE is None:
+        raise Skip("needs the nvc-side runner %s" % NVC_RUNNER)
     t.env.need_old("lib")
     t.env.need_old("ci")
     for name in DEMOS:
-        vhd = os.path.join(E1.VACASK_DEMO, "cosim_%s.vhd" % name)
+        vhd = os.path.join(NVC_SIDE.VACASK_DEMO, "cosim_%s.vhd" % name)
         if not os.path.isfile(vhd):
             raise Skip("missing demo %s" % vhd)
         waves = []
         for old in (False, True):
-            c = t.e1ctx(old)   # "new" / "old" subdirectories
-            deck = c.fixture(name + ".cir", E1.XYCE_DEMO)
-            bnd = c.fixture(name + ".boundary", E1.XYCE_DEMO)
+            c = t.nvc_ctx(old)   # "new" / "old" subdirectories
+            deck = c.fixture(name + ".cir", NVC_SIDE.XYCE_DEMO)
+            bnd = c.fixture(name + ".boundary", NVC_SIDE.XYCE_DEMO)
             # the loader's trace shows which libxyce.so the old run really used
             res = c.cosim("cosim_" + name, deck, bnd, stop_time="200ns", vhd=[vhd], std="2040",
                           extra_env={"LD_DEBUG": "files"} if old else None)
             res.expect_rc(0).end_line(r"analog end at 2e-07 s$")
             if old and not re.search(r"calling init: %s/libxyce\.so$" % re.escape(t.env.need_old("lib")),
                                      res.out, re.M):
-                _e1_fail(res, "the pre-patch run did not load %s/libxyce.so" % t.env.need_old("lib"))
+                _runner_fail(res, "the pre-patch run did not load %s/libxyce.so" % t.env.need_old("lib"))
             prn = c.path(name + ".cir.prn")
             if not os.path.isfile(prn):
-                _e1_fail(res, "no %s" % prn)
-            waves.append(E1.read_prn(prn))
+                _runner_fail(res, "no %s" % prn)
+            waves.append(NVC_SIDE.read_prn(prn))
         new, old = waves
         if new.names != old.names or len(new.rows) != len(old.rows):
             raise Failure("demo %s: %d points %s, the pre-patch Xyce gives %d points %s"

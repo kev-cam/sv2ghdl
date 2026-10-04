@@ -307,6 +307,16 @@ class _Deck:
 
     def subckt(self, s: Subckt, parent: T.Scope, indent: str) -> None:
         scope = T.Scope(s.body, parent, s)
+        up = T.enclosing_reads(s, self.shadow) if parent.in_subckt else []
+        if up:
+            # VACASK resolves a name in a nested subckt in that subckt and at top level only
+            # ("Variable or constant 'p' not defined"; a top-level p of that name would be read
+            # silently); HSPICE and Xyce read the enclosing subckt's parameter
+            self.err(s.origin, "subckt %s, defined inside subckt %s, reads %s of the enclosing subckt: "
+                     "VACASK does not pass an enclosing subckt's parameters into a nested definition; "
+                     "define %s at top level and pass %s on its X lines"
+                     % (s.name, parent.path(), ", ".join(up), s.name, ", ".join(up)))
+            return
         self.body.append("%ssubckt %s (%s)" % (indent, quote(s.name), " ".join(quote(p) for p in s.ports)))
         inner = indent + "  "
         names = {p.name for p in s.params}
@@ -521,6 +531,11 @@ class _Deck:
         if inst.expr is None or inst.expr_kind not in ("v", "i"):
             self.err(inst.origin, "behavioral source %s has no v= or i= expression" % inst.name)
             return
+        bad = T.current_ref_errors(inst, scope.subckt.body if scope.subckt else self.nl.body, scope)
+        for msg in bad:
+            self.err(inst.origin, msg)
+        if bad:
+            return
         e = inst.expr
         if inst.expr_kind == "i":
             m = self.mult(inst, scope)
@@ -561,6 +576,7 @@ class _Deck:
                   params + self.plist(inst, ("m", "area")) + self.mf(inst, scope))
 
     def i_m(self, inst: Instance, scope: T.Scope, indent: str) -> None:
+        self.add(T.mos_scale_warnings(inst, self.nl.options))
         if inst.master and scope.model(inst.master) is None and scope.bins(inst.master):
             self.binned(inst, scope, indent, scope.bins(inst.master) or [])
             return

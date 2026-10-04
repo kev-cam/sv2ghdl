@@ -101,6 +101,9 @@ class Subckt:
     orig_ports: List[str] = field(default_factory=list)     # as written (lowercased), before the ground pass
     gnd_ports: List[int] = field(default_factory=list)      # indices into orig_ports removed by the ground pass
     origin: str = ""
+    # folded port name -> this definition's header spelling (Netlist.spelling keeps one
+    # spelling per folded name for the whole netlist, the first definition's)
+    spelling: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

@@ -15,7 +15,8 @@
   scope that does not enclose it in its process is now a located error
 - task automatic: IVL_ST_ALLOC/IVL_ST_FREE had no translation, so a module calling one was a
   deferred stub; an automatic task now works when one process calls it (each call starts its
-  variables afresh, as vvp does); a call from two processes and recursion are located errors
+  variables afresh, as vvp does); recursion is a located error (a call from a second process
+  works on that process's own copy since round 6)
 - bin/vvp-sv2ghdl (the ivtest gate's runner): libsv_math.so is loaded ($sqrt, $ln, $pow, $rtoi
   ... stopped the run: "foreign function sv_sqrt not found"); the resolver's Python half is
   found without PYTHONPATH (every run printed "resolver: ERROR - cannot import
@@ -405,7 +406,8 @@ endmodule
 
 @needs_stack
 class TestAutomaticTaskTwoProcesses(Translated):
-    EXPECT_TRANSLATION = False
+    """Round 6 (R6T-04): a call from a second process works on that process's own copy of
+    the task's variables (it was a located error); see test_r6_T for overlapping calls."""
     SOURCE = """\
 `timescale 1ns/1ps
 module tb;
@@ -424,10 +426,8 @@ module tb;
 endmodule
 """
 
-    def test_located_error(self):
-        self.assertIn("sv2vhdl:deferred", self.vhdl)
-        self.assertRegex(self.ivlog, r"VHDL conversion error: \S+:12: automatic task tb\.dbl is called "
-                                     r"from more than one process \(here, and at \S+:8\)")
+    def test_like_vvp(self):
+        self.assert_like_vvp()
 
 
 @needs_stack

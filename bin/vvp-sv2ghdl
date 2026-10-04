@@ -115,6 +115,11 @@ if [[ -n "$ACCEL_REQ" ]]; then
     esac
 fi
 
+# The testbench's relative file names ($fopen, $readmemh, $writememh, ...) resolve
+# against the directory vvp was started from, as vvp's do: nvc runs in SIMDIR, so the
+# sv2vhdl runtime gets that directory as SV2VHDL_FILE_DIR (unless the caller set it)
+export SV2VHDL_FILE_DIR="${SV2VHDL_FILE_DIR:-$PWD}"
+
 # Run NVC from the simulation directory (where work/ library lives)
 cd "$SIMDIR"
 
@@ -132,8 +137,8 @@ fi
 # The awk filter extracts message text from ** Note lines, strips Process
 # continuation lines, and routes warnings/errors to stderr.
 # Load the resolver plugin if available (generates per-net resolution via Python), and the
-# math library.  The resolver goes first: both export the $random generator (sv_random), and
-# the first library loaded wins, so the design keeps the resolver's one design-wide seed.
+# math library.  Their order does not matter: they export no symbol in common, and $random
+# is plain VHDL in sv_math_pkg (no library generator).
 PLUGINS=""
 if [[ -f "$RESOLVER" ]]; then
     PLUGINS="$RESOLVER"
@@ -154,6 +159,10 @@ timeout "$RUN_TIMEOUT" $NVC --std="$STD" -L "$NVC_LIBDIR" $LOAD_PLUGINS -r $ACCE
 nvc_exit=$?
 awk '
     /^\*\* Note: loading VHPI/  { next }
+    # $finish(0) / $stop(0): the translation notes "sv2vhdl: quiet end" just before
+    # std.env.finish / std.env.stop, whose "FINISH called" / "STOP called" vvp does not print
+    /^\*\* Note: [^:]*: sv2vhdl: quiet end$/ { quiet = 1; next }
+    quiet && /^\*\* Note: [^:]*: (FINISH|STOP) called/ { quiet = 0; next }
     /^\*\* Note: /    { sub(/^\*\* Note: [^:]*: /, ""); print; next }
     /^   Process /    { next }
     /^   Procedure /  { next }

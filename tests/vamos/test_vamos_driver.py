@@ -195,10 +195,11 @@ class TestVcsCommandLine(TempDir):
         self.assertEqual(j.unmapped, [])
 
     def test_gui_note_promises_no_waves(self):
+        # (R6W-01: the waves are $dumpvars's VCD, whatever -gui asks)
         j = self.job("-gui", "x.v")
         self.assertEqual(j.unmapped[0].disposition, NOTED)
         self.assertNotIn("will be written", j.unmapped[0].note)
-        self.assertIn("no waves", j.unmapped[0].note)
+        self.assertIn("no GUI ($dumpvars writes a VCD", j.unmapped[0].note)
 
     def test_plusarg_save_is_unsupported(self):
         j = self.job("+plusarg_save", "+foo", "x.v")
@@ -648,7 +649,7 @@ DUMPS = """`timescale 1ns/1ps
 module tb;
   reg [7:0] r = 8'h5a;
   initial begin
-    $dumpfile("x.vcd");
+    $dumpports(tb, "x.evcd");
     $dumpvars(0, tb);
     #1 $display("r=%h", r);
     $finish;
@@ -750,28 +751,38 @@ class TestPlainE2E(TempDir):
         self.assertIn("tb ran", self.simv().stdout)
 
     def test_untranslated_tasks_are_warnings_at_the_users_line(self):
+        # (the extended-VCD $dumpports is not translated; $dumpvars is vamos's: R6W-01, a note)
         self.write("tb.v", DUMPS)
         c = self.tool("tb.v")
         self.assertEqual(c.returncode, 0, c.stdout)
-        self.assertIn("vamos: warning: tb.v:5: system task $dumpfile is not translated: the simulation drops it",
+        self.assertIn("vamos: warning: tb.v:5: system task $dumpports is not translated: the simulation drops it",
                       c.stdout)
-        self.assertIn("vamos: warning: tb.v:6: system task $dumpvars is not translated", c.stdout)
+        self.assertNotIn("$dumpvars is not translated", c.stdout)
+        self.assertIn("vamos: note: tb.v:6: $dumpvars: ./simv writes a VCD", c.stdout)
         self.assertIn("r=5a", self.simv().stdout)
         c = self.tool("tb.v", "--vamos-strict")
         self.assertEqual(c.returncode, 1, c.stdout)
-        self.assertIn("vamos: error: tb.v:5: system task $dumpfile is not translated", c.stdout)
+        self.assertIn("vamos: error: tb.v:5: system task $dumpports is not translated", c.stdout)
 
-    def test_replaced_system_functions_are_warnings(self):
-        self.write("tb.v", "`timescale 1ns/1ps\nmodule tb;\n  integer fd;\n"
-                           "  initial begin fd = $fopen(\"o.txt\", \"w\"); #1 $display(\"fd=%0d\", fd); end\n"
+    def test_no_system_function_is_replaced_by_a_constant(self):
+        # $fopen, $random(seed) and $urandom(seed) were the system functions tgt-vhdl replaced
+        # by a constant, with a located comment that vamos turned into a warning ("is not
+        # translated: every call returns ..."); in sv2vhdl mode (vamos always uses it) they
+        # are translated now (round 6: F, L), so no translation carries such a comment
+        self.write("tb.v", "`timescale 1ns/1ps\nmodule tb;\n  integer fd, s, a, b;\n"
+                           "  initial begin fd = $fopen(\"o.txt\", \"w\"); s = 7;\n"
+                           "    a = $random(s); b = $urandom(s);\n"
+                           "    #1 $display(\"fd=%0d a=%0d b=%0d\", fd, a, b); end\n"
                            "endmodule\n")
         c = self.tool("tb.v")
+        self.assertEqual(c.returncode, 0, c.stdout)
         with open(os.path.join(self.tmp, "simv.daidir", "nvc", "design.vhd"), errors="replace") as fh:
             vhd = fh.read()
-        if "Unsupported system function" not in vhd:
-            self.skipTest("this tgt-vhdl leaves no located comment for a replaced system function")
-        self.assertIn("vamos: warning: tb.v:4: system function $fopen is not translated: every call returns",
-                      c.stdout)
+        self.assertNotIn("Unsupported system function", vhd)
+        self.assertNotIn("is not translated: every call returns", c.stdout)
+        r = self.simv()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertRegex(r.stdout, r"fd=-?\d+ a=-?\d+ b=-?\d+")
 
     def test_library_rule(self):
         self.write("top.v", "`timescale 1ns/1ps\nmodule leaf(output [3:0] y); assign y = 4'd5; endmodule\n"

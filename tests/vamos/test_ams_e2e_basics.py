@@ -789,12 +789,15 @@ class TestE2E03Dac(SharedCase):
         self.assertOneD2aPerBit(self.r(engine, display=True), engine)
 
     def check_display_values(self, engine):
-        """$display shows the code sequence; the DAC levels are unchanged"""
+        """$display shows the code sequence; the DAC levels are unchanged.  `reg [1:0] c1 =
+        2'b00' is a variable initializer, no event under -sverilog (IEEE 1800 6.8), so the
+        `always @(c1)' first prints at 10 ns, as vvp -g2012 does (the t=0 line came from the
+        translated always block's old time-0 run, removed in round 6, R6T-02)"""
         r = self.r(engine, display=True)
         self.assertDacLevels(r)
         ev = events(r.sout, "c1")
-        self.assertEqual([v for _, v in ev], ["00", "01", "10", "11", "00"], ev)
-        for (t, _), want in zip(ev, (0.0, 10 * NS, 20 * NS, 30 * NS, 40 * NS)):
+        self.assertEqual([v for _, v in ev], ["01", "10", "11", "00"], ev)
+        for (t, _), want in zip(ev, (10 * NS, 20 * NS, 30 * NS, 40 * NS)):
             self.assertAlmostEqual(t, want, delta=0.1 * PS)
 
     def check_report_paste_back(self, engine):

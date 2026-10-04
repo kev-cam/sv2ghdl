@@ -478,9 +478,10 @@ class TestTables(unittest.TestCase):
         self.assertAlmostEqual(p["cgdo"].value, 0.1e-6 * cox)
         self.assertAlmostEqual(p["cgbo"].value, 2 * 0.1e-6 * cox)
         self.assertIn("xj=2e-08 is below 0.05u", sev(notes, WARNING)[0])
-        # .option spice: LD=0 and no NSUB unless given
+        # .option spice: LD=0 and no NSUB unless given (so no CJ default either); LEVEL 3's CLM is
+        # HSPICE's (badmos3=1) under every option
         p, _ = mp(card("n3s", "nmos", 3, vto=0.7, kp=5e-5, uo=600, tox=2e-8, xj=0.2e-6), spice=1.0)
-        self.assertEqual(sorted(p), ["kp", "tox", "uo", "vto", "xj"])
+        self.assertEqual(sorted(p), ["badmos3", "kp", "tox", "uo", "vto", "xj"])
 
     def test_hspice_capop(self):
         warn = "HSPICE's default CAPOP=2 gate capacitance (parameterized modified Meyer) is simulated as SPICE's"
@@ -515,7 +516,11 @@ class TestTables(unittest.TestCase):
         for v in (None, 3.2, 3.24, 3.3):
             self.assertNotIn("capmod", mp(card("b32", "nmos", 49, acm=10, **({} if v is None else {"version": v})))[0])
         p, notes = mp(card("b49a", "nmos", 49, acm=10, capmod=0))
-        self.assertEqual((p["capmod"], p["xpart"], p["js"]), (Num(0.0), Num(1.0), Num(0.0)))
+        self.assertEqual((p["capmod"], p["xpart"]), (Num(0.0), Num(1.0)))
+        # ACM=10: Berkeley's junction defaults, which both targets have (22-19: ACM=10 is LEVEL 49's
+        # "compliance with Berkeley BSIM3v3"); 22-43's JS=0, CJ=5.79e-4, CJSW=0 are ACM=0's
+        for k in ("js", "cj", "cjsw"):
+            self.assertNotIn(k, p)
         self.assertNotIn("acm", p)
         self.assertEqual(sev(notes, WARNING), [])
         self.assertIn("acm=10 removed", sev(notes, NOTE)[0])
@@ -656,9 +661,10 @@ class TestTables(unittest.TestCase):
             self.assertIn("module vamos_gcond(n, nd, ne)", fh.read())
 
 
-# The basic deck's cards as HSPICE simulates them (tables.hspice_card): notes only, no warning.
-BASIC_NOTES = [("note", "model nch", ["gamma=0.527625", "phi=0.576037"]),
-               ("note", "model pch", ["gamma=0.527625", "phi=0.576037"]),
+# The basic deck's cards as HSPICE simulates them (tables.hspice_card): notes only, no warning
+# (the MOS CJ default needs no warning: no instance gives AD/AS).
+BASIC_NOTES = [("note", "model nch", ["gamma=0.527625", "phi=0.576037", "cj=0.000101851", "fc=0"]),
+               ("note", "model pch", ["gamma=0.527625", "phi=0.576037", "cj=0.000101851", "fc=0"]),
                ("note", "model dd", ["fc=0", "vj=0.8"])]
 
 
@@ -1335,8 +1341,9 @@ class TestCrossEngine(_Both):
         notes = []
         text = vacask.render(nl, notes=notes)
         # HSPICE's LEVEL 49 defaults: XPART=1, and for VERSION 3.1 its own CAPMOD=0 (warning: simulated
-        # with BSIM3's 2); the ACM=0 junction model is a warning too
-        self.assertIn("model m_n3 sp_bsim3v3 type=1.0 tox=4e-09 vth0=0.4 xpart=1.0 capmod=2.0\n", text)
+        # with BSIM3's 2); the ACM=0 junction model is a warning too, its CJ/CJSW defaults are written
+        self.assertIn("model m_n3 sp_bsim3v3 type=1.0 tox=4e-09 vth0=0.4 xpart=1.0 cj=0.000579 cjsw=0.0 capmod=2.0\n",
+                      text)
         self.assertEqual([n.severity for n in notes], [WARNING, WARNING, NOTE, NOTE])
         iv = self.vacask(text, "b3").at("i(vd)", 0.0)
         ix = self.xyce(xyce.render(nl), "b3x").at("i(vd)", 0.0)

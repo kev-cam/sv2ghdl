@@ -556,9 +556,9 @@ endmodule
 
 @needs_stack
 class TestURandom(Translated):
-    """$urandom draws vvp's $urandom sequence (the same generator, bit 31 flipped) when it is
-    the only one drawing -- the generator is design-wide and shared with $random, where vvp
-    keeps a second seed; $urandom_range stays in [min, max], bounds swapped, full range too."""
+    """$urandom draws vvp's $urandom sequence, from its own design-wide seed (sv_math_pkg's
+    sv_urandom, apart from $random's, as vvp keeps two: round 6, L); $urandom_range stays in
+    [min, max], bounds swapped, full range too."""
 
     SOURCE = """module tb;
   int unsigned u1, u2, u3, v1, v2, v3, v4, k, bad;
@@ -595,8 +595,9 @@ endmodule
 
 
 @needs_stack
-class TestUnsupportedFunctionIsLocated(Translated):
-    """$fopen is still replaced by 0, with the located comment vamos reports."""
+class TestFopenIsTranslated(Translated):
+    """$fopen is translated (R6F-01; it was replaced by 0 with a located comment): the
+    sv2vhdl runtime's sv_fopen, which returns vvp's descriptor."""
 
     SOURCE = """\
 module tb;
@@ -609,28 +610,36 @@ module tb;
 endmodule
 """
 
-    def test_located_comment(self):
-        hits = self.lines(r"-- Unsupported system function \$fopen replaced by 0 here \(\S+:4\)$")
-        self.assertEqual(len(hits), 1, self.vhdl)
-        self.assertTrue(hits[0].startswith("null;"), hits)
+    def test_translated(self):
+        self.assertFalse(self.lines(r"Unsupported system function \$fopen"), self.vhdl)
+        self.assertTrue(self.lines(r'\bsv_fopen\("out\.txt", "vpiConstant", "w", "\$fopen", '
+                                   r'"\S+:4"\)'), self.vhdl)
 
-    def test_still_runs(self):
+    def test_runs_like_vvp(self):
         n = self.nvc()
         self.assertEqual(n.returncode, 0, n.stdout + n.stderr)
-        self.assertIn("@ fd=0", tagged(n.stdout))
+        self.assertIn("@ fd=-2147483645", tagged(n.stdout))     # 32'h8000_0003
+        self.assert_like_vvp()
 
 
 # ---------------------------------------------------------------------- TC-06
 
 @needs_stack
 class TestFileTasksLocated(Translated):
-    """Every untranslated file-I/O and dump task keeps its located comment, in any context;
-    $readmemh / $readmemb are translated (sv_readmem_load, nvc's logic3d_types_pkg)."""
+    """Every untranslated dump task keeps its located comment, in any context; the file
+    tasks are translated, in any context too: $readmemh / $readmemb / $writememh /
+    $writememb on nvc's logic3d_types_pkg (sv_readmem_load, sv_writemem_open), the
+    descriptor tasks on its sv_display_pkg (R6F-01)."""
 
     TASKS = ("$dumpfile", "$dumpvars", "$dumpoff", "$dumpon", "$dumpall", "$dumpflush",
-             "$dumplimit", "$writememh", "$writememb", "$fflush",
-             "$fdisplay", "$fwriteh", "$fwrite", "$fstrobe", "$fdisplayb", "$fmonitor", "$fclose")
-    READMEM = (r'\bsv_readmem_load\("m\.hex", true, 0\);$', r'\bsv_readmem_load\("m\.bin", false, 0\);$')
+             "$dumplimit")
+    READMEM = (r'\bsv_readmem_load\("m\.hex", true, "\$readmemh", "\S+:27", "tb\.mem", 0, 3, 8, '
+               r'"vpiConstant", true, 0, false, true, 3, false\);$',
+               r'\bsv_readmem_load\("m\.bin", false, "\$readmemb", "\S+:28", "tb\.mem", 0, 3, 8, '
+               r'"vpiConstant", false, 0, false, false, 0, false\);$')
+    FILE_TASKS = (r'\bsv_fdisplay\(', r'\bsv_fwrite\(', r'\bsv_fstrobe_arm\(',
+                  r'\bsv_fmonitor_arm\(', r'\bsv_fclose\(', r'\bsv_fflush\(',
+                  r'\bsv_writemem_open\("w\.hex", true, ', r'\bsv_writemem_open\("w\.bin", false, ')
 
     SOURCE = """\
 module tb;
@@ -684,6 +693,12 @@ endmodule
         for pat in self.READMEM:
             self.assertTrue(self.lines(pat), pat)
         self.assertFalse(self.lines(r"Unsupported system task \$readmem"))
+
+    def test_file_tasks_translated(self):
+        for pat in self.FILE_TASKS:
+            self.assertTrue(self.lines(pat), pat)
+        self.assertFalse(self.lines(r"Unsupported system (task|function) \$(f|writemem)"),
+                         self.vhdl)
 
     def test_runs(self):
         n = self.nvc()

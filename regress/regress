@@ -10,11 +10,18 @@
 #   regress diff <runA> <runB>         compare two runs test-by-test
 #
 # Common options: --db PATH (default <dir>/results.db or $REGRESS_DB),
-#   --filter STR (restrict to matching tests/cases), --jobs N.
+#   --filter STR (restrict to matching tests/cases; one that selects no test of
+#   a block is an error), --jobs N.
 #
 # `regress run` dispatches blocks in parallel via smak (a make replacement);
 # pass --seq to run them in-process, or --make to force GNU make. Using smak
-# here doubles as a test of smak as a general parallel dispatcher.
+# here doubles as a test of smak as a general parallel dispatcher.  When the
+# smak dispatch fails, only the blocks it left without a finished result run
+# again, under GNU make (dispatch_parallel).
+#
+# Each run works in out/run-<id>-<tag> (logs, timing, the dispatch makefile,
+# the private ivtest work areas); <tag> depends on the DB file and the run, so
+# runs recorded in copies of one DB never share a dir (Regress::Util::run_workdir).
 #
 use strict;
 use warnings;
@@ -27,7 +34,7 @@ use Cwd qw(abs_path);
 use Regress::DB;
 use Regress::Block;
 use Regress::Run qw(repo_shas);
-use Regress::Util qw(now_ms);
+use Regress::Util qw(now_ms run_workdir);
 
 my $SELF        = abs_path($0);
 my $REGRESS_DIR = $FindBin::Bin;
@@ -91,6 +98,22 @@ sub cmd_run {
     }
     die "regress run: no runnable blocks\n" unless @blocks;
 
+    # A --filter that selects no test of a block is an error, never a whole-suite
+    # run: with no block left to run, stop before recording anything; otherwise
+    # such a block records an error result (the adapter repeats the check).
+    if (defined $filter && length $filter) {
+        my %none;
+        for my $b (@blocks) {
+            my $why = Regress::Block::filter_check($b, $filter);
+            $none{ $b->{name} } = $why if defined $why;
+        }
+        if (%none && keys(%none) == @blocks) {
+            die join('', map { "regress run: $none{ $_->{name} }\n" } @blocks);
+        }
+        warn "regress run: $none{ $_->{name} } (recorded as an error)\n"
+            for grep { $none{ $_->{name} } } @blocks;
+    }
+
     my $D = Regress::DB->new(path => $db);
     my $run_id = $D->start_run(notes => $notes);
     my $shas = repo_shas();
@@ -99,8 +122,12 @@ sub cmd_run {
     print "Run #$run_id  ($db)\n";
     print "  blocks: ", join(', ', map { $_->{name} } @blocks), "\n";
 
-    my $workdir = "$REGRESS_DIR/out/run-$run_id";
+    # out/run-<id>-<tag>: unique per DB file and run (Regress::Util::run_workdir)
+    my $workdir = run_workdir($REGRESS_DIR, $db, $run_id, $D->run_meta($run_id)->{started_at});
+    make_path("$REGRESS_DIR/out");
+    mkdir $workdir or die "regress run: cannot make the work dir $workdir: $!\n";
     make_path("$workdir/logs");
+    print "  workdir: $workdir\n";
 
     if ($seq) {
         print "  dispatch: sequential (in-process)\n";
@@ -134,6 +161,10 @@ sub run_one_inproc {
         run_id => $run_id, block => $b->{name},
         suite => $b->{suite}, engine => $b->{engine}, options => $options);
 
+    # a clean make environment: no build a block starts joins the job server of
+    # a make or smak running regress (see dispatch_parallel)
+    delete local @ENV{ _make_env_keys() };
+
     my $t0 = now_ms();
     my $res = eval {
         Regress::Block::dispatch($b, filter => $filter, jobs => $jobs,
@@ -143,6 +174,12 @@ sub run_one_inproc {
         $res = { exit_code => 99, results => [
             { test_name => $b->{name}, status => 'error',
               message => "dispatch died: $@", log_path => $log } ] };
+    } elsif (defined $filter && length $filter && !@{ $res->{results} || [] }) {
+        # a filtered block that ran nothing is an error, whatever the suite
+        $res->{results} = [
+            { test_name => $b->{name}, status => 'error',
+              message => "--filter '$filter' selected no test of block $b->{name}",
+              log_path => $log } ];
     }
     my $sum = $D->record_results($brid, $res->{results},
         exit_code => $res->{exit_code}, run_id => $run_id,
@@ -154,72 +191,256 @@ sub run_one_inproc {
     return $sum;
 }
 
-# parallel dispatch: emit a makefile of per-block targets, run via smak (or
-# make). Falls back to make if smak fails structurally.
+# parallel dispatch: emit a makefile of per-block targets (run.mk), run it via
+# smak (or GNU make with --make).
+#
+# Each dispatcher runs in a session of its own, its output in
+# logs/dispatch-<tool>.log and on the console; when it has exited, whatever it
+# left running in that session is ended (smak's job server and workers, a block
+# it abandoned), as on a signal to regress meanwhile.  Every block (run-one)
+# starts in the environment `regress run` had (dispatch-env.sto), without the
+# dispatcher's MAKE, MAKEFLAGS, SMAK_* ...: a build a block starts must not join
+# the dispatcher's job server (a recursive smak there waited forever).
+#
+# When the smak dispatch fails (it exits non-zero, or leaves a block without a
+# finished block_run), only the blocks with no finished block_run are dispatched
+# again, under GNU make (run-make.mk); the finished ones are kept.  Why smak
+# failed goes into the run's notes and onto the console.
 sub dispatch_parallel {
     my ($D, $run_id, $blocks, $filter, $jobs, $workdir, $tool, $db, $timeout) = @_;
-    my $mk = "$workdir/run.mk";
+    my $envfile = "$workdir/dispatch-env.sto";
+    require Storable;
+    Storable::nstore({ %ENV }, $envfile);
+    my $jobflag = "-j$jobs";
+    my %o = (run_id => $run_id, filter => $filter, jobs => $jobs, workdir => $workdir,
+             db => $db, timeout => $timeout, envfile => $envfile);
+    my $mk = _write_run_mk("$workdir/run.mk", $blocks, %o);
+    my $todo = $blocks;
+    if ($tool eq 'smak' && _have('smak')) {
+        print "  dispatch: smak $jobflag -f run.mk  (exercising smak as dispatcher)\n";
+        my $slog = "$workdir/logs/dispatch-smak.log";
+        my $st = _run_dispatcher(['smak', $jobflag, '-f', $mk, 'all'], $slog);
+        my @left = _unfinished($D, $run_id, $blocks);
+        return if $st == 0 && !@left;
+        my $why = _dispatch_failure($st, $slog, scalar(@left), scalar(@$blocks));
+        my $redo = @left ? join(', ', map { $_->{name} } @left) : 'none';
+        my $note = "smak dispatch failed ($why; see $slog); blocks re-run under GNU make: $redo";
+        warn "regress run: $note\n";
+        $D->append_run_notes($run_id, "[$note]");
+        return unless @left;
+        $todo = \@left;
+        $mk = _write_run_mk("$workdir/run-make.mk", $todo, %o);
+    }
+    (my $mkname = $mk) =~ s{.*/}{};
+    print "  dispatch: make $jobflag -f $mkname\n";
+    my $st = _run_dispatcher(['make', $jobflag, '-f', $mk, 'all'], "$workdir/logs/dispatch-make.log");
+    warn "regress run: make dispatcher " . _status_text($st) . "\n" if $st != 0;
+    my @left = _unfinished($D, $run_id, $todo);
+    warn "regress run: no finished result for " . join(', ', map { $_->{name} } @left) . "\n"
+        if @left;
+}
+
+# The makefile of one dispatch: a target per block, chained within a suite whose
+# blocks share a working dir (below).  Returns its path.
+sub _write_run_mk {
+    my ($mk, $blocks, %o) = @_;
+    my ($run_id, $filter, $jobs, $workdir, $db, $timeout, $envfile) =
+        @o{qw(run_id filter jobs workdir db timeout envfile)};
     open my $w, '>', $mk or die "open $mk: $!\n";
     my @targets = map { "blk$_" } 0 .. $#$blocks;
     print $w ".PHONY: all @targets\n";
     print $w "all: @targets\n\n";
 
     # Suites whose blocks share a working dir must not run concurrently —
-    # vvp_reg.pl's ./vsim, run_regr's ./logs, and sv-tests' make state (it
-    # regenerates tests/ + check-runners in the shared tree despite per-block
-    # OUT_DIR) would clobber, yielding 0 tests / corruption. Serialize within
-    # such a suite by chaining each block on the previous one of the same suite.
+    # run_regr's ./logs, and sv-tests' make state (it regenerates tests/ +
+    # check-runners in the shared tree despite per-block OUT_DIR) would clobber,
+    # yielding 0 tests / corruption. Serialize within such a suite by chaining
+    # each block on the previous one of the same suite. (ivtest blocks have
+    # their own work areas now, but stay serialized: they share the ivtest tree
+    # under REGRESS_IVTEST_SHARED=1, and their per-test timeouts are tuned to
+    # one runner at a time.)
     my %SHARED_DIR = (ivtest => 1, nvc => 1, rtlmeter => 1, 'sv-tests' => 1);
     my %last_in_suite;
     for my $i (0 .. $#$blocks) {
         my $name = $blocks->[$i]{name};
         my $suite = $blocks->[$i]{suite} // '';
-        my @a = ($SELF, 'run-one', "'$name'", '--run', $run_id, '--db', "'$db'",
-                 '--workdir', "'$workdir'", '--jobs', $jobs);
-        push @a, '--filter', "'$filter'" if defined $filter && length $filter;
+        my @a = (_mk_arg($SELF), 'run-one', _mk_arg($name), '--run', $run_id, '--db', _mk_arg($db),
+                 '--workdir', _mk_arg($workdir), '--jobs', $jobs);
+        push @a, '--filter', _mk_arg($filter) if defined $filter && length $filter;
         push @a, '--timeout', $timeout if $timeout;
+        push @a, '--env-file', _mk_arg($envfile) if defined $envfile;
         my $dep = ($SHARED_DIR{$suite} && defined $last_in_suite{$suite})
                 ? " $last_in_suite{$suite}" : '';
         print $w "blk$i:$dep\n\t\@", join(' ', @a), "\n\n";
         $last_in_suite{$suite} = "blk$i" if $SHARED_DIR{$suite};
     }
     close $w;
+    return $mk;
+}
 
-    my $jobflag = "-j$jobs";
-    my $ran = $tool;
-    my $rc;
-    if ($tool eq 'smak' && _have('smak')) {
-        print "  dispatch: smak $jobflag -f run.mk  (exercising smak as dispatcher)\n";
-        $rc = system('smak', $jobflag, '-f', $mk, 'all');
-        if ($rc != 0) {
-            warn "regress run: smak dispatcher exited rc=$rc; clearing partials and falling back to make\n";
-            $D->dbh->do("DELETE FROM result WHERE block_run_id IN (SELECT block_run_id FROM block_run WHERE run_id=?)", undef, $run_id);
-            $D->dbh->do("DELETE FROM block_run WHERE run_id=?", undef, $run_id);
-            $ran = 'make';
+# The blocks of @$blocks with no finished block_run in the run.  A block_run left
+# unfinished (its run-one was killed, or died before recording) is deleted: the
+# block runs again.
+sub _unfinished {
+    my ($D, $run_id, $blocks) = @_;
+    my %done = map { $_ => 1 } $D->finished_blocks($run_id);
+    my @left = grep { !$done{ $_->{name} } } @$blocks;
+    $D->delete_unfinished_block_runs($run_id, map { $_->{name} } @left) if @left;
+    return @left;
+}
+
+# A wait status in words: "exit 2", "killed by signal 9"
+sub _status_text {
+    my $st = shift;
+    return 'could not start' if $st == -1;
+    return 'killed by signal ' . ($st & 127) if $st & 127;
+    return 'exit ' . ($st >> 8);
+}
+
+# Why a dispatch failed, in one line: its wait status, how many blocks it left
+# without a result, and the last error lines of its log.
+sub _dispatch_failure {
+    my ($st, $log, $nleft, $nall) = @_;
+    my @why = (_status_text($st));
+    push @why, "$nleft of $nall block(s) without a finished result" if $nleft;
+    if (open my $fh, '<', $log) {
+        my @err = grep { /FAILED|[Ee]rror|cannot|[Ff]atal|[Dd]ied|[Kk]illed|[Tt]imed? ?out/ } <$fh>;
+        close $fh;
+        chomp @err;
+        s/^\s+|\s+$//g for @err;
+        @err = grep { length } @err;
+        @err = @err[-3 .. -1] if @err > 3;
+        push @why, join(' | ', map { length > 160 ? substr($_, 0, 157) . '...' : $_ } @err) if @err;
+    }
+    return join('; ', @why);
+}
+
+# Run a dispatcher (smak or make) in a session of its own, with stdin from
+# /dev/null and its output into $log, which is copied onto the console as it
+# grows.  When it has exited, the processes still in its session are ended
+# (_end_session); a SIGINT, SIGTERM or SIGHUP to regress meanwhile ends the
+# session and then regress.  Returns the dispatcher's wait status.
+sub _run_dispatcher {
+    my ($cmd, $log) = @_;
+    require POSIX;
+    open my $out, '>', $log or die "regress run: cannot write $log: $!\n";
+    my $pid = fork;
+    die "regress run: fork: $!\n" unless defined $pid;
+    if ($pid == 0) {
+        POSIX::setsid();
+        open STDIN, '<', '/dev/null';
+        open STDOUT, '>&', $out or POSIX::_exit(127);
+        open STDERR, '>&', $out or POSIX::_exit(127);
+        { no warnings 'exec'; exec { $cmd->[0] } @$cmd; }
+        print STDERR "regress run: cannot run $cmd->[0]: $!\n";
+        POSIX::_exit(127);
+    }
+    close $out;
+    open my $in, '<', $log or die "regress run: cannot read $log: $!\n";
+    my $copy = sub {
+        while (sysread($in, my $buf, 65536)) { syswrite(STDOUT, $buf) }
+    };
+    my $stop = sub {
+        my $sig = shift;
+        $copy->();
+        _end_session($pid);
+        warn "regress run: SIG$sig: ended the $cmd->[0] dispatch\n";
+        $SIG{$sig} = 'DEFAULT';
+        kill $sig, $$;
+        exit 128;
+    };
+    local $SIG{INT}  = sub { $stop->('INT') };
+    local $SIG{TERM} = sub { $stop->('TERM') };
+    local $SIG{HUP}  = sub { $stop->('HUP') };
+    my $st;
+    while (1) {
+        $copy->();
+        my $w = waitpid($pid, POSIX::WNOHANG());
+        if ($w == $pid) { $st = $?; last }
+        if ($w < 0) { $st = -1; last }
+        select(undef, undef, undef, 0.25);
+    }
+    $copy->();
+    close $in;
+    _end_session($pid);
+    return $st;
+}
+
+# End the processes of session $sid: SIGTERM, then SIGKILL to those still there
+# after 5 s.  Linux /proc; elsewhere the session leader's process group.
+sub _end_session {
+    my $sid = shift;
+    my $members = sub {
+        my @p;
+        for my $stat (glob '/proc/[0-9]*/stat') {
+            open my $fh, '<', $stat or next;
+            my $l = <$fh>;
+            close $fh;
+            # pid (comm) state ppid pgrp session ...; a zombie is gone already
+            next unless defined $l && $l =~ /^(\d+) \(.*\) (\S) \d+ \d+ (\d+) /s;
+            push @p, $1 if $3 == $sid && $2 ne 'Z' && $1 != $$;
         }
-    } else {
-        $ran = 'make';
+        return @p;
+    };
+    if (!-d "/proc/$$") {
+        kill 'TERM', -$sid;
+        return;
     }
-    if ($ran eq 'make') {
-        print "  dispatch: make $jobflag -f run.mk\n";
-        $rc = system('make', $jobflag, '-f', $mk, 'all');
-        warn "regress run: make dispatcher rc=$rc\n" if $rc != 0;
+    my @p = $members->() or return;
+    kill 'TERM', @p;
+    for (1 .. 50) {
+        @p = $members->() or return;
+        select(undef, undef, undef, 0.1);
     }
+    kill 'KILL', @p;
+}
+
+# The variables of %ENV a make or smak exports to the commands it runs: MAKE,
+# MAKEFLAGS (GNU make's job server), MAKELEVEL, ..., and smak's SMAK_* (its job
+# server, SMAK_JOB_SERVER)
+sub _make_env_keys {
+    return grep { /^(?:SMAK_\w+|MAKE|MAKEFLAGS|MFLAGS|MAKELEVEL|MAKEOVERRIDES|GNUMAKEFLAGS|MAKE_TERMOUT|MAKE_TERMERR|MAKEFILES)$/ }
+           keys %ENV;
+}
+
+# One shell word on a make recipe line: single-quoted for the shell, every '$'
+# doubled for make.  (A --filter such as '^br942$' used to lose its '$' and its
+# closing quote to make's variable expansion: "Unterminated quoted string".)
+sub _mk_arg {
+    my $s = shift;
+    $s =~ s/'/'\\''/g;
+    $s = "'$s'";
+    $s =~ s/\$/\$\$/g;
+    return $s;
 }
 
 # ---- run-one (called by the dispatch makefile) ---------------------------
 sub cmd_run_one {
     my @argv = @_;
     my $name = shift @argv;
-    my ($db, $run_id, $filter, $jobs, $workdir, $timeout);
+    my ($db, $run_id, $filter, $jobs, $workdir, $timeout, $envfile);
     GetOptionsFromArray(\@argv,
         'db=s' => \$db, 'run=i' => \$run_id, 'filter=s' => \$filter,
         'jobs=i' => \$jobs, 'workdir=s' => \$workdir, 'timeout=i' => \$timeout,
+        'env-file=s' => \$envfile,
     ) or die "regress run-one: bad options\n";
+    # the environment `regress run` had (dispatch_parallel), not the dispatcher's
+    if (defined $envfile) {
+        require Storable;
+        my $env = eval { Storable::retrieve($envfile) };
+        die "regress run-one: cannot read the environment file $envfile: "
+            . ($@ || 'not a hash') . "\n" unless ref $env eq 'HASH';
+        %ENV = %$env;
+    }
     $db //= $DEFAULT_DB;
     defined $run_id or die "regress run-one: --run required\n";
     my $b = Regress::Block::get($name) or die "regress run-one: no such block '$name'\n";
-    $workdir //= "$REGRESS_DIR/out/run-$run_id";
+    if (!defined $workdir) {
+        # the dir `regress run` made for this run (Regress::Util::run_workdir)
+        my $m = Regress::DB->new(path => $db)->run_meta($run_id)
+            or die "regress run-one: no run #$run_id in $db\n";
+        $workdir = run_workdir($REGRESS_DIR, $db, $run_id, $m->{started_at});
+    }
     make_path("$workdir/logs");
 
     # never let a single block failure abort the dispatch
@@ -464,6 +685,14 @@ With no blocks named, `run` runs every ready block except the opt-in ones
 
 Blocks (suite x engine) come from `regress list`. Default `run` dispatches
 blocks in parallel via smak; --seq runs in-process; --make forces GNU make.
+When the smak dispatch fails, the blocks it left without a finished result are
+run again under GNU make, and the others are kept (the run's notes say why smak
+failed). Blocks run without the dispatcher's MAKE/MAKEFLAGS/SMAK_* variables.
+A --filter that selects no test of a block is an error. A run's logs are in
+out/run-<id>-<tag>/ (printed as "workdir:"; logs/dispatch-<tool>.log holds the
+dispatcher's output); an ivtest block runs in a private work area there,
+ivtest-<block>/, linked to the ivtest tree, which it only reads
+(REGRESS_IVTEST_SHARED=1: in the tree itself, as before).
 USAGE
 }
 

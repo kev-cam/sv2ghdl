@@ -71,6 +71,12 @@ sub run {
     push @cmd, ('--filter', $o{filter}) if defined $o{filter} && length $o{filter};
     my ($trc, $tout) = run_capture(\@cmd, log => "$logdir/gate-regress.log");
     my ($run_id) = $tout =~ /Run #(\d+)/;
+    if (!defined $run_id && $trc != 0) {
+        # regress run stopped before recording a run (e.g. a --filter that selects no
+        # test of any block): judging the latest earlier run instead would be wrong
+        my ($why) = $tout =~ /^(regress run: .*)$/m;
+        return _fail($db, $gid, $why // "regress run failed (rc $trc) before recording a run");
+    }
     $run_id //= $db->latest_run_id;
     $db->update_gate($gid, run_id => $run_id);
 

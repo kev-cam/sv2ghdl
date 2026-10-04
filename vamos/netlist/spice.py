@@ -52,7 +52,10 @@ Lines and statements (§4.3.2)
   names are always lowercase.  Netlist.spelling maps IR names to the spelling
   first seen (subckt names and ports are taken from their definition).
 - Node names: an all-digit name loses its leading zeros (HSPICE: node 007 is
-  node 7, 00 is ground); braces become brackets (HSPICE: a{3} is a[3]).
+  node 7, 00 is ground); braces become brackets (HSPICE: a{3} is a[3]).  A net
+  name with '.' is an error (HSPICE reserves it for <subckt>.<node>, 3-17); so
+  is a net named <x>:<node> after an internal node of X instance x of its own
+  body (VACASK and Xyce name that node x:<node> too and would merge the two).
 
 Files (§4.3.1)
 --------------
@@ -189,7 +192,7 @@ the MOS CAPOP=0 / LD / NSUB and BJT MJS defaults are SPICE's).
 Netlist.temp / tnom are always set: .temp (or .option temp) and .option tnom
 as evaluated floats, else 25 (27 under .option spice).  A repeated option
 takes the last value (HSPICE), with a note when the values differ.  scalm
-and geoshrink other than 1: error.  wl: positional W L.  defl defw defad
+and geoshrink other than 1, aspec other than 0: error.  wl: positional W L.  defl defw defad
 defas defpd defps defnrd defnrs: MOSFET defaults filled into instances.
 delmax, rmax: the tran maxstep (Control statements).  dvdt, lvltim and
 accurate select HSPICE's timestep algorithm, which is not modelled (note);
@@ -272,6 +275,67 @@ def fold_ground(name: str) -> str:
     if low in _GROUND or (low.isdigit() and not low.strip("0")):
         return "0"
     return name
+
+
+def _no_period(text: str) -> None:
+    """A net name with '.': HSPICE reserves the period as the separator of <subckt>.<node> (Star-HSPICE
+    2001.2, 3-17), and vamos reads every v(a.b) as that reference, so such a net cannot be probed or
+    given an .ic; refused (_Defer: an error at top level, the subckt left out inside one)."""
+    if "." in text and not text.replace(".", "").isdigit():
+        raise _Defer("node name %r contains '.', which HSPICE reserves as the hierarchy separator "
+                     "(<subckt>.<node>)" % text)
+
+
+def _colon_clashes(nl: Netlist) -> List[Tuple[str, str]]:
+    """(origin, message) for every net whose name is <instance>:<node> of an X instance of its own body
+    and an internal node of that subckt (deeper: <x1>:<x2>:<node>): VACASK and Xyce both name a subckt
+    instance's internal nodes <instance>:<node>, so the two would silently be one node, where HSPICE
+    (hierarchy separator '.') keeps them apart.  Names are compared case-insensitively (Xyce)."""
+    out: List[Tuple[str, str]] = []
+    glob = {g.lower() for g in nl.globals}
+
+    def defs_of(items: Sequence[object], defs: Dict[str, Subckt]) -> Dict[str, Subckt]:
+        d = dict(defs)
+        d.update({it.name.lower(): it for it in items if isinstance(it, Subckt)})
+        return d
+
+    def xs_of(items: Sequence[object]) -> Dict[str, Instance]:
+        return {it.name.lower(): it for it in items if isinstance(it, Instance) and it.kind == "x"}
+
+    def internal(sub: Subckt) -> Set[str]:
+        nodes = {n.lower() for it in sub.body if isinstance(it, Instance) for n in it.nodes}
+        return nodes - {p.lower() for p in sub.ports} - glob - {"0"}
+
+    def clash(name: str, items: Sequence[object], defs: Dict[str, Subckt]) -> Optional[str]:
+        head, rest = name.split(":", 1)
+        x = xs_of(items).get(head)
+        sub = defs.get((x.master or "").lower()) if x is not None else None
+        if sub is None:
+            return None
+        if ":" in rest:
+            return x.name if clash(rest, sub.body, defs_of(sub.body, defs)) else None
+        return x.name if rest in internal(sub) else None
+
+    def visit(items: Sequence[object], defs: Dict[str, Subckt]) -> None:
+        defs = defs_of(items, defs)
+        seen: Set[str] = set()
+        for it in items:
+            if isinstance(it, Subckt):
+                visit(it.body, defs)
+            elif isinstance(it, Instance):
+                for n in it.nodes:
+                    low = n.lower()
+                    if ":" not in low or low in seen:
+                        continue
+                    who = clash(low, items, defs)
+                    if who is not None:
+                        seen.add(low)
+                        out.append((it.origin, "node %s: VACASK and Xyce also call the internal node %s of "
+                                               "instance %s '%s', so the two would be one node (HSPICE keeps "
+                                               "them apart: its hierarchy separator is '.'); rename the node"
+                                    % (n, low.split(":", 1)[1], who, n)))
+    visit(nl.body, {})
+    return out
 
 
 def left_out(nl: Netlist) -> Dict[str, Note]:
@@ -542,6 +606,7 @@ class _Scope:
         self.orig_ports: List[str] = []
         self.ports: List[str] = []
         self.gnd_ports: List[int] = []
+        self.spelling: Dict[str, str] = {}  # folded port -> header spelling (Subckt.spelling)
         self.subckts: Dict[str, _Scope] = {}
         self.models: Dict[str, Model] = {}
         self.bins: Dict[str, List[Model]] = {}
@@ -1136,7 +1201,7 @@ class _Parser:
         g: List[str] = []
         for w, origin in self.globals_raw:
             try:
-                n = self.node_text(w)
+                n = self.node_text(w, terminal=True)
             except _Defer as exc:
                 self.err(origin, ".global: %s" % exc)
                 continue
@@ -1207,6 +1272,7 @@ class _Parser:
                 self.err(st.origin, ".subckt %s: port %s is listed twice" % (scope.name, text))
             ports.append(p)
             self.spell(p, text, True)
+            scope.spelling.setdefault(p, text)      # this definition's own (Subckt.spelling)
             k += 1
         for key, text in fields[k:]:
             if key is None:
@@ -1231,6 +1297,7 @@ class _Parser:
         """A port name as written, case folded (ground aliases kept: Subckt.orig_ports)."""
         if any(c in text for c in "'\"()"):
             raise _Defer("%r is not a node name" % text)
+        _no_period(text)
         t = text
         if t.isdigit():
             t = str(int(t))
@@ -1238,10 +1305,13 @@ class _Parser:
             t = t.replace("{", "[").replace("}", "]")
         return self.fold(t)
 
-    def node_text(self, text: str) -> str:
-        """A node name in the IR: folded, '0' for a ground alias."""
+    def node_text(self, text: str, terminal: bool = False) -> str:
+        """A node name in the IR: folded, '0' for a ground alias.  terminal: the name of a net an
+        element, X line or .global connects (not a hierarchical reference): no '.' (_no_period)."""
         if any(c in text for c in "'\"()"):
             raise _Defer("%r is not a node name" % text)
+        if terminal:
+            _no_period(text)
         t = text
         if t.isdigit():
             t = str(int(t))
@@ -1591,7 +1661,7 @@ class _Parser:
     def nodes(self, fields: Sequence[Tuple[Optional[str], str]], count: int, elem: str) -> List[str]:
         if len(fields) < count or not all(_bare(f) for f in fields[:count]):
             raise _Defer("%s needs %d node%s" % (elem, count, "" if count == 1 else "s"))
-        return [self.node_text(f[1]) for f in fields[:count]]
+        return [self.node_text(f[1], terminal=True) for f in fields[:count]]
 
     def keyed(self, scope: _Scope, fields: Sequence[Tuple[Optional[str], str]], elem: str,
               ctx: str = "value") -> Dict[str, Expr]:
@@ -1887,7 +1957,7 @@ class _Parser:
             raise _Defer("%s: write %s n+ n- in+ in- %s, or %s='expression'"
                          % (orig, orig[0].upper(), "gain" if kind == "e" else "transconductance",
                             "VOL" if kind == "e" else "CUR"))
-        cnodes = [self.node_text(b) for b in bare[:2]]
+        cnodes = [self.node_text(b, terminal=True) for b in bare[:2]]
         gain = self.value(scope, bare[2], orig, "gain")
         kv = self.keyed(scope, rest[k:], orig)
         params = {}
@@ -2058,7 +2128,7 @@ class _Parser:
             except _Defer as exc:
                 raise _Defer("%s: %s=%s" % (orig, key, exc))
         target = self.find_subckt(scope, master)
-        actuals = [self.node_text(a) for a in actual_texts]
+        actuals = [self.node_text(a, terminal=True) for a in actual_texts]
         if target is not None:
             if len(actuals) != len(target.orig_ports):
                 raise _Defer("%s has %d node%s but subckt %s has %d port%s (%s)"
@@ -2362,9 +2432,11 @@ class _Parser:
             if v is None:
                 return
             if first is None:
-                self.warn(delmax[1], ".option delmax=%s ignored: the netlist has no .tran, and the "
-                          "analysis vamos synthesises takes its maximum time step from "
-                          "--vamos-analog-maxstep" % delmax[0])
+                # the analysis vamos synthesises (ams/deck.py _analysis) takes it, unless
+                # --vamos-analog-maxstep, which is explicit, names another
+                self.synth_delmax = v
+                self.note(delmax[1], ".option delmax=%s: the maximum time step of the analysis "
+                          "vamos synthesises (the netlist has no .tran)" % delmax[0])
             else:
                 first.args["maxstep"] = v
             return
@@ -2856,6 +2928,12 @@ class _Parser:
                 if v is not None and v != 1.0:
                     self.err(origin, ".option %s=%s is not supported (model or layout scaling)"
                              % (key, val))
+            elif key == "aspec":
+                v = self.eval_top(val, origin, ".option aspec") if val is not None else 1.0
+                if v is not None and v != 0.0:
+                    self.err(origin, ".option aspec is not supported: ASPEC compatibility mode sets "
+                             "SCALE=SCALM=1e-6, WL, LEVEL=6 and ACM=1 MOS models and the CJ=IS=0 "
+                             "defaults (Star-HSPICE 9-13, 21-86)")
             elif key in _OPT_MAPPED:
                 if val is None:
                     self.err(origin, ".option %s needs a value" % key)
@@ -2910,6 +2988,8 @@ class _Parser:
         nl.parhier = self.parhier_eff
         self.options_pass(nl)
         nl.analyses = self.analyses()
+        if getattr(self, "synth_delmax", None):
+            nl.options["delmax"] = Num(self.synth_delmax)   # for ams/deck.py's synthesised .tran
         self.sources()
         self.ground()
         self.references()
@@ -2928,7 +3008,8 @@ class _Parser:
                 if not self.kept(it):
                     continue
                 out.append(Subckt(it.name, list(it.ports), list(it.sorted_params), self.items(it),
-                                  list(it.orig_ports), list(it.gnd_ports), it.stmt.origin))
+                                  list(it.orig_ports), list(it.gnd_ports), it.stmt.origin,
+                                  dict(it.spelling)))
             else:
                 out.append(it)
         return out
@@ -2948,6 +3029,8 @@ def parse(paths: Sequence[NetlistRef], extra: Sequence[Tuple[str, str]], cwd: st
     p.prune()
     p.parameters()
     nl = p.build()
+    for origin, msg in _colon_clashes(nl):
+        p.err(origin, msg)
     if any(n.severity == ERROR for n in p.notes):
         raise NoteError(p.notes)
     nl.notes = list(p.notes)

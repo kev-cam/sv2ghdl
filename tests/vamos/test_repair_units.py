@@ -389,15 +389,17 @@ class TestCutPassiveSubckt(unittest.TestCase):
                 self.assertTrue(hits.hit("port_connect_inst#0"))
 
     def test_guard_names_the_one_way_copy(self):
-        """The temporaries guard names the shape still unsupported (a one-way copy, e.g. a tran
-        primitive on a select), not "needs translator patch T2", which has landed."""
+        """The temporaries guard names the shape still unsupported (a one-way copy: only a select
+        of a port of the enclosing module is left one way), not "needs translator patch T2",
+        which has landed."""
         import test_ams_cut as tc
         with self.assertRaises(NoteError) as cm:
             tc.roles(tc.analyse("swvp"))
         msgs = [n.message for n in cm.exception.notes]
         self.assertIn("is connected through translator temporary SW_ivl_0_b, a one-way copy (the "
-                      "translator joins this bit- or part-select one way only, e.g. a tran primitive "
-                      "on a select); use port_dir or connect a plain net", msgs[0])
+                      "translator joins this bit- or part-select one way only, e.g. a select of an "
+                      "input or output port of the enclosing module); use port_dir or connect a "
+                      "plain net", msgs[0])
         self.assertFalse(any("patch T2" in m for m in msgs), msgs)
 
     def test_other_cell_is_not_matched(self):

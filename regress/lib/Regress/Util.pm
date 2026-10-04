@@ -6,7 +6,25 @@ use strict;
 use warnings;
 use Exporter 'import';
 
-our @EXPORT_OK = qw(run_capture slurp now_ms);
+our @EXPORT_OK = qw(run_capture slurp now_ms run_workdir);
+
+# run_workdir($regress_dir, $db_path, $run_id, $started_at) -> the work dir of a run
+#
+# <regress_dir>/out/run-<id>-<tag>: logs, timing, the dispatch makefile and the
+# ivtest work areas of run <id> of the results DB at $db_path.  <tag> (8 hex
+# digits) comes from the DB file's real path and the run's started_at, so the
+# copies of one DB, which hand out the same next run id, never share (and
+# overwrite) a work dir, and whoever holds the DB (run-one, the dashboard) finds
+# the dir again.  Runs recorded before this rule used out/run-<id>.
+sub run_workdir {
+    my ($regress_dir, $db, $run_id, $started_at) = @_;
+    require Cwd;
+    require Digest::MD5;
+    my $real = Cwd::abs_path($db);
+    $real = $db unless defined $real;
+    my $tag = substr(Digest::MD5::md5_hex(join("\0", $real, $started_at // '')), 0, 8);
+    return "$regress_dir/out/run-$run_id-$tag";
+}
 
 # run_capture($cmd, %opts) -> ($exit_code, $output_text)
 #

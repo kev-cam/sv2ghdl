@@ -27,7 +27,10 @@ A plain (digital) compile (docs/VAMOS_AMS_DESIGN.md §1.2-§1.4, §8):
   translate   pp.v through iverilog-sv2ghdl (NvcBackend.analyse); a top left as a
               deferred stub is an error quoting iverilog's reason from
               <daidir>/nvc/iverilog.log; tgt-vhdl's "Unsupported system task /
-              function" comments are warnings at the user's file:line
+              function" comments are warnings at the user's file:line, except
+              the VCD tasks': $dumpfile/$dumpvars (and +vcs+dumpvars) are
+              recorded in job.dump for ./simv's waves (dump_request), and the
+              others get notes
   elaborate   the top; with several tops a generated entity (vamos_tops) that
               instantiates each (inputs tied to Z, outputs open), so %m and
               hierarchical names stay as VCS prints them.  job.tops[0] is the
@@ -44,7 +47,7 @@ import subprocess
 from typing import List, Optional, Sequence, Tuple
 
 from vamos import argscan, banner, tools
-from vamos.backends.nvc import BackendError, NvcBackend, cpu_time
+from vamos.backends.nvc import DEFAULT_DUMPFILE, BackendError, NvcBackend, cpu_time
 from vamos.console import Console
 from vamos.job import IGNORED, INAPPLICABLE, NOTED, UNKNOWN, UNSUPPORTED, Job, Source
 from vamos.optable import (Opt, ScanError, Table, report_unmapped, scan, strict_failures,
@@ -122,8 +125,14 @@ def _debug(name):
     def act(job: Job, val):
         job.debug.append(name + (val or ""))
         job.note(name + (val or ""), NOTED,
-                 "waves/debug database not produced yet (planned: FST via nvc)")
+                 "no debug database or VPD/FSDB waves are produced; $dumpvars writes a VCD")
     return act
+
+
+def _dumpvars_all(job: Job, _):
+    # +vcs+dumpvars: "a substitute for entering the $dumpvars system task, without
+    # arguments, in your Verilog code" (a compile-time option; dump_request)
+    setattr(job, "dumpvars_all", True)
 
 
 def _ntb_opts(job: Job, val):
@@ -178,7 +187,8 @@ OPTIONS = [
     Opt("-debug", "flag", _debug("-debug")),
     Opt("-kdb", "prefix", NOTED, "Verdi KDB is not produced"),
     Opt("+vcs+vcdpluson", "flag", _debug("+vcs+vcdpluson")),
-    Opt("-gui", "prefix", NOTED, "no GUI, and no waves are written yet"),
+    Opt("+vcs+dumpvars", "flag", _dumpvars_all),
+    Opt("-gui", "prefix", NOTED, "no GUI ($dumpvars writes a VCD for a wave viewer)"),
     Opt("-verdi", "flag", NOTED, "Verdi is not available"),
     Opt("-ucli", "flag", NOTED, "UCLI scripting arrives in a later phase"),
     Opt("-lca", "flag", IGNORED),
@@ -417,6 +427,32 @@ def deferred_reason(log_path: str, module: str, pp=None) -> str:
     return "; ".join(lines[:3]) + ("; ..." if len(lines) > 3 else "")
 
 
+_PROVENANCE = re.compile(r"^--\s*Generated from Verilog module (\S+) \(")
+_ENTITY_DECL = re.compile(r"^\s*entity\s+(\w+)\s+is\b", re.I)
+
+
+def top_entity(vhd: str, module: str) -> str:
+    """The VHDL entity tgt-vhdl made of top-level module `module`: tgt-vhdl renames a module
+    whose name is a VHDL reserved word (pipe -> pipe_module__50dc, loop, view, ...), and the
+    "-- Generated from Verilog module <m> (...)" comment right above the entity keeps the
+    Verilog name (the comment lines between them are the entity's own).  The last such
+    entity: a translation run writes its root last.  `module` itself when none is found."""
+    found, cur = module, None
+    for line in vhd.splitlines():
+        s = line.strip()
+        m = _PROVENANCE.match(s)
+        if m:
+            cur = m.group(1)
+            continue
+        if s.startswith("--"):
+            continue
+        e = _ENTITY_DECL.match(line)
+        if e and cur == module:
+            found = e.group(1)
+        cur = None
+    return found
+
+
 def _entity_ports(vhd: str, name: str) -> Optional[List[Tuple[str, str, str, bool]]]:
     """(port, mode, type, has a default) of entity `name` in VHDL text; None: no such entity."""
     m = re.search(r"(?im)^\s*entity\s+%s\s+is\b" % re.escape(name), vhd)
@@ -465,6 +501,26 @@ def _tie_off(typ: str) -> Optional[str]:
             "real": "0.0", "integer": "0", "natural": "0"}.get(base)
 
 
+def undriven_top_inputs(pp, vhd: str, top: str) -> list:
+    """The one top-level module's logic input ports, as a warning: nvc elaborates the top
+    alone, so an input it cannot associate takes its type's first value (0), where VCS leaves
+    a top-level input undriven (z).  Said, not modelled: several tops go through
+    wrapper_vhdl, which ties inputs to Z."""
+    from vamos.notes import warning
+    ports = _entity_ports(vhd, top_entity(vhd, top)) or []
+    logic = [p for p, mode, typ, has_default in ports
+             if mode == "in" and not has_default and "Z" in (_tie_off(typ) or "")]
+    if not logic:
+        return []
+    defs = pp.modules.get(top, [])
+    return [warning(defs[0].origin if defs else "",
+                    "top-level module %s has input port%s %s that nothing drives: %s 0 in this "
+                    "simulation, where VCS leaves %s undriven (z)"
+                    % (top, "" if len(logic) == 1 else "s", ", ".join(logic),
+                       "it reads" if len(logic) == 1 else "they read",
+                       "it" if len(logic) == 1 else "them"))]
+
+
 def wrapper_vhdl(name: str, tops: Sequence[str], vhd: str) -> str:
     """VHDL for one entity that instantiates every top-level module: nvc elaborates one
     top, VCS every top-level module.  Each top's own translation (sv2vhdl-modules runs each
@@ -473,7 +529,8 @@ def wrapper_vhdl(name: str, tops: Sequence[str], vhd: str) -> str:
     Raises BackendError for a top with no entity or an input it cannot tie off."""
     stmts = []
     for k, t in enumerate(tops, 1):
-        ports = _entity_ports(vhd, t)
+        ent = top_entity(vhd, t)
+        ports = _entity_ports(vhd, ent)
         if ports is None:
             raise BackendError("the translation (design.vhd) has no entity for top module %s" % t)
         assoc = []
@@ -485,7 +542,7 @@ def wrapper_vhdl(name: str, tops: Sequence[str], vhd: str) -> str:
                 raise BackendError("top module %s: input port %s (%s) cannot be left unconnected "
                                    "beside other top-level modules; give -top" % (t, p, typ))
             assoc.append("%s => %s" % (p, v))
-        stmt = "  top%d: entity work.%s" % (k, t)
+        stmt = "  top%d: entity work.%s" % (k, ent)
         if assoc:
             stmt += "\n    port map (%s)" % ", ".join(assoc)
         stmts.append(stmt + ";  -- top-level module %s" % t)
@@ -538,6 +595,9 @@ def plain_compile(job: Job, be: NvcBackend, con: Console, opts: dict) -> Tuple[L
         raise BackendError("preprocessing failed")
     _flush(con, pp.notes, strict_on, "preprocessing failed")
     job.precision = pp.precision
+    # the run's messages name the user's file:line (backends/nvc.py source_relocator)
+    from vamos.backends.nvc import write_source_lines
+    write_source_lines(job.daidir, pp)
     text, _ = library_rule(pp)
     tops = plain_tops(job, pp)
     with open(pp.path, "w") as fh:
@@ -590,17 +650,522 @@ def plain_compile(job: Job, be: NvcBackend, con: Console, opts: dict) -> Tuple[L
         with open(f, errors="replace") as fh:
             vhd += fh.read() + "\n"
     notes += verilog_ports.translator_warnings(be2.translator_lines, pp)
-    notes += verilog_ports.unsupported_tasks(vhd, pp, ams=False)
+    # the design's timing that is not simulated (specify path delays and timing checks,
+    # $sdf_annotate): VCS applies it unless +nospecify / +notimingcheck say not to
+    given = {u.option for u in job.unmapped}
+    notes += verilog_ports.timing_omissions(pp, "+nospecify" in given, "+notimingcheck" in given,
+                                            text=text)
+    if len(tops) == 1:
+        notes += undriven_top_inputs(pp, vhd, tops[0])
+    wrapper = _wrapper_name(pp, vhd) if len(tops) > 1 else None
+    # $dumpfile/$dumpvars and the other VCD tasks are vamos's (job.dump, ./simv's waves):
+    # their notes replace the "not translated" warnings
+    job.dump, dump_notes = dump_request(vhd, pp, tops, wrapper,
+                                        every=bool(getattr(job, "dumpvars_all", False)))
+    notes += [n for n in verilog_ports.unsupported_tasks(vhd, pp, ams=False)
+              if not _is_dump_task_note(n)]
+    notes += dump_notes
     _flush(con, notes, strict_on, "compile failed at the translation")
 
-    if len(tops) == 1:
-        job.tops = list(tops)
-        be.elaborate(tops[0])
+    if wrapper is None:
+        # the entity of the top (top_entity: a reserved-word module name is renamed;
+        # `module pipe' elaborated WORK.PIPE, which does not exist)
+        job.tops = [top_entity(vhd, tops[0])]
+        be.elaborate(job.tops[0])
     else:
-        name = _wrapper_name(pp, vhd)
-        _elaborate_wrapper(be, con, name, wrapper_vhdl(name, tops, vhd))
-        job.tops = [name] + list(tops)
+        _elaborate_wrapper(be, con, wrapper, wrapper_vhdl(wrapper, tops, vhd))
+        job.tops = [wrapper] + list(tops)
     return tops, c1
+
+
+# -- waves: $dumpfile, $dumpvars and the other VCD tasks ---------------------------------------
+#
+# tgt-vhdl leaves every VCD task out of the translation with its located comment ("Unsupported
+# system task $dumpvars omitted here (<file>:<line>)"), which stays.  vamos reads the calls
+# there (only what the translation kept: a generate branch not taken has none), takes their
+# arguments and the $test$plusargs tests they run under from pp, and records them in job.dump;
+# ./simv runs nvc with the waveform options (simv.wave_request, backends/nvc.Waves).  nvc
+# writes the VCD from time 0 for the whole run, with four-state values, modules as module
+# scopes, and none of the translator's own nets.  Names are the translation's: a VHDL
+# reserved word gets "_sig" (bus -> bus_sig), and an output reg q has its q_reg beside q.
+
+# What vamos does with each VCD task (the extended-VCD $dumpports family is not here: those
+# keep the translator's "not translated" warning)
+_DUMP_TASKS = {
+    "$dumpfile": "",
+    "$dumpvars": "",
+    "$dumpoff": "is not honoured: the VCD records the whole run",
+    "$dumpon": "is not honoured: the VCD records the whole run",
+    "$dumpall": "has no effect: the VCD records every change",
+    "$dumpflush": "has no effect: the VCD is written when the run ends",
+    "$dumplimit": "is not honoured: the VCD has no size limit",
+}
+_DUMP_CALL = re.compile(r"Unsupported system task (\$dump\w+) omitted here \((.*):(\d+)\)")
+_DUMP_NOTE = re.compile(r"^system task (\$\w+) is not translated")
+_PP_FILES = ("_pp.v", "_norm.sv", "pp.v", "pp.orig.v")
+
+
+def dump_covers(dump: Optional[dict], names: Sequence[str]) -> bool:
+    """Whether the dump record (dump_request's job.dump) records any of the Verilog
+    hierarchical names (tb.seen, tb.u1.q[3]): a call with no scopes dumps the whole design;
+    a scope [levels, path] the signal at path, or those of instance path and, for levels n
+    > 0, the n-1 levels of instances below it (every level for 0).  A call's plusarg tests
+    are taken as passed: the run may make it."""
+    if not dump:
+        return False
+    for c in dump.get("calls", ()):
+        scopes = c.get("scopes") or []
+        if not scopes:
+            return True
+        for levels, path in scopes:
+            for name in names:
+                n = re.sub(r"\[[^\]]*\]$", "", name)
+                if n == path:
+                    return True
+                scope = n.rpartition(".")[0]
+                if scope == path or scope.startswith(path + "."):
+                    depth = scope.count(".") - path.count(".")
+                    if levels == 0 or depth < levels:
+                        return True
+    return False
+
+
+def _is_dump_task_note(n) -> bool:
+    m = _DUMP_NOTE.match(n.message)
+    return bool(m) and m.group(1) in _DUMP_TASKS
+
+
+# The statements whose system task calls _Conditions knows the conditions of
+_PROCESSES = ("initial", "always", "always_ff", "always_comb", "always_latch", "final")
+_BLOCK_ENDS = ("end", "join", "join_any", "join_none")
+
+
+class _Conditions:
+    """The conditions under which each system task call in a module's processes runs: a
+    structural walk of every initial/always/final statement (begin/fork blocks, if/else,
+    case, loops, delays, event and wait controls).  at: token index of the call ->
+    [condition, ...], outermost first; a condition is ("plusarg", name, present, var) for
+    an `if` on $test$plusargs("name") (present False: its else branch, or `!`), or on
+    $value$plusargs("name%s", var); else ("other", what).  A call in a task or function
+    runs when it is called: ("other", "task t").  The walk never fails: text it cannot read
+    as a statement is skipped to the next ';'."""
+
+    def __init__(self, toks, lo: int, hi: int):
+        self.t, self.hi = toks, hi
+        self.at: dict = {}
+        i = lo
+        while i < hi:
+            x = toks[i]
+            if x.kind == "id" and x.text in _PROCESSES:
+                try:
+                    i = self.stmt(i + 1, [])
+                except RecursionError:          # nested deeper than Python's stack: the
+                    i += 1                      # calls in it keep no conditions
+            elif x.kind == "id" and x.text in ("task", "function"):
+                i = self.subprogram(i)
+            else:
+                i += 1
+
+    def text(self, a: int, b: int) -> str:
+        s = " ".join(t.text for t in self.t[a:b])
+        return s if len(s) <= 60 else s[:57] + "..."
+
+    def close(self, i: int) -> int:
+        """The index of the bracket closing toks[i] (or hi - 1)."""
+        from vamos.ams import verilog_ports
+        return min(verilog_ports._match(self.t, i), self.hi - 1)
+
+    def subprogram(self, i: int) -> int:
+        kw = self.t[i].text
+        end = "end" + kw
+        j, name = i + 1, "?"
+        while j < self.hi and self.t[j].text != end:
+            if name == "?" and self.t[j].text in ("(", ";") and self.t[j - 1].kind in ("id", "esc"):
+                name = self.t[j - 1].name
+            if self.t[j].kind == "sys":
+                self.at[j] = [("other", "%s %s" % (kw, name))]
+            j += 1
+        return j + 1
+
+    def simple(self, i: int) -> int:
+        """Past the ';' ending the simple statement at i (depth 0)."""
+        depth, j = 0, i
+        while j < self.hi:
+            t = self.t[j]
+            if t.kind == "op":
+                if t.text in ("(", "[", "{"):
+                    depth += 1
+                elif t.text in (")", "]", "}"):
+                    depth -= 1
+                elif t.text == ";" and depth <= 0:
+                    return j + 1
+            elif depth <= 0 and t.kind == "id" and t.text in _BLOCK_ENDS + ("endcase",):
+                return j                # a missing ';': never run past the block's end
+            j += 1
+        return j
+
+    def cond(self, a: int, b: int):
+        """The condition of `if (toks[a:b])`."""
+        t = self.t
+        while b - a >= 2 and t[a].text == "(" and self.close(a) == b - 1:
+            a, b = a + 1, b - 1          # ( cond )
+        present = True
+        if a < b and t[a].text == "!":
+            present, a = False, a + 1
+            while b - a >= 2 and t[a].text == "(" and self.close(a) == b - 1:
+                a, b = a + 1, b - 1
+        if (b - a == 4 and t[a].text == "$test$plusargs" and t[a + 1].text == "("
+                and t[a + 2].kind == "str" and t[a + 3].text == ")"):
+            return ("plusarg", _unquote(t[a + 2].text), present, None)
+        if (b - a == 6 and t[a].text == "$value$plusargs" and t[a + 1].text == "("
+                and t[a + 2].kind == "str" and t[a + 3].text == ","
+                and t[a + 4].kind in ("id", "esc") and t[a + 5].text == ")"):
+            name = _unquote(t[a + 2].text).split("%", 1)[0]
+            return ("plusarg", name, present, t[a + 4].name if present else None)
+        return ("other", "if (%s)" % self.text(a, b) if present else
+                "if (!%s)" % self.text(a, b))
+
+    @staticmethod
+    def negate(c):
+        if c[0] == "plusarg":
+            return ("plusarg", c[1], not c[2], None)
+        return ("other", "the else branch of " + c[1])
+
+    def stmt(self, i: int, conds: list) -> int:
+        """Past the statement at i, recording the system task calls in it."""
+        t, hi = self.t, self.hi
+        if i >= hi:
+            return hi
+        x = t[i]
+        w = x.text
+        if x.kind == "attr" or (x.kind == "id" and w in ("unique", "unique0", "priority")):
+            return self.stmt(i + 1, conds)
+        if x.kind == "op" and w == ";":
+            return i + 1
+        if x.kind == "id" and w in ("begin", "fork"):
+            j = i + 1
+            if j + 1 < hi and t[j].text == ":":
+                j += 2                                  # begin : label
+            while j < hi and not (t[j].kind == "id" and t[j].text in _BLOCK_ENDS):
+                k = self.stmt(j, conds)
+                j = max(k, j + 1)
+            j += 1
+            if j + 1 < hi and t[j].text == ":":
+                j += 2                                  # end : label
+            return j
+        if x.kind == "id" and w == "if" and i + 1 < hi and t[i + 1].text == "(":
+            while True:                     # an else-if chain in this frame, however long
+                c = self.close(i + 1)
+                cond = self.cond(i + 2, c)
+                j = self.stmt(c + 1, conds + [cond])
+                if not (j < hi and t[j].text == "else"):
+                    return j
+                conds = conds + [self.negate(cond)]
+                if j + 2 < hi and t[j + 1].text == "if" and t[j + 2].text == "(":
+                    i = j + 1
+                    continue
+                return self.stmt(j + 1, conds)
+        if x.kind == "id" and w in ("case", "casex", "casez", "randcase"):
+            j = i + 1
+            if w != "randcase" and j < hi and t[j].text == "(":
+                j = self.close(j) + 1
+            if j < hi and t[j].text == "inside":
+                j += 1
+            inner = conds + [("other", "a %s statement" % w)]
+            from vamos.ams import verilog_ports
+            while j < hi and t[j].text != "endcase":
+                if t[j].text == "default":
+                    j += 1
+                    if j < hi and t[j].text == ":":
+                        j += 1
+                else:
+                    k = verilog_ports._find(t, j, hi, ":")
+                    if k < 0:
+                        return self.simple(j)
+                    j = k + 1
+                j = max(self.stmt(j, inner), j + 1)
+            return j + 1
+        if x.kind == "id" and w in ("for", "while", "repeat", "foreach") and i + 1 < hi \
+                and t[i + 1].text == "(":
+            return self.stmt(self.close(i + 1) + 1, conds + [("other", "a %s loop" % w)])
+        if x.kind == "id" and w == "forever":
+            return self.stmt(i + 1, conds)              # its body runs
+        if x.kind == "id" and w == "do":
+            j = self.stmt(i + 1, conds)                 # its body runs once at least
+            if j < hi and t[j].text == "while":
+                j = self.simple(j)
+            return j
+        if x.kind == "op" and w in ("#", "@", "##"):
+            j = i + 1                                   # a delay or event control
+            if j < hi and t[j].text == "(":
+                j = self.close(j) + 1
+            elif j < hi:
+                j += 1                                  # #10, #d, @clk, @*
+                if j < hi and t[j].kind == "id" and t[j].start == t[j - 1].end \
+                        and t[j].text in ("s", "ms", "us", "ns", "ps", "fs", "step"):
+                    j += 1                              # #10ns
+            return self.stmt(j, conds)
+        if x.kind == "id" and w == "wait" and i + 1 < hi and t[i + 1].text == "(":
+            return self.stmt(self.close(i + 1) + 1, conds)
+        if x.kind in ("id", "esc") and i + 2 < hi and t[i + 1].text == ":" \
+                and not (x.kind == "id" and w in verilog_keywords()):
+            return self.stmt(i + 2, conds)              # label : statement
+        if x.kind == "sys":
+            self.at[i] = conds
+        return self.simple(i)
+
+
+def verilog_keywords():
+    from vamos.ams import verilog_ports
+    return verilog_ports.KEYWORDS
+
+
+class _DumpCall:
+    """One VCD task call: the task, its pp line, the user's file:line, the module it is in
+    (None if unknown), its arguments as token lists, whether pp had the call (found), and
+    the conditions it runs under (_Conditions)."""
+
+    def __init__(self, task: str, line: int, origin: str, module: Optional[str], args: list,
+                 found: bool, conds: list):
+        self.task, self.line, self.origin, self.module = task, line, origin, module
+        self.args, self.found, self.conds = args, found, conds
+
+
+def _dump_calls(vhd: str, pp) -> List[_DumpCall]:
+    """Every VCD task call the translation kept a comment for, once each (a module
+    translated twice repeats its comments), in source order."""
+    from vamos.ams import verilog_ports
+    seen = set()
+    out: List[_DumpCall] = []
+    if pp is None or not _DUMP_CALL.search(vhd):
+        return out
+    toks = pp.toks()
+    walked: dict = {}                       # module definition start -> _Conditions
+    for m in _DUMP_CALL.finditer(vhd):
+        task, f, ln = m.group(1), m.group(2), int(m.group(3))
+        if task not in _DUMP_TASKS or os.path.basename(f) not in _PP_FILES or (task, ln) in seen:
+            continue
+        seen.add((task, ln))
+        args, at = [], -1
+        for i, t in enumerate(toks):
+            if t.kind == "sys" and t.text == task and pp.line_of(t.start) == ln:
+                at = i
+                break
+        if at >= 0 and at + 1 < len(toks) and toks[at + 1].text == "(":
+            close = verilog_ports._match(toks, at + 1)
+            args = [toks[a:b] for a, b in verilog_ports._split(toks, at + 2, close)]
+            if len(args) == 1 and not args[0]:
+                args = []                                   # $dumpvars()
+        mod = pp.module_at(toks[at].start) if at >= 0 else None
+        conds: list = []
+        if mod is not None:
+            if mod.start not in walked:
+                walked[mod.start] = _Conditions(toks, mod.tok_hdr + 1, mod.tok_end)
+            conds = walked[mod.start].at.get(at, [])
+        out.append(_DumpCall(task, ln, pp.origin(ln), mod.name if mod is not None else None,
+                             args, at >= 0, conds))
+    out.sort(key=lambda c: c.line)
+    return out
+
+
+def _instance_paths(pp, tops: Sequence[str]) -> dict:
+    """module -> the Verilog hierarchical names of its instances under the tops, from the
+    structural scan.  An instance in an instance array has no plain name, so a module
+    instantiated only so maps to None; one nothing instantiates is not in the map.  (A name
+    can still be wrong for an instance in a generate block, which the translation flattens
+    into its module: nvc then warns that the dump scope names nothing.)"""
+    from vamos.ams import verilog_ports
+    children: dict = {}
+    arrayed = set()
+    for i in verilog_ports.instantiations(pp):
+        if i.array is None:
+            children.setdefault(i.scope, []).append((i.name, i.module))
+        else:
+            arrayed.add((i.scope, i.module))
+    out: dict = {}
+
+    def walk(mod: str, path: str, depth: int) -> None:
+        if out.get(mod) is None:
+            out[mod] = []
+        out[mod].append(path)
+        if depth < 64:
+            for name, child in children.get(mod, []):
+                if child in pp.modules:
+                    walk(child, path + "." + name, depth + 1)
+            for scope, child in arrayed:
+                if scope == mod and child not in out:
+                    out[child] = None
+    for t in tops:
+        walk(t, t, 0)
+    return out
+
+
+def _when(conds) -> str:
+    """The plusarg tests of a dump record as words: " when ./simv gets +x and not +y"."""
+    if not conds:
+        return ""
+    return " when ./simv gets " + " and ".join(("+%s" if present else "no +%s") % name
+                                              for name, present in conds)
+
+
+def dump_request(vhd: str, pp, tops: Sequence[str], wrapper: Optional[str],
+                 every: bool = False) -> Tuple[Optional[dict], list]:
+    """The design's VCD tasks (their translator comments in vhd, their arguments and
+    conditions in pp) as the dump record for ./simv (job.dump; None when no $dumpvars
+    counts) and the notes that say what vamos does with each.  tops are the top-level
+    modules; wrapper, the entity over several of them, whose instances top1, top2, ... are
+    the tops in nvc's path names.  every: +vcs+dumpvars, a $dumpvars with no arguments."""
+    from vamos.notes import note
+    notes = []
+    files: List[dict] = []
+    calls: List[dict] = []
+    paths = None
+
+    def nvc_path(name: str) -> str:
+        """A Verilog hierarchical name as nvc names it (tops under the wrapper's topN)."""
+        head, _, rest = name.partition(".")
+        if wrapper is not None and head in tops:
+            return "%s.top%d%s" % (wrapper, list(tops).index(head) + 1, "." + rest if rest else "")
+        return name
+
+    def tests(c: _DumpCall) -> Tuple[list, dict]:
+        """The call's plusarg tests ([name, present]) and $value$plusargs variables; a note
+        for each condition ./simv cannot evaluate (the call then counts as made)."""
+        out, vars_, others = [], {}, []
+        for k in c.conds:
+            if k[0] == "plusarg":
+                out.append([k[1], k[2]])
+                if k[3]:
+                    vars_[k[3]] = k[1]
+            else:
+                others.append(k[1])
+        if others:                             # the innermost one, which says the most
+            notes.append(note(c.origin, "%s: the call is inside %s%s, which vamos cannot "
+                              "evaluate before the run: ./simv acts as if it runs"
+                              % (c.task, others[-1], " (and %d more condition%s)"
+                                 % (len(others) - 1, "s" if len(others) > 2 else "")
+                                 if len(others) > 1 else "")))
+        return out, vars_
+
+    if every:
+        calls.append({"scopes": [], "origin": "+vcs+dumpvars", "if": []})
+    for c in _dump_calls(vhd, pp):
+        if not c.found:
+            notes.append(note(c.origin, "%s: vamos could not read the call's arguments, so it is "
+                              "taken as one with none" % c.task))
+        if c.task not in ("$dumpfile", "$dumpvars"):
+            notes.append(note(c.origin, "%s %s" % (c.task, _DUMP_TASKS[c.task])))
+            continue
+        if c.module is not None and c.module not in tops:
+            if paths is None:
+                paths = _instance_paths(pp, tops)
+            if c.module not in paths:
+                continue                       # in a module nothing instantiates: never runs
+        cond, vars_ = tests(c)
+        if c.task == "$dumpfile":
+            a = c.args
+            if not a:
+                files.append({"name": DEFAULT_DUMPFILE, "origin": c.origin, "if": cond})
+            elif len(a) == 1 and len(a[0]) == 1 and a[0][0].kind == "str":
+                files.append({"name": _unquote(a[0][0].text), "origin": c.origin, "if": cond})
+            elif len(a) == 1 and len(a[0]) == 1 and a[0][0].kind in ("id", "esc") \
+                    and a[0][0].name in vars_:
+                # if ($value$plusargs("vcd=%s", f)) $dumpfile(f): the plusarg's value
+                files.append({"plusarg": vars_[a[0][0].name], "origin": c.origin, "if": cond})
+            else:
+                notes.append(note(c.origin, "$dumpfile: the file name is not a string literal, "
+                                  "which vamos cannot evaluate; the call is ignored"))
+            continue
+        levels, scopes, whole = 0, [], False
+        if c.args:
+            lv = c.args[0]
+            m = re.match(r"^(?:\d*\s*'[dD]\s*)?(\d+)$", lv[0].text) \
+                if len(lv) == 1 and lv[0].kind == "num" else None
+            if m:
+                levels = int(m.group(1))
+            else:
+                notes.append(note(c.origin, "$dumpvars: the level count is not a number vamos "
+                                  "can read; every level is dumped"))
+        names = []
+        for a in c.args[1:]:
+            if a and a[0].kind in ("id", "esc") and len(a) % 2 == 1 and all(
+                    t.kind in ("id", "esc") if k % 2 == 0 else t.text == "."
+                    for k, t in enumerate(a)):
+                names.append(".".join(t.name for t in a[::2]))
+            else:
+                notes.append(note(c.origin, "$dumpvars: an argument that is not a module "
+                                  "instance or a variable name is ignored"))
+        if not names:
+            if levels == 0:
+                whole = True                   # $dumpvars: every variable of the design
+            else:
+                scopes += [(levels, t) for t in tops]
+        for n in names:
+            if n.split(".")[0] in tops or c.module is None:
+                scopes.append((levels, n))
+                continue
+            if paths is None:
+                paths = _instance_paths(pp, tops)
+            here = paths.get(c.module)
+            if here is None:
+                notes.append(note(c.origin, "$dumpvars: %s is relative to %s, whose instances "
+                                  "are in an instance array, which vamos cannot name; every "
+                                  "level of the design is dumped" % (n, c.module)))
+                whole = True
+                continue
+            for p in here:                     # a name in a module: in each of its instances
+                scopes.append((levels, p + "." + n))
+        calls.append({"scopes": [] if whole else [[n, nvc_path(p)] for n, p in scopes],
+                      "origin": c.origin, "if": cond, "_shown": [] if whole else scopes})
+    if not calls:
+        if files:
+            notes.append(note(files[0]["origin"], "$dumpfile without $dumpvars: no waves are "
+                              "written (dumping starts with $dumpvars)"))
+        return None, notes
+    def fname(f: dict) -> str:
+        return f.get("name") or "the value of +%s" % f["plusarg"]
+
+    def counts(f: dict, guard: list) -> bool:
+        """f's tests are among guard's: f counts whenever a call under guard does."""
+        return {tuple(x) for x in f["if"]} <= {tuple(x) for x in guard}
+
+    same = all(c["if"] == calls[0]["if"] for c in calls)
+    shown: List[str] = []
+    mixed = len(calls) > 1 and any(c["origin"] == "+vcs+dumpvars" for c in calls)
+    for c in calls:
+        sc = c.pop("_shown", [])
+        what = "the whole design" if not c["scopes"] else ", ".join(
+            "%s (%s)" % (p, "every level" if n == 0 else "%d level%s" % (n, "s" if n > 1 else ""))
+            for n, p in sc)
+        if mixed and c["origin"] == "+vcs+dumpvars":
+            # the note is placed at the design's $dumpvars: say which part is the option's
+            what += " (+vcs+dumpvars)"
+        what += "" if same else _when(c["if"])
+        if what not in shown:
+            shown.append(what)
+    guard = calls[0]["if"] if same else []
+    named = next((f for f in files if counts(f, guard)), None)
+    if named is not None:
+        to = fname(named)
+    elif files:
+        to = "the $dumpfile name ./simv's plusargs select, else %s" % DEFAULT_DUMPFILE
+    else:
+        to = "%s (./simv +vcs+dumpfile+<file> names another)" % DEFAULT_DUMPFILE
+    later = [f for f in files if counts(f, guard) and f is not named and fname(f) != to]
+    if named is not None and later:
+        notes.append(note(later[0]["origin"], "$dumpfile: the waves go to %s, the first "
+                          "$dumpfile's file" % to))
+    first = next((c["origin"] for c in calls if c["origin"] != "+vcs+dumpvars"), "")
+    notes.append(note(first, "%s: ./simv writes a VCD of %s to %s%s, from time 0 for the whole "
+                      "run" % ("$dumpvars" if first else "+vcs+dumpvars", "; ".join(shown), to,
+                               _when(guard))))
+    return {"calls": calls, "files": files}, notes
+
+
+def _unquote(s: str) -> str:
+    """A Verilog string literal's text (simple escapes)."""
+    body = s[1:-1] if len(s) >= 2 and s[0] == s[-1] == '"' else s
+    return re.sub(r'\\(["\\])', r"\1", body)
 
 
 # -- the personality ---------------------------------------------------------------------------
@@ -718,6 +1283,8 @@ def main(args: List[str], opts: dict, personality: str = "vcs") -> int:
         if ams:
             # docs/VAMOS_AMS_DESIGN.md §1: control file, netlist, shells,
             # translation, cut, deck, elaboration; fills job.ams.
+            # (the design's $dumpfile/$dumpvars and +vcs+dumpvars: job.dump, set by
+            # flow.compile with the plain compile's dump_request)
             top, c1 = flow.compile(job, be, con, opts)
             if not job.tops:
                 job.tops = [top]

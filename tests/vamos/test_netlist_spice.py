@@ -965,7 +965,8 @@ class TestControls(_Base):
 
     def test_maximum_step_from_delmax(self):
         """.option delmax is the maximum step as given (HSPICE then computes none: no TSTOP/50,
-        no RMAX); it must be a positive number; without a .tran it is not applied (warning)."""
+        no RMAX); it must be a positive number; without a .tran it is the maximum step of the
+        analysis vamos synthesises (a note; it was ignored with a warning before R6N-03)."""
         self.assertEqual(self.maxstep(".option delmax=0.1n")[0], P("0.1n"))
         self.assertEqual(self.maxstep(".option delmax=50n")[0], P("50n"))
         v, nl = self.maxstep(".option delmax=0.1n rmax=3")
@@ -977,8 +978,10 @@ class TestControls(_Base):
         self.fails("* t\n.tran 1n 1u\n.option delmax=-1n\n", ".option delmax=-1n must be a positive number")
         nl = self.parse("* t\nr1 a 0 1k\n.option delmax=1n rmax=3\n")
         self.assertEqual(nl.analyses, [])
-        self.assertNote(nl, "t.sp:3: .option delmax=1n ignored: the netlist has no .tran, and the analysis "
-                        "vamos synthesises takes its maximum time step from --vamos-analog-maxstep", "warning")
+        self.assertNote(nl, "t.sp:3: .option delmax=1n: the maximum time step of the analysis vamos "
+                        "synthesises (the netlist has no .tran)")
+        self.assertAlmostEqual(nl.options["delmax"].value, 1e-9)
+        self.assertFalse(self.texts(nl, "warning"))
         nl = self.parse("* t\nr1 a 0 1k\n.option rmax=3 dvdt=2\n")
         self.assertNote(nl, ".option rmax ignored: the netlist has no .tran")
         self.assertNote(nl, ".option dvdt: HSPICE's timestep algorithm is not modelled")

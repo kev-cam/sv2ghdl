@@ -29,8 +29,11 @@ raises NoteError on anything else, naming file:line.  What it keeps:
                 only, weak literals only, delayed, its reads), whether it has
                 control flow (Stmt.control, Stmt.straight) and what it reads:
                 sens_reads (sensitivity list), cond_reads (conditions and
-                waits), ctrl_reads (all reads outside assignments), reads
-                (everything); kind 'call' (concurrent procedure call or assert).
+                waits), ctrl_reads (all reads outside assignments), var_reads
+                (the reads of assignments to process variables, e.g. the
+                translator's `v_nba_q := l3d_strengthen(x)` for `q <= x` in a
+                clocked always block), reads (everything); kind 'call'
+                (concurrent procedure call or assert).
                 Constant port actuals and signal initial values are kept
                 element by element too (Assoc.elems, SignalDecl.init_elems).
 
@@ -432,6 +435,7 @@ class Stmt:
     reads: List[Ref] = field(default_factory=list)       # everything read (all of the below)
     ctrl_reads: List[Ref] = field(default_factory=list)  # read outside assignments: conditions, waits, calls
     cond_reads: List[Ref] = field(default_factory=list)  # read by if/elsif/case/loop conditions and waits
+    var_reads: List[Ref] = field(default_factory=list)   # read by assignments to process variables
     sens_reads: List[Ref] = field(default_factory=list)  # named in the sensitivity list
     variables: Set[str] = field(default_factory=set)
     sens: Optional[List[str]] = None  # sensitivity list (['all'] for process (all))
@@ -1414,6 +1418,7 @@ class _Parser:
         st.reads = body.reads
         st.ctrl_reads = body.ctrl_reads
         st.cond_reads = body.cond_reads
+        st.var_reads = body.var_reads
         st.control = body.control
         if st.sens and [x.lower() for x in st.sens] != ["all"]:
             for x in st.sens:
@@ -1691,6 +1696,7 @@ class _Body:
         self.control = 0              # if / case / loop / wait / call statements seen
         self.ctrl_reads: List[Ref] = []  # reads outside assignments
         self.cond_reads: List[Ref] = []  # reads by conditions and waits (control dependences)
+        self.var_reads: List[Ref] = []   # reads by assignments to process variables
 
     def statements(self, stop: Tuple[str, ...]) -> int:
         """Read statements until one of the `stop` words; return how many."""
@@ -1813,6 +1819,7 @@ class _Body:
         asg = _assign(p, toks[:op], toks[op], toks[op + 1:], self.arch, self.local)
         self.reads.extend(asg.reads)
         if asg.target.lname in self.local or not _is_object(asg.target.lname, self.arch):
+            self.var_reads.extend(asg.reads)
             return                    # a variable assignment
         self.assigns.append(asg)
 

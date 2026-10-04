@@ -3,7 +3,7 @@
 Plain vcs (nvc + iverilog):
   * $sqrt, $ln, $pow, $rtoi on a non-constant argument run: libsv_math.so is loaded next to
     libresolver.so (they stopped the run: "foreign function sv_sqrt not found"), and $random
-    keeps the resolver's generator (vvp's first draw)
+    gives vvp's first draw (sv_math_pkg's plain-VHDL generator)
   * output printed inside a Verilog function has no nvc "   Function CHK [...] at
     design.vhd:N" trace line after it
   * the translator's "connected one way only" warning is a vamos warning at the user's
@@ -83,21 +83,24 @@ class TestPlainRepairE2E(TempDir):
         i = lines.index("in chk a=5")
         self.assertEqual(lines[i:i + 4], ["in chk a=5", "two", "   Function lines", "r=6"])
 
-    TRAN_ON_SELECT = ("`timescale 1ns/1ps\nmodule tb;\n  wire [3:0] bus;\n  wire w;\n  reg en;\n"
-                      "  assign bus = en ? 4'b1010 : 4'bzzzz;\n  tran t1 (bus[2], w);\n"
-                      "  initial begin\n    en = 1;\n    #10 $display(\"%0t bus=%b\", $time, bus);\n"
+    # A tran on a select of a module's input port: still a one-way copy (a tran on a select
+    # of a net of the module joins it both ways since round 6, without a warning)
+    TRAN_ON_SELECT = ("`timescale 1ns/1ps\nmodule tsel(input [3:0] bus, inout w);\n"
+                      "  tran t1 (bus[2], w);\nendmodule\nmodule tb;\n  reg [3:0] b;\n  wire w;\n"
+                      "  tsel u (.bus(b), .w(w));\n"
+                      "  initial begin\n    b = 4'b1010;\n    #10 $display(\"%0t w=%b\", $time, w);\n"
                       "  end\nendmodule\n")
 
     def test_translator_warning_is_a_vamos_warning(self):
         self.write("tb.v", self.TRAN_ON_SELECT)
         c = self.tool("tb.v")
         self.assertEqual(c.returncode, 0, c.stdout)
-        self.assertRegex(c.stdout, r"vamos: warning: tb\.v:7: bus_sig\(2\) is connected one way only: its "
+        self.assertRegex(c.stdout, r"vamos: warning: tb\.v:3: bus_sig\(2\) is connected one way only: its "
                                    r"part-select tran joins a translator temporary")
         self.assertNotIn("iverilog-sv2ghdl: Warning:", c.stdout)
         c = self.tool("tb.v", "--vamos-strict")
         self.assertEqual(c.returncode, 1, c.stdout)
-        self.assertRegex(c.stdout, r"vamos: error: tb\.v:7: bus_sig\(2\) is connected one way only")
+        self.assertRegex(c.stdout, r"vamos: error: tb\.v:3: bus_sig\(2\) is connected one way only")
         self.assertIn("compile failed", c.stdout)
 
     def test_bad_iverilog_override_after_the_banner(self):
@@ -217,8 +220,10 @@ class TestAmsRepairE2E(AmsCase):
         """The translator's one-way-connection warning is a vamos warning in AMS mode too, and
         --vamos-strict makes it an error."""
         engine = self.engines()[0]
-        tb = TB.replace("  leaf l (.y(lv));\n", "  leaf l (.y(lv));\n  wire [3:0] bus;\n  wire w;\n"
-                                                  "  tran t1 (bus[2], w);\n")
+        # (a tran on a select of a module's input port: still one way, round 6)
+        tb = TB.replace("  leaf l (.y(lv));\n", "  leaf l (.y(lv));\n  wire w;\n"
+                                                  "  tsel ts (.bus(lv), .w(w));\n")
+        tb += "module tsel(input [3:0] bus, inout w);\n  tran t1 (bus[2], w);\nendmodule\n"
         d = self.case("xw_%s" % engine, {"tb.sv": tb, "lib.v": LIB, "vcsAD.init": INIT})
         with open(os.path.join(d, "rc.sp"), "w", encoding="utf-8") as fh:
             fh.write(TITLE + RC)

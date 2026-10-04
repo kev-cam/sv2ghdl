@@ -162,6 +162,40 @@ sub finish_run {
                      undef, _now(), $run_id);
 }
 
+# add $text to the run's notes (after what is there, space-separated)
+sub append_run_notes {
+    my ($self, $run_id, $text) = @_;
+    $self->{dbh}->do(
+        "UPDATE run SET notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || ' ' || ? END
+          WHERE run_id=?", undef, $text, $text, $run_id);
+}
+
+# the blocks of a run with a finished block_run (record_results sets finished_at
+# with the results, in one transaction)
+sub finished_blocks {
+    my ($self, $run_id) = @_;
+    return @{ $self->{dbh}->selectcol_arrayref(
+        "SELECT DISTINCT block FROM block_run WHERE run_id=? AND finished_at IS NOT NULL",
+        undef, $run_id) };
+}
+
+# delete the unfinished block_runs (and any results) of the named blocks of a run
+sub delete_unfinished_block_runs {
+    my ($self, $run_id, @blocks) = @_;
+    my $dbh = $self->{dbh};
+    $dbh->begin_work;
+    for my $b (@blocks) {
+        my $ids = $dbh->selectcol_arrayref(
+            "SELECT block_run_id FROM block_run WHERE run_id=? AND block=? AND finished_at IS NULL",
+            undef, $run_id, $b);
+        for my $id (@$ids) {
+            $dbh->do("DELETE FROM result WHERE block_run_id=?", undef, $id);
+            $dbh->do("DELETE FROM block_run WHERE block_run_id=?", undef, $id);
+        }
+    }
+    $dbh->commit;
+}
+
 sub record_repo {
     my ($self, $run_id, $repo, $sha, $version) = @_;
     $self->{dbh}->do(

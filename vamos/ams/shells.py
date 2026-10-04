@@ -676,6 +676,25 @@ class InstRef:
     params: Optional[str] = None  # "#(...)" text
 
 
+Chain = Tuple[Tuple[str, str], ...]
+
+
+class Direction(str):
+    """A ShellResult.directions entry: "auto-><mode> (<why>)", the direction of an auto
+    port and the reason of the first instance that decided it (a str, as it always was),
+    plus by_chain: the step-2b reason of each elaborated instance that has one of its
+    own, keyed by its static instance chain ((enclosing module, instance name), ...) from
+    the top's instance down to the cell's.  The cut shows a node's own reason
+    (cut._probe_reason); one cell port's instances can be made inputs by different
+    wrapper instances on different variables."""
+    by_chain: Dict[Chain, str]
+
+    def __new__(cls, text: str, by_chain: Optional[Dict[Chain, str]] = None) -> "Direction":
+        d = str.__new__(cls, text)
+        d.by_chain = dict(by_chain or {})
+        return d
+
+
 @dataclass
 class ShellResult:
     path: str                                                 # ams/pp.v
@@ -686,7 +705,8 @@ class ShellResult:
     headers: Dict[str, Header] = field(default_factory=dict)  # multi-view cells
     shell_lines: Dict[str, Tuple[int, int]] = field(default_factory=dict)   # cell -> first/last pp.v line
     directions: Dict[str, Dict[str, str]] = field(default_factory=dict)
-    # cell -> auto port -> "auto->input|output|inout (<why>)", for the IE report
+    # cell -> auto port -> "auto->input|output|inout (<why>)", for the IE report; an entry
+    # that step 2b made an input is a Direction, with each instance's own reason
     instances: Dict[str, List[InstRef]] = field(default_factory=dict)
     removed: Dict[str, List[str]] = field(default_factory=dict)
     # SPICE-only cell -> SPICE ports port_connect'ed away from its shell (with or without -inst)
@@ -1063,6 +1083,92 @@ class _InputPorts:
         self._why[key] = why
         return why
 
+    def uncoerced_via(self, chain: Sequence[Inst], mod: str, port: str) -> Optional[str]:
+        """uncoerced() for one elaborated instance of `mod`: `chain` holds the static
+        instances from the top's down to that instance of `mod` (empty for the top), and
+        the reason names that instance and its own actual, not the first instance of
+        `mod` that keeps the port an input; None when this instance coerces it."""
+        ports = self.ports(mod)
+        if ports is None or dict(ports).get(port) != "input":
+            return None
+        here = "input port %s.%s" % (mod, port)
+        if mod == self.top:
+            return "%s of the top module" % here
+        if not chain:
+            return None
+        y = chain[-1]
+        if y.array:
+            return "%s of the instance array %s (iverilog coerces no port of an instance array)" \
+                   % (here, self.desc(y))
+        a = y.actual(port, [n for n, _ in ports].index(port))
+        if not a:
+            return "%s, which %s leaves unconnected" % (here, self.desc(y))
+        k = self.kind(y.scope, a)
+        if k:
+            return "%s, which %s connects to %s" % (here, self.desc(y), k)
+        ref = ident_ref(a)
+        up = self.uncoerced_via(chain[:-1], y.scope, ref[0]) if ref is not None and not ref[1] \
+            and y.scope else None
+        return "%s, which %s connects to %s" % (here, self.desc(y), up) if up else None
+
+
+def _scan(pp: PP, res: ShellResult, top: str) -> Tuple[Dict[str, List[Inst]], Dict[str, List[Inst]],
+                                                       "_InputPorts"]:
+    """(instances by enclosing module, by instantiated module, the scan) of the modules
+    instantiated under the top (step 2b's structural scan)."""
+    masked = [(d.start, d.end) for n in res.multi_view for d in pp.modules.get(n, [])]
+    insts = [x for x in instantiations(pp) if not any(a <= x.start < b for a, b in masked)]
+    inside: Dict[str, List[Inst]] = {}
+    for x in insts:
+        inside.setdefault(x.scope, []).append(x)
+    reach, todo = {top}, [top]                       # modules instantiated under the top, statically
+    while todo:
+        for x in inside.get(todo.pop(), []):
+            if x.module not in reach:
+                reach.add(x.module)
+                todo.append(x.module)
+    by_mod: Dict[str, List[Inst]] = {}
+    for x in insts:
+        if x.scope in reach:
+            by_mod.setdefault(x.module, []).append(x)
+    return inside, by_mod, _InputPorts(pp, top, by_mod)
+
+
+def wrapper_input_chains(pp: PP, res: ShellResult, top: str,
+                         live: Optional[Dict[str, List[int]]] = None
+                         ) -> Dict[Tuple[str, str], Dict[Chain, str]]:
+    """wrapper_inputs() per elaborated instance: (cell, port) -> {static instance chain
+    ((enclosing module, instance name), ... from the top's instance down to the cell's):
+    the reason}, for the instances whose own chain keeps the port an input.  A static
+    instance in a module instantiated twice has two chains, each with its own wrapper
+    instance and actual in its reason (wrapper_inputs names the first one for both)."""
+    out: Dict[Tuple[str, str], Dict[Chain, str]] = {}
+    autos = {n: [p for p in res.cells[n].ports if p.declared == AUTO and p.kind != REAL] for n in res.spice_only}
+    if not any(autos.values()):
+        return out
+    inside, by_mod, scan = _scan(pp, res, top)
+    cells = set(res.spice_only)
+
+    def walk(mod: str, chain: List[Inst], seen: Set[str]) -> None:
+        for x in inside.get(mod, []):
+            if x.module in cells:
+                if not autos.get(x.module) or (live is not None and x.line not in live.get(x.module, [])):
+                    continue
+                key = tuple((y.scope, y.name) for y in chain + [x])
+                for p in autos[x.module]:
+                    a = x.actual(p.verilog, p.index)
+                    ref = ident_ref(a)
+                    why = scan.uncoerced_via(chain, x.scope, ref[0]) if ref else None
+                    if why:
+                        via = "" if not ref[1] else "%s, a select of " % a
+                        out.setdefault((x.module, p.verilog), {})[key] = \
+                            "%s, connected to %s%s" % (scan.desc(x), via, why)
+            elif x.module in by_mod and x.module not in seen:
+                walk(x.module, chain + [x], seen | {x.module})
+
+    walk(top, [], {top})
+    return out
+
 
 def wrapper_inputs(pp: PP, res: ShellResult, top: str,
                    live: Optional[Dict[str, List[int]]] = None) -> Dict[Tuple[str, str], List[str]]:
@@ -1090,22 +1196,7 @@ def wrapper_inputs(pp: PP, res: ShellResult, top: str,
     autos = {n: [p for p in res.cells[n].ports if p.declared == AUTO and p.kind != REAL] for n in res.spice_only}
     if not any(autos.values()):
         return out
-    masked = [(d.start, d.end) for n in res.multi_view for d in pp.modules.get(n, [])]
-    insts = [x for x in instantiations(pp) if not any(a <= x.start < b for a, b in masked)]
-    inside: Dict[str, List[Inst]] = {}
-    for x in insts:
-        inside.setdefault(x.scope, []).append(x)
-    reach, todo = {top}, [top]                       # modules instantiated under the top, statically
-    while todo:
-        for x in inside.get(todo.pop(), []):
-            if x.module not in reach:
-                reach.add(x.module)
-                todo.append(x.module)
-    by_mod: Dict[str, List[Inst]] = {}
-    for x in insts:
-        if x.scope in reach:
-            by_mod.setdefault(x.module, []).append(x)
-    scan = _InputPorts(pp, top, by_mod)
+    _inside, by_mod, scan = _scan(pp, res, top)
     for name in res.spice_only:
         for x in (by_mod.get(name, []) if autos[name] else []):
             if not x.scope or (live is not None and x.line not in live.get(name, [])):
@@ -1229,9 +1320,12 @@ def _direction_probe(pp: PP, top: str, res: ShellResult,
             need.setdefault((h.cell, h.port), {}).setdefault(mode, []).append(
                 "%s, %s" % (_describe(pp, h.cell, h.line), why))
     # step 2b: auto ports on input ports that iverilog does not coerce to inout
-    for key, whys in wrapper_inputs(pp, res, top, live).items():
+    step2b = wrapper_inputs(pp, res, top, live)
+    for key, whys in step2b.items():
         if key in auto:
             need.setdefault(key, {}).setdefault(INPUT, []).extend(whys)
+    # each elaborated instance's own step-2b reason, for the IE report (Direction)
+    chains = wrapper_input_chains(pp, res, top, live) if step2b else {}
     if not need:
         notes += other_notes(other)           # probe 1 had the final directions
         default_dirs()
@@ -1246,7 +1340,9 @@ def _direction_probe(pp: PP, top: str, res: ShellResult,
             continue
         mode, whys = list(modes.items())[0]
         auto[(cell, port)].shell_dir = mode
-        res.directions.setdefault(cell, {})[port] = "auto->%s (%s)" % (mode, whys[0])
+        text = "auto->%s (%s)" % (mode, whys[0])
+        own = chains.get((cell, port)) if mode == INPUT else None
+        res.directions.setdefault(cell, {})[port] = Direction(text, own) if own else text
     default_dirs()
     if has_errors(notes):
         return notes

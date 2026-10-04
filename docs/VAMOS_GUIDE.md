@@ -263,8 +263,9 @@ What a compile leaves behind (the names follow `-o`):
 | `simv` | the run script |
 | `simv.daidir/vamos.job.json` | what vamos understood from the command line, including every option it did not act on (`"unmapped"`); with several top-level modules, `"tops"` starts with `vamos_tops`, followed by the modules |
 | `simv.daidir/vamos.tools.json` | the tools, versions and paths used |
+| `simv.daidir/vamos.srclines.json` | the preprocessor's line map, through which the run's messages name your file and line |
 | `simv.daidir/pp/pp.v` | the preprocessed sources, with the `-v` rule applied: what gets translated |
-| `simv.daidir/nvc/` | the translation: `design.vhd`, `iverilog.log` (translator messages), the nvc `work` library; with several top-level modules, `vamos_tops.vhd`, the entity that instantiates them |
+| `simv.daidir/nvc/` | the translation: `design.vhd`, `iverilog.log` (translator messages), the nvc `work` library; with several top-level modules, `vamos_tops.vhd`, the entity that instantiates them; `_mods_design.vhd` and `_mods_analysis.log` when nvc could not analyse the module-by-module translation (§9) |
 
 Behaviour to know:
 
@@ -278,28 +279,100 @@ Behaviour to know:
 - **`./simv +vcs+finish+<time>`** stops the run at that time. The forms are N units of the design's time
   precision (with 1ns/1ps, `+vcs+finish+22000` stops at 22 ns), a time with a unit (`+vcs+finish+22ns`,
   `+vcs+finish+9001us`), VCS's `<low>+<high>` form for times of 2^32 units and more, and `0`. N needs a
-  recorded precision (a `` `timescale `` or `-timescale`). The footer shows the stop time: the quick start
-  prints nothing before 56 ns, so `./simv +vcs+finish+22000` prints only the footer, with `Time: 22ns`.
+  recorded precision (a `` `timescale `` or `-timescale`). The footer's `Time:` is the time the run ended at:
+  the `$finish`, `$stop` or fatal time; the stop time when events remained (the quick start prints nothing
+  before 56 ns, so `./simv +vcs+finish+22000` prints only the footer, with `Time: 22ns`); or the last event
+  when the run ran out of events first (a design whose last event is at 10 ns, run with
+  `./simv +vcs+finish+100000` or with no bound, shows `Time: 10ns`).
 - **Top-level modules:** as in VCS: the `-top` modules (`-top a -top b`, or `-top a+b+`), else every module
   nothing instantiates. `Top Level Modules:` lists them. Several tops run together under a generated entity,
-  `vamos_tops`; `%m` and hierarchical names print as in VCS, and an undriven top-level input reads z. A
-  `-top` that names no module is an error: `vamos: error: -top alhpa: no module alhpa in the Verilog sources
-  (did you mean alpha?); the top-level modules are: alpha, beta`.
+  `vamos_tops`; `%m` and hierarchical names print as in VCS, and an undriven top-level input reads z (with a
+  single top it reads 0, with a warning, §9). A `-top` that names no module is an error: `vamos: error: -top
+  alhpa: no module alhpa in the Verilog sources (did you mean alpha?); the top-level modules are: alpha,
+  beta`.
 - **Preprocessing:** the sources are preprocessed first (`iverilog -E`); a preprocessing error is a compile
   error.
 - **Output:** `$display` output comes out as written. `%t` without `$timeformat` prints in the finest
-  precision of the whole design, as VCS and vvp do. nvc's `FINISH called` takes the place of VCS's `$finish`
-  lines, and the run footer is branded VAMOS (§8).
-- **Not translated yet:** file I/O, so a testbench can neither read nor write files (`$fopen` returns 0;
-  `$fwrite`, `$fdisplay`, `$fstrobe`, `$fmonitor`, `$fflush`, `$fclose`, `$readmemh`, `$readmemb`,
-  `$writememh` and `$writememb` are dropped); and waves (`$dumpfile`, `$dumpvars` and the other `$dump*`
-  tasks are dropped). A digital compile warns about each at your file:line (`vamos: warning: tb.v:5: system
-  task $readmemh is not translated: the simulation drops it`, `... system function $fopen is not translated:
-  every call returns 0 in the simulation`); `--vamos-strict` makes these errors, and an AMS compile refuses
-  them. `$random` without a seed draws the same numbers as vvp (the IEEE 1364 generator, one seed for the
-  whole design). `$urandom` and `$urandom_range` work and share that generator, so a testbench that uses
-  only `$urandom` draws vvp's numbers. `$random(seed)` is repeatable but is not vvp's sequence.
-  `$urandom(seed)` is not translated: it returns 0, with the warning.
+  precision of the whole design, as VCS and vvp do. Bare arguments print as vvp prints them: `$time` and
+  `$simtime` right-aligned in 20 columns, `$stime` in 10, `$realtime` with the scope's precision digits, a
+  real with 6 significant digits (`2.50000`). Messages with a location (`$info`, `$warning`, `$error`,
+  `$fatal`, and the file tasks' warnings below) name your file and line: the compile writes the
+  preprocessor's line map, `simv.daidir/vamos.srclines.json`, and the run rewrites each location in vamos's
+  translated copy through it. nvc's `FINISH called` takes the place of VCS's `$finish` lines (`$finish(0)`
+  and `$stop(0)` print none, as under VCS and vvp), and the run footer is branded VAMOS (§8).
+- **Scheduling:** as in Verilog, a process runs from one wait to the next without yielding: a blocking
+  assignment updates the variable at once, and other processes, VHDL modules and nets computed from it see
+  the new value when the process waits. An `always @(...)` waits for its first event, and the assignments an
+  `initial` block makes at time 0 are events to it. A declaration initializer (`reg a = 0;`) is no event, as
+  in SystemVerilog (IEEE 1800 6.8): vamos translates every source under SystemVerilog's rules, also a `.v`
+  file, where IEEE 1364 (and vvp's default) make it an assignment at time 0 that an `always @(a)` sees.
+- **File I/O** runs as under vvp: `$fopen` (and `$fopenr`/`$fopenw`/`$fopena`), `$fdisplay`, `$fwrite`,
+  `$fstrobe`, `$fmonitor` and their `b`/`h`/`o` forms, `$fflush`, `$fclose`, `$readmemh`, `$readmemb`,
+  `$writememh` and `$writememb`. They use vvp's descriptors (`$fopen(name)` returns an MCD, bit 0 is stdout;
+  `$fopen(name, mode)` an FD, 32'h8000_0003 first), write the same bytes and print vvp's warnings and errors,
+  which name your file and line (`WARNING: tb.v:10: invalid file descriptor (0x80000003) given to
+  $fdisplay().`, `... $readmemh(m.hex): Not enough words in the file for the requested range [0:3].`). A
+  relative file name is found in the directory you start `./simv` from, as under VCS, in an AMS run too.
+  `$fstrobe` writes at the end of the time step; every `$fmonitor` call starts its own monitor, which writes
+  when a value it shows changes (for a memory word, that word only) until an `$fclose` of its descriptor
+  (`$monitoroff` does not stop it). Differences from vvp: text to FD 2 (stderr) comes out with simv's other
+  output; files are text, so `b` changes nothing, `w+`/`a+` write as `w`/`a`, and `r+` is refused with a
+  warning (`$fopen` returns 0); lines that several `$fstrobe`/`$fmonitor` statements write in one time step
+  come statement by statement, where vvp keeps call order (Verilog leaves that order open); a `$write` line
+  still pending when the run runs out of events without `$finish` is lost. The reading tasks (`$fgets`,
+  `$fgetc`, `$ungetc`, `$fscanf`, `$sscanf`, `$fread`, `$fseek`, `$ftell`, `$rewind`, `$feof`, `$ferror`) are
+  not translated (a compile error, below); `$readmempath`, a `$readmem*`/`$writemem*` of a memory in another
+  module or of a real or multi-dimensional memory, and `$fstrobe`/`$fmonitor` inside a function are dropped
+  with a warning.
+- **Waves:** `$dumpfile` and `$dumpvars` write a VCD. Add the two lines `$dumpfile("counter.vcd");` and
+  `$dumpvars(0, tb);` at the start of the quick start's `initial` block and compile again: the compile says
+  what the run will write, and `./simv` writes it.
+
+  ```
+  $ vcs -sverilog tb.sv rtl/counter.v -R
+  ...
+  vamos: note: tb.sv:11: $dumpvars: ./simv writes a VCD of tb (every level) to counter.vcd, from time 0 for the whole run
+  ...
+  $ grep -e scope -e '$var' counter.vcd
+  $scope module tb $end
+  $var wire 1 ! clk $end
+  $var wire 32 " cycles[31:0] $end
+  $var wire 4 # q[3:0] $end
+  $var wire 1 $ rst $end
+  $scope module dut $end
+  ...
+  ```
+
+  Values are four-state (0, 1, x, z) and modules are module scopes; the translator's own nets are left out.
+  `$dumpvars(levels, scope...)` is honoured (instance or variable names; a name relative to a module applies
+  to each of its instances). The VCD covers the whole run from time 0: `$dumpoff`, `$dumpon`, `$dumpall`,
+  `$dumpflush` and `$dumplimit` get a note saying so, and `$dumpports` and its family are not translated (a
+  warning). A call under `if ($test$plusargs("x"))` (or its `else`, or `!`), or `if ($value$plusargs("x=%s",
+  f)) $dumpfile(f)`, counts only when ./simv's plusargs pass the test; under any other condition (an `if`, a
+  `case`, a loop, a task) the call gets a note and counts as made. The file is the design's `$dumpfile`
+  name, else `./simv +vcs+dumpfile+<file>` or `-vcd <file>`, else `verilog.dump` (VCS's default), relative to
+  where ./simv runs; one that cannot be written is a warning (`vamos: warning: the run writes no waves:
+  <path> cannot be written (the directory is not writable)`), and the run goes on without waves.
+  `+vcs+dumparrays` adds memories (without it a note says they are left out, as under VCS). The compile-time
+  `vcs +vcs+dumpvars` dumps the whole design, in `vcs-ams` too; beside a `$dumpvars` in the source, the note
+  labels the option's part (`... writes a VCD of the whole design (+vcs+dumpvars); tb.dut (1 level) when
+  ./simv gets +waves to ...`). `$dumpfile`/`$dumpvars` in the source work in `vcs-ams` as in a plain compile;
+  an analog output that no digital code reads keeps its A2D when the waves record it, so the VCD shows its
+  digital value, not z. Names follow the translation: a VHDL reserved word gets `_sig` (`bus` is
+  `bus_sig`), an `output reg q` also shows its `q_reg`, an `integer` is a 32-bit vector, generate blocks are
+  flattened into their module, and several tops are under `vamos_tops.top1`, `top2`, .... The VCD's time
+  unit is 1 fs.
+- **Random numbers:** `$random`, `$random(seed)`, `$urandom`, `$urandom(seed)` and `$urandom_range` draw the
+  same numbers as vvp. An unseeded `$random` uses one seed for the whole design, and `$urandom` and
+  `$urandom_range` a second one, as vvp keeps them; a seeded call draws from its seed variable and advances
+  it. Two shapes are approximate, each with a warning at your file:line (`vamos: warning: <file>:<line>:
+  $random(seed) is not translated faithfully: ...`; an error with `--vamos-strict`): a seeded call in a `?:`
+  branch or an `&&`/`||` operand always draws, and a read of the seed earlier in the same statement sees the
+  advanced seed. Give the call a statement of its own to avoid both: `if (c) a = $random(seed); else a = 0;`
+  for `a = c ? $random(seed) : 0;`.
+- **Not translated:** a task the translation drops gets a warning at your file:line (`vamos: warning:
+  tb.v:5: system task $dumpports is not translated: the simulation drops it`); `--vamos-strict` makes it an
+  error, and an AMS compile refuses it.
 - **A top sv2ghdl cannot translate** stops the compile with exit 1: `vamos: error: sv2ghdl could not
   translate top module 'tb': VHDL conversion error: No translation for system function $sformatf (see
   <daidir>/nvc/iverilog.log)`. For a module that is a top only because nothing instantiates it, the message
@@ -311,7 +384,7 @@ No VCS option is a usage error. Every option gets one of these dispositions:
 
 | disposition | what you see | examples |
 |---|---|---|
-| mapped | nothing; the option takes effect | `-o -R -l -top +incdir+ +define+ -v -sverilog -timescale -override_timescale -f -F -ad` |
+| mapped | nothing; the option takes effect | `-o -R -l -top +incdir+ +define+ -v -sverilog -timescale -override_timescale -f -F -ad +vcs+dumpvars` |
 | ignored | nothing; it has no meaning here | `-full64 -lca -j8 -licqueue +vcs+lic+wait -q +lint=... -debug_region...` |
 | noted | `vamos: note: <option>: <why>` | `-kdb -debug_access+all -gui -verdi -y <dir> +notimingcheck` |
 | unsupported | `vamos: warning: <option> is not supported yet (<why>)` | `-cm -xprop -pvalue+ -P -load -CFLAGS -ntb_opts uvm`, VHDL, C and `.va` sources |
@@ -322,7 +395,7 @@ No VCS option is a usage error. Every option gets one of these dispositions:
 $ vcs -full64 -sverilog -debug_access+all -kdb -lca -cm line+tgl -y libdir +libext+.v -bogus_opt \
       +my_compile_plus tb.sv rtl/counter.v -o opt_simv
 ...
-vamos: note: -debug_access+all: waves/debug database not produced yet (planned: FST via nvc)
+vamos: note: -debug_access+all: no debug database or VPD/FSDB waves are produced; $dumpvars writes a VCD
 vamos: note: -kdb: Verdi KDB is not produced
 vamos: warning: -cm line+tgl is not supported yet (coverage mapping onto nvc --cover is planned)
 vamos: note: -y libdir: library directories are recorded but modules are not yet pulled from them; list the files or use -v
@@ -342,14 +415,15 @@ $ vcs -full64 -sverilog -kdb -cm line -bogus_opt tb.sv rtl/counter.v -o strict_s
 vamos: error: --vamos-strict: 2 unsupported/unknown option(s): -cm line -bogus_opt
 ```
 
-`./simv` works the same way. Every `+plusarg` goes to the simulation. `-l <file>` and `+vcs+finish+<time>`
-are mapped; `./simv -h` lists the runtime options and exits without simulating. `+ntb_random_seed=<n>` is
-passed on as a plusarg and seeds nothing else. `+vcs+lic+wait`, `-licqueue`, `-q` and `-k <file>` are
-ignored. `-ad_runopt=`, `-gui`, `-verdi`, `+fsdbfile+`, `+vpdfile+`, `-assert` and `+notimingcheck` are
-noted, each with its reason. `-ucli`, `-do`, `+vcs+stop+` and `-cm` are unsupported, and any other `-option`
-is unknown. In every compile, `--vamos-strict` also turns every warning (an approximation vamos had to make,
-such as an untranslated system task) into an error. The compile-time `-gui` note says there is no GUI and no
-waves are written yet.
+`./simv` works the same way. Every `+plusarg` goes to the simulation. `-l <file>`, `+vcs+finish+<time>`,
+`+vcs+dumpfile+<file>`, `-vcd <file>` and `+vcs+dumparrays` are mapped (§3); `./simv -h` lists the runtime
+options and exits without simulating. `+ntb_random_seed=<n>` is passed on as a plusarg and seeds nothing
+else. `+vcs+lic+wait`, `-licqueue`, `-q` and `-k <file>` are ignored. `+vcs+dumpon+...`, `+vcs+dumpoff+...`,
+`+vcs+flush+dump`, `-ad_runopt=`, `-gui`, `-verdi`, `+fsdbfile+`, `+vpdfile+`, `-assert` and
+`+notimingcheck` are noted, each with its reason. `-ucli`, `-do`, `+vcs+stop+` and `-cm` are unsupported,
+and any other `-option` is unknown. In every compile, `--vamos-strict` also turns every warning (an
+approximation vamos had to make, such as an untranslated system task) into an error. The compile-time `-gui`
+note says there is no GUI (`$dumpvars writes a VCD for a wave viewer`).
 
 The full tables are `OPTIONS` in `vamos/personalities/vcs.py` and `vamos/personalities/simv.py`.
 
@@ -410,11 +484,10 @@ vamos: AMS: 1 SPICE instance(s), 2 analog node(s), 3 bridge(s); vacask deck ams/
 Top Level Modules:
        tb
 Vamos: ./simv is up to date
-CPU time: 0.290 seconds to compile + 0.820 seconds to elab
+CPU time: 0.320 seconds to compile + 0.920 seconds to elab
 $ ./simv
 vamos 0.1.0 (simv personality) - tools used:
 ...
-                   0 seen=0
                    0 seen=x
                    0 seen=0
                 5356 seen=1
@@ -426,14 +499,14 @@ FINISH called
 ** Note: co-simulation finished: digital stop at 3e-08 s
            V A M O S   S i m u l a t i o n   R e p o r t 
 Time: 30ns
-CPU Time:      2.170 seconds;
+CPU Time:      2.290 seconds;
 ```
 
 `%t` prints `$realtime` in the design's precision, 1 ps here, so `5356` is 5.356 ns (as in VCS and vvp,
 and at any simulation time). `seen` follows each clock edge by about 0.35 ns: the RC (500 Ω, 0.5 pF)
-charges through the D2A's 500.7 Ω series resistance up to the A2D threshold at 0.9 V. The three lines at
-time 0 are a translation artefact: a translated `always @(...)` also runs once at time 0 and shows the
-delta-cycle values.
+charges through the D2A's 500.7 Ω series resistance up to the A2D threshold at 0.9 V. The `seen=x` line at
+time 0 is the co-simulation's start: until the analog side has its operating point, the A2D drives x, and
+`always @(seen)` sees that change too, before `seen` settles to 0.
 
 The same compile, spelled other ways: `vcs -sverilog tb.sv -ad`, `vcs ... -ad=<file>`, `vcs ... +ad`,
 `vcs ... +ad=<file>`, `vamos -vcs-ams ...`. Add `-R` to run straight away.
@@ -464,19 +537,19 @@ your messages.
 
 **Stopping a run.** Ctrl-C (or SIGTERM or SIGHUP) stops the co-simulation the way `$finish` would: the
 engine finishes its output, nvc prints `** Error: co-simulation interrupted at <t> s`, and simv prints
-`vamos: note: co-simulation interrupted (SIGINT) at <t> s; run directory kept (partial waves): <dir>` and
-the footer, publishes nothing, and exits as an interrupted command (status 130 for Ctrl-C). A second Ctrl-C
+`vamos: note: co-simulation interrupted (SIGINT) at <t> s; run directory kept (partial waves): <dir>` and the
+footer, publishes nothing, and exits as an interrupted command (status 130 for Ctrl-C). A second Ctrl-C
 kills nvc at once. Ctrl-Z suspends the whole run. With the example's `#30` made `#2000000` and its `.tran`
 `1p 3m`, a Ctrl-C after 15 s gives:
 
 ```
 $ ./simv
 ...
-** Error: co-simulation interrupted at 1.9665734988e-05 s
-vamos: note: co-simulation interrupted (SIGINT) at 1.9665734988e-05 s; run directory kept (partial waves): /work/ams/vamos_ams.run.eevzn6ii
+** Error: co-simulation interrupted at 1.9811004988e-05 s
+vamos: note: co-simulation interrupted (SIGINT) at 1.9811004988e-05 s; run directory kept (partial waves): /work/ams/vamos_ams.run.6ldgloh4
            V A M O S   S i m u l a t i o n   R e p o r t 
-Time: 19665734988fs
-CPU Time:     16.600 seconds;
+Time: 19811004988fs
+CPU Time:     16.570 seconds;
 $ echo $?
 130
 ```
@@ -647,6 +720,7 @@ $ ./simv
                32046 out=1
                35455 y=1
                40130 y=0
+FINISH called
 ** Note: co-simulation finished: digital stop at 4.2e-08 s
 ...
 ```
@@ -706,7 +780,7 @@ option in a digital compile, `--vamos-keep` in a compile without `-R`, a compile
 | `--vamos-version` | - | prints the version and exits |
 | `--vamos-analog=vacask\|xyce` | AMS compile | the analog engine |
 | `--vamos-analog-stop=<time>` | AMS compile | end time for a netlist with no `.tran` (default 3600 s; above 9000 s it is clamped); beside a `.tran` it has no effect (a warning) |
-| `--vamos-analog-maxstep=<time>` | AMS compile | analog maximum time step; replaces the `.tran`'s (default with no `.tran`: 10 ns); the compile notes the value used |
+| `--vamos-analog-maxstep=<time>` | AMS compile | analog maximum time step; replaces the `.tran`'s (default with no `.tran`: `.option delmax`, else 10 ns); the compile notes the value used |
 | `--vamos-no-deck-check` | AMS compile | skips the compile-time check, in which the engine computes an operating point of the deck |
 | `--vamos-parhier=local\|global` | AMS compile | `local`: a parameter defined both at top level and in a subckt takes the inner value; `global`, the default: such a collision is an error |
 | `--vamos-keep` | AMS `./simv`, or `vcs -R` | keeps the per-run directory |
@@ -740,7 +814,9 @@ The engine variables (`VAMOS_VACASK_HOME`, `VAMOS_VACASK`, `VAMOS_VACASK_MODULE_
 not an executable (a directory for `_HOME`, `_MODULE_PATH` and each `_LIBS` entry) stops the AMS compile.
 
 vamos sets `VAMOS_STACK`, `VAMOS_DEPTH`, `VAMOS_LAUNCHER` and `VAMOS_ARGV0` for its own use. Do not set them
-yourself.
+yourself. For a run's nvc it also sets `NVC_REPORT_END_TIME` (the footer's time), `SV2VHDL_FILE_DIR` (the
+directory `./simv` was started in, where the testbench's relative file names resolve) and, unless you set
+them, `NVC_RESOLVER_DIR` and `NVC_WORK` (the resolver plugin's cache and work library, kept in the daidir).
 
 ## 8. Banners, provenance and licences
 
@@ -812,15 +888,25 @@ Command line and compile:
 | `-top <m>: no module <m> in the Verilog sources (did you mean <n>?); the top-level modules are: ...` | a misspelt `-top`. |
 | `no top-level module: every module is instantiated, or only in a -v library file; give -top <module>` | name the top with `-top`. |
 | `top module <m>: input port <p> (<type>) cannot be left unconnected beside other top-level modules; give -top` | several tops run under one wrapper, which ties each top's inputs to Z or 0; this input type cannot be tied off. Give `-top` to choose the tops. |
-| `sv2ghdl could not translate top module '<m>': <iverilog's reason> (see <daidir>/nvc/iverilog.log)`, exit 1 | The translator cannot handle a construct, for example `No translation for system function $sformatf`, a SystemVerilog class (`VHDL conversion error: unsupported construct (class) at <file>:<line>: new() of SystemVerilog class C has no VHDL translation`) or a fork (`unsupported construct (fork) at <file>:<line>`). A class nobody uses does not stop the module. A module above a failing one fails too. Rewrite the construct, or guard it with `` `ifdef ``. When the module is a top only because nothing instantiates it, the message adds a `-top` hint. In AMS mode the message is `sv2ghdl could not translate module <m> (see <daidir>/nvc/iverilog.log)`. |
-| `... disable <scope> has no VHDL translation: only a block, task or function that encloses the disable statement, in the same process, can be disabled`; `... automatic task <t> is called from more than one process (...)`; `... task <t> calls itself (recursion) ...` (in the `could not translate` reason) | `disable` (and SV `return`) works for the named block, task or function that encloses it; disabling another process's block, `disable fork`, an automatic task called from two processes and a recursive task have no translation. |
-| `warning: <file>:<line>: system task $x is not translated: the simulation drops it`, `warning: <file>:<line>: system function $f is not translated: every call returns 0 in the simulation` | file I/O and waves are not translated yet (§3). design.vhd marks each place (`grep -n Unsupported simv.daidir/nvc/design.vhd`). `--vamos-strict` makes these errors; an AMS compile refuses them. |
+| `sv2ghdl could not translate top module '<m>': <iverilog's reason> (see <daidir>/nvc/iverilog.log)`, exit 1 | The translator cannot handle a construct, for example `No translation for system function $sformatf`, a SystemVerilog class (`VHDL conversion error: unsupported construct (class) at <file>:<line>: new() of SystemVerilog class C has no VHDL translation`) or a fork (`unsupported construct (fork) at <file>:<line>`). A class nobody uses does not stop the module. A module above a failing one fails too. A back-end run that printed an error but exited 0 (`Error: …`, `VHDL conversion error: …` or `<file>:<line>: error: …`) counts as failed: it would have left the statement out. Rewrite the construct, or guard it with `` `ifdef ``. When the module is a top only because nothing instantiates it, the message adds a `-top` hint. In AMS mode the message is `sv2ghdl could not translate module <m> (see <daidir>/nvc/iverilog.log)`, also for a module the design does not use. |
+| `iverilog-sv2ghdl: note: module <m>, which the design does not use, does not translate on its own (nvc: <message>, <file>:<line>); it is left out` (or `... the module-by-module translation of module <m> does not analyse (...); the whole-design translation, which analyses, was used`) | Information: the module-by-module translation analyses every module, including one that only an unused generate branch instantiates; the compile used the whole-design translation, which does not need it. `simv.daidir/nvc/_mods_analysis.log` has nvc's messages. |
+| `... disable <scope> has no VHDL translation: only a block, task or function that encloses the disable statement, in the same process, can be disabled`; `... task <t> calls itself (recursion): tasks are inlined in VHDL, so a recursive task call has no translation`; `... automatic task <t> is entered again before its activation ends: that has no VHDL translation` (in the `could not translate` reason) | `disable` (and SV `return`) works for the named block, task or function that encloses it, and an automatic task called from several processes gives each its own variables; disabling another process's block, `disable fork`, a recursive task and an automatic task entered again before it returns have no translation. |
+| `... $dist_uniform in a branch of ?:, an operand of && or \|\| or a loop condition has no VHDL translation` (also `$value$plusargs`), `... $random with a seed outside a procedural statement has no ...`, `... $random's seed variable is less than 32 bits ...` | Verilog may skip or repeat such a call, the translation would make it every time: give the call a statement of its own (`if (c) a = $dist_uniform(seed, 0, 9); else a = 0;`; in a loop condition, draw into a variable before the loop and again at the end of its body). A seed must be an integer, time or reg variable of 32 bits or more, as vvp also requires. |
+| `... no VHDL translation for a final block: a VHDL process cannot run when the simulation ends (it would run at time 0)` (in the `could not translate` reason) | A `final` block. Move its statements to the end of the test, before `$finish`. A `final` block that holds only `$fclose`/`$fflush` is left out silently: the end of the run does both. |
+| `... no VHDL translation for the void function <f>: write it as a task` (in the same reason) | A SystemVerilog `void` function (it used to crash the translation, an assertion in iverilog's `ivl_signal_data_type`). Write it as a task. |
+| `... no VHDL translation for an intra-assignment event control on a nonblocking assignment (...)` (in the same reason) | `x <= @(posedge c) v` or `x <= repeat (n) @(posedge c) v`. Write the event control as a statement (`@(posedge c) x <= v;`), capturing `v` first if it must be the value before the wait. |
+| `warning: <file>:<line>: $random(seed) is not translated faithfully: ...` | The two approximate shapes of §3 (a seeded call in a `?:` branch or an `&&`/`\|\|` operand; a read of the seed earlier in the statement). Give the call a statement of its own (§3). `--vamos-strict` makes it an error. |
+| `warning: <file>:<line>: specify path delays are not simulated: every module path has zero delay (<n> specify blocks with path delays; VCS applies them unless given +nospecify)`; `... timing checks are not run (<checks>; <n> in the design; VCS runs them unless given +notimingcheck)`; `... $sdf_annotate is not simulated: the SDF file's delays are not applied` | The design's specify blocks and `$sdf_annotate`: vamos simulates without them (specparams keep their values). `+nospecify` says that is intended and silences the first two, `+notimingcheck` the second. `--vamos-strict` makes them errors. |
+| `warning: <file>:<line>: top-level module <m> has input port(s) <p> that nothing drives: they read 0 in this simulation, where VCS leaves them undriven (z)` | One top-level module with input ports, which nvc elaborates alone. Drive the inputs from a testbench, or expect 0 where VCS shows z or x. |
+| `warning: <file>:<line>: system task $x is not translated: the simulation drops it` | a task the translation leaves out: `$dumpports` and its family, `$readmempath`, and the few file-I/O forms §3 lists. design.vhd marks each place (`grep -n Unsupported simv.daidir/nvc/design.vhd`). `--vamos-strict` makes these errors; an AMS compile refuses them. (The `system function $f is not translated: every call returns 0` form is no longer produced: no system function is replaced by a constant.) |
+| `note: <file>:<line>: $dumpvars: ./simv writes a VCD of <scopes> to <file>[ when ./simv gets +<plusarg>], from time 0 for the whole run`; `note: ... $dumpoff is not honoured: the VCD records the whole run` (also `$dumpon`, `$dumpall`, `$dumpflush`, `$dumplimit`); `note: ... the call is inside <condition>, which vamos cannot evaluate before the run: ./simv acts as if it runs` | Information: what the run's VCD will hold (§3, Waves). |
+| `vamos: warning: the run writes no waves: <path> cannot be written (<why>)` (from `./simv`) | The VCD's directory is missing or not writable, or the path is a directory: the run goes on without waves, as under VCS. |
+| `WARNING:`/`ERROR: <file>:<line>: ...` printed by `./simv` from a file task (`invalid file descriptor (0x80000003) given to $fdisplay().`, `$readmemh: Unable to open m.hex for reading.`, `$readmemh(m.hex): Not enough words in the file for the requested range [0:3].`) | vvp's run-time messages: the descriptor, file or range is wrong, and the run goes on. Relative names are looked up in the directory `./simv` runs in. `<file>:<line>` is your source file and line. |
 | `warning: the translation fell back to translating module by module ...` | iverilog-sv2ghdl's last resort, which may use the older translator; read `simv.daidir/nvc/iverilog.log`. |
-| `warning: <file>:<line>: <vec>(<sel>) is connected one way only: ...` (also `warning: <file>:<line>: inout port ... is connected one way only ...`) | a `tran`/`tranif` (or an inout operand on an `in`/`out` port) on a select is joined one way only: what the module drives does not reach the vector. Connect a whole net (`wire w; ... .p(w) ...; assign ...`), or avoid the select. `--vamos-strict` makes it an error. |
+| `warning: <file>:<line>: <vec>(<sel>) is connected one way only: ...` (also `warning: <file>:<line>: inout port ... is connected one way only ...`) | a `tran`/`tranif` on a select of a module port (or an inout operand on an `in`/`out` port) is joined one way only: what the module drives does not reach the vector. A `tran` on a select of a net of the module is joined both ways. Connect a whole net (`wire w; ... .p(w) ...; assign ...`), or avoid the select. `--vamos-strict` makes it an error. |
 | `warning: tri1 net <path>: its pull is not translated (...)` | a `tri1`/`tri0` pull on a net made only of ports (a root port); give it an internal net. `--vamos-strict` makes it an error. |
 | `VHDL conversion error: <file>:<line>: an input port connection of instance <path> is not translated: ...` (also `input port <p> of instance <path>: its connection is not translated`) | the compile stops: this port connection shape (a type cast into an input the module also drives) is not translated. Connect through a wire of the port's own type (`wire [3:0] w = r; m u (.a(w));`). |
 | `warning: unknown option +vcs+finish+<v> ignored (not a time value: ...)` or `+vcs+finish+<v> is not supported yet (the compile recorded no time precision; recompile)` | use one of the §3 forms, and compile with a `` `timescale `` or `-timescale`. |
-| `$error`/`$fatal` messages naming `simv.daidir/nvc/_norm.sv:<line>` | That file is vamos's preprocessed copy of your sources, not your own file (an open item). |
 
 AMS compile:
 
@@ -836,7 +922,7 @@ AMS compile:
 | `<file>:<line>: a2d: vdd_port=v* matches 2 ports of tb.u1 (vdd, vss); name one` / `... vdd_port=../vdd*: a wildcard after ../ is not supported; ...` | A wildcard `vdd_port=`/`vss_port=` is matched against the matched instance's subckt ports, as VCS does (PAMS p194): it must match exactly one (none is [MSV-IE-OPT-TNF]). Name the port, or give the supply net with `vdd=`. |
 | `<file>:<line>: choose: XA cfg <f>: environment variable <V> is not set` | Set the variable, or write the path out. |
 | `--vamos-analog=<x>: the analog engine must be vacask or xyce` | Fix the option or `VAMOS_ANALOG`. |
-| `system task $dumpfile is not translated (it would be dropped from the simulation)`, `system function $fopen is not translated (it would return 0 in the simulation)` | AMS refuses what the translator drops or replaces. Remove the task or guard it with `` `ifdef ``. |
+| `<file>:<line>: system task $dumpports is not translated (it would be dropped from the simulation)` | AMS refuses what the translator drops: `$dumpports` and its family, `$readmempath` and the few file-I/O forms §3 lists. Remove the task or guard it with `` `ifdef ``. `$dumpfile` and `$dumpvars` give waves, as in plain `vcs` (§3). |
 | `sv2ghdl could not translate module <m> (see <daidir>/nvc/iverilog.log)` | as for the digital message above. |
 | `cell C: subckt S cannot be simulated: <why> (<where>)` | The subckt uses a construct vamos does not support (for example an S-parameter element). Change the netlist, or bind the cell to another subckt. |
 | `port_connect -cell C (p => X): no net X in the deck; ...; nearest: ...` | A typo, or a net only Verilog has. Name a top-level or `.global` net of the netlist, ground, or `<instance>.<port>`. |
@@ -854,10 +940,16 @@ AMS compile:
 | `warning: probe_waveform_voltage P matches no node of the deck, so it saves nothing (...)` | XA cfg patterns are VCS paths: `<Verilog instance path>.<node>` inside a SPICE instance, a netlist net by its own name. |
 | `warning: <node>: variable <v> joins SPICE ports in analog; VCS digitises it: ...` | An approximation: two or more SPICE ports connected through one Verilog `reg`/`logic` share one analog node, where VCS gives each port an interface element. Declare it a wire if that is intended, or give each port its own net. |
 | `warning: <netlist>:<line>: model <m>: HSPICE's default CAPOP=2 gate capacitance (...) is simulated as SPICE's Meyer model (CAPOP=0); ...` | Neither engine has HSPICE's CAPOP=2 model. Add `capop=0` to the card (or `.option spice`) to make HSPICE use the same model; `--vamos-strict` makes this an error. Cards get a `note: ... written as HSPICE simulates it: ...` listing the HSPICE defaults vamos wrote. |
-| `warning: <netlist>:<line>: model <m>: no CJ on a MOS LEVEL <n> card whose instances give AD/AS: HSPICE's default bulk junction capacitance (CJ=579.11 uF/m^2, Star-HSPICE 20-27) is not simulated, both targets use CJ=0; give CJ (F/m^2) on the card` | Give `CJ` on the LEVEL 1/2/3 card. (`--vamos-strict` makes it an error.) |
-| `note: <netlist>:<line>: model <m>: cjo=1e-30 written for Xyce, ...` (a diode with CJSW or TT but no CJO), `note: <netlist>:<line>: model <m>: kappa=0 written as kappa=1e-12 for VACASK, ...` (LEVEL 3) | Information: Xyce computes no junction charge for a diode whose CJO is 0, and VACASK's LEVEL 3 model gives NaN at KAPPA=0, so vamos writes a negligible value instead. |
+| `warning: <netlist>:<line>: model <m>: no CJ and no NSUB on a MOS LEVEL <n> card whose instances give AD/AS: HSPICE's default CJ is ambiguous (...); give CJ (F/m^2) or NSUB on the card` | vamos writes HSPICE's default for the default option ASPEC=0, `sqrt(eps_si*q*NSUB/(2*PB))` (with NSUB given, that is the documented default, and there is no warning), but the manual's default column also gives 579.11 µF/m². Give `CJ` or `NSUB` on the LEVEL 1/2/3 card. `--vamos-strict` makes it an error. |
+| `warning: ... model <m>: CBD/CBS on a MOS LEVEL <n> card whose instances give AD/AS: HSPICE uses CBD/CBS only when CJ*AD+CJSW*PD is 0 ...`; `... php=<v> differs from PB=<v>: ... simulated with PB`; `... cox=<v> with LEVEL 1: HSPICE invokes the Meyer gate capacitance only when TOX is specified ...`; `... <inst>: sa/sb under .option scale=<s>: both targets read them as written (in meters, unscaled) ...` | HSPICE behaviour neither engine has, or that the manuals leave open (docs/VAMOS_AMS_DESIGN.md §4.3.5–§4.3.6): give `AD=AS=0` or drop CBD/CBS; set PHP equal to PB; give TOX instead of COX; mind that SA/SB/SD are not scaled. `--vamos-strict` makes each an error. |
+| `note: <netlist>:<line>: model <m>: cjo=1e-30 written for Xyce, ...` (a diode with CJSW or TT but no CJO) | Information: Xyce computes no junction charge for a diode whose CJO is 0, so vamos writes a negligible value instead. |
+| `.option aspec is not supported: ASPEC compatibility mode sets SCALE=SCALM=1e-6, WL, LEVEL=6 and ACM=1 MOS models and the CJ=IS=0 defaults ...` | Remove `.option aspec` (or set it to 0). |
+| `node name 'a.b' contains '.', which HSPICE reserves as the hierarchy separator (<subckt>.<node>)`; `node x1:n1: VACASK and Xyce also call the internal node n1 of instance x1 'x1:n1', so the two would be one node (...); rename the node` | Rename the net. A `.` in a net name cannot be probed or given an `.ic` (vamos reads `v(a.b)` as `<subckt>.<node>`); a `<instance>:<node>` name would silently merge with that instance's internal node on both engines. |
+| `i(r1) in the expression of e1: the R element has no branch current VACASK or Xyce can read in an expression (V, L, E, H and E VOL= elements have one); put a 0 V source in series with r1 and use i() of it` | As the message says: a 0 V source in series (`vr1 a a1 0`, with `r1` moved to `a1`), and `i(vr1)` in the expression. |
+| `model <m>: HSPICE's wire capacitance (CAP: the CRC model of a wire resistor) has no target equivalent; not supported on VACASK` (also `SHRINK`, and on Xyce `DW` other than `DLR`, a model `L`, a `RES`/`CAP` default) | An R or C model parameter neither engine can compute as HSPICE does. The other wire parameters (`RSH DW DLR TC1R TC2R TREF COX CAPSW DEL THICK DI W L`) are mapped. |
+| `subckt <s>, defined inside subckt <p>, reads <names> of the enclosing subckt: VACASK does not pass an enclosing subckt's parameters into a nested definition; define <s> at top level and pass <names> on its X lines` | VACASK only (Xyce reads them as HSPICE does): move the nested definition to top level and pass the parameters on its X lines, or use `--vamos-analog=xyce`. |
 | `model <m>: DCAP=3 (peak-limited depletion capacitance) has no VACASK or Xyce equivalent; use DCAP=1 or 2` | Use `.option dcap=1` or `2`. |
-| `note: <netlist>:<line>: .tran: maximum time step ...` | Information: the HSPICE step bound vamos applies. `--vamos-analog-maxstep` (the note then shows that value) or `.option delmax` sets another. |
+| `note: <netlist>:<line>: .tran: maximum time step ...`; with no `.tran`, `note: <netlist>:<line>: .option delmax=<v>: the maximum time step of the analysis vamos synthesises (the netlist has no .tran)` | Information: the HSPICE step bound vamos applies. `--vamos-analog-maxstep` (the note then shows that value) or `.option delmax` sets another. With no `.tran`, `.option delmax` is the maximum step of the analysis vamos synthesises; `--vamos-analog-maxstep` still wins. |
 | `vamos: error: <path>: cannot write the interface-element report: <reason>`, then `AMS compile failed at the IE report` | `simv.msv` is not writable. |
 | an engine message from the compile-time check | The engine refused the deck at an operating point. The log is `simv.daidir/ams/deck/smoke.log`. Fix the netlist; `--vamos-no-deck-check` only postpones the failure to the run. |
 | `the cut has no table entry for instance path <p>, which nvc elaborated: an internal error of the cut (...)` | Report it, with `simv.daidir/ams/cut.vhd`. |
@@ -897,25 +989,39 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 
 - Personalities: only `vcs`, `vcs-ams`, `simv` and the `nvc` pass-through. No three-step flow, no VHDL
   sources, no `xrun`/Questa yet (docs/VAMOS_PLAN.md §8), no `spectre` yet (docs/VAMOS_SPECTRE_DESIGN.md).
-- Accepted and reported, but not done yet: waves and debug (`-debug_access`, VPD/FSDB, `-kdb`;
-  `$dumpvars` is not translated), coverage (`-cm`), UCLI (`-ucli`, `-do`), VPI/PLI/DPI (`-P`, `-load`, C
+- Accepted and reported, but not done yet: debug and other wave formats (`-debug_access`, VPD/FSDB, `-kdb`;
+  `$dumpvars` writes a VCD, §3), coverage (`-cm`), UCLI (`-ucli`, `-do`), VPI/PLI/DPI (`-P`, `-load`, C
   sources), UVM and SystemVerilog classes (`-ntb_opts uvm`; the route is docs/TODO-uvm-translator.md; a
   class the design uses is a compile error at its file:line),
   parameter overrides (`-pvalue+`, `-parameters`), `-xprop`, and `-y` library search (list the files, or use
   `-v`).
-- File I/O is not translated (§3). Plain `vcs` mode warns about each untranslated system task and function
-  and stops on a top it cannot translate; AMS mode refuses both.
+- File I/O runs as under vvp, with the differences in §3; the reading tasks are not translated. Waves: the
+  VCD covers the whole run whatever `$dumpoff`/`$dumpon` say, and its names follow the translation (§3).
+  Plain `vcs` mode warns about each untranslated system task and stops on a top it cannot translate; AMS
+  mode refuses both.
 - By design, the translation computes on value bits (docs/VAMOS_AMS_DESIGN.md §7): `===`/`!==` do not tell
   x from z; a vector `case`/`casez`/`casex` selector compares only its value bits (x/z bits read as 0/1),
   while scalar selectors, and anything read from pulls or analog pads, follow Verilog; vector arithmetic
-  with an x or z operand gives a number, not x. This differs from vvp and VCS and is kept on purpose.
-- Translation artefacts, open in docs/VAMOS_AMS_DESIGN.md §7 and §10: `always @(...)` runs once at time 0;
-  a `task automatic` called from more than one process, a recursive task, `disable` of another
-  process's block, `disable fork`, SV `break`/`continue` and `$dist_*` are translation errors; a memory read
-  at a run-time index outside its range stops the run; after a delay or an event in the same process,
-  `repeat (n)` reads the value `n` had before a blocking assignment just ahead of it (`#1 n = 3; repeat (n)`
-  loops 0 times, and a task that repeats over an input argument is hit the same way); `$error`/`$fatal`
-  messages name the translated file.
+  with an x or z operand gives a number, not x; an index with x/z bits selects by its value bits (all-x is
+  word 0), so a store at an x index lands in word 0 and a read returns word 0 (or the bit the value bits
+  name), where vvp drops the store and reads x. This differs from vvp and VCS and is kept on purpose.
+- A continuous assignment that copies a variable (`wire rw = r;`, `wire m0w = mem[0];`) updates one delta
+  after a blocking write to the variable, so a read of `rw` later in the same activation sees the old value,
+  where vvp sees the new one. Verilog allows both.
+- Translation artefacts, open in docs/VAMOS_AMS_DESIGN.md §7 and §10: a recursive task, an automatic task
+  entered again before it returns, `disable` of another process's block and `disable fork` are translation
+  errors, and so are `$dist_*` and `$value$plusargs` in a branch of `?:`, an operand of `&&`/`||` or a loop
+  condition (Verilog may not evaluate them there; the translation would, every time), a `void` function, a
+  `final` block (other than one that only closes files) and an intra-assignment event control on a
+  nonblocking assignment (§9); `$sformat` is translated with a literal format, and a non-literal format is a
+  translation error; a store to a bit outside a vector, or outside a memory word, is dropped, as vvp drops it
+  (also at a constant index iverilog ignores, e.g. `array1[0] = 1` on `reg array1[2:1]`), and a memory read
+  outside the memory gives x; constant drivers with strengths on the words of a memory of nets translate,
+  but the run stops in nvc's net solver for every word width (ivtest pr1703346; it used to read `xx`
+  silently for words of 2 bits or more).
+- Not simulated, with a compile warning (§9): specify path delays, timing checks and `$sdf_annotate`
+  (specparams stay, a min:typ:max one at its typ value). A single top-level module's undriven input ports
+  read 0, not z (warned).
 - Time: every precision of 1 ms or finer runs at its true size, in plain and AMS mode. A coarser precision is
   compressed to 1 ms per tick, so with no `` `timescale `` the unit is 1 ms, not 1 s. AMS requires a
   precision of 1 ms or finer.
@@ -937,4 +1043,5 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 | docs/VAMOS_SPECTRE_DESIGN.md | the planned `spectre` personality (a design; not built) |
 | docs/TODO-uvm-translator.md | the planned UVM route |
 | docs/vamos-manuals.html | links to the vendor manuals vamos follows |
-| tests/vamos/ | working examples. `test_vamos.py` and `test_vamos_driver.py` cover digital; `test_ams_e2e_*.py` cover AMS end to end (each item is described in docs/VAMOS_AMS_DESIGN.md §9). Run them from `tests/vamos`: `python3 -m unittest test_vamos` (about 10 s), `python3 -m unittest test_ams_e2e_basics` (2 to 3 minutes). Tests that need a tool or engine the machine lacks are skipped |
+| tests/vamos/ | working examples. `test_vamos.py` and `test_vamos_driver.py` cover digital; `test_ams_e2e_*.py` cover AMS end to end; `test_r6_*.py` cover the latest fixes, such as file I/O (`test_r6_F.py`) and waves (`test_r6_W.py`) (each item is described in docs/VAMOS_AMS_DESIGN.md §9). Run them from `tests/vamos`: `python3 -m unittest test_vamos` (about 10 s), `python3 -m unittest test_ams_e2e_basics` (2 to 3 minutes). Tests that need a tool or engine the machine lacks are skipped |
+| tests/hazard3_mandelbrot/README.md | a larger working example: the Hazard3 RISC-V Mandelbrot test case (Verijit's), which Verilator, Icarus and vamos run the same way; with the regression harness, `regress/regress run hazard3/vamos` compiles it with `vcs` and runs `./simv` |

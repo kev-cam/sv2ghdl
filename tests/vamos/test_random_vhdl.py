@@ -12,8 +12,8 @@ design-wide seed starting at 0, the uint32 arithmetic in 16-bit halves, the doub
 operation order, C's truncating casts by hand.
 
 - plain nvc, no --load: an unseeded $random prints vvp's first 1000 numbers; $urandom prints
-  vvp's $urandom sequence; $urandom_range prints lo + ($urandom mod span), the translator's
-  mapping, of the same draws
+  vvp's $urandom sequence; $urandom_range prints vvp's numbers (round 6: sv_math_pkg's
+  sv_urandom_range on $urandom's own generator; it was lo + ($urandom mod span))
 - srandom(s) then random (a VHDL testbench: the translator never seeds it) is vvp's
   $random(seed) sequence from seed = s, for s = 0, 1, -1, 2**31-1, -2**31, 12345, and for the
   seeds whose next draw hits the edges of the double -> int32 casts: just over 2**31 (vvp,
@@ -135,17 +135,11 @@ def values(lines: List[str], key: str) -> List[int]:
     return [int(ln[len(pre):].split()[0]) for ln in lines if ln.startswith(pre)]
 
 
-# -- the translator's $urandom / $urandom_range, from a $random draw ----------------------
+# -- $urandom, from a $random draw ---------------------------------------------------------
 
 def urandom_of(draw: int) -> int:
     """$urandom: the draw with bit 31 flipped (vvp: rtl_dist_uniform(...) - INT32_MIN)."""
     return (draw % M32) ^ 0x80000000
-
-
-def urandom_range_of(draw: int, maxval: int, minval: int = 0) -> int:
-    """$urandom_range as the translator maps it: lo + ($urandom mod (hi - lo + 1))."""
-    lo, hi = min(maxval, minval), max(maxval, minval)
-    return lo + urandom_of(draw) % (hi - lo + 1)
 
 
 # -- vvp references ----------------------------------------------------------------------
@@ -195,6 +189,28 @@ def vvp_draws(n: int) -> List[int]:
     return vvp_sequences(((None, 1000 if n <= 1000 else n),))[0][:n]
 
 
+_vvp_tagged_cache: Dict[str, List[str]] = {}
+
+
+def vvp_tagged(src: str) -> List[str]:
+    """The `@ ...' lines vvp prints for Verilog source src."""
+    if src not in _vvp_tagged_cache:
+        tmp = tempfile.mkdtemp(prefix="vamos-rnd-vvp-")
+        try:
+            with open(os.path.join(tmp, "ref.v"), "w") as fh:
+                fh.write(src)
+            c = _run([_iverilog(), "-g2012", "-o", "ref.vvp", "ref.v"], tmp)
+            if c.returncode != 0:
+                raise RuntimeError("iverilog: " + c.stdout)
+            r = _run([_vvp(), "-n", "ref.vvp"], tmp)
+            if r.returncode != 0:
+                raise RuntimeError("vvp: " + r.stdout)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        _vvp_tagged_cache[src] = tagged(r.stdout)
+    return _vvp_tagged_cache[src]
+
+
 # -- designs ------------------------------------------------------------------------------
 
 RAND1000 = """\
@@ -211,9 +227,8 @@ module tb;
 endmodule
 """
 
-# 200 $urandom draws, then 200 x 4 $urandom_range draws: 1000 draws of the one generator.
-# vvp keeps $urandom's own seed, which only $urandom draws from here, so the first 200 are
-# vvp's $urandom sequence; $urandom_range is the translator's lo + ($urandom mod span).
+# 200 $urandom draws, then 200 x 4 $urandom_range draws, all from vvp's $urandom generator
+# (its own seed): the first 200 are vvp's $urandom sequence, the $urandom_range rows vvp's.
 URAND = """\
 `timescale 1ns/1ps
 module tb;
@@ -238,15 +253,11 @@ endmodule
 
 
 def urand_expected() -> Tuple[List[int], List[List[int]]]:
-    """URAND's u values and v rows, from vvp's first 1000 $random draws."""
+    """URAND's u values (vvp's first 200 $random draws, bit 31 flipped: $urandom's generator
+    starts where $random's does) and v rows (vvp's)."""
     d = vvp_draws(1000)
     us = [urandom_of(x) for x in d[:200]]
-    vs = []
-    for i in range(200):
-        a, b, c, e = d[200 + 4 * i: 204 + 4 * i]
-        vs.append([urandom_range_of(a, 10, 3), urandom_range_of(b, 7),
-                   urandom_range_of(c, 3, 10), urandom_range_of(e, 0xFFFFFFFF, 0xFFFFFFF0)])
-    return us, vs
+    return us, v_rows(vvp_tagged(URAND))
 
 
 def v_rows(lines: List[str]) -> List[List[int]]:
@@ -367,8 +378,9 @@ class TestPlainNvcVerilog(_Cached):
         self.assertEqual(got, want)
         self.assertEqual(got[:3], [2450863396, 1082744449, 75814409])
 
-    def test_urandom_range_is_the_translator_mapping(self):
+    def test_urandom_range_like_vvp(self):
         rows = v_rows(self.plain("urand", URAND))
+        self.assertEqual(len(rows), 200)
         self.assertEqual(rows, urand_expected()[1])
         for v1, v2, v3, v4 in rows:
             self.assertTrue(3 <= v1 <= 10 and v2 <= 7 and 3 <= v3 <= 10 and v4 >= 0xFFFFFFF0)
@@ -557,6 +569,23 @@ rsup sup 0 1meg
 """
 
 
+# AMS_TB's draws alone, for vvp: $urandom_range draws from $urandom's own generator (vvp's
+# second seed), not on from the 50 $random draws
+AMS_DRAWS_V = """\
+module tb;
+  integer k, r;
+  int unsigned u;
+  initial begin
+    for (k = 0; k < 50; k = k + 1) r = $random;
+    for (k = 0; k < 10; k = k + 1) begin
+      u = $urandom_range(1000, 10);
+      $display("@ v %0d", u);
+    end
+  end
+endmodule
+"""
+
+
 @needs_ams
 class TestVcsAms(AmsCase):
     """vcs-ams (nvc + an analog engine; the digital side --loads both libraries)."""
@@ -564,7 +593,7 @@ class TestVcsAms(AmsCase):
     def test_random_each_engine(self):
         d = vvp_draws(60)
         want_r = d[:50]
-        want_v = [urandom_range_of(x, 1000, 10) for x in d[50:60]]
+        want_v = values(vvp_tagged(AMS_DRAWS_V), "v")
         for engine in self.engines():
             with self.subTest(engine=engine):
                 case = self.case("rnd_" + engine, {"tb.sv": AMS_TB, "rc.sp": AMS_SP,

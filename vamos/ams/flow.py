@@ -237,6 +237,9 @@ def compile(job: Job, be: NvcBackend, con: Console, opts: dict) -> Tuple[str, fl
                 override_timescale=job.override_timescale, ams=True)
     pr.flush(list(pp.notes) + verilog_ports.api_scan(pp), "preprocessing")
     job.precision = pp.precision
+    # the run's messages name the user's file:line (backends/nvc.py source_relocator)
+    from vamos.backends.nvc import write_source_lines
+    write_source_lines(daidir, pp)
     # VCS's -v rule, as in a plain compile: a library copy of a module a source (or an
     # earlier -v file) defines is blanked from pp.orig.v before anything reads it
     verilog_ports.apply_library_rule(pp)
@@ -290,7 +293,20 @@ def compile(job: Job, be: NvcBackend, con: Console, opts: dict) -> Tuple[str, fl
         pr.flush(xlat, "translation")
         raise AmsError("translation produced no design.vhd (see %s)" % layout.nvc_dir(daidir))
     with open(design_path, errors="replace") as fh:
-        pr.flush(xlat + verilog_ports.unsupported_tasks(fh.read(), pp, ams=True), "translation")
+        text = fh.read()
+    # $dumpfile/$dumpvars and the other VCD tasks are vamos's, as in a plain compile
+    # (vcs.dump_request: job.dump, ./simv's waves; +vcs+dumpvars too): their notes replace
+    # the "not translated" errors, which refused every design with a $dumpvars
+    from vamos.personalities import vcs as vcs_mod
+    job.dump, dump_notes = vcs_mod.dump_request(
+        text, pp, [top], None, every=bool(getattr(job, "dumpvars_all", False)))
+    # the digital side's timing that is not simulated (specify path delays and timing
+    # checks, $sdf_annotate; a cell SPICE replaces does not count), as in a plain compile
+    given = {u.option for u in job.unmapped}
+    timing = verilog_ports.timing_omissions(pp, "+nospecify" in given, "+notimingcheck" in given,
+                                            exclude=sh.cells)
+    pr.flush(xlat + [n for n in verilog_ports.unsupported_tasks(text, pp, ams=True)
+                     if not vcs_mod._is_dump_task_note(n)] + dump_notes + timing, "translation")
 
     # 9. cut analysis and roles
     design = pr.run(vhdl.parse, "reading design.vhd", design_path)
@@ -302,7 +318,8 @@ def compile(job: Job, be: NvcBackend, con: Console, opts: dict) -> Tuple[str, fl
     alloc = names.NameAllocator(deck.seed_names(nl))
     nodes = pr.run(cut.assign_roles, "interface roles", ana, alloc,
                    functools.partial(rules.disabled, cfg, hits=hits),
-                   functools.partial(rules.removal, cfg, hits=hits), directions=sh.directions)
+                   functools.partial(rules.removal, cfg, hits=hits), directions=sh.directions,
+                   dumped=functools.partial(vcs_mod.dump_covers, job.dump))
     pr.flush(ana.notes, "interface roles")
     plan = AmsPlan(ana, nodes)
 

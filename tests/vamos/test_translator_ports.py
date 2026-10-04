@@ -11,8 +11,8 @@ with vvp like test_translator_tgt.py):
     expression, a concatenation, or a bit-select (T2 alias): released, the port
     reads its pull;
   * TB-03: an inout instance array on a part-select (of a wire, of the module's
-    own inout port) is aliased to the vector both ways; a tran on a bit-select
-    says it is connected one way only;
+    own inout port) is aliased to the vector both ways; so is a tran on a
+    bit-select (round 6);
   * TB-04/TB-11: real arithmetic in continuous assignments and real port
     expressions (r + 0.2, -r, r / 2.0, r * 2.0, code * 0.1, sel ? r1 : r2);
   * TB-05/TB-12: an inout port on a concatenation (associated part by part), and
@@ -437,7 +437,9 @@ endmodule
 
 @needs_stack
 class TestT2TranOnBitSelect(Case):
-    """A tran on a bit-select still joins a one-way copy: it says so."""
+    """A tran on a bit-select joins the vector element both ways, without a warning (round 6:
+    the core's temporary is an alias of the element; it was a one-way copy, with a warning).
+    A tran on a select of a module port stays one way and warns (test_r6_L)."""
 
     SOURCE = """\
 `timescale 1ns/1ps
@@ -449,13 +451,17 @@ module tb;
   tran t1 (bus[2], w);
   initial begin
     en = 1;
-    #10 $display("%0t bus=%b", $time, bus);
+    #10 $display("%0t bus=%b w=%b", $time, bus, w);
   end
 endmodule
 """
 
-    def test_warns(self):
-        self.assertRegex(self.log(), r"Warning: bus_sig\(2\) at \S+:\d+ is connected one way only")
+    def test_joined_without_a_warning(self):
+        self.assertNotIn("connected one way only", self.log())
+        self.assertRegex(self.vhdl, r"(?m)^\s*alias \w+ is bus_sig\(2\);")
+
+    def test_like_vvp(self):
+        self.assert_settled_like_vvp()
 
 
 # ------------------------------------------------------------- TB-04 / TB-11
@@ -808,7 +814,23 @@ class TestWarningsSurfacedUnderVamos(unittest.TestCase):
     "connected one way only" / "not translated" warnings on stderr; without it
     (the ivtest harness, which compares output with gold files) it does not."""
 
-    SOURCE = TestT2TranOnBitSelect.SOURCE
+    # a tran on a select of a module's input port: still one way, so still warned (a tran on
+    # a select of a net is joined both ways since round 6, TestT2TranOnBitSelect)
+    SOURCE = """\
+`timescale 1ns/1ps
+module tsel(input [3:0] bus, inout w);
+  tran t1 (bus[2], w);
+endmodule
+module tb;
+  reg [3:0] b;
+  wire w;
+  tsel u (.bus(b), .w(w));
+  initial begin
+    b = 4'b1010;
+    #10 $display("%0t w=%b", $time, w);
+  end
+endmodule
+"""
 
     def translate(self, extra: Dict[str, str]) -> subprocess.CompletedProcess:
         tmp = tempfile.mkdtemp(prefix="vamos-xlat-warn-")

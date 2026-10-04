@@ -662,6 +662,11 @@ class _Deck:
         if inst.expr is None or inst.expr_kind not in ("v", "i"):
             self.err(inst.origin, "behavioral source %s has no v= or i= expression" % inst.name)
             return
+        bad = T.current_ref_errors(inst, scope.subckt.body if scope.subckt else self.nl.body, scope)
+        for msg in bad:
+            self.err(inst.origin, msg)
+        if bad:
+            return
         e = inst.expr
         if inst.expr_kind == "i":
             m = self.mult(inst, scope)
@@ -693,6 +698,7 @@ class _Deck:
         self.line(inst, inst.nodes + [m.name, text] + self.plist(inst, ("m", "area")))
 
     def i_m(self, inst: Instance, scope: T.Scope) -> None:
+        self.add(T.mos_scale_warnings(inst, self.nl.options))
         card, bins = scope.card_of(inst)
         if card is None and bins:
             if id(inst) in self.var.bind:        # bound to the bin card vamos selected

@@ -40,16 +40,25 @@ Model dispatch (§4.3.6)
         2.0718e-5/8.632e-6 and PMOS UO 250; UO from KP (LEVEL 2/3); NSUB
         (default 1e15, or from GAMMA), GAMMA and PHI (0.576036) as HSPICE
         derives them; LD=0.75*XJ; CGSO/CGDO from LD/METO and TOX, CGBO from
-        WD; LEVEL 3 ETA*8.14/8.15; warnings for an ambiguous KP default, a
-        LEVEL 3 XJ below 0.05u, a missing VTO the target cannot derive, and
-        HSPICE's default CAPOP=2 gate capacitance (simulated as CAPOP=0;
-        capop=0 removed, any other CAPOP a warning).  BSIM3 (_bsim3): LEVEL 49
-        XPART=1, the CAPMOD default of the card's VERSION (3.0: 1; 3.1: 2, a
-        warning at LEVEL 49), a warning for LEVEL 49's ACM=0 junctions.
+        WD; LEVEL 3 ETA*8.14/8.15 and badmos3=1 (HSPICE's channel-length
+        modulation, 21-26); the bulk junctions (_mos_junctions): CJ
+        sqrt(eps_si*q*NSUB/(2*PB)), FC=0, PHP removed (PB on both targets);
+        warnings for an ambiguous KP default, a LEVEL 3 XJ below 0.05u, a
+        missing VTO the target cannot derive, a PHP other than PB on a
+        sidewall junction, and HSPICE's default CAPOP=2 gate capacitance
+        (simulated as CAPOP=0; capop=0 removed, any other CAPOP a warning).
+        BSIM3 (_bsim3): LEVEL 49 XPART=1, the CAPMOD default of the card's
+        VERSION (3.0: 1; 3.1: 2, a warning at LEVEL 49), HSPICE's junction
+        defaults CJ=5.79e-4 and CJSW=0 where its own junction model (ACM 0, 2,
+        3) applies, and a warning for that model.
         D/Q/J (_junctions): HSPICE's default DCAP=2 as FC=0 (FCS=0), DCAP=3 an
         error; diode PB 0.8 (printed vj) and PHP=PB, BJT MJS 0.5, JFET PB 0.8;
         a JFET capop=0 removed, any other CAPOP a warning.  Under .option spice
         SPICE's defaults stay (DCAP=1, MOS CAPOP=0, no LD or NSUB default, MJS=0).
+    mos_junction_warnings(inst, model, options=None) -> List[Note]
+        Per M instance (the message is per card): a MOS 1/2/3 card whose CJ
+        default rests on the default NSUB (HSPICE's manual gives two values)
+        or whose CBD/CBS HSPICE would not use, when the instance gives AD/AS.
     ModelOptions, model_options(Netlist.options) -> ModelOptions
         The .option settings hspice_card reads (spice, dcap).
     bsim4_version(engine, version) -> str
@@ -193,7 +202,7 @@ from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tupl
 
 from vamos.netlist import expr as X
 from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary
-from vamos.netlist.ir import Instance, Model, Netlist, Source, Subckt
+from vamos.netlist.ir import Instance, Model, Netlist, Param, Source, Subckt
 from vamos.notes import Note, note, warning
 
 ENGINES = ("vacask", "xyce")
@@ -379,8 +388,8 @@ def model_params(model: Model, engine: str, binned: bool = False,
         out.append((key, value))
     if engine == "xyce" and row is _DIODE1:
         out = _xyce_diode_charge(model, out, notes)
-    if engine == "vacask" and row is _MOS3:
-        out = _vacask_mos3_kappa(model, out, notes)
+    if row is _RES or row is _CAP:
+        out = _wire_card(model, row.element, engine, out, notes)
     if engine == "vacask":
         if row.keep_level:
             out.insert(0, ("level", Num(float(level_of(model)))))
@@ -389,49 +398,139 @@ def model_params(model: Model, engine: str, binned: bool = False,
     return out, notes
 
 
+# HSPICE's R (wire) and C model parameters (Star-HSPICE 2001.2, 14-3..14-10) on the targets: the
+# names each engine gives the same meaning.  VACASK's sp_resistor and sp_capacitor are ngspice's
+# models, which alias HSPICE's names (dw dlr tc1r tc2r res; cox capsw del di thick) except for
+# the capacitor's renamed model_cap/model_tc1/model_tc2; Xyce knows RSH, TC1, TC2, TNOM and NARROW
+# (R) and CJ, CJSW, NARROW, TC1, TC2, TNOM (C), and ignores any other model parameter silently.
+WIRE_RENAME: Dict[Tuple[str, str], Dict[str, str]] = {
+    ("r", "vacask"): {"tref": "tnom", "w": "defw", "l": "model_l"},
+    ("r", "xyce"): {"tc1r": "tc1", "tc2r": "tc2", "tref": "tnom", "w": "defw"},
+    ("c", "vacask"): {"tref": "tnom", "cap": "model_cap", "tc1": "model_tc1", "tc2": "model_tc2", "w": "defw",
+                      "l": "defl"},
+    ("c", "xyce"): {"tref": "tnom", "cox": "cj", "capsw": "cjsw", "w": "defw"},
+}
+# The R card's wire capacitance (the CRC pi model with BULK and CRATIO): neither target has it.
+WIRE_CAP_KEYS = ("cap", "capsw", "cox", "di", "thick", "bulk", "cratio", "tc1c", "tc2c")
+EPS0_HSPICE = 8.8542149e-12             # F/m (14-7, 14-11)
+EPSOX_HSPICE = 3.453148e-11
+
+
+def _wire_card(model: Model, elem: str, engine: str, out: List[Tuple[str, Expr]], notes: List[Note]
+               ) -> List[Tuple[str, Expr]]:
+    """An R or C model card's HSPICE parameters for one engine (WIRE_RENAME), the geometry HSPICE
+    computes kept exact: R = RSH*(L-2*DLR)/(W-2*DW), C = COX*(L-2*DEL)*(W-2*DEL)+2*CAPSW*(L+W-4*DEL),
+    COX from THICK and DI when not given (14-5, 14-10).  Xyce subtracts its NARROW once from L and
+    from W, so DEL becomes narrow=2*DEL and DW, DLR become narrow=2*DW where DW equals DLR.
+    The model W and L defaults (14-4, 14-10) are ngspice's defw/defl (model_l for R) and Xyce's
+    DEFW.  TableError for what an engine cannot compute as HSPICE does: the R card's wire
+    capacitance, SHRINK other than 1; on Xyce a model L, DW other than DLR and a CAP/RES default
+    (Xyce's C and R model parameters are multipliers)."""
+    p = dict(out)
+    label = card_label(model)
+
+    def refuse(what: str) -> None:
+        raise TableError("%s: %s; not supported on %s" % (label, what, "VACASK" if engine == "vacask" else "Xyce"))
+
+    shrink = p.pop("shrink", None)
+    if shrink is not None and not (isinstance(shrink, Num) and shrink.value == 1.0):
+        refuse("HSPICE's SHRINK=%s scales the element's W and L, which neither target does" % _txt(shrink))
+    if engine == "xyce" and "l" in p:
+        if _nonzero(p["l"]):
+            refuse("HSPICE's model default length l=%s: Xyce's %s model has none" % (_txt(p["l"]), ELEMENT_NAME[elem]))
+        p.pop("l")
+    if elem == "r":
+        caps = [k for k in WIRE_CAP_KEYS if k in p and _nonzero(p[k])]
+        if caps:
+            refuse("HSPICE's wire capacitance (%s: the CRC model of a wire resistor) has no target "
+                   "equivalent" % ", ".join(k.upper() for k in caps))
+        for k in WIRE_CAP_KEYS:
+            p.pop(k, None)
+    else:
+        if "cox" not in p and _nonzero(p.get("thick")):
+            di = p.get("di")
+            eps: Expr = _mul(di, Num(EPS0_HSPICE)) if _nonzero(di) else Num(EPSOX_HSPICE)
+            p["cox"] = _div(eps, p["thick"])
+            notes.append(note(model.origin or model.name, "%s: cox=%s written (HSPICE's COX from THICK%s, 14-11)"
+                              % (label, _txt(p["cox"]), " and DI" if _nonzero(di) else "")))
+        p.pop("thick", None)
+        p.pop("di", None)
+    if engine == "xyce":
+        if elem == "r":
+            dw, dlr = p.pop("dw", None), p.pop("dlr", None)
+            if _nonzero(dw) or _nonzero(dlr):
+                if X.to_text(X.fold(dw or Num(0.0))) != X.to_text(X.fold(dlr or Num(0.0))):
+                    refuse("HSPICE's DW=%s and DLR=%s: Xyce's resistor subtracts one NARROW from both L and W"
+                           % (_txt(dw or Num(0.0)), _txt(dlr or Num(0.0))))
+                p["narrow"] = _mul(Num(2.0), dw)
+            res = p.pop("res", None)
+            if _nonzero(res):
+                refuse("HSPICE's RES=%s default resistance: Xyce's R model parameter is a multiplier" % _txt(res))
+        else:
+            dl = p.pop("del", None)
+            if _nonzero(dl):
+                p["narrow"] = _mul(Num(2.0), dl)
+            cap = p.pop("cap", None)
+            if _nonzero(cap):
+                refuse("HSPICE's CAP=%s default capacitance: Xyce's C model parameter is a multiplier" % _txt(cap))
+    ren = WIRE_RENAME[(elem, engine)]
+    return [(ren.get(k, k), v) for k, v in p.items()]
+
+
 XYCE_TINY_CJO = 1e-30
-VACASK_TINY_KAPPA = 1e-12
-MOS_CJ_KEYS = ("cj", "cdb", "csb", "cja", "cbd", "cbs")
+MOS_CJ_KEYS = ("cj", "cdb", "csb", "cja")          # CJ and its HSPICE aliases (20-28)
+MOS_CBX_KEYS = ("cbd", "cbs")
+MOS_PB_KEYS = ("pb", "pha", "phs", "phd")          # PB and its HSPICE aliases (20-28)
+MOS_CJ_TABLE = 579.11e-6                           # F/m2: the CJ default column of 20-28
 
 
 def mos_junction_warnings(inst: Instance, model: Model,
                           options: Optional[Mapping[str, Expr]] = None) -> List[Note]:
-    """A MOS LEVEL 1, 2 or 3 card that gives no bulk junction capacitance (CJ, or CBD/CBS),
-    on an instance that gives a junction area (AD or AS): HSPICE simulates its default CJ
-    (579.11 uF/m^2, Star-HSPICE 20-27, with ACM=0 the default), both targets CJ=0.  The default
-    is not written - the manual also gives it as sqrt(eps_si*q*NSUB/(2*PB)) for ASPEC=0, which
-    differs, and no HSPICE run settles it - so the card gets a warning (an error under
-    --vamos-strict) naming the fix.  Not under .option spice (SPICE's default is 0).  Emitters
-    call this for every M instance; the message is per card, so it is printed once."""
+    """Warnings for a MOS LEVEL 1, 2 or 3 card's bulk junctions where an instance gives a junction
+    area (AD or AS), the only case where they matter.  Emitters call this for every M instance; the
+    message is per card, so it is printed once.  Both are warnings (errors under --vamos-strict):
+
+    - No CJ (nor an alias) and no NSUB, outside .option spice: hspice_card writes HSPICE's ASPEC=0
+      default sqrt(eps_si*q*NSUB/(2*PB)) (20-28) with the default (or GAMMA-derived) NSUB, but the
+      manual's default column gives 579.11 uF/m^2 for the same parameter, and nothing settles which
+      one HSPICE uses without NSUB; with NSUB on the card the formula is the documented default.
+    - CBD or CBS on the card: HSPICE uses them only when CJ*AD + CJSW*PD (CJ*AS + CJSW*PS) is 0
+      (20-27, 20-48), and CJ has a nonzero default, so an instance with AD/AS gets CJ*AD where both
+      targets use CBD (SPICE's precedence).
+    ACM=1 cards (per-width CJ) are left to the ACM warning of model_params.
+    """
     row = target(model)
-    if not any(row is r for r in _MOS_ROWS) or model_options(options).spice:
-        return []
-    given = {k.lower() for k in model.params}
-    if any(k in given for k in MOS_CJ_KEYS):
+    if not any(row is r for r in _MOS_ROWS):
         return []
     if not any(_nonzero(inst.params.get(k)) for k in ("ad", "as")):
         return []
-    return [warning(model.origin or model.name,
-                    "%s: no CJ on a MOS LEVEL %d card whose instances give AD/AS: HSPICE's default bulk "
-                    "junction capacitance (CJ=579.11 uF/m^2, Star-HSPICE 20-27) is not simulated, both "
-                    "targets use CJ=0; give CJ (F/m^2) on the card"
-                    % (card_label(model), level_of(model)))]
-
-
-def _vacask_mos3_kappa(model: Model, out: List[Tuple[str, Expr]], notes: List[Note]
-                       ) -> List[Tuple[str, Expr]]:
-    """VACASK's sp_mos3 (mos3.va) gives NaN with KAPPA exactly 0 (the derivative of the
-    sqrt(kappa*...) channel-length term at 0), so the deck fails ("NaN found in vector ...
-    Homotopy failed") on the Star-HSPICE manual's own LEVEL 3 example card.  KAPPA=0 becomes
-    1e-12 on VACASK: the channel-length modulation it leaves is ~1e-6 of KAPPA=0.2's, and the
-    manual example's drain current matches HSPICE's published 6.912e-4 A to 5 digits."""
-    if not any(k == "kappa" and _is_zero(v) for k, v in out):
-        return out
-    notes.append(note(model.origin or model.name,
-                      "%s: kappa=0 written as kappa=%g for VACASK, whose LEVEL 3 model gives NaN at "
-                      "exactly 0; the channel-length modulation this leaves is negligible"
-                      % (card_label(model), VACASK_TINY_KAPPA)))
-    return [(k, Num(VACASK_TINY_KAPPA) if k == "kappa" and _is_zero(v) else v) for k, v in out]
+    given = {k.lower(): v for k, v in model.params.items()}
+    acm = given.get("acm")
+    if isinstance(acm, Num) and acm.value == 1.0:
+        return []
+    spice = model_options(options).spice
+    out: List[Note] = []
+    origin = model.origin or model.name
+    cj_k = next((k for k in MOS_CJ_KEYS if k in given), None)
+    has_nsub = any(k in given for k in ("nsub", "dnb", "nb"))
+    if cj_k is None and not spice and not has_nsub:
+        out.append(warning(origin, "%s: no CJ and no NSUB on a MOS LEVEL %d card whose instances give AD/AS: "
+                                   "HSPICE's default CJ is ambiguous (Star-HSPICE 20-28 gives "
+                                   "sqrt(eps_si*q*NSUB/(2*PB)) for the default option ASPEC=0, which vamos "
+                                   "writes with the NSUB HSPICE assumes (none: CJ=0), and %g uF/m^2 in its "
+                                   "default column); give CJ (F/m^2) or NSUB on the card"
+                           % (card_label(model), level_of(model), MOS_CJ_TABLE * 1e6)))
+    cbx = [k for k in MOS_CBX_KEYS if _nonzero(given.get(k))]
+    # HSPICE's CJ*AD+CJSW*PD is nonzero: CJ given nonzero, or defaulted (the formula, which needs
+    # NSUB under .option spice), or a sidewall capacitance
+    cj_on = _nonzero(given[cj_k]) if cj_k is not None else (not spice or has_nsub)
+    if cbx and (cj_on or any(_nonzero(given.get(k)) for k in ("cjsw", "cjp"))):
+        out.append(warning(origin, "%s: %s on a MOS LEVEL %d card whose instances give AD/AS: HSPICE uses "
+                                   "CBD/CBS only when CJ*AD+CJSW*PD is 0 (20-27, 20-48) and simulates CJ*AD "
+                                   "here, both targets use %s; give AD=AS=0 or remove %s"
+                           % (card_label(model), "/".join(k.upper() for k in cbx), level_of(model),
+                              "/".join(k.upper() for k in cbx), "/".join(k.upper() for k in cbx))))
+    return out
 
 
 def _xyce_diode_charge(model: Model, out: List[Tuple[str, Expr]], notes: List[Note]
@@ -482,7 +581,10 @@ DIODE_PB = 0.8                          # V (15-12); both targets 1.0
 JFET_PB = 0.8                           # V (17-18); both targets 1.0
 BJT_MJS = 0.5                           # (16-11); both targets (and .option spice) 0
 MOS_MJSW = 0.33                         # MOS sidewall grading (20-28); sp_mos1/2, Xyce LEVEL 1/2: 0.5
+MOS_PB = 0.8                            # V: MOS bulk junction potential (20-28); the targets' too
 ACM_BERKELEY = 10.0                     # BSIM3 ACM=10: the Berkeley junctions, both targets' own (22-43)
+BSIM3_HSPICE_CJ = 5.79e-4               # F/m2: LEVEL 49/53 CJ with HSPICE's junction model (22-43); BSIM3 5e-4
+BSIM3_HSPICE_ACM = (0.0, 2.0, 3.0)      # ACMs of HSPICE's own (area) junction model at LEVEL 49/53
 DCAPS = (1.0, 2.0, 3.0)
 _MOS_ROWS = (_MOS1, _MOS2, _MOS3)
 
@@ -605,24 +707,40 @@ def _mos123(c: _Card, lv: int, pol: float, opts: ModelOptions) -> None:
     Always:
       TOX > 1 is in Angstrom (20-69): a constant TOX becomes TOX*1e-10, an expression
         (t > 1 ? t*1e-10 : t).
+      COX (CO), which neither target has (_mos_cox): tox=eps_ox/COX, HSPICE's "TOX calculated
+        from COX when COX is input" (20-69, 21-2, 21-7, 21-19), replacing a given TOX; at LEVEL 1
+        a warning: "the model parameter TOX must be specified to invoke the Meyer model" (20-57)
+        and KP=UO*COX needs "UO and TOX entered" (21-2), and whether a COX-derived TOX counts is not
+        documented, while the target with TOX has the Meyer capacitance (and KP=UO*COX).
       KP and UO (_mos_kp): the LEVEL 1 KP default 2.0718e-5 / 8.632e-6 (21-2), the PMOS UO
         default 250 (21-11, 21-22), UO derived from KP at LEVEL 2/3; KP given with only one of
         UO and TOX, or not given at all at LEVEL 2/3 is a warning: the manual leaves it ambiguous.
       CGSO, CGDO not given but LD or METO and TOX: (LD+METO)*COX; CGBO not given but WD and
         TOX: 2*WD*COX (20-69, 20-73).  METO (no target has it) is removed.
       LEVEL 3: ETA scaled by 8.14/8.15 (HSPICE's constant over SPICE3's, 21-29); 0 < XJ < 0.05u
-        is a warning (HSPICE limits fs to 1 there, SPICE3 does not).
+        is a warning (HSPICE limits fs to 1 there, SPICE3 does not).  badmos3=1: HSPICE's channel-
+        length modulation (21-26: dL = Xd*sqrt(KAPPA*(vds-vdsat)) above vdsat with VMAX=0, the
+        pinch-off field Ep without KAPPA with VMAX>0) is SPICE2's, SPICE3's .option badmos3;
+        VACASK's sp_mos3 defaults to ngspice's modified CLM (dL from vds-vdsat+vdsat/8, and a
+        vds^4 onset below vdsat: +1.2% on a 1u device), Xyce's to SPICE3f's KAPPA*Ep.
+      Bulk junctions (_mos_junctions, 20-26..20-48; not for ACM=1, whose CJ is per width):
+        no CJ (CDB CSB CJA): HSPICE's default for option ASPEC=0, sqrt(eps_si*q*NSUB/(2*PB)), with
+        NSUB as _mos_body has it (under .option spice: only a given NSUB); both targets use 0
+        (ngspice's and Xyce's level 2 compute it and never use it).  HSPICE's MOS junction
+        capacitance is linear in forward bias (FC "not used"): fc=0 wherever there is one.  PHP
+        is removed (neither target has it; their sidewall uses PB): PHP other than PB on a card
+        with a sidewall capacitance is a warning.  mos_junction_warnings adds the per-instance
+        warnings (the ambiguous default without NSUB, CBD/CBS HSPICE would not use).
       CAPOP: capop=0 is removed (SPICE's Meyer model is what both targets simulate), any other
         CAPOP is a warning and removed; none is a warning that HSPICE's default CAPOP=2 is
         simulated as CAPOP=0 (20-57, Table 20-4), except under .option spice (CAPOP=0) and at
-        LEVEL 1 without TOX (no gate capacitance in HSPICE either, 20-56).
+        LEVEL 1 without TOX (no gate capacitance in HSPICE either, 20-57).
     Unless .option spice (9-14: LD=0, NSUB must be given):
       NSUB, GAMMA, PHI, VTO (_mos_body): HSPICE derives them from NSUB (default 1e15, or from
         GAMMA when only GAMMA is given), the targets only when NSUB is given (LEVEL 1: and TOX).
       LD not given but XJ (LEVEL 2, 3; the LEVEL 1 targets reject XJ): LD = 0.75*XJ (20-70, 21-29).
       CJSW (CJP) given but no MJSW (EXP): mjsw=0.33, HSPICE's MOS default (20-28); sp_mos1/2 and
-        Xyce's LEVEL 1/2 default it to 0.5.  (No CJ is a warning per instance with AD/AS:
-        mos_junction_warnings.)
+        Xyce's LEVEL 1/2 default it to 0.5.
     """
     tox = c.p.get("tox")
     if isinstance(tox, Num) and tox.value > 1.0:
@@ -630,18 +748,22 @@ def _mos123(c: _Card, lv: int, pol: float, opts: ModelOptions) -> None:
     elif tox is not None and not isinstance(tox, Num):
         c.put("tox", Ternary(Binary(">", tox, Num(1.0)), Binary("*", tox, Num(1e-10)), tox),
               "a TOX above 1 is in Angstrom")
+    _mos_cox(c, lv)
     tox = c.p.get("tox")
     has_tox = _nonzero(tox)                     # SPICE3 LEVEL 1: no TOX (or 0), no oxide capacitance
     cox = _div(Num(EPS_OX), tox) if has_tox else Num(MOS_COX)
     _mos_kp(c, lv, pol, has_tox, cox)
+    nsub_k = c.key("nsub", "dnb", "nb")
+    nsub: Optional[Expr] = c.p[nsub_k] if nsub_k is not None else None     # SPICE's: only a given one
     if not opts.spice:
-        _mos_body(c, lv, has_tox, cox)
+        nsub = _mos_body(c, lv, has_tox, cox)
         xj = c.p.get("xj")
         if lv != 1 and c.key("ld", "dlat", "latd") is None and _nonzero(xj):
             c.put("ld", _mul(Num(0.75), xj), "HSPICE's default LD=0.75*XJ")
         cjsw = c.key("cjsw", "cjp")
         if cjsw is not None and _nonzero(c.p[cjsw]) and c.key("mjsw", "exp") is None:
             c.put("mjsw", Num(MOS_MJSW), "HSPICE's default MJSW")
+    _mos_junctions(c, nsub)
     meto = c.drop("meto", "no target has it; HSPICE uses it only for CGSO and CGDO") if "meto" in c.p else None
     if has_tox:
         over = [e for e in (c.p.get("ld"), meto) if _nonzero(e)]
@@ -660,6 +782,9 @@ def _mos123(c: _Card, lv: int, pol: float, opts: ModelOptions) -> None:
         if isinstance(xj, Num) and 0.0 < xj.value < XJ_SMALL:
             c.warn("xj=%s is below 0.05u: HSPICE limits the short-channel factor fs to 1 there, both "
                    "targets (SPICE3) do not" % _txt(xj))
+        if "badmos3" not in c.p:
+            c.put("badmos3", Num(1.0), "HSPICE's channel-length modulation (21-26) is SPICE2's: the targets' "
+                  "badmos3=1, not ngspice's modified one (VACASK) or SPICE3f's KAPPA*Ep (Xyce)")
     capop = c.p.get("capop")
     if capop is not None:
         if _is_zero(capop):
@@ -672,6 +797,24 @@ def _mos123(c: _Card, lv: int, pol: float, opts: ModelOptions) -> None:
         c.warn("HSPICE's default CAPOP=2 gate capacitance (parameterized modified Meyer) is simulated as "
                "SPICE's Meyer model (CAPOP=0); add capop=0 to the card (or .option spice) to make HSPICE "
                "use the same model")
+
+
+def _mos_cox(c: _Card, lv: int) -> None:
+    """COX (alias CO) on a MOS 1/2/3 card becomes tox=EPS_OX/COX (see _mos123)."""
+    k = c.key("cox", "co")
+    if k is None:
+        return
+    cox = c.drop(k, "neither target has it; HSPICE calculates TOX from COX when COX is input (20-69)")
+    if not _nonzero(cox):
+        raise TableError("model %s: %s=%s: the oxide capacitance must be positive" % (c.model.name, k, _txt(cox)))
+    given = c.p.get("tox")
+    c.put("tox", _div(Num(EPS_OX), cox), "eps_ox/%s%s" % (k.upper(), "" if given is None else
+                                                           "; the given tox=%s is replaced" % _txt(given)))
+    if lv == 1:
+        c.warn("%s=%s with LEVEL 1: HSPICE invokes the Meyer gate capacitance only when TOX is specified (20-57) "
+               "and computes KP=UO*COX when UO and TOX are entered (21-2); whether a TOX calculated from COX "
+               "counts is not documented; simulated with tox=eps_ox/COX, so with the Meyer capacitance (and KP=UO*COX "
+               "when KP is not given); give TOX instead of COX to remove the ambiguity" % (k, _txt(cox)))
 
 
 def _mos_kp(c: _Card, lv: int, pol: float, has_tox: bool, cox: Expr) -> None:
@@ -712,8 +855,9 @@ def _mos_kp(c: _Card, lv: int, pol: float, has_tox: bool, cox: Expr) -> None:
                                          _txt(c.p["tox"]) if has_tox else "1e-07"))
 
 
-def _mos_body(c: _Card, lv: int, has_tox: bool, cox: Expr) -> None:
-    """NSUB, GAMMA, PHI and VTO (see _mos123); not under .option spice.
+def _mos_body(c: _Card, lv: int, has_tox: bool, cox: Expr) -> Optional[Expr]:
+    """NSUB, GAMMA, PHI and VTO (see _mos123); not under .option spice.  Returns the NSUB HSPICE
+    simulates (given, derived from GAMMA or the default 1e15), None when there is none.
 
     HSPICE: NSUB defaults to 1e15 or, when only GAMMA is given, is derived from it; GAMMA, PHI
     and VTO not given are computed from NSUB (20-50, 20-51), and NSUB drives the LEVEL 2/3
@@ -744,13 +888,13 @@ def _mos_body(c: _Card, lv: int, has_tox: bool, cox: Expr) -> None:
         if vto_k is None:
             c.warn("VTO is not given: HSPICE computes it from NSUB, PHI, GAMMA and TPG (20-51), but the "
                    "target uses VTO=0 here; give VTO")
-        return
+        return None
     if has_tox or lv != 1:
         if nsub_k is None and (lv != 1 or gamma_k is None or phi_k is None or vto_k is None):
             c.put("nsub", nsub, why)
         if phi_k is None:
             c.put("phi", phi_of(nsub), "HSPICE's PHI from NSUB")
-        return
+        return nsub
     if gamma_k is None:
         c.put("gamma", gamma_of(nsub, Num(MOS_COX)), "HSPICE's GAMMA from NSUB and the default COX; "
               "the LEVEL 1 target without TOX ignores NSUB")
@@ -759,6 +903,40 @@ def _mos_body(c: _Card, lv: int, has_tox: bool, cox: Expr) -> None:
     if vto_k is None:
         c.warn("VTO is not given: HSPICE computes it from NSUB, PHI, GAMMA and TPG (20-51), but the "
                "LEVEL 1 target without TOX uses VTO=0; give VTO (or TOX)")
+    return nsub
+
+
+def _mos_junctions(c: _Card, nsub: Optional[Expr]) -> None:
+    """The bulk junctions of a MOS LEVEL 1, 2 or 3 card (see _mos123).
+
+    HSPICE's MOS diode (20-26..20-48) with ACM 0, 2 or 3 (vamos removes ACM with a warning and the
+    targets compute AD*CJ+PD*CJSW as ACM=0 does; ACM=1's CJ is per width and is left alone):
+    CJ defaults to sqrt(eps_si*q*NSUB/(2*PB)) for ASPEC=0 (20-28; ASPEC=1, which vamos refuses,
+    sets 0, 21-86), PB to 0.8 (both targets' too), PHP to PB; FC is not used: below 0 V the
+    capacitance is CJ*(1-v/PB)^-MJ, above it CJ*(1+MJ*v/PB) (20-47), SPICE's formula with FC=0.
+    The targets have no PHP (SPICE3's MOS sidewall uses PB) and default CJ to 0 and FC to 0.5.
+    """
+    acm = next((v for k, v in c.model.params.items() if k.lower() == "acm"), None)
+    if isinstance(acm, Num) and acm.value == 1.0:
+        return
+    pb_k = c.key(*MOS_PB_KEYS)
+    pb = c.p[pb_k] if pb_k is not None else Num(MOS_PB)
+    if c.key(*MOS_CJ_KEYS) is None and nsub is not None and _nonzero(nsub):
+        c.put("cj", Call("sqrt", (_div(_mul(Num(EPS_SI * Q_E * 1e6), nsub), _mul(Num(2.0), pb)),)),
+              "HSPICE's default for option ASPEC=0, sqrt(eps_si*q*NSUB/(2*PB)) (20-28)")
+    caps = MOS_CJ_KEYS + ("cjsw", "cjp") + MOS_CBX_KEYS
+    if any(_nonzero(c.p.get(k)) for k in caps) and not _is_zero(c.p.get("fc")):
+        was = c.p.get("fc")
+        c.put("fc", Num(0.0), "HSPICE does not use FC for MOS junctions (20-28): its forward-bias depletion "
+              "capacitance is SPICE's with FC=0%s" % ("" if was is None else "; fc=%s ignored" % _txt(was)))
+    php = c.p.get("php")
+    if php is not None:
+        same = X.to_text(X.fold(php)) == X.to_text(X.fold(pb))
+        side = c.key("cjsw", "cjp")
+        c.drop("php", "neither target has it: their sidewall junction uses PB")
+        if not same and side is not None and _nonzero(c.p[side]):
+            c.warn("php=%s differs from PB=%s: HSPICE's sidewall junction uses PHP (20-47), both targets PB; "
+                   "simulated with PB" % (_txt(php), _txt(pb)))
 
 
 def _bsim3(c: _Card, lv: int) -> None:
@@ -771,10 +949,15 @@ def _bsim3(c: _Card, lv: int) -> None:
     default is HSPICE's own CAPMOD=0 (a modified BSIM1 model based on CAPOP=13) that neither
     engine has.  A VERSION that is not a constant is a warning.
     LEVEL 49 without ACM: a warning that HSPICE's default ACM=0 junction model is simulated as
-    the Berkeley junctions (HSPICE ACM=10); acm=10 is removed with a note (model_params), and
-    then a missing JS is written 0 (HSPICE's LEVEL 49 default; Berkeley's is 1e-4).
+    the Berkeley junctions (HSPICE ACM=10).  Where HSPICE's own junction model applies (LEVEL 49
+    without ACM, or ACM 0, 2 or 3 at either level) its defaults CJ=5.79e-4 and CJSW=0 (22-43,
+    "Default deviates from BSIM3v3": 5e-4 and 5e-10) are written: the targets' bottom junction
+    then has HSPICE's capacitance.  With ACM=10 (removed with a note, model_params) the defaults
+    are Berkeley's, which both targets have: LEVEL 53 keeps "identical parameter default values"
+    and ACM=10 is how LEVEL 49 achieves "compliance with Berkeley BSIM3v3" (22-19), so
+    the table's JS=0, CJ=5.79e-4 and CJSW=0 belong to the ACM=0 default.
     """
-    acm = c.model.params.get("acm")
+    acm = next((v for k, v in c.model.params.items() if k.lower() == "acm"), None)
     if lv == 49:
         if "xpart" not in c.p:
             c.put("xpart", Num(1.0), "HSPICE's LEVEL 49 default (0/100 partition); BSIM3's is 0")
@@ -783,8 +966,11 @@ def _bsim3(c: _Card, lv: int) -> None:
                    "N, PHP and CJGATE; NJ, CJSWG, MJSWG, PBSW and PBSWG are not used) is simulated as "
                    "BSIM3's Berkeley junctions (HSPICE ACM=10); add acm=10 to the card to make HSPICE "
                    "use the same model")
-        elif isinstance(acm, Num) and acm.value == ACM_BERKELEY and "js" not in c.p:
-            c.put("js", Num(0.0), "HSPICE's LEVEL 49 default; BSIM3's is 1e-4")
+    if (lv == 49 and acm is None) or (isinstance(acm, Num) and acm.value in BSIM3_HSPICE_ACM):
+        for k, v, berkeley in (("cj", BSIM3_HSPICE_CJ, "5e-4"), ("cjsw", 0.0, "5e-10")):
+            if k not in c.p:
+                c.put(k, Num(v), "HSPICE's default with its own junction model (ACM 0-3); BSIM3's is %s"
+                      % berkeley)
     if "capmod" in c.p:
         return
     v = c.p.get("version")
@@ -841,8 +1027,9 @@ def _junctions(c: _Card, elem: str, opts: ModelOptions) -> None:
         raise TableError("model %s: DCAP=3 (peak-limited depletion capacitance) has no VACASK or Xyce "
                          "equivalent; use DCAP=1 or 2" % c.model.name)
     if dcap == 2.0:
-        # fc=0 for a sidewall-only diode too: both targets' sidewall charge (ngspice's code) adds the
-        # area term czeroSW*F1, F1 being 0 only with FC=0, so FC must match FCS there
+        # fc=0 for a sidewall-only diode too, as HSPICE ignores FC under DCAP=2 (the engines'
+        # sidewall charge takes its own F1 from FCS since round 6, P14: VACASK diode.va
+        # DIOtF1SW, Xyce tF1SW; before, both used the area's F1, which this also matched)
         for k, used in (("fc", area + side), ("fcs", side)):
             if used and not _is_zero(c.p.get(k)):
                 was = c.p.get(k)
@@ -951,6 +1138,113 @@ def multiplier(m: Optional[Expr], in_subckt: bool, engine: str) -> Optional[Expr
     return m
 
 
+# Elements whose branch current both engines can read inside a behavioral expression: VACASK
+# reads <inst>:flow(br), Xyce I(<dev>); R, C, D, F, G, M, ... have no such branch on either
+# ("Controlling unknown 'r1:flow(br)' not found"; Xyce aborts), though HSPICE reads i() of them.
+BRANCH_KINDS = ("v", "l", "e", "h")
+
+
+def has_branch(inst: Instance) -> bool:
+    """inst has a branch current both engines can read in an expression (and probe as i())."""
+    return inst.kind in BRANCH_KINDS or (inst.kind == "b" and inst.expr_kind == "v")
+
+
+def element_at(items: Sequence[object], scope: "Scope", target: str) -> Optional[Instance]:
+    """The element a (hierarchical, x1.x2.r1) name of a v()/i() reference names, relative to the
+    body items of scope; None when there is none."""
+    parts = target.split(".")
+    for k, part in enumerate(parts):
+        found = next((it for it in items if isinstance(it, Instance) and it.name == part), None)
+        if found is None or k == len(parts) - 1:
+            return found
+        sub = scope.where(found.master or "") if found.kind == "x" else None
+        if sub is None:
+            return None
+        scope = Scope(sub[0].body, sub[1], sub[0])
+        items = sub[0].body
+    return None
+
+
+def current_ref_errors(inst: Instance, items: Sequence[object], scope: "Scope") -> List[str]:
+    """Messages for the i() references of a behavioral element's expression that name an element
+    without a branch current (has_branch): both engines fail on them, inside the engine."""
+    out: List[str] = []
+    if inst.expr is None:
+        return out
+    for e in X.walk(inst.expr):
+        if not (isinstance(e, Call) and e.func == "i" and len(e.args) == 1 and isinstance(e.args[0], Name)):
+            continue
+        target = e.args[0].name
+        el = element_at(items, scope, target)
+        if el is None or has_branch(el):
+            continue
+        msg = ("i(%s) in the expression of %s: the %s element has no branch current VACASK or Xyce can read "
+               "in an expression (V, L, E, H and E VOL= elements have one); put a 0 V source in series with "
+               "%s and use i() of it" % (target, inst.name, el.kind.upper(), target))
+        if msg not in out:
+            out.append(msg)
+    return out
+
+
+def item_exprs(item: object) -> List[Expr]:
+    """Every expression of one body item (not of the definitions nested in a Subckt): a Param's,
+    an Instance's value, parameters, behavioral expression and source fields, a Model's parameters,
+    a Subckt's header parameters."""
+    out: List[Expr] = []
+    if isinstance(item, Param):
+        out.append(item.expr)
+    elif isinstance(item, Model):
+        out.extend(item.params.values())
+    elif isinstance(item, Subckt):
+        out.extend(p.expr for p in item.params)
+    elif isinstance(item, Instance):
+        out.extend(e for e in (item.value, item.expr) if e is not None)
+        out.extend(item.params.values())
+        s = item.source
+        if s is not None:
+            out.extend(e for e in (s.dc, s.ac[0] if s.ac else None, s.ac[1] if s.ac else None) if e is not None)
+            out.extend(s.args.values())
+            for t, v in s.points:
+                out.extend((t, v))
+    return out
+
+
+def enclosing_reads(s: Subckt, enclosing: Sequence[str]) -> List[str]:
+    """The parameters of enclosing subckts (enclosing: their names) that the body of the nested
+    definition s reads and does not declare itself, sorted."""
+    own = {p.name for p in s.params} | {p.name for p in s.body if isinstance(p, Param)}
+    want = set(enclosing) - own
+    found: Set[str] = set()
+    for it in s.body:
+        if isinstance(it, Subckt):
+            continue
+        for e in item_exprs(it):
+            found |= X.names(e) & want
+    return sorted(found)
+
+
+MOS_STRESS_KEYS = ("sa", "sb", "sd", "sc")
+
+
+def mos_scale_warnings(inst: Instance, options: Optional[Mapping[str, Expr]] = None) -> List[Note]:
+    """An M instance giving the BSIM4 layout distances SA, SB, SD or SC under .option scale other than
+    1: vamos scales W, L, AD, AS, PD and PS (SCALE_POWERS), as ngspice's BSIM4 code (VACASK's
+    sp_bsim4v8) does with its own scale, and passes the distances as written; whether HSPICE's SCALE
+    ("scales element statement parameters", MOSFET Models X-2005.09 p. 11) reaches them is not
+    documented, and the two readings differ by the scale factor: a warning."""
+    s = (options or {}).get("scale")
+    if not isinstance(s, Num) or s.value == 1.0:
+        return []
+    given = [k for k in MOS_STRESS_KEYS if _nonzero(inst.params.get(k))]
+    if not given:
+        return []
+    return [warning(inst.origin or inst.name,
+                    "%s: %s under .option scale=%g: both targets read %s as written (in meters, unscaled); "
+                    "whether HSPICE's SCALE applies to %s is not documented"
+                    % (inst.name, "/".join(given), s.value, "it" if len(given) == 1 else "them",
+                       "it" if len(given) == 1 else "them"))]
+
+
 # Parameters coupled_inductance folds into a coupled inductor's value (the emitters print none of them).
 COUPLED_FOLDED = ("m", "tc1", "tc2", "dtemp")
 
@@ -1030,8 +1324,9 @@ def bin_bounds(model: Model, values: Mapping[str, float]) -> Tuple[float, float,
         try:
             out.append(X.evaluate(e, values))
         except X.EvalError as exc:
-            raise TableError("binned model %s: %s=%s is not constant (%s)"
-                             % (model.name, k, X.to_text(e), exc))
+            raise TableError("binned model %s: %s=%s is not constant (%s): vamos evaluates bin bounds with "
+                             "the top-level parameters only, so a bin card in a subckt cannot read the "
+                             "subckt's parameters; give constant bounds" % (model.name, k, X.to_text(e), exc))
     return out[0], out[1], out[2], out[3]
 
 

@@ -20,8 +20,15 @@
 #   === sv2vhdl-modules: iverilog -tvhdl -s <module>: <status>
 #   <iverilog's output for that run>
 # where <status> is "translated", "deferred (iverilog exit <rc>)",
-# "deferred (timed out after <n> s)" or "deferred (no VHDL written)".
+# "deferred (timed out after <n> s)", "deferred (<n> error(s) from the VHDL
+# back end, which exited 0)" or "deferred (no VHDL written)".
 # A module that ends deferred also gets its section echoed on stderr.
+#
+# A run that exits 0 but reports an error is not a translation: tgt-vhdl says
+# some errors on stderr and goes on without the statement it could not draw
+# ("Error: first arg to $set_val must be a signal": the always block's body is
+# dropped, and the design simulates X).  Such a module is deferred like one
+# whose run failed (BACKEND_ERROR_RE).
 #
 # Pipeline position:
 #   iverilog -E | sv-normalize | sv2vhdl-modules > design.vhd
@@ -36,7 +43,11 @@ SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
 # build before installing. Falling back to a system `iverilog` with a stale
 # -B silently fails every module's SV->VHDL translation -> port-less deferred
 # stubs (a whole design that elaborates hollow). $IVERILOG / $IVL_BUILD_LIB
-# still override.
+# still override. An $IVERILOG with no lib/ivl beside its bin/ (a wrapper
+# script that passes its own -B, an iverilog on PATH) gets no -B here: the
+# build area's plugins, which a -B here would name, overrode the wrapper's
+# and silently translated with the shared vhdl.tgt.
+_explicit_iverilog=${IVERILOG:+1}
 if [[ -z "$IVERILOG" ]]; then
     if [[ -x /usr/local/src/iverilog/_install/bin/iverilog ]]; then
         IVERILOG=/usr/local/src/iverilog/_install/bin/iverilog
@@ -46,16 +57,21 @@ if [[ -z "$IVERILOG" ]]; then
 fi
 if [[ -z "$IVL_BUILD_LIB" ]]; then
     _ivl_pfx="${IVERILOG%/bin/iverilog}"
-    if [[ -d "$_ivl_pfx/lib/ivl" ]]; then
+    if [[ "$_ivl_pfx" != "$IVERILOG" && -d "$_ivl_pfx/lib/ivl" ]]; then
         IVL_BUILD_LIB="$_ivl_pfx/lib/ivl"
+    elif [[ -n "$_explicit_iverilog" ]]; then
+        IVL_BUILD_LIB=""
     elif [[ -d /usr/local/src/iverilog/_install/lib/ivl ]]; then
         IVL_BUILD_LIB=/usr/local/src/iverilog/_install/lib/ivl
     else
         IVL_BUILD_LIB=/usr/local/src/iverilog/build-lib
     fi
 fi
-IVL_FLAGS="-B$IVL_BUILD_LIB"
+IVL_FLAGS="${IVL_BUILD_LIB:+-B$IVL_BUILD_LIB}"
 NVC_FLAGS="-psv2vhdl=1 -g2012"
+# An error line in the output of an iverilog run: tgt-vhdl's "Error: ..." (on
+# stderr, exit 0) and "VHDL conversion error: ...", or "<file>:<line>: error: ..."
+BACKEND_ERROR_RE='^(Error|VHDL conversion error|[^ :]+:[0-9]+: error): '
 OUTFILE=""
 TOPMOD=""
 INFILE=""
@@ -90,8 +106,11 @@ fi
 WORKDIR=$(mktemp -d)
 trap "rm -rf $WORKDIR" EXIT
 
-# Extract module names
-MODULES=$(grep "^module " "$INFILE" | sed 's/module //; s/[( ;#].*//' | sort -u)
+# Extract module names (comments and strings stripped first: a module commented out with
+# /* ... */ over several lines is no module -- ivtest pr1587634's `/* module top(); ... */'
+# was translated as a top that iverilog cannot find -- and a "/*" in a string starts none)
+MODULES=$(perl -0777 -pe 's{("(?:\\.|[^"\\\n])*")|(/\*.*?\*/)|(//[^\n]*)}{ defined $1 ? q("") : defined $2 ? do { my $c = $2; $c =~ tr/\n//cd; $c } : "" }gse' "$INFILE" \
+          | grep "^module " | sed 's/module //; s/[( ;#].*//' | sort -u)
 NMOD=$(echo "$MODULES" | wc -w)
 echo "sv2vhdl-modules: found $NMOD modules" >&2
 
@@ -113,7 +132,9 @@ for mod in $MODULES; do
     timeout "${SV2VHDL_MOD_TIMEOUT:-600}" "$IVERILOG" $IVL_FLAGS -tvhdl $NVC_FLAGS \
             -s "$mod" -o "$MODFILE" "$INFILE" > "$MODLOG" 2>&1
     rc=$?
-    if [[ $rc -eq 0 && -s "$MODFILE" ]]; then
+    nerr=0
+    [[ $rc -eq 0 ]] && nerr=$(grep -c -E "$BACKEND_ERROR_RE" "$MODLOG")
+    if [[ $rc -eq 0 && $nerr -eq 0 && -s "$MODFILE" ]]; then
         STATUS="translated"
         # Rename helper entities by port-signature hash so cross-module
         # collisions (e.g. rvdff5 with different WIDTHs) become distinct
@@ -130,6 +151,8 @@ for mod in $MODULES; do
             STATUS="deferred (timed out after ${SV2VHDL_MOD_TIMEOUT:-600} s)"
         elif [[ $rc -ne 0 ]]; then
             STATUS="deferred (iverilog exit $rc)"
+        elif [[ $nerr -gt 0 ]]; then
+            STATUS="deferred ($nerr error(s) from the VHDL back end, which exited 0)"
         else
             STATUS="deferred (no VHDL written)"
         fi

@@ -87,6 +87,14 @@ class Job:
     ams: Optional[dict] = None
     precision: Optional[str] = None      # simulation precision, when the preprocess step ran
 
+    # The design's VCD dump (vcs.dump_request), for ./simv's waves (simv.wave_request);
+    # None: no $dumpvars and no +vcs+dumpvars.  {"calls": [{"scopes": [[levels, nvc path],
+    # ...] ([]: the whole design), "origin": "file:line", "if": [[plusarg, present], ...]}],
+    # "files": [{"name": $dumpfile name, or "plusarg": the prefix whose value names it,
+    # "origin": ..., "if": [...]}]}.  "if": the $test$plusargs / $value$plusargs tests the
+    # call runs under ([]: always), which ./simv evaluates against its plusargs.
+    dump: Optional[dict] = None
+
     schema: int = SCHEMA
 
     def note(self, option: str, disposition: str, note: str = "") -> None:

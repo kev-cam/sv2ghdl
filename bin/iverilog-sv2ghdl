@@ -19,6 +19,21 @@
 # section per module). Each module that ends as a deferred stub in
 # design.vhd is reported on stderr with its section.
 #
+# A VHDL back end run that exits 0 but reports an error ("Error: ..." on
+# stderr, "VHDL conversion error: ...") failed all the same: tgt-vhdl goes on
+# without the statement it could not draw, and the design would simulate X.
+# sv2vhdl-modules defers such a module; the whole-design and per-module stages
+# below take such a run as failed (BACKEND_ERROR_RE).
+#
+# nvc's analysis of the module-by-module translation (stage 1a) can fail in a
+# module the design does not use: sv2vhdl-modules translates every module on
+# its own, also one that only an unused generate branch instantiates.  When
+# the whole-design translation (stage 1) then analyses, nvc's stage-1a errors
+# are not printed: they are kept in <outdir>/_mods_analysis.log, with the VHDL
+# they cite as <outdir>/_mods_design.vhd, and under vamos a note names the
+# modules they are in and says whether the design uses them.  When stage 1
+# fails too, they are printed as before.
+#
 
 set -o pipefail
 export PATH="/usr/bin:/usr/local/bin:/bin:$PATH"
@@ -60,6 +75,18 @@ if [[ -z "${SV_NORMALIZE_NO_CHAINED+x}" || -z "${SV_NORMALIZE_NO_STRUCT_ASSIGN+x
     if "$IVERILOG" -g2012 -tnull -o /dev/null "$_vpx/p.v" >/dev/null 2>&1; then
         [[ -z "${SV_NORMALIZE_NO_CHAINED+x}" ]]       && export SV_NORMALIZE_NO_CHAINED=1
         [[ -z "${SV_NORMALIZE_NO_STRUCT_ASSIGN+x}" ]] && export SV_NORMALIZE_NO_STRUCT_ASSIGN=1
+    fi
+    rm -rf "$_vpx"
+fi
+# Rule 6 too: it rewrites a one-line `m[i][j] = v;' as `$set_val(m, i, j, v)', where
+# v, a system-task argument, is evaluated at its own width (`m[i][j] = a + b' lost
+# the carry, silently).  An iverilog that elaborates the chained select on the left
+# (and tgt-vhdl stores at the select's width) needs no rewrite.
+if [[ -z "${SV_NORMALIZE_NO_SET_VAL+x}" ]]; then
+    _vpx=$(mktemp -d)
+    printf 'module _vpx; reg [7:0] m [0:1]; integer i, j; initial m[i][j] = 1'"'"'b1; endmodule\n' > "$_vpx/p.v"
+    if "$IVERILOG" -g2012 -tnull -o /dev/null "$_vpx/p.v" >/dev/null 2>&1; then
+        export SV_NORMALIZE_NO_SET_VAL=1
     fi
     rm -rf "$_vpx"
 fi
@@ -199,6 +226,82 @@ IVL_LOG="$OUTDIR/iverilog.log"
 : > "$IVL_LOG"
 ivl_log_section() { echo "=== iverilog-sv2ghdl: $*" >> "$IVL_LOG"; }
 
+# An error line in the output of a VHDL back end run (see the header):
+# tgt-vhdl's "Error: ..." and "VHDL conversion error: ...", or
+# "<file>:<line>: error: ..." (sv2vhdl-modules has the same rule)
+BACKEND_ERROR_RE='^(Error|VHDL conversion error|[^ :]+:[0-9]+: error): '
+
+# ivl_run <section> <command...>: run a VHDL back end command with its stderr
+# in its own section of iverilog.log.  Fails when the command fails, and when
+# it exits 0 but reports an error (BACKEND_ERROR_RE), which the section notes.
+ivl_run() {
+    local sect="$1" err="$OUTDIR/.ivl_run.err" rc n
+    shift
+    ivl_log_section "$sect"
+    "$@" 2>"$err"
+    rc=$?
+    cat "$err" >> "$IVL_LOG"
+    n=$(grep -c -E "$BACKEND_ERROR_RE" "$err")
+    if [[ $rc -eq 0 && $n -gt 0 ]]; then
+        echo "iverilog-sv2ghdl: $n error(s) from the VHDL back end, which exited 0: this run failed" >> "$IVL_LOG"
+        rc=1
+    fi
+    rm -f "$err"
+    return $rc
+}
+
+# Stage 1a's nvc analysis (see the header): its output, and the VHDL it cites
+MODS_NVC_LOG="$OUTDIR/_mods_analysis.log"
+MODS_VHD="$OUTDIR/_mods_design.vhd"
+MODS_FAILED=""
+
+# mods_failed_units: "<module>\t<line>\t<nvc's message>" for each Verilog module
+# whose VHDL in $MODS_VHD an error of $MODS_NVC_LOG cites (the first error per
+# module), from the "-- Generated from Verilog module" comments tgt-vhdl puts
+# before each design unit
+mods_failed_units() {
+    awk '
+        FNR == NR {
+            if ($0 ~ /^\*\* (Error|Fatal|Failure): /) {
+                msg = $0; sub(/^\*\* (Error|Fatal|Failure): /, "", msg)
+            } else if (msg != "" && $0 ~ /^[ \t]*> .*_mods_design\.vhd:[0-9]+[ \t]*$/) {
+                l = $0; sub(/^.*:/, "", l); l += 0
+                if (!(l in want)) want[l] = msg
+                msg = ""
+            }
+            next
+        }
+        /^-- Generated from Verilog module / {
+            cur = $0; sub(/^-- Generated from Verilog module /, "", cur); sub(/[ \t(].*$/, "", cur)
+        }
+        (FNR in want) && cur != "" && !(cur in seen) {
+            seen[cur] = 1; print cur "\t" FNR "\t" want[FNR]
+        }' "$MODS_NVC_LOG" "$MODS_VHD"
+}
+
+# mods_failure_note: stage 1a's analysis failed and stage 1's passed.  Into
+# iverilog.log, and under vamos (which shows the translator's output) a note on
+# stderr: each module nvc's errors are in, and whether the design uses it (its
+# whole-design translation has it).
+mods_failure_note() {
+    local mod line msg how n=0
+    ivl_log_section "nvc -a of the module-by-module translation failed; the whole-design translation was used"
+    cat "$MODS_NVC_LOG" >> "$IVL_LOG"
+    while IFS=$'\t' read -r mod line msg; do
+        n=$((n + 1))
+        if grep -q -F -- "-- Generated from Verilog module $mod (" "$VHDL_OUT"; then
+            how="the module-by-module translation of module $mod does not analyse (nvc: $msg, $MODS_VHD:$line); the whole-design translation, which analyses, was used"
+        else
+            how="module $mod, which the design does not use, does not translate on its own (nvc: $msg, $MODS_VHD:$line); it is left out"
+        fi
+        echo "iverilog-sv2ghdl: note: $how" >> "$IVL_LOG"
+        [[ -n "$VAMOS_STACK" ]] && echo "iverilog-sv2ghdl: note: $how" >&2
+    done < <(mods_failed_units)
+    if [[ $n -eq 0 && -n "$VAMOS_STACK" ]]; then
+        echo "iverilog-sv2ghdl: note: nvc could not analyse the module-by-module translation (see $MODS_NVC_LOG); the whole-design translation, which analyses, was used" >&2
+    fi
+}
+
 # --- Stage 0: preprocess + normalize ---
 # The iverilog tgt-vhdl elaborator rejects some SystemVerilog the VeeR-class
 # RTL uses (notably chained dynamic-then-range indexing `arr[VAR][HI:LO]`).
@@ -254,9 +357,20 @@ if [[ -n "$NORM_SRC" && -x "$SV2VHDL_MODULES" ]]; then
         fi
         two_state_clean_vhdl "$VHDL_OUT"
         cd "$OUTDIR"
-        if $NVC -M 2g -H 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
+        if $NVC -M 2g -H 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" > "$MODS_NVC_LOG" 2>&1; then
+            cat "$MODS_NVC_LOG"
+            rm -f "$MODS_NVC_LOG"
             IVERILOG_OK=1
             echo "SV2VHDL_MODULES=1" >> "$OUTDIR/_metadata.tmp"
+        else
+            # kept, citing the VHDL as $MODS_VHD, until stage 1 has run (see the header)
+            MODS_FAILED=1
+            mv "$VHDL_OUT" "$MODS_VHD"
+            awk -v a="$VHDL_OUT:" -v b="$MODS_VHD:" '{
+                    out = ""; s = $0
+                    while ((i = index(s, a)) > 0) { out = out substr(s, 1, i - 1) b; s = substr(s, i + length(a)) }
+                    print out s }' "$MODS_NVC_LOG" > "$MODS_NVC_LOG.tmp" \
+                && mv "$MODS_NVC_LOG.tmp" "$MODS_NVC_LOG"
         fi
         cd "$ORIG_DIR"
     fi
@@ -266,18 +380,33 @@ fi
 # Produces a single VHDL file with entity instantiations for sv2vhdl
 # primitives.  Uses --std=2040 for NVC compilation.
 
-[[ $IVERILOG_OK -eq 0 ]] && ivl_log_section "iverilog -tvhdl (whole design)"
+WHOLE_NVC_LOG="$OUTDIR/.whole_analysis.log"
 if [[ $IVERILOG_OK -eq 0 ]] && \
-   timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}" 2>>"$IVL_LOG"; then
+   ivl_run "iverilog -tvhdl (whole design)" \
+       timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}"; then
     if [[ -s "$VHDL_OUT" ]]; then
         two_state_clean_vhdl "$VHDL_OUT"
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
         cd "$OUTDIR"
-        if $NVC -M 2g -H 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" 2>&1; then
+        if $NVC -M 2g -H 1g --std=2040 -L "$NVC_LIBDIR" -a "$VHDL_OUT" > "$WHOLE_NVC_LOG" 2>&1; then
             IVERILOG_OK=1
             echo "IVERILOG_BACKEND=1" >> "$OUTDIR/_metadata.tmp"
         fi
     fi
+fi
+
+# Stage 1a's analysis errors: a note when stage 1 analysed, else printed (ahead of
+# stage 1's own, as they always came)
+if [[ -n "$MODS_FAILED" ]]; then
+    if [[ $IVERILOG_OK -eq 1 ]]; then
+        mods_failure_note
+    else
+        cat "$MODS_NVC_LOG"
+    fi
+fi
+if [[ -f "$WHOLE_NVC_LOG" ]]; then
+    cat "$WHOLE_NVC_LOG"
+    rm -f "$WHOLE_NVC_LOG"
 fi
 
 # --- Stage 2: Try iverilog per-module ---
@@ -325,9 +454,9 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
         [[ "$modname" == "_preamble" ]] && continue
         mod_vhd="$OUTDIR/${modname}.vhd"
 
-        ivl_log_section "iverilog -tvhdl $modname (per-module fallback)"
-        if timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
-                -o "$mod_vhd" "$mod_v" 2>>"$IVL_LOG" \
+        if ivl_run "iverilog -tvhdl $modname (per-module fallback)" \
+                timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
+                -o "$mod_vhd" "$mod_v" \
                 && [[ -s "$mod_vhd" ]] \
                 && $NVC --std=2040 -L "$NVC_LIBDIR" -a "$mod_vhd" >/dev/null 2>&1; then
             MODULES_OK=$((MODULES_OK + 1))
@@ -379,7 +508,10 @@ fi
 # times. Pick the unique minimum-occurrence module; fall back to the first
 # module of the last source file if that's ambiguous.
 if [[ -z "$TOP_MODULE" ]]; then
-    _src=$(cat "${ABS_SOURCES[@]}" 2>/dev/null | sed -e 's://.*$::' -e 's:/\*.*\*/::g')
+    # (a block comment over several lines too: pr1587634's `/* module top(); ... */'; and
+    # strings, whose words are no references: scope2's "main.test.q" tied main with test)
+    _src=$(cat "${ABS_SOURCES[@]}" 2>/dev/null \
+           | perl -0777 -pe 's{("(?:\\.|[^"\\\n])*")|(/\*.*?\*/)|(//[^\n]*)}{ defined $1 ? q("") : defined $2 ? do { my $c = $2; $c =~ tr/\n//cd; $c } : "" }gse')
     _decl=$(printf '%s\n' "$_src" | grep -oP '^\s*(?:\(\*.*?\*\)\s*)*module\s+\K\w+' | sort -u)
     _best=""; _min=2147483647; _ties=0
     for _m in $_decl; do
@@ -396,6 +528,17 @@ fi
 
 if [[ -z "$TOP_MODULE" ]]; then
     echo "iverilog-sv2ghdl: cannot determine top module" >&2
+    exit 1
+fi
+
+# A top module left as a deferred stub has nothing to simulate: the run would end at
+# once, with no output and exit 0, and the reason would show only above and in
+# iverilog.log.  Fail the compile, as iverilog fails on a design it cannot elaborate
+# (ivtest's compile-error tests count on that).  Under vamos (VAMOS_STACK) the
+# translation stays, and vamos reports the stub itself, quoting iverilog's reason.
+if [[ -z "$VAMOS_STACK" && -s "$VHDL_OUT" ]] \
+        && grep -q -E "sv2vhdl:deferred source=.* module=${TOP_MODULE}\$" "$VHDL_OUT"; then
+    echo "iverilog-sv2ghdl: the top module $TOP_MODULE was not translated (a deferred stub; see above)" >&2
     exit 1
 fi
 
@@ -417,10 +560,28 @@ if [[ -n "$VAMOS_STACK" && -s "$IVL_LOG" ]]; then
             if (!seen[$0]++) print "iverilog-sv2ghdl: " $0 }' "$IVL_LOG" >&2
 fi
 
+# The entity of the top module: tgt-vhdl renames a module whose name is a VHDL
+# reserved word (pipe -> pipe_module__50dc, loop, view, ...); the "-- Generated
+# from Verilog module <m> (...)" comment right above the entity keeps the Verilog
+# name.  The last such entity (a translation run writes its root last); the module
+# name itself when there is none (`nvc -e pipe' found no unit WORK.PIPE).
+TOP_ENTITY="$TOP_MODULE"
+if [[ -s "$VHDL_OUT" ]]; then
+    _ent=$(awk -v m="$TOP_MODULE" '
+        /^-- Generated from Verilog module / { cur = $6; next }
+        /^--/                                { next }
+        /^[ \t]*entity[ \t]+[A-Za-z0-9_]+[ \t]+is/ {
+            if (cur == m) { e = $0; sub(/^[ \t]*entity[ \t]+/, "", e); sub(/[ \t].*$/, "", e); found = e }
+        }
+        { cur = "" }
+        END { if (found != "") print found }' "$VHDL_OUT")
+    [[ -n "$_ent" ]] && TOP_ENTITY="$_ent"
+fi
+
 # Write metadata for vvp-sv2ghdl (with what the stages recorded on the way,
 # SV2VHDL_MODULES=1 / IVERILOG_BACKEND=1; _metadata.tmp keeps them too)
 {
-    echo "TOP_ENTITY=\"$TOP_MODULE\""
+    echo "TOP_ENTITY=\"$TOP_ENTITY\""
     if [[ $IVERILOG_OK -eq 1 ]]; then
         echo "NVC_STD=\"2040\""
     else

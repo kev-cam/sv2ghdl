@@ -1440,6 +1440,76 @@ def api_scan(pp: PP) -> List[Note]:
     return out
 
 
+_TIMING_CHECKS = frozenset("$setup $hold $setuphold $recovery $removal $recrem $skew $timeskew "
+                           "$fullskew $period $width $nochange".split())
+
+
+def timing_omissions(pp: PP, nospecify: bool = False, notimingcheck: bool = False,
+                     text: Optional[str] = None, exclude: Iterable[str] = ()) -> List[Note]:
+    """What of the design's timing the simulation leaves out, as warnings (VCS applies it
+    unless told not to): the module path delays of specify blocks (the translation drops the
+    blocks, keeping their specparams, so every path has zero delay), their timing checks,
+    and each $sdf_annotate call (iverilog omits it with the specify blocks: no SDF delay is
+    applied).  The specify warnings come once, at the first such block, with the count;
+    +nospecify (VCS: ignore them) silences both, +notimingcheck the timing-check one.
+    text: pp's text as compiled (library_rule's, same lines), else pp's own; exclude: modules
+    the simulation does not run as Verilog (AMS cells a SPICE subckt replaces)."""
+    out: List[Note] = []
+    if text is None:
+        toks, where = pp.toks(), pp.origin_at
+    else:
+        toks, starts = tokenize(text), line_starts(text)
+        where = lambda off: pp.origin(bisect_right(starts, off))   # noqa: E731
+    paths: List[int] = []           # offsets of `specify' of blocks that hold a path delay
+    checks: List[Tok] = []
+    sdf: List[Tok] = []
+    skip = set(exclude)
+    module = None                   # the module the scan is in
+    i, n = 0, len(toks)
+    while i < n:
+        t = toks[i]
+        if t.kind == "id" and t.text in ("module", "macromodule") and i + 1 < n:
+            module = toks[i + 1].name
+        elif t.kind == "id" and t.text == "endmodule":
+            module = None
+        if module in skip:
+            i += 1
+            continue
+        if t.kind == "id" and t.text == "specify":
+            has_path = False
+            j = i + 1
+            while j < n and not (toks[j].kind == "id" and toks[j].text == "endspecify"):
+                tj = toks[j]
+                # a path declaration's `=>' or `*>' (the lexer gives two adjacent tokens)
+                if (tj.kind == "op" and tj.text == ">" and toks[j - 1].kind == "op"
+                        and toks[j - 1].text in ("=", "*") and toks[j - 1].end == tj.start):
+                    has_path = True
+                elif tj.kind == "sys" and tj.text in _TIMING_CHECKS:
+                    checks.append(tj)
+                j += 1
+            if has_path:
+                paths.append(t.start)
+            i = j + 1
+            continue
+        if t.kind == "sys" and t.text == "$sdf_annotate":
+            sdf.append(t)
+        i += 1
+    if paths and not nospecify:
+        out.append(warning(where(paths[0]), "specify path delays are not simulated: every "
+                           "module path has zero delay (%d specify block%s with path delays; "
+                           "VCS applies them unless given +nospecify)"
+                           % (len(paths), "" if len(paths) == 1 else "s")))
+    if checks and not (nospecify or notimingcheck):
+        names = sorted(set(c.text for c in checks))
+        out.append(warning(where(checks[0].start), "timing checks are not run (%s; %d in the "
+                           "design; VCS runs them unless given +notimingcheck)"
+                           % (", ".join(names), len(checks))))
+    for t in sdf:
+        out.append(warning(where(t.start), "$sdf_annotate is not simulated: the SDF file's "
+                           "delays are not applied"))
+    return out
+
+
 # tgt-vhdl's located comments for what it cannot translate: a dropped system task, and a
 # system function replaced by a constant.
 _UNSUPPORTED = re.compile(r"Unsupported system (task|function) (\S+) (?:omitted|replaced by (.+?)) "

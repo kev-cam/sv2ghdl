@@ -23,8 +23,13 @@ the cut cells:
     nvc_verilog_params, mode against shell_dir, a marker on every output bit);
   * nets: a union-find over (scope, signal, bit) segments, searched from every
     cut-port bit through user-module port maps, aliases, _Readable shadows,
-    port temporaries and port buffers (below); then the drivers (with strength
-    classes) and readers.
+    port temporaries, trans and port buffers (below); then the drivers (with
+    strength classes) and readers.  A tran or an sv2vhdl alias (sv_tran,
+    sv_alias) between two bits joins their nets: the switch is a wire, neither
+    driver nor reader.  The exception is a tran with a supply driver on either
+    side, which reduces the supply to strong: it stays a strong driver and a
+    reader of each side.  (Resistive and controlled switches, rtran and
+    tranif, are drivers and readers.)
     Drivers are decided bit by bit: a Z element of a constant, a bit copied
     from a translator temporary that is only ever assigned Z (tgt-vhdl's
     `pa <= t5 & tmp_z & t3`), and the Z bit of a constant port actual drive
@@ -106,6 +111,10 @@ MODE_OF_DIR = {INPUT: "in", OUTPUT: "out", INOUT: "inout"}
 _TEMP_RX = re.compile(r"(lpm_|tmp_ivl_|lo_)", re.I)          # port temporaries (wires, §5.4)
 _GUARD_RX = re.compile(r"(sw\w*_b$|lpm_|lo_|tmp_)", re.I)    # temporaries the guard rejects
 _MARKER_RX = re.compile(r"^sv_bufif1_vamos_ams_hiz\w*_inst$", re.I)
+
+# sv2vhdl switches that join their two nets (§5.4 step 3): an alias always, a tran
+# unless a supply drives either side (a nonresistive switch reduces supply to strong)
+_JOIN_SWITCHES = ("sv_tran", "sv_alias")
 
 # l3ds drive strength codes (tgt-vhdl logic.cc) for the "-- sv_strength:" names
 _WEAK_INIT = ("l3d_l", "l3d_h", "l3d_w")     # weak logic3d literals (vhdl.py folds aliases)
@@ -713,6 +722,31 @@ class _Touch:
 Seg = Tuple[int, str, int]                   # (scope id, signal (lowercased), bit offset)
 
 
+def _block_path(vhdl_name: str, block: str) -> Optional[Tuple[str, str]]:
+    """(the base name, the Verilog block path) of the signal tgt-vhdl declared as
+    `vhdl_name` for a declaration in begin block(s) `block` (verilog_ports.Decl.block:
+    "g", "g.h", "-" for an unnamed block), or None when `vhdl_name` is not such a name.
+
+    The generate blocks are flattened into the module's architecture, and tgt-vhdl's
+    genvar_unique_suffix() appends the path of their names, outermost first: "_<label>",
+    "_<label>_<i>" for iteration i of a generate loop; iverilog names an unnamed block
+    genblk<n>.  So r in g[0].h[1] is r_g_0_h_1 (path "g[0].h[1]"), in block b r_b."""
+    labels = block.split(".") if block else []
+    if not labels:
+        return None
+    pat = "".join(r"_(%s)(?:_(\d+))?" % (r"genblk\d+" if lab == "-" else re.escape(lab))
+                  for lab in labels)
+    m = re.search(pat + "$", vhdl_name, re.I)
+    if m is None or m.start() == 0:
+        return None
+    parts = []
+    for k, lab in enumerate(labels):
+        text = m.group(2 * k + 1) if lab == "-" else lab
+        idx = m.group(2 * k + 2)
+        parts.append(text if idx is None else "%s[%s]" % (text, idx))
+    return vhdl_name[:m.start()], ".".join(parts)
+
+
 def _stmt_origin(arch: str, st: vhdl.Stmt) -> str:
     """'<arch>:<label or line N>', plus the Verilog file:line tgt-vhdl noted for it."""
     o = "%s:%s" % (arch, st.label or "line %d" % st.line)
@@ -754,6 +788,9 @@ class _Index:
         # port buffers (PB_<label>_<port> <= <actual>, a plain copy): bit of either side ->
         # [(stmt, the bit on the other side, whether that other bit is the buffer's)]
         self.pb_edges: Dict[Tuple[str, int], List[Tuple[int, Tuple[str, int], bool]]] = {}
+        # sv_tran / sv_alias instances on two single bits: bit of either end ->
+        # [(stmt, the bit at the other end, entity)]; joins the cut decides (_switch_joins)
+        self.switches: Dict[Tuple[str, int], List[Tuple[int, Tuple[str, int], str]]] = {}
         self.an = an
         self._build(subset)
 
@@ -866,7 +903,11 @@ class _Index:
                 continue
             copy_ok = st.simple or st.fused
             used_in_copies: Set[str] = set()
-            other_reads: List[vhdl.Ref] = list(st.ctrl_reads)
+            # every reference is a reader (§5.4 step 4), those of assignments to process
+            # variables too: `q <= x` in a clocked always block reads x only through
+            # tgt-vhdl's `v_nba_q := l3d_strengthen(x)` (missing them left a SPICE output
+            # that only a flip-flop reads with no A2D: the register read z)
+            other_reads: List[vhdl.Ref] = list(st.ctrl_reads) + list(st.var_reads)
             for ai, asg in enumerate(st.assigns):
                 tgt = self.resolve(asg.target)
                 if asg.op in ("<=", ":="):
@@ -1188,6 +1229,18 @@ class _Index:
                 self.assign_reads[(si, ai)] = self._bits_read(inputs)
             if mode in ("in", "inout"):
                 self._touch_refs(si, -1, "rd", refs, origin=origin, sid=st.sid)
+        if ent in _JOIN_SWITCHES:
+            # a tran or alias between two bits: a join candidate (_Analyser._switch_joins);
+            # meanwhile, as above, a driver and a reader of each end
+            ends: Dict[str, Tuple[str, int]] = {}
+            for a in st.assocs:
+                if not a.open and a.actual is not None and a.formal.lname in ("a", "b"):
+                    bits = self.bits(a.actual)
+                    if len(bits) == 1:
+                        ends[a.formal.lname] = bits[0]
+            if len(ends) == 2:
+                self.switches.setdefault(ends["a"], []).append((si, ends["b"], ent))
+                self.switches.setdefault(ends["b"], []).append((si, ends["a"], ent))
 
     @staticmethod
     def _lib_strength(st: vhdl.Stmt) -> Tuple[Optional[str], bool]:
@@ -1265,6 +1318,13 @@ class _Analyser:
         self.files: Dict[str, Optional[str]] = {}
         self.arch_index: Dict[str, _Index] = {}
         self._pb_split: List[Tuple[Seg, str]] = []     # (buffer bit, IE-report line) of unjoined buffers
+        # the quantised round trip beyond one hop (_comb_sources): digital nets with no
+        # cut port, as (segments, driver touches), and what reaches each
+        self._dnets: List[Tuple[List[Seg], List[Tuple[int, _Touch]]]] = []
+        self._dnet_of: Dict[Seg, int] = {}
+        self._comb_cache: Dict[int, Set[str]] = {}
+        self._comb_budget = self._COMB_BUDGET
+        self._comb_capped = False
 
     def err(self, origin: str, msg: str) -> None:
         self.notes.append(error(origin, msg))
@@ -1745,6 +1805,8 @@ class _Analyser:
         ties: Dict[Seg, List[Tuple[int, int, int, Optional[str]]]] = {}
         # port buffer copies met: (scope, stmt) -> [(buffer bit, actual bit)]
         pbs: Dict[Tuple[int, int], List[Tuple[Seg, Seg]]] = collections.OrderedDict()
+        # trans and aliases met: (scope, stmt) -> (one end, the other end, entity)
+        sws: Dict[Tuple[int, int], Tuple[Seg, Seg, str]] = collections.OrderedDict()
 
         def add(s: Seg) -> None:
             if s not in parent:
@@ -1809,13 +1871,25 @@ class _Analyser:
                 lst = pbs.setdefault((sid, si), [])
                 if pair not in lst:
                     lst.append(pair)
+            # (f) trans and aliases: searched across, joined or not below
+            for (si, o, ent) in idx.switches.get((name, off), ()):
+                other = (sid, o[0], o[1])
+                add(other)
+                sws.setdefault((sid, si), (seg, other, ent))
 
-        skip: Set[Tuple[int, int, Seg]] = set()
+        def drop(skip: Set[Tuple[int, int, Seg]]) -> Dict[Seg, List[Tuple[int, _Touch]]]:
+            return {s: [(tsid, t) for (tsid, t) in ts if (tsid, t.stmt, s) not in skip]
+                    for s, ts in touches.items()}
+
+        if sws:
+            # before the port buffers: a joined switch is a wire on W like any other
+            skip = self._switch_joins(sws, find, union, order, touches)
+            if skip:
+                touches = drop(skip)
         if pbs:
             skip = self._port_buffers(pbs, find, union, order, touches, ties, portrefs)
             if skip:
-                touches = {s: [(tsid, t) for (tsid, t) in ts if (tsid, t.stmt, s) not in skip]
-                           for s, ts in touches.items()}
+                touches = drop(skip)
 
         # group segments into nets, numbered by their first cut port in walk order
         groups: Dict[Seg, List[Seg]] = collections.OrderedDict()
@@ -1847,8 +1921,93 @@ class _Analyser:
                 else:
                     net.ports.append(pr)
             self._net_contents(net, groups[r], touches, ties, seg_net)
+            self._real_backstop(net, groups[r], ties)
             ana.nets.append(net)
         self._guards(portrefs, seg_net)
+
+    def _real_backstop(self, net: Net, segs: List[Seg],
+                       ties: Dict[Seg, List[Tuple[int, int, int, Optional[str]]]]) -> None:
+        """Defence in depth (§5.4 step 3): the net of a real cut port must be real
+        throughout.  A non-real signal on it, or an expression actual reading one, is an
+        error, never a bridge that passes the analog value through a logic signal.
+        (Real and logic cut ports on one net are assign_roles' error.)"""
+        ports = net.ports + net.passive
+        if not ports or any(self._cut_port(p).kind != REAL for p in ports):
+            return
+        st = self.st
+        bad: List[str] = []
+        for s in segs:
+            sc = st.scopes[s[0]]
+            idx = self._index(sc)
+            ts = idx.types.get(s[1])
+            if ts is not None and ts.kind != "real":
+                bad.append("%s (%s)" % (self._net_name(s), ts.text or ts.mark))
+            for (psid, si, ai, _lit) in ties.get(s, ()):
+                psc = st.scopes[psid]
+                pidx = self._index(psc)
+                a = psc.arch.stmts[si].assocs[ai]
+                for r in a.reads:
+                    rr = pidx.resolve(r)
+                    rts = pidx.types.get(rr.lname)
+                    if rts is not None and rts.kind != "real":
+                        bad.append("%s (%s), read by the actual %s"
+                                   % (self._net_name((psid, rr.lname, 0)), rts.text or rts.mark,
+                                      a.text))
+        if bad:
+            pr = ports[0]
+            ci = self.ana.instances[pr.inst]
+            self.err(ci.vpath, "real port %s of %s is on a net that is not real throughout: %s; "
+                     "its analog value cannot pass through a logic signal (connect a real "
+                     "variable, a wreal net or a real expression)"
+                     % (self._cut_port(pr).verilog, ci.vpath, ", ".join(sorted(set(bad))[:4])))
+
+    # -- trans and aliases (two-way joins) ---------------------------------------------
+
+    def _switch_joins(self, sws: Dict[Tuple[int, int], Tuple[Seg, Seg, str]],
+                      find: Callable[[Seg], Seg], union: Callable[[Seg, Seg], None],
+                      order: List[Seg], touches: Dict[Seg, List[Tuple[int, _Touch]]]
+                      ) -> Set[Tuple[int, int, Seg]]:
+        """Join the two nets of every sv_alias and sv_tran the search crossed (§5.4 step 3).
+
+        An alias is a wire join (tgt-vhdl draws it for two signals shorted through an
+        inout port).  A tran is one too: a nonresistive switch passes every value and
+        strength both ways (IEEE 1364), so the bits on its two ends are one node, and a
+        pull or a driver on the far side is seen as what it is (taken for a strong
+        driver of this side, a pull behind a tran left an inout SPICE port's node at
+        0 V while the digital side read 1).  The one strength a tran changes is supply,
+        which it reduces to strong: a tran with a supply driver on either side stays a
+        strong driver and a reader of each side, as before.  Returns the (scope, stmt,
+        seg) touches of the joined switches, which are neither drivers nor readers any
+        more.
+        """
+        members: Dict[Seg, List[Seg]] = {}
+        for s in order:
+            members.setdefault(find(s), []).append(s)
+        supplied: Dict[Seg, bool] = {}
+
+        def has_supply(root: Seg) -> bool:
+            if root not in supplied:
+                supplied[root] = any(t.what == "drv" and t.strength in (SUPPLY1, SUPPLY0)
+                                     for s in members.get(root, ()) for (_, t) in touches.get(s, ()))
+            return supplied[root]
+
+        skip: Set[Tuple[int, int, Seg]] = set()
+        for (sid, si), (sa, sb, ent) in sws.items():
+            ra, rb = find(sa), find(sb)
+            if ra != rb:
+                if ent == "sv_tran" and (has_supply(ra) or has_supply(rb)):
+                    continue
+                sup = has_supply(ra) or has_supply(rb)
+                union(sa, sb)
+                root = find(sa)
+                merged = members.pop(ra, []) + members.pop(rb, [])
+                supplied.pop(ra, None)
+                supplied.pop(rb, None)
+                members[root] = merged
+                supplied[root] = sup
+            skip.add((sid, si, sa))
+            skip.add((sid, si, sb))
+        return skip
 
     # -- port buffers (one-way joins) -------------------------------------------------
 
@@ -1986,11 +2145,7 @@ class _Analyser:
         if vn is None:
             return None
         vname, decl = vn
-        module = sc.entity.module or sc.entity.name
-        if self.pp is not None:
-            is_var = bool(self.pp.is_variable(module, vname))
-        else:
-            is_var = decl is not None and decl.variable
+        is_var = self._decl_kinds(sc, lname, vname, decl)[0]
         bare = "%s.%s" % (sc.vpath, vname)
         ts = self._index(sc).types.get(lname)
         if ts is not None and ts.vector:
@@ -2094,7 +2249,9 @@ class _Analyser:
         net.drivers = list(drivers.values())
         net.readers = len(readers)
         st.net_touches[net.key] = occ
-        # nets the driven values depend on (for the quantised round-trip warning)
+        # nets the driven values depend on (the quantised round-trip warning): read by
+        # a driver of the net, directly or through continuous assignments and gate
+        # primitives on nets with no cut port (assign w1 = x; assign w2 = w1; y = w2)
         rd_nets: Set[str] = set()
         for (sid, t) in occ:
             sc = st.scopes[sid]
@@ -2104,8 +2261,11 @@ class _Analyser:
             for n, offs in idx.assign_reads.get((t.stmt, t.assign), ()):
                 for o in (offs if offs is not None else {0}):
                     k2 = seg_net.get((sid, n, o))
-                    if k2 is not None and k2 != net.key:
+                    if k2 is None:
+                        rd_nets |= self._comb_sources((sid, n, o), seg_net)
+                    else:
                         rd_nets.add(k2)
+        rd_nets.discard(net.key)
         st.net_reads_nets[net.key] = rd_nets
         # aliases (§3.1), variable and tri nets
         tri_kinds: Set[str] = set()
@@ -2123,34 +2283,32 @@ class _Analyser:
                 o = "%s:%d" % sd.declared_at
                 if o not in net.origins:
                     net.origins.append(o)
-            module = sc.entity.module or sc.entity.name
-            if self.pp is not None:
-                # verilog_ports' declaration scan of pp.orig.v (§5.4 step 4)
-                is_var = bool(self.pp.is_variable(module, vname))
-                tri = self.pp.tri_kind(module, vname)
-            else:
-                is_var = decl is not None and decl.variable
-                tri = decl.tri if decl is not None else None
+            is_var, tri, block = self._decl_kinds(sc, n, vname, decl)
             if is_var:
                 net.variable = True
                 vs = st.net_variables.setdefault(net.key, [])
-                if '%s.%s' % (sc.vpath, vname) not in vs:
-                    vs.append('%s.%s' % (sc.vpath, vname))
+                shown = block[0] if block else '%s.%s' % (sc.vpath, vname)
+                if shown not in vs:
+                    vs.append(shown)
             if tri in ("tri0", "tri1"):
                 tri_kinds.add(tri)
             ts = sc.index.types.get(n) if sc.index else None
             bare = "%s.%s" % (sc.vpath, vname)
-            if bare not in aliases:
-                aliases.append(bare)
+            # a begin-block signal also by its Verilog name (tb.g[0].r beside tb.r_i0)
+            bares = [bare] + ([block[0]] if block and block[0] != bare else [])
+            for b in bares:
+                if b not in aliases:
+                    aliases.append(b)
             if ts is not None and ts.vector:
-                rng = self._decl_range(sc, decl)
+                rng = self._decl_range(sc, decl if decl is not None or not block else block[1])
                 if rng is None:
                     self.notes.append(note(bare, "the Verilog range of %s is unknown: only the "
                                            "bare-signal alias is used" % bare))
                     continue
-                al = "%s[%d]" % (bare, portmap.bit_of(off, rng))
-                if al not in aliases:
-                    aliases.append(al)
+                for b in bares:
+                    al = "%s[%d]" % (b, portmap.bit_of(off, rng))
+                    if al not in aliases:
+                        aliases.append(al)
         cut_aliases: List[str] = []
         for pr in net.ports + net.passive:
             ci = self.ana.instances[pr.inst]
@@ -2160,7 +2318,7 @@ class _Analyser:
             rng = vb.ranges[pr.port] if pr.port < len(vb.ranges) else None
             sp = ci.spice.get((pr.port, pr.bit))
             if sp is not None:
-                cut_aliases.append("%s.%s" % (ci.vpath, self._spell(sp)))
+                cut_aliases.append("%s.%s" % (ci.vpath, self._spell(sp, ci.subckt)))
             if rng is None:
                 cut_aliases.append("%s.%s" % (ci.vpath, cp.verilog))
             else:
@@ -2179,6 +2337,99 @@ class _Analyser:
                          "%s net %s reaches a SPICE port; its pull needs translator patch T5"
                          % (tri, self._first_parent_alias(net) or net.key))
 
+    # -- the quantised round trip, beyond one hop -------------------------------------
+
+    _COMB_BUDGET = 200000                   # digital nets the backward search may visit
+
+    def _dnet(self, seed: Seg) -> int:
+        """The digital net (no port buffer or switch decisions: those are drivers here) of
+        a bit: its id in self._dnets, (segments, driver touches), built on first use."""
+        nid = self._dnet_of.get(seed)
+        if nid is not None:
+            return nid
+        st = self.st
+        nid = len(self._dnets)
+        segs: List[Seg] = []
+        drv: List[Tuple[int, _Touch]] = []
+        self._dnet_of[seed] = nid
+        todo = [seed]
+        while todo:
+            seg = todo.pop()
+            segs.append(seg)
+            sid, name, off = seg
+            sc = st.scopes[sid]
+            idx = self._index(sc)
+            nbrs: List[Seg] = []
+            if sc.parent is not None and name in idx.ports:
+                psc = st.scopes[sc.parent]
+                fm = self._index(psc).formal.get(sc.stmt.index if sc.stmt else -1, {}).get((name, off))
+                if fm is not None and fm[0] != "#expr":
+                    nbrs.append((psc.id, fm[0], fm[1]))
+            nbrs += [(sid, n2, o2) for (n2, o2) in idx.joins.get((name, off), ())]
+            for (si, formal, fo) in idx.assoc.get(name, {}).get(off, ()):
+                cid = sc.children.get(si)
+                if cid is not None:
+                    nbrs.append((cid, formal, fo))
+            for t in idx.touch.get(name, ()):
+                if t.what == "drv" and (t.offs is None or off in t.offs):
+                    drv.append((sid, t))
+            for o in nbrs:
+                if o not in self._dnet_of:
+                    self._dnet_of[o] = nid
+                    todo.append(o)
+        self._dnets.append((segs, drv))
+        return nid
+
+    def _combinational(self, sid: int, t: _Touch) -> bool:
+        """Whether a driver passes its inputs on continuously: a gate or switch primitive,
+        a concurrent assignment or a comb_fused process (not a clocked or other process)."""
+        if t.stmt < 0:
+            return False
+        stmt = self.st.scopes[sid].arch.stmts[t.stmt]
+        return stmt.kind == "instance" or (stmt.kind == "process" and (stmt.simple or stmt.fused))
+
+    def _comb_sources(self, seg: Seg, seg_net: Dict[Seg, str]) -> Set[str]:
+        """The cut nets whose values reach bit `seg`, on a net with no cut port, through
+        continuous assignments and gate primitives on such nets only (§5.4 step 5: the
+        quantised round trip beyond one hop).  Memoised per net; bounded overall."""
+        start = self._dnet(seg)
+        got = self._comb_cache.get(start)
+        if got is not None:
+            return got
+        found: Set[str] = set()
+        seen = {start}
+        todo = [start]
+        while todo:
+            if self._comb_budget <= 0:
+                if not self._comb_capped:
+                    self._comb_capped = True
+                    self.notes.append(note(self.design.path, "the quantised round-trip check "
+                                           "stopped after %d digital nets (§5.4)" % self._COMB_BUDGET))
+                break
+            self._comb_budget -= 1
+            segs, drv = self._dnets[todo.pop()]
+            for s in segs:
+                k = seg_net.get(s)
+                if k is not None:
+                    found.add(k)
+            for (sid, t) in drv:
+                if not self._combinational(sid, t):
+                    continue
+                idx = self.st.scopes[sid].index
+                for n, offs in (idx.assign_reads.get((t.stmt, t.assign), ()) if idx else ()):
+                    for o in (offs if offs is not None else {0}):
+                        s2 = (sid, n, o)
+                        k = seg_net.get(s2)
+                        if k is not None:
+                            found.add(k)
+                            continue
+                        n2 = self._dnet(s2)
+                        if n2 not in seen:
+                            seen.add(n2)
+                            todo.append(n2)
+        self._comb_cache[start] = found
+        return found
+
     def _first_parent_alias(self, net: Net) -> Optional[str]:
         return min(net.aliases, key=lambda a: a.count(".")) if net.aliases else None
 
@@ -2191,10 +2442,8 @@ class _Analyser:
         vn = self._verilog_signal(sc, seg[1]) if sc.kind != CUT else None
         return "%s.%s" % (sc.vpath, vn[0] if vn else seg[1])
 
-    def _spell(self, sp: str) -> str:
-        if self.nl is not None:
-            return self.nl.spelling.get(sp.lower(), sp)
-        return sp
+    def _spell(self, sp: str, subckt: Optional[str] = None) -> str:
+        return _port_spelling(self.nl, sp, subckt)
 
     # -- Verilog names of VHDL signals -------------------------------------------------
 
@@ -2240,8 +2489,66 @@ class _Analyser:
             return decl.name, decl
         return (sd.name if sd is not None else port.name), None
 
-    def _decl_range(self, sc: _Scope, decl: Optional[VDecl]) -> Optional[Tuple[int, int]]:
-        if decl is None or not decl.rng_text:
+    def _decl_kinds(self, sc: _Scope, lname: str, vname: str, decl: Optional[VDecl]
+                    ) -> Tuple[bool, Optional[str], Optional[Tuple[str, object]]]:
+        """(a variable, its tri0/tri1 kind or None, (name, declaration) when it is
+        declared in a begin block, else None) of a declared signal of a user scope
+        (§5.4 step 4: Net.variable and the tri0/tri1 rule).
+
+        A module-level declaration is found by name: pp.is_variable / pp.tri_kind
+        (verilog_ports' declaration scan of pp.orig.v), else the _norm.sv scan.  A
+        declaration in a begin block (a generate loop or block, an if-generate) is
+        not, as the same name can be declared in several blocks and tgt-vhdl renames
+        it (r in iteration 0 of generate loop g is r_g_0, _block_path); it is found
+        by the line the signal's "-- Declared at" comment names and that name, and is
+        shown by its Verilog name, <scope>.g[0].r.
+        """
+        module = sc.entity.module or sc.entity.name
+        if self.pp is not None:
+            is_var = bool(self.pp.is_variable(module, vname))
+            tri = self.pp.tri_kind(module, vname)
+        else:
+            is_var = decl is not None and decl.variable
+            tri = decl.tri if decl is not None else None
+        if is_var or tri is not None or self.pp is None:
+            return is_var, tri, None
+        sd = sc.arch.signals.get(lname) if sc.arch is not None else None
+        if sd is None or sd.declared_at is None:
+            return is_var, tri, None
+        found = self._block_decl(module, sd.declared_at[1], sd.name)
+        if found is None:
+            return is_var, tri, None
+        bd, path = found
+        variables = getattr(self.pp, "variables", None) or []
+        is_var = any(d is bd for d in variables)
+        tri = bd.kind if bd.kind in ("tri0", "tri1") else None
+        return is_var, tri, ("%s.%s.%s" % (sc.vpath, path, bd.name), bd)
+
+    def _block_decl(self, module: str, line: int, vhdl_name: str) -> Optional[Tuple[object, str]]:
+        """(the begin-block declaration (verilog_ports.Decl) of module `module` on pp line
+        `line` that tgt-vhdl declared as `vhdl_name` (r_g_0, r_b), its block path (g[0],
+        b): _block_path), or None."""
+        index = getattr(self, "_block_decls", None)
+        if index is None:
+            index = {}
+            pp = self.pp
+            for d in list(getattr(pp, "variables", None) or []) + list(getattr(pp, "tri_nets", None) or []):
+                if getattr(d, "block", ""):
+                    index.setdefault((d.module, d.line), []).append(d)
+            self._block_decls = index
+        hits = []
+        for d in index.get((module, line), ()):
+            bp = _block_path(vhdl_name, d.block)
+            if bp is not None and vhdl.safe_name_matches(bp[0], d.name):
+                hits.append((d, bp[1]))
+        return hits[0] if len(hits) == 1 else None
+
+    def _decl_range(self, sc: _Scope, decl: Optional[object]) -> Optional[Tuple[int, int]]:
+        """The Verilog range of a declaration (a VDecl, or a verilog_ports.Decl)."""
+        text = None
+        if decl is not None:
+            text = getattr(decl, "rng_text", None) or getattr(decl, "range_text", None)
+        if not text:
             return None
         params = {}
         for k, v in sc.entity.params.items():
@@ -2254,7 +2561,7 @@ class _Analyser:
                 params.setdefault(k, int(v))
             except ValueError:
                 pass
-        return range_of_text(decl.rng_text.replace(" ", ""), params)
+        return range_of_text(text.replace(" ", ""), params)
 
     # -- guards ------------------------------------------------------------------------
 
@@ -2286,8 +2593,8 @@ class _Analyser:
                 # select, a select of an input or output port of the enclosing module)
                 self.err(ci.vpath, "inout port %s of %s is connected through translator temporary "
                          "%s, a one-way copy (the translator joins this bit- or part-select one way "
-                         "only, e.g. a tran primitive on a select); use port_dir or connect a plain "
-                         "net" % (cp.verilog, ci.vpath, sd.name))
+                         "only, e.g. a select of an input or output port of the enclosing module); "
+                         "use port_dir or connect a plain net" % (cp.verilog, ci.vpath, sd.name))
             elif pidx.drivers_of.get(fm[0], 0) > 1:
                 self.err(ci.vpath, "port %s of %s is connected through translator temporary %s, "
                          "which has %d drivers; use port_dir or connect a plain net"
@@ -2336,7 +2643,9 @@ def analyse(design: vhdl.VhdlDesign, top: str,
     hits: marks use_spice_inst#i.j and port_connect_inst#i selectors.
     pp (optional): the verilog_ports.PP; when given, Net.variable and the
     tri0/tri1 rule use pp.is_variable(module, name) / pp.tri_kind(module,
-    name); without it the module declarations are read from the _norm.sv the
+    name), and for a signal declared in a begin block (a generate loop or
+    block) the PP declaration on the line its "-- Declared at" comment names;
+    without it the module declarations are read from the _norm.sv the
     "-- Generated from Verilog module" comments point to (next to design.vhd).
     directions (optional): shells.ShellResult.directions (cell -> auto port ->
     "auto-><mode> (<why>)"), kept for assign_roles' IE-report direction lines.
@@ -2360,7 +2669,7 @@ def port5(analysis: CutAnalysis, pr: PortRef) -> Tuple[str, str, str, str, str]:
     vb = analysis.variants.get(ci.variant)
     rng = vb.ranges[pr.port] if vb is not None and pr.port < len(vb.ranges) else None
     bit = cp.verilog if rng is None else "%s[%d]" % (cp.verilog, portmap.bit_of(pr.bit, rng))
-    return (ci.cell, ci.vpath, _spelled(analysis, sp) if sp else "", bit, cp.verilog)
+    return (ci.cell, ci.vpath, _spelled(analysis, sp, ci.subckt) if sp else "", bit, cp.verilog)
 
 
 def printed_value(text: str, real: Optional[bool] = None) -> Optional[VValue]:
@@ -2513,13 +2822,17 @@ def param_overrides(cell: CutCell, inst: CutInstance) -> Dict[str, Tuple[str, st
 def assign_roles(analysis: CutAnalysis, alloc: names.NameAllocator,
                  disabled: Callable[[List[str]], bool],
                  removal: Callable[[List[str]], Tuple[bool, Optional[float]]],
-                 directions: Optional[Dict[str, Dict[str, str]]] = None) -> List[AnalogNode]:
+                 directions: Optional[Dict[str, Dict[str, str]]] = None,
+                 dumped: Optional[Callable[[List[str]], bool]] = None) -> List[AnalogNode]:
     """One AnalogNode per net with a non-passive cut port, by the ordered role table.
 
     disabled(names) / removal(names): flow.py binds rules.disabled/removal to
     the config and RuleHits; names[0] is the canonical name, the rest are the
     aliases.  directions (optional): shells.ShellResult.directions, for the
     direction lines of the IE report (default: what analyse() was given).
+    dumped(names) (optional): whether the run's waves ($dumpvars, +vcs+dumpvars:
+    job.dump) record the net -- an analog output that no digital code reads gets its
+    A2D then, so the VCD shows the value VCS shows, not z.
     Notes go to analysis.notes; errors raise NoteError.
     """
     st: Optional[_State] = getattr(analysis, "_cut", None)
@@ -2535,7 +2848,7 @@ def assign_roles(analysis: CutAnalysis, alloc: names.NameAllocator,
                                   "digital driver(s) on bits mapped to ground or port_connect'ed "
                                   "SPICE ports only: %s" % ", ".join(d.origin for d in net.drivers)))
             continue
-        node = _role(analysis, net, alloc, disabled, notes, directions)
+        node = _role(analysis, net, alloc, disabled, notes, directions, dumped)
         if node is None:
             continue
         if st is not None:
@@ -2599,7 +2912,8 @@ def _vhdl_mode(analysis: CutAnalysis, pr: PortRef) -> str:
 
 def _role(analysis: CutAnalysis, net: Net, alloc: names.NameAllocator,
           disabled: Callable[[List[str]], bool], notes: List[Note],
-          directions: Optional[Dict[str, Dict[str, str]]] = None) -> Optional[AnalogNode]:
+          directions: Optional[Dict[str, Dict[str, str]]] = None,
+          dumped: Optional[Callable[[List[str]], bool]] = None) -> Optional[AnalogNode]:
     ports = net.ports
     # canonical: the shortest instance path, ties to walk order
     best = min(ports, key=lambda p: (len(analysis.instances[p.inst].labels), p.inst, p.port, p.bit))
@@ -2608,7 +2922,7 @@ def _role(analysis: CutAnalysis, net: Net, alloc: names.NameAllocator,
     st: Optional[_State] = getattr(analysis, "_cut", None)
     # cut ports behind a joined port buffer drive nothing digital: inputs here
     one_way = st.one_way if st is not None else {}
-    canonical = "%s.%s" % (ci.vpath, _spelled(analysis, sp))
+    canonical = "%s.%s" % (ci.vpath, _spelled(analysis, sp, ci.subckt))
     aliases = [a for a in net.aliases if a != canonical]
     names_list = [canonical] + aliases
     node = AnalogNode(name=names.node(alloc, canonical), canonical=canonical, aliases=aliases,
@@ -2706,9 +3020,14 @@ def _role(analysis: CutAnalysis, net: Net, alloc: names.NameAllocator,
         node.shunt = True
         _report_role(analysis, node, net, directions)
         return node
-    if drivable and read:
+    # an analog output nothing digital reads: no A2D (the net stays z), unless the run's
+    # waves record it (dumped): VCS shows its digital value there
+    wave = bool(drivable) and not read and dumped is not None and dumped(names_list)
+    if drivable and (read or wave):
         node.role, node.host = A2D, drivable[0]
         node.shunt = True
+        if wave:
+            node.report.append("read only by the waves ($dumpvars)")
         _report_role(analysis, node, net, directions)
         return node
     if drivable:
@@ -2727,28 +3046,74 @@ def _role(analysis: CutAnalysis, net: Net, alloc: names.NameAllocator,
     return node
 
 
-def _spelled(analysis: CutAnalysis, sp: str) -> str:
-    """A SPICE port name in the netlist's original spelling."""
+def _spelled(analysis: CutAnalysis, sp: str, subckt: Optional[str] = None) -> str:
+    """A SPICE port name in the netlist's original spelling (_port_spelling)."""
     st: Optional[_State] = getattr(analysis, "_cut", None)
-    nl = st.nl if st is not None else None
-    if nl is not None:
-        return nl.spelling.get(sp.lower(), sp)
-    return sp
+    return _port_spelling(st.nl if st is not None else None, sp, subckt)
+
+
+def _port_spelling(nl: Optional[Netlist], sp: str, subckt: Optional[str] = None) -> str:
+    """The spelling of SPICE port `sp` (a folded IR name, Subckt.orig_ports) as the netlist
+    wrote it: the subckt's own header spelling when the IR keeps one per subckt
+    (Subckt.spelling, if present), else Netlist.spelling, which spice.py keys by the
+    folded name (lowercase, uppercase under set_sim_case upper, as written under
+    sensitive), else sp.  Netlist.spelling is global: two subckts whose ports differ
+    only in case share one entry (a case-insensitive name either way)."""
+    if nl is None:
+        return sp
+    if subckt is not None:
+        sub = nl.subckts().get(subckt)
+        if sub is None:
+            sub = next((v for k, v in nl.subckts().items() if k.lower() == subckt.lower()), None)
+        own = getattr(sub, "spelling", None) if sub is not None else None
+        if isinstance(own, dict) and sp in own:
+            return own[sp]
+    got = nl.spelling.get(sp)
+    if got is None:
+        got = nl.spelling.get(sp.lower())
+    return got if got is not None else sp
 
 
 _STEP2B = re.compile(r", connected to (?:.+?, a select of )?input port ")
 
 
-def _probe_reason(directions: Optional[Dict[str, Dict[str, str]]], cell: str, cp: CutPort
-                  ) -> Optional[str]:
+def _probe_reason(directions: Optional[Dict[str, Dict[str, str]]], cell: str, cp: CutPort,
+                  chain: Optional[Tuple[Tuple[str, str], ...]] = None) -> Optional[str]:
     """The direction probe's reason for an auto port that its step 2b made an input
     (shells.ShellResult.directions: "auto->input (wrap_e.u (tb.sv:13), connected to
-    input port wrap_e.a, which tb.we (tb.sv:7) connects to variable clk)"), else None."""
+    input port wrap_e.a, which tb.we (tb.sv:7) connects to variable clk)"), else None.
+    With the instance's static chain (_inst_chain), the instance's own reason when the
+    entry carries one (shells.Direction.by_chain: a second wrapper instance on another
+    variable gives its own), else the entry's (the first instance's)."""
     text = ((directions or {}).get(cell) or {}).get(cp.verilog)
     m = re.match(r"auto->(\w+) \((.*)\)\s*$", text or "", re.S)
     if m is None or m.group(1) != cp.shell_dir or not _STEP2B.search(m.group(2)):
         return None
-    return m.group(2)
+    own = (getattr(text, "by_chain", None) or {}).get(chain) if chain is not None else None
+    return own or m.group(2)
+
+
+def _inst_chain(st: Optional[_State], inst: int) -> Optional[Tuple[Tuple[str, str], ...]]:
+    """The static instance chain of cut instance `inst` as the direction probe keys it
+    (shells.wrapper_input_chains): (enclosing Verilog module, instance name) from the
+    top's instance down, the names from the T3 comments (g[0].u -> u, ua[0] -> ua);
+    None without them."""
+    if st is None or not st.t3 or inst >= len(st.cut_scope):
+        return None
+    out: List[Tuple[str, str]] = []
+    sid: Optional[int] = st.cut_scope[inst]
+    while sid is not None:
+        sc = st.scopes[sid]
+        if sc.parent is None:
+            break
+        psc = st.scopes[sc.parent]
+        rel = sc.stmt.vpath if sc.stmt is not None else None
+        if not rel:
+            return None
+        out.append((psc.entity.module or psc.entity.name,
+                    re.sub(r"\[[^\]]*\]$", "", rel.rsplit(".", 1)[-1])))
+        sid = sc.parent
+    return tuple(reversed(out))
 
 
 def _report_role(analysis: CutAnalysis, node: AnalogNode, net: Net,
@@ -2768,9 +3133,9 @@ def _report_role(analysis: CutAnalysis, node: AnalogNode, net: Net,
                 node.report.append("direction: auto→inout (VCS default; port_dir is faster) %s"
                                    % _bit_name(analysis, p))
             else:
+                why = _probe_reason(directions, ci.cell, cp, _inst_chain(st, p.inst))
                 node.report.append("direction: auto→%s (%s) %s"
-                                   % (cp.shell_dir,
-                                      _probe_reason(directions, ci.cell, cp) or "variable actual",
+                                   % (cp.shell_dir, why or "variable actual",
                                       _bit_name(analysis, p)))
     if net.passive:
         node.report.append("passive bits: %s" % " ".join(_bit_name(analysis, p)

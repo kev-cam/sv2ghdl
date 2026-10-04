@@ -51,7 +51,8 @@ cxy = _load_runner()
 
 @needs_xyce
 class TestXyceSide(unittest.TestCase):
-    """Shares one scratch root and one runner Env (stubs, probe, E1 work libraries)."""
+    """Shares one scratch root and one runner Env (stubs, probe, the nvc-side runner's
+    work libraries)."""
 
     env = None
     scratch = None

@@ -5,8 +5,9 @@
   silently.  tables.model_params writes cjo=1e-30 on Xyce for such a card (a note says so);
   the area junction this adds is negligible.  VACASK computes both charges with CJO = 0 and
   gets no change.
-- VACASK's sp_mos3 gives NaN with KAPPA exactly 0 (the Star-HSPICE manual's own LEVEL 3 example
-  card failed: "NaN found in vector ... Homotopy failed"): kappa=0 is written as 1e-12 there.
+- VACASK's sp_mos3 gave NaN with KAPPA exactly 0 (the Star-HSPICE manual's own LEVEL 3 example
+  card failed: "NaN found in vector ... Homotopy failed"); kappa=0 was written as 1e-12 there.
+  Round 6 fixed mos3.va itself (the CLM square root at 0), so kappa=0 is printed as written.
 
     python3 -m unittest discover -s tests/vamos -p 'test_repair_netlist.py' -v
 
@@ -61,13 +62,12 @@ class TestXyceDiodeCharge(unittest.TestCase):
 
 class TestVacaskMos3Kappa(unittest.TestCase):
     def test_kappa_zero(self):
+        # the engine is fixed (round 6): kappa=0 reaches both engines as written
         m = Model("nch", "nmos", 3.0, {"vto": Num(0.8), "kappa": Num(0.0)}, origin="m.sp:4")
-        out, notes = T.model_params(m, "vacask")
-        self.assertEqual(dict(out)["kappa"].value, 1e-12)
-        self.assertTrue(any("kappa=0 written as kappa=1e-12 for VACASK" in n.message for n in notes))
-        out, notes = T.model_params(m, "xyce")
-        self.assertEqual(dict(out)["kappa"].value, 0.0)
-        self.assertFalse(any("kappa=1e-12" in n.message for n in notes))
+        for engine in ("vacask", "xyce"):
+            out, notes = T.model_params(m, engine)
+            self.assertEqual(dict(out)["kappa"].value, 0.0)
+            self.assertFalse(any("kappa=1e-12" in n.message for n in notes))
 
     def test_other_kappas_untouched(self):
         for params in ({"kappa": Num(0.2)}, {"vto": Num(0.7)}):
@@ -77,8 +77,9 @@ class TestVacaskMos3Kappa(unittest.TestCase):
 
 class TestMosJunctionDefaults(unittest.TestCase):
     """HSPICE's MOS bulk-junction defaults (Star-HSPICE 20-27/20-28): MJSW 0.33 is written where
-    a card gives CJSW (sp_mos1/2 and Xyce LEVEL 1/2 default it to 0.5); the default CJ is not
-    written (the manual gives two values) but is a warning where an instance gives AD/AS."""
+    a card gives CJSW (sp_mos1/2 and Xyce LEVEL 1/2 default it to 0.5); the default CJ is written
+    (round 6: the ASPEC=0 formula, test_r6_N) and is a warning where an instance gives AD/AS and
+    the card has no NSUB (the manual's default column gives another value)."""
 
     def test_mjsw_default(self):
         from vamos.netlist.ir import Netlist
@@ -99,9 +100,10 @@ class TestMosJunctionDefaults(unittest.TestCase):
         no_area = Instance("m2", "m", ["d", "g", "0", "0"], master="n1")
         (w,) = T.mos_junction_warnings(with_area, m)
         self.assertEqual((w.severity, w.origin), ("warning", "m.sp:2"))
-        self.assertIn("no CJ on a MOS LEVEL 1 card whose instances give AD/AS", w.message)
+        self.assertIn("no CJ and no NSUB on a MOS LEVEL 1 card whose instances give AD/AS", w.message)
         self.assertEqual(T.mos_junction_warnings(no_area, m), [])
         self.assertEqual(T.mos_junction_warnings(with_area, Model("n1", "nmos", 1.0, {"CJ": Num(3e-4)})), [])
+        self.assertEqual(T.mos_junction_warnings(with_area, Model("n1", "nmos", 1.0, {"nsub": Num(1e16)})), [])
         self.assertEqual(T.mos_junction_warnings(with_area, m, {"spice": Num(1.0)}), [])
         self.assertEqual(T.mos_junction_warnings(with_area, Model("n9", "nmos", 54.0, {})), [])
 
@@ -119,7 +121,7 @@ class TestMosJunctionDefaults(unittest.TestCase):
             for render in (vacask.render, xyce.render):
                 notes = []
                 render(nl, notes=notes)
-                warns = [n for n in notes if "no CJ on a MOS LEVEL 1 card" in n.message]
+                warns = [n for n in notes if "no CJ and no NSUB on a MOS LEVEL 1 card" in n.message]
                 self.assertEqual(len(warns), 1, [n.message for n in notes])
         finally:
             shutil.rmtree(d, ignore_errors=True)

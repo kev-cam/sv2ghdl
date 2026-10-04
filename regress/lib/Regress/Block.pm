@@ -60,13 +60,18 @@ sub _nvc_env {
 }
 
 my %ENGINES = (
-    # native Icarus: rely on iverilog/vvp resolved on PATH (installed) — set
-    # IVERILOG/VVP too so adapters that honor them pick the build-area copy.
+    # native Icarus: the build-area iverilog/vvp (IVERILOG/VVP), and their bin
+    # first on PATH too: the ivtest runner (vvp_reg.pl) calls a bare `iverilog`
+    # and `vvp`, which on a box with none on PATH failed the whole block ("Failed
+    # to get version from iverilog -V output") although `regress list` showed it
+    # ready, and elsewhere ran whatever copy PATH held.
     iverilog => sub {
         my %e;
         my $iv = iverilog_bin(); $e{IVERILOG} = $iv if $iv;
         my $vp = vvp_bin();      $e{VVP} = $vp if $vp;
-        return { env => \%e, path_prepend => _base_path() };
+        (my $bindir = $iv // '') =~ s{/iverilog$}{};
+        return { env => \%e,
+                 path_prepend => join(':', grep { length } $bindir, _base_path()) };
     },
     # native nvc (VHDL) — needs nvc + iverilog (the vhdl_nvc runner compiles
     # the Verilog stage with iverilog).
@@ -297,6 +302,15 @@ sub dispatch {
     my $adapter = $ADAPTER{ $block->{suite} }
         or die "no adapter for suite '$block->{suite}'\n";
     return $adapter->run($block, %opt);
+}
+
+# undef when --filter $filter selects a test of $block, or when its adapter cannot
+# tell before running (no filter_check); else why it selects none (one line).
+sub filter_check {
+    my ($block, $filter) = @_;
+    my $adapter = $ADAPTER{ $block->{suite} } or return undef;
+    my $check = $adapter->can('filter_check') or return undef;
+    return $check->($block, $filter);
 }
 
 1;

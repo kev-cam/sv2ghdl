@@ -19,6 +19,7 @@ use IO::Socket::INET;
 use POSIX ();
 use Regress::DB;
 use Regress::Tools qw(src_root);
+use Regress::Util qw(run_workdir);
 
 my ($DBPATH, $REGRESS_DIR);
 
@@ -88,7 +89,7 @@ sub _handle {
     elsif ($path eq '/gate')  { _send($conn, '200 OK', 'text/html', page_gate($db, $q{id})) }
     elsif ($path eq '/help')  { _send($conn, '200 OK', 'text/html', page_help()) }
     elsif ($path eq '/log')   { _send($conn, '200 OK', 'text/plain',
-                                       tail_log($q{run}, $q{block})) }
+                                       tail_log($q{run}, $q{block}, undef, $db)) }
     elsif ($path eq '/file')  { _send($conn, '200 OK', 'text/plain',
                                        serve_file($q{path})) }
     else                      { _send($conn, '404 Not Found', 'text/plain', "not found\n") }
@@ -410,7 +411,7 @@ sub page_index {
         $body .= "</table>";
         # tail logs of currently-running blocks
         for my $b (grep { _is_running($_->{finished_at}) } @$blocks) {
-            my $t = tail_log($id, $b->{block}, 14);
+            my $t = tail_log($id, $b->{block}, 14, $db);
             next unless length $t;
             $body .= "<div class=muted>" . h($b->{block}) . " — live log:</div>"
                    . "<pre class=log>" . h($t) . "</pre>";
@@ -752,14 +753,22 @@ sub tail_log_file {
 }
 
 # tail the on-disk log for a block (works for in-progress blocks, whose
-# per-test rows aren't written until the block finishes)
+# per-test rows aren't written until the block finishes).  The run's work dir is
+# out/run-<id>-<tag> (Regress::Util::run_workdir, from this DB and the run's
+# start time); runs recorded before that rule used out/run-<id>.
 sub tail_log {
-    my ($id, $block, $n) = @_;
+    my ($id, $block, $n, $db) = @_;
     $n ||= 200;
     return '' unless defined $id && defined $block;
     $id =~ s/\D//g;
+    return '' unless length $id;
     (my $safe = $block) =~ s{[/ ]}{_}g;
-    my $f = "$REGRESS_DIR/out/run-$id/logs/$safe.log";
+    my @dirs;
+    my $meta = $db ? eval { $db->run_meta($id) } : undef;
+    push @dirs, run_workdir($REGRESS_DIR, $DBPATH, $id, $meta->{started_at}) if $meta;
+    push @dirs, "$REGRESS_DIR/out/run-$id";
+    my ($f) = grep { -f $_ } map { "$_/logs/$safe.log" } @dirs;
+    return '' unless defined $f;
     open my $fh, '<', $f or return '';
     my @lines = <$fh>; close $fh;
     @lines = @lines[-$n .. -1] if @lines > $n;
