@@ -928,8 +928,8 @@ Found while reading for this design; none is fixed here (no changes in the share
 **Decided 2026-10-03** (after the first Hazard3 run, `bfit/benchmarks/gpu_farm.md`):
 - **Q1/Q2, licensing:** anything not inherited as GPL is PolyForm (Noncommercial 1.0.0), as the
   kit already is. So there is no GPL duplicate of the kit's harness: whatever vamos adds on the farm
-  side is PolyForm, and the contract (§7.2-7.3) lives with the kit. (Whether this also applies to
-  vamos itself, GPL-3.0-or-later so far, is being confirmed.)
+  side is PolyForm, and the contract (§7.2-7.3) lives with the kit. vamos itself stays
+  GPL-3.0-or-later and runs the kit only as a subprocess, through that contract (confirmed).
 - **Q8, the default model:** the default for logic simulation is the 3D-logic family; 2-state only on
   request. So `./simv` after a farm compile runs the nvc 3D reference, and the 2-state gsm model (CPU
   or GPU farm) runs only on an explicit request (`--vamos-farm=N`, or a 2-state option).
