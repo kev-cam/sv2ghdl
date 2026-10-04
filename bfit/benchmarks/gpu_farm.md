@@ -562,6 +562,12 @@ tables, and the union of the tiles has upstream's `output.ppm` md5
 693d2391e979a114a82af00b3e64e54c; on CPU the Verilator twin agreed on every one
 of the 1,376,256 tiles of the three geometries (m = 0, 2, 4).
 
+![The 1024x1024 split render, assembled from 1,048,576 simulated Hazard3 tiles on a GPU](vhdl/gpu/hazard3/results/mandelbrot_1024.png)
+
+*The image as the farm assembles it (`H3_PPM`, here from the local T1000 run;
+each rented card hashed its own copy): byte-identical to upstream's Verilator
+`output.ppm`, converted to PNG.*
+
 | node | $/h paid | whole image (m=0, kernel) | split agg inst-cyc/s | thr plateau inst-cyc/s | session | cost |
 | :-- | --: | --: | --: | --: | --: | --: |
 | RTX 3090 | 0.123 | 3.339 s | 1.53e9 | 1.74e9 | 5.0 min | $0.010 |
