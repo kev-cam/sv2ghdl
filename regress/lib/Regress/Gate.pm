@@ -149,6 +149,13 @@ sub build_nvc {
     my ($jobs, $logdir) = @_;
     my $bdir = src_root() . '/nvc-build';
     return (0, "no nvc-build dir") unless -d $bdir;
+    # A stray .c/.h inside the VPATH build dir shadows ../nvc/src (2026-10-03:
+    # a July copy of src/jit/jit-intrin.c silently built a stale intrinsics
+    # table for two months). Only the flex outputs may live there.
+    my @stray = grep { !m{/(lexer\.c|vlog-pp\.c)$} }
+        split /\n/, `find '$bdir/src' '$bdir/thirdparty' -name '*.c' -o -name '*.h' -o -name '*.cpp' 2>/dev/null`;
+    return (0, "stale source copies shadow the source tree in $bdir: @stray")
+        if @stray;
     # smak first (per directive), then make -k to complete the VHDL libs
     run_capture(['sh', '-c', "cd '$bdir' && rm -rf lib"], log => "$logdir/build-nvc-clean.log");
     run_capture(['sh', '-c', "cd '$bdir' && smak -j$jobs"], log => "$logdir/build-nvc-smak.log");
