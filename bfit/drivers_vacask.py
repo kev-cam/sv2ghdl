@@ -35,7 +35,11 @@ class VacaskDriver:
             "BFIT_OPENVAF_R", "/opt/openvaf-r/openvaf-r")
         self.pyrf = os.environ.get("VACASK_PYTHON", "/usr/local/src/VACASK/python")
 
-    def run(self, netlist_text, signals=None):
+    def run(self, netlist_text, signals=None, measures=None):
+        if measures:
+            # energy/delay .measure features are only wired for the Xyce driver
+            # so far; fail LOUDLY rather than fit against missing targets.
+            raise NotImplementedError("vacask driver: .measure features not wired")
         deck = sp2vc.translate(netlist_text) if _is_spice(netlist_text) else netlist_text
         lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library")
         deck = deck.replace("@DEV@", sp2vc.DEV).replace("@LIB@", lib)

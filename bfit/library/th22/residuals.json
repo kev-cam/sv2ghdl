@@ -1,0 +1,31 @@
+{
+  "model": "th22",
+  "tier": "T1",
+  "t0_reference": "SG13G2 PSP103 transistor decks: stat-sim/qal/synth/threeway/spice/ce_th22_{1,3,10}.cir(.mt0); law E(C_L)=39.398+1.7369*C_L fJ, TD(C_L)=319.5+7.26*C_L ps",
+  "model_files": ["template.cir", "th22.vams", "cache.json", "fit.json"],
+  "fit_provenance": "bfit tune, residual 2.52e-3 in 204 evals; fitted at CL=3fF only (energy + td/tdf fast-edge + td3/tdf3 3-stage-chain slow-edge features); skeptic re-ran all rows independently 2026-09-26, transistor refs reproduced bit-exact",
+  "entries": [
+    {"feature": "energy_per_op", "operating_point": "CL=1fF", "T0_anchor": 41.09e-15, "T1_value": 40.97e-15, "unit": "J", "err_pct": -0.3, "kind": "holdout", "T0_source_file": "stat-sim/qal/synth/threeway/spice/ce_th22_1.cir.mt0"},
+    {"feature": "energy_per_op", "operating_point": "CL=3fF", "T0_anchor": 44.67e-15, "T1_value": 44.69e-15, "unit": "J", "err_pct": 0.05, "kind": "fitted", "T0_source_file": "stat-sim/qal/synth/threeway/spice/ce_th22_3.cir.mt0"},
+    {"feature": "energy_per_op", "operating_point": "CL=10fF", "T0_anchor": 56.75e-15, "T1_value": 57.54e-15, "unit": "J", "err_pct": 1.4, "kind": "holdout", "T0_source_file": "stat-sim/qal/synth/threeway/spice/ce_th22_10.cir.mt0"},
+    {"feature": "td_rise", "operating_point": "CL=1fF", "T0_anchor": 326.1e-12, "T1_value": 313.7e-12, "unit": "s", "err_pct": -3.8, "kind": "holdout", "T0_source_file": "stat-sim/qal/synth/threeway/spice/ce_th22_1.cir.mt0"},
+    {"feature": "td_rise", "operating_point": "CL=3fF", "T0_anchor": 342.1e-12, "T1_value": 335.8e-12, "unit": "s", "err_pct": -1.8, "kind": "fitted", "T0_source_file": "stat-sim/qal/synth/threeway/spice/ce_th22_3.cir.mt0"},
+    {"feature": "td_fall", "operating_point": "CL=3fF", "T0_anchor": 395.4e-12, "T1_value": 386.5e-12, "unit": "s", "err_pct": -2.2, "kind": "fitted", "T0_source_file": "stat-sim/qal/synth/threeway/spice/ce_th22_3.cir.mt0"},
+    {"feature": "td_rise", "operating_point": "CL=10fF", "T0_anchor": 392.0e-12, "T1_value": 409.2e-12, "unit": "s", "err_pct": 4.4, "kind": "holdout", "T0_source_file": "stat-sim/qal/synth/threeway/spice/ce_th22_10.cir.mt0"},
+    {"feature": "chain3_slow_edge_arrival_rise", "operating_point": "3-stage chain, slow edge", "T0_anchor": 1215.8e-12, "T1_value": 1239.8e-12, "unit": "s", "err_pct": 2.0, "kind": "fitted", "T0_source_file": "library/th22/ref_th22_3f.cir (TD3)"},
+    {"feature": "chain3_slow_edge_arrival_fall", "operating_point": "3-stage chain, slow edge", "T0_anchor": 1383.1e-12, "T1_value": 1410.7e-12, "unit": "s", "err_pct": 2.0, "kind": "fitted", "T0_source_file": "library/th22/ref_th22_3f.cir (TDF3)"},
+    {"feature": "chain20_arrival", "operating_point": "20-cell chain, 16ns", "T0_anchor": 8.66e-9, "T1_value": 8.94e-9, "unit": "s", "err_pct": 3.2, "kind": "holdout", "T0_source_file": "transistor 20-chain deck (session evidence; perf.md 'Hysteretic cells' section)"},
+    {"feature": "chain20_block_energy", "operating_point": "20-cell chain, 16ns", "T0_anchor": 1.024e-12, "T1_value": 0.949e-12, "unit": "J", "err_pct": -7.3, "kind": "holdout", "note": "slow-edge crowbar not captured by fast-edge energy feature; T2 must carry this band until a chain-energy feature lands"},
+    {"feature": "ser_waveform", "operating_point": "CL=3fF, accuracy.py window t>=6n (NULL edge + hold)", "T0_anchor": "transistor waveform", "T1_value": "18.1 dB (rel-L2 12.5%)", "kind": "fitted", "note": "phase-sensitive metric, same class as perf.md digital rows"},
+    {"feature": "hysteresis_hold", "operating_point": "A-only firing / A=1,B=0 hold window", "T0_anchor": "Y stays low (2 mV excursion); holds 1.2 V", "T1_value": "Y 7 uV; holds 1.1973 V, releases only when both inputs drop", "kind": "holdout"},
+    {"feature": "glitch_energy_nonfiring", "operating_point": "A-only pulse", "T0_anchor": 0.0072e-15, "T1_value": 0.056e-15, "unit": "J", "err_pct": 680, "kind": "holdout", "note": "~7x overcount but 0.1% of one op in absolute terms"}
+  ],
+  "validity_window": "CL 1-10 fF, slew per template grid (0.30-0.74 ns envelope); energy within +/-1.4% and delay within +/-4.4% across the window incl. unfitted loads",
+  "speedup_measured": {"harness_4cell_12ns": "x41-44 (13.8s -> 0.31s, Xyce full-process wall)", "chain20_16ns": "x14 (17.4s -> 1.24s)", "bare_cell": "x33-95 (floored by ~0.1s Xyce startup)", "note": "per-step model-eval cost, not solver striding: macromodel takes MORE timepoints (542 vs 398); expect growth toward C6288's x93-200 at ~1000-cell scale"},
+  "known_limits": [
+    "cin fitted AT its lower bound (0.205 fF vs ~1-2 fF physical): input loading under-represented for non-th22 drivers of this cell",
+    "chain block energy -7.3%: slow-edge crowbar missing; chain-energy (VDDC integral) feature is the known fix",
+    "clamp cannot reproduce PSP103's 1.238 V overshoot above the rail (y.max -3%)",
+    "vc (VACASK/OpenVAF) and ngspice lanes unrun -- not installed on this box; th22.vams is written for that lane"
+  ]
+}

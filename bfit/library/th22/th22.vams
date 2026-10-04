@@ -1,0 +1,54 @@
+`include "disciplines.vams"
+// bfit th22 macromodel -- hysteretic 2-input threshold gate (Muller C-element),
+// Sutherland static topology with weak-feedback keeper, stdcell2bfit v2 form:
+// thresholded LINEAR-overdrive gate-programmed conductances (short-channel /
+// velocity-saturated; the square-law variant fits slow-edge chain delay 19x
+// worse on SG13G2), W/L-scaled strengths, keeper devices on the kfb knob.
+// Same equations as the SPICE B-source subckt in template.cir -- one
+// macromodel, every engine (OpenVAF/OSDI for ngspice+VACASK, .hdl for Xyce).
+// Defaults = the tuned SG13G2/PSP103 fit (library/th22/cache.json):
+//   energy  -0.3/+0.0/+1.4 % of the transistor anchor at CL = 1/3/10 fF
+//   delay   -3.8/-1.8/+4.4 % (rise), fall and 3-stage slow-edge chain ~2%
+//   anchors E(CL)=39.398+1.7369*CL fJ/op, TD=319.5+7.26*CL ps.
+module th22(A, B, Y, VDD, VSS);
+  inout A, B, Y, VDD, VSS;
+  electrical A, B, Y, VDD, VSS;
+  electrical N1, N2, X;                     // stack midpoints + state node
+  parameter real vsup = 1.2    from (0:inf);   // rail the thresholds refer to
+  parameter real vthr = 0.5204 from (0:inf);   // effective trip (NOT 'vt': reserved in Xyce)
+  parameter real ron  = 5844.7 from (0:inf);   // strongest-device ON resistance
+  parameter real kp   = 0.6283 from (0:inf);   // P-network relative strength
+  parameter real kfb  = 3.7706 from (0:inf);   // keeper strength multiplier
+  parameter real gm0  = 1e-9   from [0:inf);   // off leakage (NOT 'gmin': reserved)
+  parameter real rfloat = 1e9  from (0:inf);   // DC anchor on driven nodes
+  parameter real cin  = 2.0528e-16 from [0:inf);
+  parameter real cint = 1.0174e-14 from [0:inf);
+  // per-FET strengths from W/L, normalized per polarity (see stdcell2bfit.py)
+  real gpa, gpb, gna, gnb, gpy, gny, gpk, gnk, qn;
+  analog begin
+    qn  = vsup - vthr;
+    gpa = ((vsup-V(A)) > vthr) ? kp*((vsup-V(A)-vthr)/qn)/ron : 0.0;
+    gpb = ((vsup-V(B)) > vthr) ? kp*((vsup-V(B)-vthr)/qn)/ron : 0.0;
+    gna = (V(A) > vthr) ? ((V(A)-vthr)/qn)/ron : 0.0;
+    gnb = (V(B) > vthr) ? ((V(B)-vthr)/qn)/ron : 0.0;
+    gpy = ((vsup-V(X)) > vthr) ? kp*((vsup-V(X)-vthr)/qn)/ron : 0.0;
+    gny = (V(X) > vthr) ? ((V(X)-vthr)/qn)/ron : 0.0;
+    gpk = ((vsup-V(Y)) > vthr) ? 0.065*kp*kfb*((vsup-V(Y)-vthr)/qn)/ron : 0.0;
+    gnk = (V(Y) > vthr) ? 0.0557143*kfb*((V(Y)-vthr)/qn)/ron : 0.0;
+    I(N1, VDD) <+ (gpa+gm0)*V(N1, VDD);     // pull-up stack A,B -> X
+    I(X,  N1)  <+ (gpb+gm0)*V(X,  N1);
+    I(N2, VSS) <+ (gna+gm0)*V(N2, VSS);     // pull-down stack A,B -> X
+    I(X,  N2)  <+ (gnb+gm0)*V(X,  N2);
+    I(Y, VDD)  <+ (gpy+gm0)*V(Y, VDD);      // output inverter X -> Y
+    I(Y, VSS)  <+ (gny+gm0)*V(Y, VSS);
+    I(X, VDD)  <+ (gpk+gm0)*V(X, VDD);      // weak keeper Y -> X (holds state)
+    I(X, VSS)  <+ (gnk+gm0)*V(X, VSS);
+    I(A, VSS)  <+ cin*ddt(V(A, VSS));       // input loading
+    I(B, VSS)  <+ cin*ddt(V(B, VSS));
+    I(Y, VSS)  <+ cin*ddt(V(Y, VSS));       // keeper gate load on Y
+    I(N1, VSS) <+ V(N1, VSS)/rfloat + cint*ddt(V(N1, VSS));
+    I(N2, VSS) <+ V(N2, VSS)/rfloat + cint*ddt(V(N2, VSS));
+    I(X,  VSS) <+ V(X,  VSS)/rfloat + cint*ddt(V(X,  VSS));
+    I(Y,  VSS) <+ V(Y,  VSS)/rfloat + cint*ddt(V(Y,  VSS));
+  end
+endmodule

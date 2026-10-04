@@ -17,7 +17,9 @@ import os, sys, json, tempfile, subprocess, argparse, math, re
 # ----------------------------------------------------------------------------
 class SimDriver:
     name = "base"
-    def run(self, netlist_text, signals=None):   # -> dict[str, list[float]]
+    def run(self, netlist_text, signals=None, measures=None):  # -> dict[str, list[float] | float]
+        # measures: raw `.measure tran ...` lines to inject (energy/delay
+        # features); scalar results come back merged into the dict by name.
         raise NotImplementedError
 
 class XyceDriver(SimDriver):
@@ -30,10 +32,12 @@ class XyceDriver(SimDriver):
         b = "/usr/local/src/xyce-build/src"
         self.env.setdefault("LD_LIBRARY_PATH",
             f"{os.path.expanduser('~')}/xyce-libs:{b}:/usr/local/lib:{b}/../utils/XyceCInterface")
-    def run(self, netlist_text, signals=None):
+    def run(self, netlist_text, signals=None, measures=None):
         deck = strip_output(netlist_text)
         if signals:
             deck += ".print tran format=gnuplot " + " ".join("v(%s)" % s for s in signals) + "\n"
+        if measures:
+            deck += "\n".join(measures) + "\n"
         deck += ".end\n"
         d = tempfile.mkdtemp(prefix="bfit_")
         cir = os.path.join(d, "c.cir")
@@ -43,7 +47,15 @@ class XyceDriver(SimDriver):
         prn = cir + ".prn"
         if not os.path.exists(prn):
             raise RuntimeError(f"xyce: no .prn ({r.stdout[-300:]})")
-        return _parse_prn(prn)
+        out = _parse_prn(prn)
+        mt0 = cir + ".mt0"                     # .measure results (energy/delay features)
+        if os.path.exists(mt0):
+            for ln in open(mt0):
+                m = re.match(r"\s*(\w+)\s*=\s*([-+0-9.eE]+)\s*$", ln)
+                if m:
+                    try: out[m.group(1).lower()] = float(m.group(2))
+                    except ValueError: pass    # FAILED etc. -> absent -> KeyError upstream
+        return out
 
 def _parse_prn(p):
     lines = open(p).read().splitlines()
@@ -101,6 +113,8 @@ def _steady(sig, t, t0):
     return [s for s, tt in zip(sig, t) if tt >= t0]
 def feature(data, node, kind, t0):
     if node not in data: raise KeyError(f"signal {node} not in output {list(data)[:8]}")
+    if kind in ("energy", "meas"):     # scalar .measure result (see meas_lines)
+        return data[node]
     seg = _steady(data[node], data["time"], t0)
     if kind == "amp": return (max(seg) - min(seg)) / 2.0
     if kind == "min": return min(seg)
@@ -109,7 +123,26 @@ def feature(data, node, kind, t0):
     if kind == "rms": return math.sqrt(sum(x*x for x in seg)/len(seg))
     raise ValueError(kind)
 def features(data, spec, t0):
-    return {f"{n}.{k}": feature(data, n, k, t0) for n, k in spec}
+    return {f"{f[0]}.{f[1]}": feature(data, f[0], f[1], t0) for f in spec}
+
+def meas_lines(spec_features):
+    """.measure lines a feature spec needs injected into BOTH the reference and
+    the candidate deck.  kind "energy" = supply-charge integral over a stated
+    window: [name, "energy", {vsrc, vdd, from, to}] ->
+        .measure tran Q_<name> INTEG I(<vsrc>) from=.. to=..
+        .measure tran <name>   PARAM {-(vdd)*Q_<name>}      (positive = delivered)
+    This is the ONLY energy form that cross-validates in Xyce -- INTEG of a
+    B-source voltage under-reports 11-44%.  kind "meas" injects nothing: it
+    reads a .measure the deck itself defines (e.g. a TRIG/TARG delay)."""
+    L = []
+    for f in spec_features:
+        if f[1] == "energy":
+            o = f[2]
+            L.append(".measure tran Q_%s INTEG I(%s) from=%.6g to=%.6g"
+                     % (f[0], o["vsrc"], float(o["from"]), float(o["to"])))
+            L.append(".measure tran %s PARAM {-(%.6g)*Q_%s}"
+                     % (f[0], float(o["vdd"]), f[0]))
+    return L
 
 # ----------------------------------------------------------------------------
 # Optimizer -- self-contained Nelder-Mead (no scipy dependency).
@@ -156,8 +189,9 @@ def tune(reference_netlist, template_text, spec, driver, t0=1.5e-3, verbose=True
     x0 = [spec["x0"][k] for k in names]
     step = [max(abs(v)*0.4, (b[1]-b[0])*0.1) for v, b in zip(x0, bounds)]
     fit = spec["features"]
-    sigs = sorted({n for n, _ in fit})
-    tgt = features(driver.run(reference_netlist, sigs), fit, t0)
+    sigs = sorted({f[0] for f in fit if f[1] not in ("energy", "meas")})
+    meas = meas_lines(fit)                # energy features -> injected .measure
+    tgt = features(driver.run(reference_netlist, sigs, meas), fit, t0)
     if verbose: print(f"[{driver.name}] target features (device-level reference):",
                       {k: round(v,4) for k,v in tgt.items()})
     evals = [0]
@@ -165,20 +199,22 @@ def tune(reference_netlist, template_text, spec, driver, t0=1.5e-3, verbose=True
         evals[0] += 1
         net = template_text
         for k, v in zip(names, x): net = net.replace("__%s__" % k, repr(v))
-        try: fv = features(driver.run(net, sigs), fit, t0)
+        try: fv = features(driver.run(net, sigs, meas), fit, t0)
         except Exception:
             return 1e6
-        return sum(((fv[k]-tgt[k])/(abs(tgt[k])+1e-9))**2 for k in tgt)
+        # denominator: RELATIVE error against the target's own scale -- the old
+        # +1e-9 floor swamped femto-scale targets (an energy feature in J).
+        return sum(((fv[k]-tgt[k])/(abs(tgt[k]) or 1e-9))**2 for k in tgt)
     xbest, fbest = nelder_mead(obj, x0, step, bounds)
     params = dict(zip(names, xbest))
     if verbose:
         print(f"converged: residual={fbest:.4e} in {evals[0]} sim evals")
         net = template_text
         for k, v in params.items(): net = net.replace("__%s__" % k, repr(v))
-        fv = features(driver.run(net, sigs), fit, t0)
+        fv = features(driver.run(net, sigs, meas), fit, t0)
         for k in tgt:
             print(f"  {k:10s} target {tgt[k]:+11.4g}  fitted {fv[k]:+11.4g}  "
-                  f"({100*(fv[k]-tgt[k])/(abs(tgt[k])+1e-9):+.1f}%)")
+                  f"({100*(fv[k]-tgt[k])/(abs(tgt[k]) or 1e-9):+.1f}%)")
     return params, fbest
 
 # ----------------------------------------------------------------------------

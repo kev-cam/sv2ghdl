@@ -152,6 +152,44 @@ into ~2400 behavioral gates with no transistors left — the product is still
 Accuracy is rel-L2 of p31 vs the engine's own native gold (Xyce has none →
 `-`).
 
+## Hysteretic cells: th22 C-element (PSP103/SG13G2, energy-fitted)
+
+First cell tuned with the **energy feature** (`fit.json` kind `"energy"`:
+`.measure tran Q INTEG I(V<supply>)` + PARAM over a stated window -- the only
+INTEG form that cross-validates in Xyce) alongside fast-edge AND 3-stage-chain
+slow-edge delay features. The macromodel is `stdcell2bfit` **v2**: thresholded
+LINEAR-overdrive conductances (alpha=1; the square-law variant fits slow-edge
+chain delay 19x worse -- 130 nm is velocity-saturated), W/L-scaled strengths,
+and the weak keeper on a tunable `kfb` (the keeper is 55% of the cell's
+44.62 fJ/op -- the old linear-conductance form overcounted energy 3-10x and
+could not hold state). Anchors: `stat-sim/qal/synth/threeway/spice/ce_th22_*`.
+
+Fit at CL=3 fF only; 1 fF and 10 fF are UNFITTED validation points:
+
+| CL | E ref (fJ) | E bfit | err | TDrise ref (ps) | TDrise bfit | err |
+| --: | --: | --: | --: | --: | --: | --: |
+| 1 fF | 41.09 | 40.97 | -0.3% | 326.1 | 313.7 | -3.8% |
+| 3 fF (fit) | 44.67 | 44.69 | +0.0% | 342.1 | 335.8 | -1.8% |
+| 10 fF | 56.75 | 57.54 | +1.4% | 392.0 | 409.2 | +4.4% |
+
+Hysteresis (the property the benchmark's digital rows never test): A-only
+firing leaves Y at 7 uV (ref 2 mV); Y holds 1.1973 V through an A=1,B=0 hold
+window and releases only when both inputs drop. Waveform SER **18.1 dB**
+(rel-L2 12.5%, `accuracy.py` window = last half, i.e. the NULL edge + hold);
+the residual is edge-shape detail -- the phase-sensitive metric, same class
+as the digital rows above. 20-cell chain: arrival +3.2% (8.94 vs 8.66 ns),
+block energy -7.3% (0.949 vs 1.024 pJ -- slow-edge crowbar is the unfitted
+piece), pulses regenerate to the rail through all 20 stages.
+
+Speed (Xyce, this box, min-of-N full-process wall): 4-cell harness 13.8 s ->
+0.31 s = **x44**; 20-cell chain 17.4 s -> 1.24 s = **x14**. The macromodel
+takes MORE timepoints (542 vs 398 -- B-source edges vs PSP103's smooth
+S-curves); the win is per-step model-eval cost, and Xyce's fixed `.hdl`/
+startup cost floors both lanes at this scale, so the ratio is load-dependent
+(C6288's x93-200 is the ~2400-gate data point). ngspice/VACASK/OpenVAF are
+not installed on this box -- the vc/ng lanes for `th22.vams` are unrun, not
+tied.
+
 ## Cascade-depth stress runs
 
 The N-stage cascade sweep (`run_bench.sh`) is a separate lane and writes

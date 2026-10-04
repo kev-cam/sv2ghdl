@@ -25,7 +25,11 @@ class NgspiceDriver:
                        capture_output=True, text=True)
         return osdi
 
-    def run(self, netlist_text, signals=None):
+    def run(self, netlist_text, signals=None, measures=None):
+        if measures:
+            # energy/delay .measure features are only wired for the Xyce driver
+            # so far; fail LOUDLY rather than fit against missing targets.
+            raise NotImplementedError("ngspice driver: .measure features not wired")
         try:
             from bfit import strip_output
             deck = strip_output(netlist_text)

@@ -1,0 +1,30 @@
+* th22 C-element transistor reference (PSP103/SG13G2) -- tuner target @ 3 fF.
+* One full DATA->NULL op; the fit.json "energy" feature injects the
+* .measure INTEG I(VDD) window (1.9n..10n); TD is deck-defined.
+* Anchor provenance: stat-sim/qal/synth/threeway/spice/ce_th22_3.cir
+* (EOP=44.67 fJ, TD=342 ps) and th22_dnd.cir (44.62 fJ).
+.hdl "/usr/local/share/xyce/verilog-a/psp103/psp103.va"
+.include "/usr/local/src/kestrel/sim/models/sg13g2_psp103_tt.lib"
+.include "/usr/local/src/ldx/asic/cells/th22.sp"
+VDD vdd 0 1.2
+VSS vss 0 0
+VA a 0 PWL(0 0 1.9n 0 2n 1.2 5.9n 1.2 6n 0 12n 0)
+VB b 0 PWL(0 0 1.9n 0 2n 1.2 5.9n 1.2 6n 0 12n 0)
+X1 a b y vdd vss th22
+CL y 0 3f
+.tran 2p 12n
+.measure tran TD TRIG V(a) VAL=0.6 RISE=1 TARG V(y) VAL=0.6 RISE=1
+.measure tran TDF TRIG V(a) VAL=0.6 FALL=1 TARG V(y) VAL=0.6 FALL=1
+* 3-stage chain on its OWN supply (keeps the cell-under-test energy integral
+* clean): slow-edge delay reference for TD3/TDF3 -- see template.cir.
+VDDC vddc 0 1.2
+XK1 a a yc1 vddc vss th22
+CK1 yc1 0 3f
+XK2 yc1 yc1 yc2 vddc vss th22
+CK2 yc2 0 3f
+XK3 yc2 yc2 yc3 vddc vss th22
+CK3 yc3 0 3f
+.measure tran TD3 TRIG V(a) VAL=0.6 RISE=1 TARG V(yc3) VAL=0.6 RISE=1
+.measure tran TDF3 TRIG V(a) VAL=0.6 FALL=1 TARG V(yc3) VAL=0.6 FALL=1
+.print tran format=gnuplot v(y)
+.end
