@@ -119,6 +119,8 @@ TOP_MODULE=""
 TARGET="vvp"
 SOURCES=()
 IVL_INC=()      # -I include dirs, forwarded to iverilog
+IVL_LIBDIR=()   # -y / +libdir+ library dirs, forwarded (their modules become sources)
+IVL_LIBOPT=()   # -Y / +libext+ library extensions, forwarded
 IVL_DEF=()      # -D defines, forwarded to iverilog
 ORIG_DIR="$(pwd)"
 
@@ -154,8 +156,17 @@ while [[ $# -gt 0 ]]; do
         -m*)    shift ;;
         -L)     shift 2 ;; # Library path - ignored
         -L*)    shift ;;
-        -y)     shift 2 ;; # Library dir - ignored
-        -y*)    shift ;;
+        # Library dirs and extensions: forwarded, and the modules iverilog
+        # resolves from them join the sources (see "library modules" below)
+        -y)     IVL_LIBDIR+=("$2"); shift 2 ;;
+        -y*)    IVL_LIBDIR+=("${1#-y}"); shift ;;
+        -Y)     IVL_LIBOPT+=("-Y$2"); shift 2 ;;
+        -Y*)    IVL_LIBOPT+=("$1"); shift ;;
+        +libdir+*) IFS='+' read -r -a _dirs <<< "${1#+libdir+}"
+                   for _d in "${_dirs[@]}"; do [[ -n "$_d" ]] && IVL_LIBDIR+=("$_d"); done
+                   shift ;;
+        +libext+*) IVL_LIBOPT+=("$1"); shift ;;
+        +*)     shift ;;   # Other plusargs - ignored
         -B)     shift 2 ;; # Tool path - ignored
         -B*)    shift ;;
         -p*)    shift ;;   # Compiler param - ignored
@@ -212,6 +223,16 @@ for inc in "${IVL_INC[@]}"; do
     esac
 done
 
+# Library dirs (-y, +libdir+) to absolute too, for the same reason.
+ABS_LIB=()
+for dir in "${IVL_LIBDIR[@]}"; do
+    case "$dir" in
+        /*) ABS_LIB+=("-y$dir") ;;
+        *)  ABS_LIB+=("-y$ORIG_DIR/$dir") ;;
+    esac
+done
+ABS_LIB+=("${IVL_LIBOPT[@]}")
+
 # Output directory (replaces the normal output file)
 # The test runner's "rm -rf ./vsim" cleans this up between tests.
 case "$OUTPUT" in
@@ -225,6 +246,28 @@ mkdir -p "$OUTDIR"
 IVL_LOG="$OUTDIR/iverilog.log"
 : > "$IVL_LOG"
 ivl_log_section() { echo "=== iverilog-sv2ghdl: $*" >> "$IVL_LOG"; }
+
+# Library modules (-y): the preprocess stage below runs on the listed sources
+# only, and iverilog -E drops the `define directives it consumed, so a library
+# file that uses the design's macros cannot be parsed later from the library
+# (ivtest macro_args: "macro BAR undefined" at the library file). Ask iverilog
+# which library files this design resolves (-M module=) and translate them as
+# sources, after the files that define the macros, as iverilog itself does.
+if [[ ${#ABS_LIB[@]} -gt 0 ]]; then
+    _deps="$OUTDIR/.libdeps"
+    ivl_log_section "iverilog -tnull -M module= (resolve -y library modules)"
+    if "$IVERILOG" -tnull -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" "${ABS_LIB[@]}" \
+            -M "module=$_deps" -o /dev/null "${ABS_SOURCES[@]}" 2>>"$IVL_LOG" \
+       && [[ -s "$_deps" ]]; then
+        while IFS= read -r _f; do
+            [[ -n "$_f" ]] || continue
+            case "$_f" in /*) ;; *) _f="$ORIG_DIR/$_f" ;; esac
+            _seen=0
+            for _s in "${ABS_SOURCES[@]}"; do [[ "$_s" == "$_f" ]] && { _seen=1; break; }; done
+            [[ $_seen -eq 0 && -f "$_f" ]] && ABS_SOURCES+=("$_f")
+        done < "$_deps"
+    fi
+fi
 
 # An error line in the output of a VHDL back end run (see the header):
 # tgt-vhdl's "Error: ..." and "VHDL conversion error: ...", or
@@ -314,7 +357,7 @@ if [[ -x "$SV_NORMALIZE" ]]; then
     _pp="$OUTDIR/_pp.v"
     _norm="$OUTDIR/_norm.sv"
     ivl_log_section "iverilog -E (preprocess)"
-    if "$IVERILOG" -E -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
+    if "$IVERILOG" -E -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" "${ABS_LIB[@]}" \
             -o "$_pp" "${ABS_SOURCES[@]}" 2>>"$IVL_LOG" \
        && [[ -s "$_pp" ]] \
        && "$SV_NORMALIZE" < "$_pp" > "$_norm" 2>/dev/null \
@@ -383,7 +426,7 @@ fi
 WHOLE_NVC_LOG="$OUTDIR/.whole_analysis.log"
 if [[ $IVERILOG_OK -eq 0 ]] && \
    ivl_run "iverilog -tvhdl (whole design)" \
-       timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}"; then
+       timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" "${ABS_LIB[@]}" -o "$VHDL_OUT" "${XLAT_SOURCES[@]}"; then
     if [[ -s "$VHDL_OUT" ]]; then
         two_state_clean_vhdl "$VHDL_OUT"
         # Compile with NVC (--std=2040 for sv2vhdl library + STD_MX features)
@@ -455,7 +498,7 @@ if [[ $IVERILOG_OK -eq 0 ]]; then
         mod_vhd="$OUTDIR/${modname}.vhd"
 
         if ivl_run "iverilog -tvhdl $modname (per-module fallback)" \
-                timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" \
+                timeout 30 "$IVERILOG" -tvhdl -psv2vhdl=1 -g2012 "${ABS_INC[@]}" "${IVL_DEF[@]}" "${ABS_LIB[@]}" \
                 -o "$mod_vhd" "$mod_v" \
                 && [[ -s "$mod_vhd" ]] \
                 && $NVC --std=2040 -L "$NVC_LIBDIR" -a "$mod_vhd" >/dev/null 2>&1; then
