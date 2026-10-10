@@ -167,10 +167,28 @@ sub build_nvc {
     run_capture(['sh', '-c', "cd '$bdir' && smak -j$jobs"], log => "$logdir/build-nvc-smak.log");
     my ($mrc) = run_capture(['sh', '-c', "cd '$bdir' && make -k -j$jobs"],
                             log => "$logdir/build-nvc-make.log");
+    # nvc's own build does not make the vamos co-simulation bridge, and the
+    # `rm -rf lib` above removed it: every vcs-ams run then fails with
+    # "libcosim_bridge.so not found" (2026-10-10, 51 e2e failures).
+    my ($brc, $bwhy) = build_cosim_bridge($bdir, $logdir);
+    return (0, $bwhy) unless $brc;
     my ($rrc) = run_capture(
         ['sh', '-c', "cd '$bdir' && BUILD_DIR=\$PWD NVC_LIBPATH=\$PWD/lib bin/run_regr wait1"],
         log => "$logdir/build-nvc-smoke.log");
     return ($rrc == 0, $rrc == 0 ? 'ok' : "nvc build smoke rc=$rrc make=$mrc");
+}
+
+# lib/libcosim_bridge.so beside nvc's library directory: vamos's vcs-ams loads it
+# into VACASK/Xyce (vamos/backends/cosim.py abi_check names this recipe). Built
+# to .new and moved into place, so a running simulation never sees a torn file.
+sub build_cosim_bridge {
+    my ($bdir, $logdir) = @_;
+    my $src = src_root() . '/nvc/src/cosim_bridge.cpp';
+    return (1, 'no cosim_bridge.cpp') unless -f $src;   # an nvc without the cosim patches
+    my $cmd = "cd '$bdir' && c++ -O2 -shared -fPIC -I'" . src_root() . "/nvc/src' -I. "
+            . "-o lib/libcosim_bridge.so.new '$src' && mv lib/libcosim_bridge.so.new lib/libcosim_bridge.so";
+    my ($rc) = run_capture(['sh', '-c', $cmd], log => "$logdir/build-nvc-bridge.log");
+    return ($rc == 0 && -f "$bdir/lib/libcosim_bridge.so", $rc == 0 ? 'ok' : "libcosim_bridge.so build rc=$rc");
 }
 
 # Resolve a repo's default branch: prefer origin/HEAD's target, else the first
