@@ -137,7 +137,7 @@ sub _vs_ltspice {
       open my $o, '>', "$ddir/$refin" or return (undef, 'gold: write fail');
       print $o $c; close $o; }
     my $gold = "$ddir/${base}_ltref.raw";
-    unlink $gold;
+    _unlink_ltref($ddir, $base, keep => $refin);
     my $wrc;
     if ($exe =~ m{/ltwine/}) {
         # Wine-prefixed LTspice (Linux host)
@@ -154,8 +154,21 @@ sub _vs_ltspice {
     my @res = (-f $gold) ? compare_raw($gold, $xraw)
                          : (undef, "LTspice produced no .raw (rc=$wrc)");
     # tidy up the reference inputs/outputs
-    unlink glob("$ddir/${base}_ltref.*");
+    _unlink_ltref($ddir, $base);
     return @res;
+}
+
+# Remove the LTspice reference input/outputs (<base>_ltref.*) from a corpus
+# dir. Not glob(): community circuit names contain spaces ("2 bit Multiplier"),
+# which glob() splits on, so the old unlink left <base>_ltref.asc behind and
+# the next run collected it as a test (then <base>_ltref_ltref.asc, ...).
+sub _unlink_ltref {
+    my ($ddir, $base, %o) = @_;
+    opendir(my $dh, $ddir) or return;
+    my @junk = grep { /^\Q${base}_ltref\E\./ && (!defined $o{keep} || $_ ne $o{keep}) }
+               readdir $dh;
+    closedir $dh;
+    unlink map { "$ddir/$_" } @junk;
 }
 
 # --- corpus collection -------------------------------------------------------
@@ -183,6 +196,8 @@ sub _collect_recursive {
         my $p = $File::Find::name;
         return if $p =~ m{/\.git(/|$)};
         return unless -f $p && $p =~ /\.(?:asc|cir)$/i;
+        # never a test: the harness's own LTspice reference copies (see _unlink_ltref)
+        return if $p =~ /_ltref(?:_ltref)*\.(?:asc|cir)$/i;
         (my $rel = $p) =~ s{^\Q$root\E/?}{};
         (my $dir = $p) =~ s{/[^/]+$}{};
         (my $file = $p) =~ s{.*/}{};
