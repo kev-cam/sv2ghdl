@@ -54,9 +54,34 @@ sub run_capture {
         else                     { exec '/bin/sh', '-c', $cmd }
         _child_die("exec failed: $!");
     }
-    waitpid $pid, 0;
-    my $exit = $? >> 8;
+    # timeout => N: kill the child (TERM, then KILL) after N seconds and report
+    # exit 124, like coreutils timeout(1). Guards gold/reference tools that can
+    # wedge for ever, e.g. a native Windows LTspice.exe stuck behind a dialog.
+    my $timed_out = 0;
+    if (my $t = $o{timeout}) {
+        require POSIX;
+        my $deadline = time + $t;
+        while (waitpid($pid, POSIX::WNOHANG()) == 0) {
+            if (time >= $deadline) {
+                kill 'TERM', $pid;
+                select undef, undef, undef, 2;
+                kill 'KILL', $pid;
+                waitpid $pid, 0;
+                $timed_out = 1;
+                last;
+            }
+            select undef, undef, undef, 0.2;
+        }
+    } else {
+        waitpid $pid, 0;
+    }
+    my $exit = $timed_out ? 124 : $? >> 8;
     my $out = ($log && -f $log) ? slurp($log) : '';
+    if ($timed_out) {
+        my $note = "run_capture: timed out after $o{timeout}s, killed\n";
+        $out .= $note;
+        if ($log && open(my $lf, '>>', $log)) { print {$lf} $note; close $lf; }
+    }
     return ($exit, $out);
 }
 

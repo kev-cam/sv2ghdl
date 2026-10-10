@@ -18,6 +18,11 @@ package Regress::Adapter::Ltz;
 use strict;
 use warnings;
 use File::Find ();
+
+# Wall-clock caps per circuit (seconds). The whole community corpus runs in
+# ~3-5 min, so anything near these is a wedge, not a slow simulation.
+our $LTZ_TIMEOUT     = $ENV{REGRESS_LTZ_TIMEOUT}     || 900;
+our $LTSPICE_TIMEOUT = $ENV{REGRESS_LTSPICE_TIMEOUT} || 600;
 use Regress::Tools qw(ltz_bin ltz_tests_dir ltz_community_dir xyce_bin xyce_libdir ltspice_bin);
 use Regress::Util  qw(run_capture);
 use Regress::RawCompare qw(compare_raw);
@@ -62,7 +67,7 @@ sub run {
         my $xraw = "$t->{dir}/$base.raw";
         unlink $xraw;
         my ($rc) = run_capture([$ltz, '-b', $t->{file}],
-            dir => $t->{dir}, env => \%env, log => $opt{log});
+            dir => $t->{dir}, env => \%env, log => $opt{log}, timeout => $LTZ_TIMEOUT);
         if ($rc != 0 || !-f $xraw) {
             push @r, { test_name => $t->{name}, status => 'fail',
                        message => "ltz -b rc=$rc" . (-f $xraw ? '' : ' (no .raw)'),
@@ -145,11 +150,13 @@ sub _vs_ltspice {
                      XDG_RUNTIME_DIR=> "$ENV{HOME}/.xdg",
                      WINEDEBUG      => '-all' );
         ($wrc) = run_capture(['xvfb-run', '-a', 'wine', $exe, '-b', '-ascii', $refin],
-            dir => $ddir, env => \%wenv, log => $log);
+            dir => $ddir, env => \%wenv, log => $log, timeout => $LTSPICE_TIMEOUT);
     } else {
-        # native Windows LTspice, reached from WSL via interop
+        # native Windows LTspice, reached from WSL via interop. It can wedge
+        # behind a modal dialog (P620A run #142 sat 26 min on MixCircuitR3),
+        # which no .raw ever ends -- hence the timeout.
         ($wrc) = run_capture([$exe, '-b', '-ascii', $refin],
-            dir => $ddir, log => $log);
+            dir => $ddir, log => $log, timeout => $LTSPICE_TIMEOUT);
     }
     my @res = (-f $gold) ? compare_raw($gold, $xraw)
                          : (undef, "LTspice produced no .raw (rc=$wrc)");
