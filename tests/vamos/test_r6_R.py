@@ -598,11 +598,12 @@ endmodule
 
 
 @needs_stack
-class TestVoidFunctionIsLocated(LoudError):
+class TestVoidFunctionIsTranslated(Probe):
     """R6R-27: a SystemVerilog void function crashed the translation inside ivl
     (ivl_signal_data_type: Assertion `net' failed; ivtest function10, which passed only as
-    long as bin/iverilog-sv2ghdl exited 0 for a module it could not translate): a located
-    error now."""
+    long as bin/iverilog-sv2ghdl exited 0 for a module it could not translate). Round 6
+    made it a located error ("write it as a task"); iverilog 8fd03deda translates it as a
+    task (its body inlined at the call), so the module runs like vvp and nothing crashes."""
 
     SOURCES = {"src.v": """\
 module main;
@@ -618,9 +619,10 @@ endmodule
 """}
     TOP = "main"
 
-    def test_located_error(self):
-        self.assert_error("no VHDL translation for the void function bump: write it as a task")
+    def test_like_vvp(self):
         self.assertNotIn("Assertion", self.xlat.stdout + self.xlat.stderr + self.ivlog)
+        self.assertNotIn("write it as a task", self.xlat.stdout + self.xlat.stderr + self.ivlog)
+        self.assert_like_vvp()
 
 
 # ---------------------------------------------------------------------- R6R-10
