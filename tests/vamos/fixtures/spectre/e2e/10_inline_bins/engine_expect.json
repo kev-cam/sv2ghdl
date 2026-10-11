@@ -1,0 +1,143 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "q1:c": "q1:vamos_tp1:flow(br)",
+     "q2:c": "q2:vamos_tp2:flow(br)",
+     "q3:c": "q3:vamos_tp3:flow(br)"
+    }
+   },
+   "vamos_a2": {
+    "name": "sw1",
+    "kind": "dc",
+    "columns": {
+     "q1:c": "q1:vamos_tp1:flow(br)",
+     "q2:c": "q2:vamos_tp2:flow(br)",
+     "q3:c": "q3:vamos_tp3:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "q1:c",
+    "row": 0,
+    "value": 0.00021492,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "q2:c",
+    "row": 0,
+    "value": 2.889e-05,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "q3:c",
+    "row": 0,
+    "value": 2.6418e-05,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "q1:c",
+    "row": 0,
+    "value": 0.00021492,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "q1:c",
+    "row": -1,
+    "value": 0.00021492,
+    "rel": 0.002
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "q1:c": "I(XQ1:VAMOS_TP1)",
+     "q2:c": "I(XQ2:VAMOS_TP2)",
+     "q3:c": "I(XQ3:VAMOS_TP3)"
+    }
+   },
+   "vamos_a2": {
+    "name": "sw1",
+    "kind": "dc",
+    "columns": {
+     "q1:c": "I(XQ1:VAMOS_TP1)",
+     "q2:c": "I(XQ2:VAMOS_TP2)",
+     "q3:c": "I(XQ3:VAMOS_TP3)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "q1:c",
+    "row": 0,
+    "value": 0.00021492,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "q2:c",
+    "row": 0,
+    "value": 2.889e-05,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "q3:c",
+    "row": 0,
+    "value": 2.6418e-05,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "q1:c",
+    "row": 0,
+    "value": 0.00021492,
+    "rel": 0.002
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "q1:c",
+    "row": -1,
+    "value": 0.00021492,
+    "rel": 0.002
+   }
+  ]
+ },
+ "also": [
+  {
+   "deck": "deck_cross.scs",
+   "vacask": {
+    "status": 2,
+    "refused": "changes a structural condition on path q1"
+   },
+   "xyce": {
+    "status": 2,
+    "refused": "changes a structural condition on path q1"
+   }
+  }
+ ]
+}

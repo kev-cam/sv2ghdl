@@ -1,0 +1,3 @@
+// a one-line user function
+real sq(real x) { return x*x; }
+parameters a=sq(3)

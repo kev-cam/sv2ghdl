@@ -89,10 +89,8 @@ class TestExprContract(unittest.TestCase):
         self.assertEqual(E.number("2meg", dialect="hspice", warn=None), 2e6)
         with self.assertRaises(ValueError):
             E.number("1k", dialect="spice")                         # spice.py maps "spice" first
-        with self.assertRaises(NotImplementedError):
-            E.number("1k", dialect="spectre")
-        with self.assertRaises(NotImplementedError):
-            E.number("1k", dialect="spectre-spice")
+        self.assertEqual(E.number("1k", dialect="spectre"), 1000.0)          # phase 1 (S1): the Spectre dialects
+        self.assertEqual(E.number("1k", dialect="spectre-spice"), 1000.0)
 
     def test_parse_keeps_todays_hspice_semantics(self):
         self.assertEqual(E.evaluate(P("-2**2"), {}), -4.0)           # test_netlist_expr.py:94
@@ -103,8 +101,7 @@ class TestExprContract(unittest.TestCase):
         with self.assertRaises(ValueError):
             P("1", dialect="hspice2")
         for d in ("spectre", "spectre-spice"):
-            with self.assertRaises(NotImplementedError):
-                P("1+1", dialect=d)
+            self.assertEqual(E.evaluate(P("1+1", dialect=d), {}), 2.0)       # phase 1 (S1): the Spectre dialects
         with self.assertRaises(NotImplementedError):                 # S1: the Spectre dialects inline funcs
             P("f(1)", funcs={"f": (["a"], Name("a"))})
         with self.assertRaises(ValueError):
@@ -115,11 +112,9 @@ class TestExprContract(unittest.TestCase):
         self.assertEqual(E.evaluate(e, {"a": 1, "b": 2}, dialect="hspice"), 5.0)
         self.assertEqual(E.to_text(e, dialect="hspice"), E.to_text(e))
         self.assertEqual(E.to_text(e), "a + b * 2.0")
-        for fn in (lambda: E.evaluate(e, {"a": 1, "b": 2}, dialect="spectre"),
-                   lambda: E.to_text(e, dialect="spectre"),
-                   lambda: E.to_text(e, dialect="spectre-spice")):
-            with self.assertRaises(NotImplementedError):
-                fn()
+        self.assertEqual(E.evaluate(e, {"a": 1, "b": 2}, dialect="spectre"), 5.0)   # phase 1 (S1)
+        self.assertEqual(E.to_text(e, dialect="spectre"), "a + b * 2.0")
+        self.assertEqual(E.to_text(e, dialect="spectre-spice"), "a + b * 2.0")
         with self.assertRaises(ValueError):
             E.evaluate(e, {}, dialect="xyce")
         with self.assertRaises(ValueError):
@@ -280,8 +275,10 @@ class TestTablesContract(unittest.TestCase):
         for engine in ("vacask", "xyce"):
             self.assertEqual(T.model_params(m, engine), T.model_params(m, engine, dialect="hspice"))
             self.assertEqual(T.model_params(m, engine, False, None), T.model_params(m, engine, False, None, "hspice"))
-            with self.assertRaises(NotImplementedError):               # S3
-                T.model_params(m, engine, dialect="spectre")
+            ms = card("nch", "nmos", 1, vto=0.5, kp=1e-4)              # phase 1 (S3): the SPECTRE_MASTERS path
+            ms.prim = "mos1"
+            params, _ = T.model_params(ms, engine, dialect="spectre")
+            self.assertIn(("vto", Num(0.5)), params)
             with self.assertRaises(ValueError):
                 T.model_params(m, engine, dialect="spectre-spice")
             with self.assertRaises(ValueError):
@@ -293,12 +290,11 @@ class TestTablesContract(unittest.TestCase):
         self.assertEqual(list(inspect.signature(T.bin_guard_spectre).parameters), ["bounds", "l", "w", "s"])
         self.assertEqual(list(inspect.signature(T.select_bin_spectre).parameters), ["bins", "l", "w", "s"])
         m = card("nch.1", "nmos", 49, lmin=0.1e-6, lmax=1e-6, wmin=0.1e-6, wmax=1e-6)
-        with self.assertRaises(NotImplementedError):
-            T.bin_bounds_spectre(m, {})
-        with self.assertRaises(NotImplementedError):
-            T.bin_guard_spectre((0.0, 1.0, 0.0, 1.0), Name("l"), Name("w"), 1.0)
-        with self.assertRaises(NotImplementedError):
-            T.select_bin_spectre([(m, (0.0, 1.0, 0.0, 1.0))], 1e-6, 1e-6, 1.0)
+        m.base, m.bin_index, m.bin_rule, m.prim = "nch", 1, "spectre", "bsim3v3"    # phase 1 (S3): implemented
+        self.assertEqual(T.bin_bounds_spectre(m, {}), (0.1e-6, 1e-6, 0.1e-6, 1e-6))
+        g = T.bin_guard_spectre((0.0, 1.0, 0.0, 1.0), Name("l"), Name("w"), 1.0)
+        self.assertEqual((E.evaluate(g, {"l": 0.5, "w": 0.5}), E.evaluate(g, {"l": 2.0, "w": 0.5})), (1.0, 0.0))
+        self.assertIs(T.select_bin_spectre([(m, (0.0, 1.0, 0.0, 1.0))], 1e-6, 1e-6, 1.0), m)
         # today's HSPICE rule is untouched
         self.assertIs(T.select_bin([(m, (0.0, 1.0, 0.0, 1.0))], 1e-6, 1e-6, 1.0, 1.0), m)
 
@@ -474,8 +470,8 @@ class TestPathEnvs(unittest.TestCase):
         self.assertEqual([pe.path for pe in T.path_envs(nl, dialect="hspice")], [pe.path for pe in T.path_envs(nl)])
         with self.assertRaises(ValueError):
             list(T.path_envs(nl, dialect="verilog"))
-        with self.assertRaises(NotImplementedError):                   # S1: the Spectre evaluator
-            list(T.path_envs(nl, dialect="spectre"))
+        self.assertEqual([pe.path for pe in T.path_envs(nl, dialect="spectre")],   # phase 1 (S1): the Spectre evaluator
+                         [pe.path for pe in T.path_envs(nl)])
 
     def test_cond_resolved_per_path(self):
         big, small, r0 = R("rbig", "a", "0", 1), R("rsmall", "a", "0", 2), R("r0", "a", "0", 3)
@@ -591,13 +587,13 @@ class TestSpiceContract(unittest.TestCase):
         sig = inspect.signature(spice.va_modules)
         self.assertEqual(list(sig.parameters), ["path", "search", "defines"])
         self.assertEqual((sig.parameters["search"].default, sig.parameters["defines"].default), ((), ()))
-        opts = ParseOpts(dialect="spectre-spice")
-        with self.assertRaises(NotImplementedError):
-            spice.declare_fragment(lines("r1 a 0 1k"), opts)
-        with self.assertRaises(NotImplementedError):
-            spice.parse_fragment(lines("r1 a 0 1k"), ".", opts, None)
-        with self.assertRaises(NotImplementedError):
-            spice.va_modules("/nonexistent.va")
+        # phase 1 (S1) implements the three stubs phase 0 pinned as raising (§4.3, §12)
+        opts = ParseOpts(dialect="spectre-spice", case="lower", parhier_local=True)
+        self.assertEqual(spice.declare_fragment(lines("r1 a 0 1k"), opts), ([], []))
+        fr = spice.parse_fragment(lines("r1 a 0 1k"), ".", opts, None)
+        self.assertEqual(fr.items, [Instance("r1", "r", ["a", "0"], value=Num(1000.0), origin="tb:1", prim="resistor")])
+        self.assertEqual((fr.notes, fr.pending, fr.controls), ([], [], []))
+        self.assertEqual(spice.va_modules("/nonexistent.va"), ({}, ["/nonexistent.va"]))
 
     def test_parse_still_refuses_spectre_spice(self):
         with self.assertRaises(NoteError) as cm:
@@ -639,23 +635,27 @@ class TestEmitterContract(unittest.TestCase):
         self.assertEqual(xyce.render(nl, op=True), xyce.render(nl, op=True, step=None))
 
     def test_plan_rendering_is_phase_1(self):
-        nl = small_netlist()
-        for kw in ({"plan": object()}, {"sigmap": object()}, {"names": {}}):
-            with self.assertRaises(NotImplementedError):
-                vacask.render(nl, **kw)
-        for kw in ({"step": object()}, {"sigmap": object()}, {"names": {}}):
-            with self.assertRaises(NotImplementedError):
-                xyce.render(nl, **kw)
+        nl = small_netlist()                                             # phase 1 (S3): implemented
+        from vamos.netlist import plan as P, signals as S
+        opts = {"temp": 27.0, "tnom": 27.0, "reltol": 1e-3, "vabstol": 1e-6, "iabstol": 1e-12, "gmin": 1e-12}
+        st = P.AnalysisStep("vamos_a1", "op1", "op", options=dict(opts))
+        pl = P.RunPlan(actions=[P.Action("options", dict(opts), None, "o"), P.Action("analysis", {}, st, "a")],
+                       options=dict(opts))
+        sm = S.SignalMap(per_step={"vamos_a1": [(("v", "a"), "a", "V")]})
+        self.assertIn("  save v(a)\n  analysis vamos_a1 op\n", vacask.render(nl, plan=pl, sigmap=sm))
+        self.assertIn(".OP\n.PRINT DC FORMAT=RAW FILE=vamos_a1.raw V(A)\n", xyce.render(nl, step=st, sigmap=sm))
 
     def test_names_for_and_the_xyce_checks(self):
         for mod in (vacask, xyce):
             self.assertEqual(list(inspect.signature(mod.names_for).parameters), ["nl", "plan", "sigmap"])
-            with self.assertRaises(NotImplementedError):
-                mod.names_for(small_netlist(), None, None)
+        from vamos.netlist import plan as P, signals as S                # phase 1 (S3): implemented
+        self.assertEqual(vacask.names_for(small_netlist(), P.RunPlan(), S.SignalMap()), {})
+        self.assertEqual(xyce.names_for(small_netlist(), P.RunPlan(), S.SignalMap()), {})
         for fn in (xyce.output_problems, xyce.device_summary_problems):
             self.assertEqual(list(inspect.signature(fn).parameters), ["text", "nl"])
-            with self.assertRaises(NotImplementedError):
-                fn("Netlist error: ...", small_netlist())
+        self.assertEqual([(n.severity, n.origin, n.message) for n in xyce.output_problems("Netlist error: ...", small_netlist())],
+                         [("error", "Xyce", "Netlist error: ...")])
+        self.assertEqual(xyce.device_summary_problems("Netlist error: ...", small_netlist()), [])
 
     def test_smoke_signatures_unchanged(self):
         self.assertEqual(list(inspect.signature(vacask.smoke).parameters), ["nl", "dir", "osdi", "nvc_libdir", "timeout"])

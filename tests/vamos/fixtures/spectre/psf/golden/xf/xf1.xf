@@ -1,0 +1,95 @@
+HEADER
+"PSFversion" "1.00"
+"simulator" "spectre"
+"version" "vamos (psf/golden fixture)"
+"date" "5:46:18 PM, Tue Apr 15, 2025"
+"design" "#RC Low-Pass Filter"
+"analysis type" "xf"
+"analysis name" "xf1"
+"analysis description" "Transfer Function Analysis `xf1': freq = (1 Hz -> 100 Hz)"
+"xVecSorted" "ascending"
+"tolerance.relative" 1.000000000000000e-03
+"start" 1.000000000000000e+00
+"stop" 1.000000000000000e+02
+"operating point producer" "xf1"
+TYPE
+"sweep" FLOAT DOUBLE PROP(
+"key" "sweep"
+)
+"V" COMPLEX DOUBLE PROP(
+"units" "V"
+"key" "node"
+"tolerance" 1.000000000000000e-06
+)
+"I" COMPLEX DOUBLE PROP(
+"units" "A"
+"key" "branch"
+"tolerance" 1.000000000000000e-12
+)
+"MMF" COMPLEX DOUBLE PROP(
+"units" "A*turn"
+"key" "node"
+"tolerance" 1.000000000000000e-12
+)
+"Wb" COMPLEX DOUBLE PROP(
+"units" "Wb"
+"key" "node"
+"tolerance" 1.000000000000000e-09
+)
+"Temp" COMPLEX DOUBLE PROP(
+"units" "C"
+"key" "node"
+"tolerance" 1.000000000000000e-04
+)
+"Pwr" COMPLEX DOUBLE PROP(
+"units" "W"
+"key" "node"
+"tolerance" 1.000000000000000e-09
+)
+"U" COMPLEX DOUBLE PROP(
+"units" ""
+"key" "node"
+"tolerance" 1.000000000000000e-06
+)
+"V/Sec" COMPLEX DOUBLE PROP(
+"units" "V/s"
+"key" "node"
+"tolerance" 9.999999999999999e-05
+)
+"I/Sec" COMPLEX DOUBLE PROP(
+"units" "A/s"
+"key" "node"
+"tolerance" 1.000000000000000e-06
+)
+"1/Sec" COMPLEX DOUBLE PROP(
+"units" "1/s"
+"key" "node"
+"tolerance" 9.999999999999999e-05
+)
+"HOD" COMPLEX DOUBLE PROP(
+"units" ""
+"key" "node"
+"tolerance" 1.000000000000000e-02
+)
+"Q" COMPLEX DOUBLE PROP(
+"units" "Coul"
+"key" "node"
+"tolerance" 1.000000000000000e-15
+)
+SWEEP
+"freq" "sweep" PROP(
+"sweep_direction" 0
+"units" "Hz"
+"plot" 0
+"grid" 3
+)
+TRACE
+"V1:p" "V"
+VALUE
+"freq" 1.000000000000000e+00
+"V1:p" (4.000000000000000e-01 -1.000000000000000e-02)
+"freq" 1.000000000000000e+01
+"V1:p" (4.000000000000000e-01 -1.000000000000000e-01)
+"freq" 1.000000000000000e+02
+"V1:p" (4.000000000000000e-01 -1.000000000000000e+00)
+END

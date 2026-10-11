@@ -1,4 +1,5 @@
-"""Xyce deck emitter (docs/VAMOS_AMS_DESIGN.md §4.5, with §4.3.5-§4.3.8 and §4.7).
+"""Xyce deck emitter (docs/VAMOS_AMS_DESIGN.md §4.5, with §4.3.5-§4.3.8 and §4.7; the Spectre
+extensions of docs/VAMOS_SPECTRE_DESIGN.md §4.5 and §7.2).
 
 Xyce runs under co-simulation with the plain argv {"Xyce", deck}, so the deck is
 plain Xyce: floats only (numbers.fmt, no suffixes), no ^ and no bare log (the
@@ -16,19 +17,31 @@ emit(nl, path, osdi=(), notes=None) -> None
     nothing: the gated conductance is a B source here).  Problems are collected
     over the whole netlist and raised together as one NoteError; without
     errors, warnings and notes are appended to notes when a list is given.
-render(nl, osdi=(), notes=None, op=False) -> str
+render(nl, osdi=(), notes=None, op=False, step=None, sigmap=None, names=None) -> str
     The deck text; op=True prints .op in place of .tran and .print (the smoke
-    deck).
+    deck).  With an AnalysisStep (the spectre personality, VAMOS_SPECTRE_DESIGN.md
+    §4.5 items 5-6, §7.2) the deck runs that one step with a .PRINT of exactly its
+    SignalMap entries, and `names` receives every printed Ref's column.
+names_for(nl, plan, sigmap) -> Dict[str, Dict[Ref, str]]
+    The name map render() fills over every step (step id -> Ref -> column), without rendering.
 smoke(nl, dir, osdi=(), nvc_libdir=None, timeout=600) -> List[Note]
     The compile-time check (§4.7): writes dir/smoke.cir from
     tables.smoke_netlist(nl) with an operating point, runs `Xyce -norun` (the
     model-parameter check: "No model parameter ... found" and "Unrecognized
     parameter" are errors, because Xyce otherwise runs with the parameter
-    silently ignored; the bounds of binned cards are exempt), then the operating
-    point itself.  Output in dir/smoke.norun.log and dir/smoke.log.  Returns []
-    when the deck passes, else one error note with Xyce's error messages; Xyce's
-    "no valid model card found" / "Unable to find model <base>." for a natively
-    binned M line becomes "no bin of <base> for l=..., w=...".
+    silently ignored; the bounds of binned cards are exempt; a Verilog-A module
+    bound to a built-in device of its level is an error, device_summary_problems),
+    then the operating point itself.  Output in dir/smoke.norun.log and
+    dir/smoke.log.  Returns [] when the deck passes, else one error note with
+    Xyce's error messages; Xyce's "no valid model card found" / "Unable to find
+    model <base>." for a natively binned M line becomes "no bin of <base> for
+    l=..., w=...".
+output_problems(text, nl) -> List[Note]
+    The smoke patterns over one Xyce output: unknown model parameters (the
+    bounds of binned cards exempt), unrecognized parameters, netlist errors.
+device_summary_problems(text, nl) -> List[Note]
+    The Verilog-A binding check (VAMOS_SPECTRE_DESIGN.md §4.5 item 13; the evidence
+    is in its docstring).
 RAW
     "vamos_tran.raw": the .print file, relative so that Xyce writes it into its
     process cwd, the per-run directory (§6); equal to ams.layout.RAW.
@@ -60,11 +73,23 @@ rawfile reader finds i(<IR name>) in the I(B<name>) column):
             no geometric diode); a 3-terminal Q leaves the substrate to Xyce
             (ground)
     x       X with overrides through expr.param_ident
-    y       vamos_gcond: B<name> nd n I={v(ne)*(v(nd)-v(n))/rr}; any other module:
-            Y<module> <name> <nodes> <card>, with .model <card> <module>.  A
-            Verilog-A instance with parameters is refused (PyMS ignores VA
-            parameter overrides), and so is one that needs a multiplier (Y lines
-            take no m=)
+    y       vamos_gcond: B<name> nd n I={v(ne)*(v(nd)-v(n))/rr}; a module whose
+            xyceModelGroup is MOSFET, DIODE, BJT, Resistor or Capacitor with an
+            xyceLevelNumber (Netlist.va_modules, VAMOS_SPECTRE_DESIGN.md §4.5 item
+            13) prints as that letter device, M/D/Q/R/C<name> <nodes> <card>
+            <instance parameters>, on a `.model <module>__vamos[_<kind>] <kind>
+            level=<n>` card per module and polarity (the card's xyceTypeVariable
+            value against xycePTypeValue selects the p-type kind; that parameter
+            is consumed): PyMS registers such a module as that device, and the Y
+            form fails for it [E64]; the card itself carries no parameter (PyMS
+            lists a card parameter and does not apply it [E63], and Xyce only
+            warns about an instance-typed one there), so every parameter goes on
+            the device line, where a model-typed one is Xyce's "Unrecognized
+            parameter" error and the output scan fails loudly [S3, 2026-10-10].
+            Any other module: Y<module> <name> <nodes> <card>, with .model <card>
+            <module>.  A Y instance with parameters is refused (PyMS ignores VA
+            parameter overrides), and so is a Verilog-A instance that needs a
+            multiplier (Y and letter lines alike take no m=)
 Names are case-insensitive in Xyce: IR names (set_sim_case sensitive) that
 differ only in case are an error, as are names Xyce cannot parse.
 
@@ -78,13 +103,36 @@ Binning: native (cards keep lmin/lmax/wmin/wmax; Xyce tries bins in the order
 tables.Scope gives the VACASK chain) when nf is absent or 1; otherwise the
 instance is bound to the bin card VACASK's rule (per-finger width,
 tables.select_bin) selects, which needs l, w and nf as numbers.  They are
-evaluated on each instance path: an elaboration walk from the top level
-evaluates every subckt's parameters with the X line's overrides (sky130's
-wrappers pass l={l} w={w} nf={nf}), and a subckt whose bindings differ between
-paths is printed once per distinct binding, as <name>__vb<k> (the X lines name
-the copy; only the bin cards a copy uses are printed with it).  Geometry that is
-not a number even on its path (temper) is an error when nf is not 1.  A
-geometry no bin fits is an error at emit time, naming the evaluated l and w.
+evaluated on each instance path: the elaboration walk runs on
+tables.path_envs (every subckt's parameters with the X line's overrides;
+sky130's wrappers pass l={l} w={w} nf={nf}), and a subckt whose bindings or
+branch choices differ between paths is printed once per distinct binding, as
+<name>__vb<k> (the X lines name the copy; only the bin cards a copy uses are
+printed with it).  Geometry that is not a number even on its path (temper) is
+an error when nf is not 1.  A geometry no bin fits is an error at emit time,
+naming the evaluated l and w.
+
+Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, §4.5, §7.2):
+    Cond    resolved per instance path by tables.path_envs; the printed body holds the taken
+            branch's instances, a different resolution is another __vb<k> variant; a condition that
+            is not a number on its path is an error
+    cards   tables.model_params(dialect="spectre"), MasterRow.instance through
+            tables.spectre_instance_params (an instance_<name> rename prints without the prefix)
+    bins    bin_rule="spectre": the instance is bound to its group entry per path (group order,
+            exact bounds on the total w); no native binning
+    sources a given dc prints DC <dc>; a derived one DC {<the t = 0 value of the waveform>}: Xyce's
+            operating point for a waveform source without DC is 0 [E70]; a noise step's input source
+            prints AC 1 0 (§8.4) [E19]
+    isnoisy=no   G<name> a b a b {1/r}, the same current with no noise; with tc1/tc2 the resistor
+            stays an R, noisy, with a warning [E32]
+    paths   every .PRINT item, .IC/.NODESET node and DNO() is spelled through printed_path
+            (V(XI2:MID) for IR I2.Mid) [E84]
+    step    one deck per analysis (§7.2): .options device temp tnom [gmin]; .OP (or .DC vamos_op
+            LIST 0 under two or more .STEPs [E20]) / .DC / .AC / .NOISE / .TRAN with .OPTIONS TIMEINT
+            METHOD; the context sweeps as .STEP lines innermost first [E20]; a sub= or source-field
+            target through a generated .param vamos_x_<path>_<param> hook [E20, E71]; .IC only in a
+            tran deck whose ic is all or node, .NODESET in every other deck [E18]; the .PRINT with
+            exactly the SignalMap's columns (V(*) plus the currents for allpub)
 """
 
 from __future__ import annotations
@@ -97,13 +145,14 @@ from typing import TYPE_CHECKING, Dict, Iterator, List, Mapping, Optional, Seque
 
 from vamos.netlist import expr as X
 from vamos.netlist import tables as T
-from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num
-from vamos.netlist.ir import Instance, Model, Netlist, Param, Source, Subckt
+from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str
+from vamos.netlist.ir import (Cond, Instance, Model, Netlist, Param, ParamTest, Source, Subckt, VaModule,
+                              flat_items)
 from vamos.netlist.numbers import fmt
-from vamos.notes import ERROR, Note, NoteError, error, note
+from vamos.notes import ERROR, Note, NoteError, error, note, warning
 
 if TYPE_CHECKING:                                  # the spectre run plan (VAMOS_SPECTRE_DESIGN.md §5, §6)
-    from vamos.netlist.plan import AnalysisStep, RunPlan
+    from vamos.netlist.plan import AnalysisStep, RunPlan, SweepLevel
     from vamos.netlist.signals import Ref, SignalMap
 
 ENGINE = "xyce"
@@ -112,11 +161,21 @@ SMOKE_DECK = "smoke.cir"
 SMOKE_LOG = "smoke.log"
 SMOKE_NORUN_LOG = "smoke.norun.log"
 MF = T.MF_PARAM[ENGINE]
+HOOK_PREFIX = "vamos_x_"                 # the .param hook of a sub= or source-field sweep target (§7.2)
+OP_DUMMY = "vamos_op"                    # the .DC variable standing for .OP under two or more .STEPs [E20]
 
 _LETTER = {"r": "r", "c": "c", "l": "l", "k": "k", "v": "v", "i": "i", "e": "e", "g": "g",
            "f": "f", "h": "h", "b": "b", "d": "d", "q": "q", "m": "m", "j": "j", "x": "x"}
 _LITERAL = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
 _BAD_NAME = re.compile(r"[\s(){},=;'\"]")
+# A Spectre source field a sweep hook replaces, as the IR holds it: Source.dc, an args key, or an ac index
+# (§3.8.1); exp's td1/td2 and pwl's wave/offset/scale/stretch are transformed by the parser and not hookable.
+_SOURCE_FIELD: Dict[str, Tuple[str, object]] = {
+    "dc": ("dc", None), "val0": ("args", "v1"), "val1": ("args", "v2"), "delay": ("args", "td"),
+    "rise": ("args", "tr"), "fall": ("args", "tf"), "width": ("args", "pw"), "period": ("args", "per"),
+    "sinedc": ("args", "vo"), "ampl": ("args", "va"), "freq": ("args", "freq"), "damp": ("args", "theta"),
+    "sinephase": ("args", "phase"), "mag": ("ac", 0), "phase": ("ac", 1),
+}
 
 
 def emit(nl: Netlist, path: str, osdi: Sequence[str] = (), notes: Optional[List[Note]] = None) -> None:
@@ -133,22 +192,22 @@ def render(nl: Netlist, osdi: Sequence[str] = (), notes: Optional[List[Note]] = 
            names: Optional[Dict[str, Dict[Ref, str]]] = None) -> str:
     """The Xyce deck text for nl (see the module docstring).
 
-    step, sigmap, names (VAMOS_SPECTRE_DESIGN.md §4.5 items 5-6, §7.2; S3): with an AnalysisStep
+    step, sigmap, names (VAMOS_SPECTRE_DESIGN.md §4.5 items 5-6, §7.2): with an AnalysisStep
     the deck prints that one step and a .PRINT with exactly its SignalMap entries, in order, and
     fills names (step id -> Ref -> engine column) for every Ref it printed.  With all three None
-    the output is byte-identical to the vcs-ams deck.  Phase 0: NotImplementedError.
+    the output is byte-identical to the vcs-ams deck.
     """
-    if step is not None or sigmap is not None or names is not None:
-        raise NotImplementedError("xyce.render(step=, sigmap=, names=) is not implemented yet "
-                                  "(VAMOS_SPECTRE_DESIGN.md §4.5, §7.2: phase 1, S3)")
-    return _Deck(nl, osdi, op).render(notes)
+    return _Deck(nl, osdi, op, step, sigmap, names).render(notes)
 
 
 def names_for(nl: Netlist, plan: RunPlan, sigmap: SignalMap) -> Dict[str, Dict[Ref, str]]:
     """The name map render() would fill over every step (step id -> Ref -> Xyce column), without
-    rendering (VAMOS_SPECTRE_DESIGN.md §4.5 item 6, §6.4; S3)."""
-    raise NotImplementedError("xyce.names_for is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.5: "
-                              "phase 1, S3)")
+    rendering (VAMOS_SPECTRE_DESIGN.md §4.5 item 6, §6.4)."""
+    out: Dict[str, Dict[Ref, str]] = {}
+    deck = _Deck(nl, (), False, None, sigmap, out)
+    for step_id in sigmap.per_step:
+        deck.name_map(step_id)
+    return out
 
 
 class _Skip(Exception):
@@ -157,7 +216,8 @@ class _Skip(Exception):
 
 class _Env(abc.Mapping):
     """Parameter values inside one subckt instance: its own over the top-level values, with the
-    names it declares but cannot evaluate hidden (no copy of the top level per instance)."""
+    names it declares but cannot evaluate hidden (no copy of the top level per instance).  The
+    elaboration walk reads tables.path_envs now (§4.4); kept for callers of child_env."""
 
     def __init__(self, top: Mapping[str, float]):
         self.top = top
@@ -186,18 +246,24 @@ class _Env(abc.Mapping):
 
 class _Variant:
     """One printed body: the top level (sub None) or a subckt under the name it is printed with."""
-    __slots__ = ("sub", "name", "bind", "models", "special")
+    __slots__ = ("sub", "name", "bind", "models", "special", "taken")
 
     def __init__(self, sub: Optional[Subckt], name: str):
         self.sub, self.name = sub, name
         self.bind: Dict[int, Optional[str]] = {}    # id(X or binned M) -> master to print; None: error recorded
         self.models: Set[int] = set()                # ids of the model cards this body prints
         self.special: List[Tuple[str, str]] = []     # (instance, master) differing from the plain subckt
+        self.taken: Set[int] = set()                 # ids of the instances on this body's path (Cond resolved)
 
 
 class _Deck:
-    def __init__(self, nl: Netlist, osdi: Sequence[str], op: bool):
+    def __init__(self, nl: Netlist, osdi: Sequence[str], op: bool, step: Optional[AnalysisStep] = None,
+                 sigmap: Optional[SignalMap] = None, names: Optional[Dict[str, Dict[Ref, str]]] = None):
         self.nl, self.osdi, self.op = nl, list(osdi), op
+        self.step, self.sigmap = step, sigmap
+        self.names: Dict[str, Dict[Ref, str]] = names if names is not None else {}
+        self.spectre = nl.dialect == "spectre"
+        self.va: Dict[str, VaModule] = {k.lower(): v for k, v in nl.va_modules.items()}
         self.s = nl.scale()
         self.values = nl.values
         self.notes: List[Note] = []
@@ -208,10 +274,21 @@ class _Deck:
         self.nobin_dev: Dict[Tuple[str, str], str] = {}   # (BASE, INSTANCE) -> message
         self.multiplied = _multiplied(nl)       # subckts some X line with m= reaches
         self.checked: Set[int] = set()          # subckts whose names were checked
+        self.iparams: Dict[int, Dict[str, Expr]] = {}     # instance id -> parameters after the Spectre rules
+        self.hooks: Dict[Tuple[str, str], Tuple[str, Expr]] = {}   # (IR path, Spectre param) -> (.param, nominal)
+        self.noise_input = step.noise_input if step is not None and step.kind == "noise" else None
+        self.once_seen: Set[Tuple[str, str]] = set()
+        if step is not None:
+            self._hooks(step)
         self.elaborate()
 
     def err(self, origin: str, msg: str) -> None:
         self.notes.append(error(origin, msg))
+
+    def once(self, origin: str, msg: str) -> None:
+        if (origin, msg) not in self.once_seen:
+            self.once_seen.add((origin, msg))
+            self.err(origin, msg)
 
     def add(self, notes: Sequence[Note]) -> None:
         """Card notes, once per message (bins of one base share theirs, tables.card_label)."""
@@ -221,70 +298,121 @@ class _Deck:
                 seen.add((n.severity, n.message))
                 self.notes.append(n)
 
+    # -- the step's sweep hooks (§7.2) -----------------------------------------------------
+    def _hooks(self, step: AnalysisStep) -> None:
+        """A sub= target (an X-line override) or an independent source's field swept by this step
+        prints through a generated .param, which .STEP/.DC sweep [E20, E71]."""
+        levels = list(step.context) + ([step.own] if step.own is not None else [])
+        for lv in levels:
+            kind, name, param = lv.target
+            if kind != "instance":
+                continue
+            inst = _resolve(self.nl, name)
+            if inst is None:
+                continue
+            hook = HOOK_PREFIX + "%s_%s" % (name.replace(".", "_"), param)
+            if inst.kind == "x":
+                sub = T.Scope(self.nl.body).find_subckt(inst.master or "")
+                nominal = inst.params.get(param)
+                if nominal is None and sub is not None:
+                    nominal = next((p.expr for p in _plist(sub) if p.name == param), None)
+                if nominal is None:
+                    nominal = Num(0.0)
+                self.hooks[(name, param)] = (hook, nominal)
+            elif inst.kind in ("v", "i"):
+                src = inst.source or Source()
+                where = _SOURCE_FIELD.get(param)
+                if where is None:
+                    self.err(inst.origin, "%s: the %s field %s cannot be swept on Xyce in v1 (the deck prints a "
+                             "derived value for it)" % (inst.name, inst.prim or inst.kind, param))
+                    continue
+                nominal: Optional[Expr]
+                if where[0] == "dc":
+                    nominal = src.dc if src.dc is not None else T.wave_t0(src)
+                elif where[0] == "args":
+                    nominal = src.args.get(where[1])          # type: ignore[arg-type]
+                else:
+                    nominal = src.ac[where[1]] if src.ac is not None else None   # type: ignore[index]
+                self.hooks[(name, param)] = (hook, nominal if nominal is not None else Num(0.0))
+
+    def hook_name(self, path: str, param: str) -> Optional[str]:
+        h = self.hooks.get((path, param))
+        return h[0] if h is not None else None
+
     # -- elaboration: what each printed body needs ---------------------------------------
     def elaborate(self) -> None:
-        """Walk the instance paths from the top level: decide the printed variants of every used
-        subckt, the model cards each printed body needs (unused definitions are never printed)
-        and the master of every X and binned M line.
+        """Walk the instance paths from the top level (tables.path_envs, §4.4): decide the printed
+        variants of every used subckt, the model cards each printed body needs (unused definitions
+        are never printed) and the master of every X and binned M line.
 
         Xyce bins natively on total W, which is vamos's rule only when nf is absent or 1.  A
         binned device with another nf is bound to the bin card vamos selects (tables.select_bin,
         per-finger W), which needs l, w and nf as numbers: they are evaluated on each instance
         path (the subckt parameters with the X line's overrides; sky130 wrappers pass nf={nf}),
-        and a subckt whose bindings differ between paths is printed once per distinct binding,
-        as <name>__vb<k>.
+        and a subckt whose bindings or branch choices differ between paths is printed once per
+        distinct binding, as <name>__vb<k>.  A Spectre model group is bound per path always.
         """
         self.variants: Dict[int, List[_Variant]] = {}       # id(subckt) -> printed variants
-        self.memo: Dict[Tuple[int, Tuple[Tuple[str, str], ...]], _Variant] = {}
+        self.memo: Dict[Tuple[int, Tuple[Tuple[str, str], ...], Tuple[int, ...]], _Variant] = {}
+        self.sig_first: Dict[int, Tuple[int, ...]] = {}     # id(subckt) -> the branch signature first seen
         self.vstack: List[_Variant] = []
-        self.once_seen: Set[Tuple[str, str]] = set()
         self.taken = {s.name.lower() for s in T.all_subckts(self.nl)}
         self.top = _Variant(None, "")
-        self.vstack.append(self.top)
-        self.body_of(self.top, self.nl.body, T.Scope(self.nl.body), self.values)
-        self.vstack.pop()
-
-    def once(self, origin: str, msg: str) -> None:
-        if (origin, msg) not in self.once_seen:
-            self.once_seen.add((origin, msg))
-            self.err(origin, msg)
-
-    def body_of(self, var: _Variant, items: Sequence[object], scope: T.Scope, env: Mapping[str, float]) -> None:
-        for it in items:
-            if not isinstance(it, Instance):
-                continue
-            if it.kind == "x":
-                found = scope.where(it.master or "")
-                if found is None:
-                    continue                                    # i_x reports it
-                sub, where = found
-                if any(v.sub is sub for v in self.vstack):
-                    self.once(it.origin, "%s: subckt %s instantiates itself" % (it.name, sub.name))
-                    var.bind[id(it)] = None
-                    continue
-                child = self.variant(sub, where, self.child_env(sub, it, env))
-                var.bind[id(it)] = child.name
-                if child.name != sub.name:
-                    var.special.append((it.name, child.name))
-            elif it.kind in T.MODEL_KINDS_OF:
-                card, bins = scope.card_of(it)
-                if card is not None:
-                    self.need(scope, card)
-                elif bins:
-                    self.bin_choice(var, it, scope, bins, env)
-
-    def variant(self, sub: Subckt, where: T.Scope, env: Mapping[str, float]) -> _Variant:
-        v = _Variant(sub, sub.name)
-        self.vstack.append(v)
         try:
-            self.body_of(v, sub.body, T.Scope(sub.body, where, sub), env)
+            pes = list(T.path_envs(self.nl, strict=False, dialect=self.nl.dialect))
+        except X.EvalError as exc:                           # a condition that is not a number on its path
+            self.err("", str(exc))
+            pes = []
+        except T.TableError as exc:
+            self.err("", str(exc))
+            pes = []
+        self.by_path: Dict[str, T.PathEnv] = {pe.path: pe for pe in pes}
+        if "" in self.by_path:
+            self.visit("", self.top)
+
+    def visit(self, path: str, var: _Variant) -> None:
+        pe = self.by_path[path]
+        var.taken = {id(it) for it in pe.items}
+        self.vstack.append(var)
+        try:
+            for it in pe.items:
+                if it.kind == "x":
+                    found = pe.scope.where(it.master or "")
+                    if found is None:
+                        continue                                # i_x reports it
+                    sub, _where = found
+                    child_path = it.name if not path else path + "." + it.name
+                    if child_path not in self.by_path:          # path_envs does not enter a recursion
+                        self.once(it.origin, "%s: subckt %s instantiates itself" % (it.name, sub.name))
+                        var.bind[id(it)] = None
+                        continue
+                    try:                                        # the rule path_envs applies (its oracle hook)
+                        self.child_env(sub, it, pe.env)
+                    except Exception:  # noqa: BLE001  (a Spectre value the HSPICE evaluator refuses)
+                        pass
+                    child = self.variant(sub, child_path)
+                    var.bind[id(it)] = child.name
+                    if child.name != sub.name:
+                        var.special.append((it.name, child.name))
+                elif it.kind in T.MODEL_KINDS_OF:
+                    card, bins = pe.scope.card_of(it)
+                    if card is not None:
+                        self.need(pe.scope, card)
+                    elif bins:
+                        self.bin_choice(var, it, pe.scope, bins, pe.env)
         finally:
             self.vstack.pop()
-        key = (id(sub), tuple(v.special))
+
+    def variant(self, sub: Subckt, path: str) -> _Variant:
+        v = _Variant(sub, sub.name)
+        self.visit(path, v)
+        sig = tuple(sorted(v.taken))
+        key = (id(sub), tuple(v.special), sig)
         old = self.memo.get(key)
         if old is not None:
             return old
-        if v.special:
+        first = self.sig_first.setdefault(id(sub), sig)
+        if v.special or sig != first:
             k = 1
             while ("%s__vb%d" % (sub.name, k)).lower() in self.taken:
                 k += 1
@@ -297,7 +425,8 @@ class _Deck:
     def child_env(self, sub: Subckt, inst: Instance, env: Mapping[str, float]) -> "_Env":
         """The parameter values inside one instance of sub: the top-level values, then sub's own
         parameters in order, an override evaluated where the X line is; a parameter that is not a
-        number on this path is hidden (it shadows the top-level value of its name)."""
+        number on this path is hidden (it shadows the top-level value of its name).  The rule
+        tables.path_envs applies (§4.4); the elaboration walk reads path_envs."""
         out = _Env(self.values)
         over = {k: v for k, v in inst.params.items() if k != "m"}
         for p in _plist(sub):
@@ -325,7 +454,9 @@ class _Deck:
                    env: Mapping[str, float]) -> None:
         base = inst.master or ""
         where = " in subckt " + scope.path() if scope.in_subckt else ""
-        l, w, nf = inst.params.get("l"), inst.params.get("w"), inst.params.get("nf")
+        params = self.params_of(inst, scope)
+        l, w, nf = params.get("l"), params.get("w"), params.get("nf")
+        spectre_group = any(b.bin_rule == "spectre" for b in bins)
         try:
             if l is None or w is None:
                 raise T.TableError("%s: binned model %s needs l= and w= on the instance" % (inst.name, base))
@@ -333,10 +464,30 @@ class _Deck:
             for b in bins:
                 if T.target(b).xyce_level is None:
                     raise T.TableError("%s: model %s has no Xyce equivalent" % (inst.name, b.name))
-                bounds.append((b, T.bin_bounds(b, self.values)))
+                bounds.append((b, T.bin_bounds_spectre(b, self.values) if spectre_group
+                               else T.bin_bounds(b, self.values)))
         except T.TableError as exc:
             self.once(inst.origin, str(exc))
             var.bind[id(inst)] = None
+            return
+        if spectre_group:
+            # a Spectre model group: bound to its entry on every path (group order, exact bounds,
+            # the total w); Xyce never bins it natively (§4.5 item 3)
+            geo = T.constant((l, w), env)
+            if geo is None:
+                self.once(inst.origin, "%s: model group %s needs l and w constant on the instance path on Xyce "
+                          "(l=%s, w=%s)%s" % (inst.name, base, X.to_text(l), X.to_text(w), where))
+                var.bind[id(inst)] = None
+                return
+            chosen = T.select_bin_spectre(bounds, geo[0], geo[1], self.s)
+            if chosen is None:
+                self.once(inst.origin, "no bin of %s for l=%.6g, w=%.6g (instance %s%s)"
+                          % (base, geo[0] * self.s, geo[1] * self.s, inst.name, where))
+                var.bind[id(inst)] = None
+                return
+            self.need(scope, chosen)
+            var.bind[id(inst)] = chosen.name
+            var.special.append((inst.name, chosen.name))
             return
         native = nf is None or (isinstance(nf, Num) and nf.value == 1.0)
         geo = T.constant((l, w, nf if nf is not None else Num(1.0)), env)
@@ -397,11 +548,11 @@ class _Deck:
         """A v()/i() argument: '.' hierarchy becomes ':'; i() follows element renames."""
         if kind != "i":
             return name.replace(".", ":")
-        return printed_path(self.nl, name, scope)
+        return printed_path(self.nl, name, scope, self.va)
 
     def name_ok(self, name: str, origin: str, what: str) -> bool:
         if not name or _BAD_NAME.search(name):
-            self.err(origin, "%s %r cannot be written in a Xyce deck" % (what, name))
+            self.once(origin, "%s %r cannot be written in a Xyce deck" % (what, name))
             return False
         return True
 
@@ -411,8 +562,8 @@ class _Deck:
         for n in names:
             k = n.lower()
             if k in seen and seen[k] != n:
-                self.err(origin, "%s %s and %s differ only in case; Xyce would merge them"
-                         % (what, seen[k], n))
+                self.once(origin, "%s %s and %s differ only in case; Xyce would merge them"
+                          % (what, seen[k], n))
             seen.setdefault(k, n)
 
     # -- the walk
@@ -430,7 +581,7 @@ class _Deck:
                      "parameters")
         for s in subs:
             self.name_ok(s.name, s.origin, "subckt name")
-        self.check_scope(self.nl.body, "", [])
+        self.check_scope(self.nl.body, "", [], self.top.taken)
         self.params([it for it in self.nl.body if isinstance(it, Param)], "")
         self.var = self.top
         self.items(self.nl.body, top)
@@ -460,13 +611,16 @@ class _Deck:
             lines.append(".global " + " ".join(glob))
         return lines
 
-    def check_scope(self, items: Sequence[object], origin: str, ports: Sequence[str]) -> None:
+    def check_scope(self, items: Sequence[object], origin: str, ports: Sequence[str],
+                    taken: Optional[Set[int]] = None) -> None:
+        """Name collisions in one body: on the resolved branch of every Cond (§3.7, the ref19 p.491
+        duplicates in an if and its else are the same instance name on one path only)."""
         nodes = list(ports)
         insts = []
-        for it in items:
-            if isinstance(it, Instance):
+        for it in flat_items(items):
+            if isinstance(it, Instance) and (taken is None or id(it) in taken):
                 nodes += it.nodes
-                insts.append(printed(it))
+                insts.append(printed(it, self.va))
                 for n in it.nodes:
                     self.name_ok(n, it.origin, "node")
         self.collide(nodes, origin, "nodes")
@@ -494,17 +648,36 @@ class _Deck:
                         self.subckt(it, scope, v)
                 elif isinstance(it, Instance):
                     self.instance(it, scope)
+                elif isinstance(it, Cond):
+                    self.cond_items(it, scope)
+                elif isinstance(it, (Param, ParamTest)):
+                    continue
+                else:
+                    raise T.TableError("%s: item %r is not an IR item (ir.ITEM_TYPES)"
+                                       % (scope.path() or "top level", it))
             except _Skip:
                 pass
             except (T.TableError, X.PrintError) as exc:
                 self.err(getattr(it, "origin", ""), str(exc))
 
+    def cond_items(self, c: Cond, scope: T.Scope) -> None:
+        """The instances of the branch this body's path takes (§4.5 item 2): the elaboration walk
+        (tables.path_envs) resolved every Cond per path into _Variant.taken."""
+        for it in flat_items([c]):
+            if isinstance(it, Instance) and id(it) in self.var.taken:
+                try:
+                    self.instance(it, scope)
+                except _Skip:
+                    pass
+                except (T.TableError, X.PrintError) as exc:
+                    self.err(it.origin, str(exc))
+
     def subckt(self, s: Subckt, parent: T.Scope, var: _Variant) -> None:
         scope = T.Scope(s.body, parent, s)
         first = id(s) not in self.checked
         self.checked.add(id(s))
+        self.check_scope(s.body, s.origin, s.ports, var.taken)
         if first:
-            self.check_scope(s.body, s.origin, s.ports)
             for p in s.ports:
                 self.name_ok(p, s.origin, "port")
         plist = _plist(s)
@@ -537,7 +710,8 @@ class _Deck:
             return
         if not self.name_ok(m.name, m.origin, "model name"):
             return
-        params, notes = T.model_params(m, ENGINE, binned=m.base is not None, options=self.nl.options)
+        params, notes = T.model_params(m, ENGINE, binned=m.base is not None, options=self.nl.options,
+                                       dialect=self.nl.dialect)
         self.add(notes)
         if row.strip_version and any(k == "version" for k, _ in params):
             self.add([note(m.origin, "%s: BSIM3 card simulated as Xyce BSIM3v3.2.2 (level 9)" % T.card_label(m))])
@@ -547,6 +721,25 @@ class _Deck:
         self.body.append(".model %s %s%s" % (m.name, m.kind, "".join(" " + o for o in out)))
 
     # -- instances
+    def params_of(self, inst: Instance, scope: T.Scope) -> Dict[str, Expr]:
+        """The instance's parameters as printed: on a Spectre netlist after MasterRow.instance (the
+        renames, instance_<name> without the prefix, the written defaults, the strips with their
+        notes; an error row raises); the IR's otherwise."""
+        if not self.spectre:
+            return inst.params
+        cached = self.iparams.get(id(inst))
+        if cached is not None:
+            return cached
+        card = scope.model(inst.master) if inst.kind in T.MODEL_KINDS_OF and inst.master else None
+        if card is None and inst.kind == "m" and inst.master:
+            bins = scope.bins(inst.master) or []
+            card = bins[0] if bins else None
+        master = T.spectre_master_of(inst, card)
+        params, notes = T.spectre_instance_params(inst, master, ENGINE)
+        self.add(notes)
+        self.iparams[id(inst)] = params
+        return params
+
     def instance(self, inst: Instance, scope: T.Scope) -> None:
         k = inst.kind
         want = T.TERMINALS.get(k)
@@ -560,14 +753,17 @@ class _Deck:
         if fn is None:
             self.err(inst.origin, "element kind %r of %s is not supported" % (k, inst.name))
             return
-        T.check_params(inst)
+        if self.spectre:                           # the Spectre rules first (a stripped stretch=1, tc1=0)
+            T.check_params(Instance(inst.name, k, [], params=self.params_of(inst, scope)))
+        else:
+            T.check_params(inst)
         fn(inst, scope)
 
     def line(self, inst: Instance, fields: Sequence[str]) -> None:
-        self.body.append(" ".join([printed(inst)] + [f for f in fields if f]))
+        self.body.append(" ".join([printed(inst, self.va)] + [f for f in fields if f]))
 
     def mult(self, inst: Instance, scope: T.Scope) -> Optional[Expr]:
-        return T.multiplier(inst.params.get("m"), scope.in_subckt, ENGINE)
+        return T.multiplier(self.params_of(inst, scope).get("m"), scope.in_subckt, ENGINE)
 
     def mparam(self, inst: Instance, scope: T.Scope) -> List[str]:
         m = self.mult(inst, scope)
@@ -576,9 +772,10 @@ class _Deck:
         return ["m=" + self.xv(m, inst.origin, "multiplier of " + inst.name)]
 
     def plist(self, inst: Instance, skip: Sequence[str] = ("m",), element: str = "",
-              level: Optional[int] = None) -> List[str]:
+              level: Optional[int] = None, scope: Optional[T.Scope] = None) -> List[str]:
         out = []
-        for k, v in inst.params.items():
+        params = self.params_of(inst, scope) if scope is not None else inst.params
+        for k, v in params.items():
             if k in skip:
                 continue
             v = T.scaled(element or inst.kind, k, v, self.s, level)
@@ -612,13 +809,33 @@ class _Deck:
         self.rcl(inst, scope)
 
     def rcl(self, inst: Instance, scope: T.Scope) -> None:
-        if "ic" in inst.params:
+        params_in = self.params_of(inst, scope)
+        if "ic" in params_in:
             self.err(inst.origin, "%s: IC= on a %s is not supported (use .ic)"
                      % (inst.name, T.ELEMENT_NAME[inst.kind]))
             return
         card = self.card(inst, scope) if inst.master is not None else None
         master = card.name if card is not None else ""
         val, skip, mparam = inst.value, ("m",), None
+        if self.spectre and inst.kind == "r" and "isnoisy" in params_in:
+            skip = ("m", "isnoisy")
+            if _is_no(params_in["isnoisy"]):
+                if any(k in params_in for k in ("tc1", "tc2")):
+                    self.add([warning(inst.origin or inst.name, "%s: isnoisy=no with tc1/tc2: Xyce has no resistor "
+                                      "noise switch, and the noise-free G form has no temperature coefficient; "
+                                      "the resistor stays an R and noisy" % inst.name)])
+                elif val is not None and card is None:
+                    # the same current with no noise: G<name> a b a b {1/r} (§4.5 item 7) [E32]
+                    g = Binary("/", Num(1.0), val)
+                    m = self.mult(inst, scope)
+                    if m is not None:
+                        g = Binary("*", g, m)
+                    self.body.append(" ".join(["g" + inst.name] + inst.nodes + inst.nodes
+                                              + [self.xv(X.fold(g), inst.origin, "conductance of " + inst.name)]))
+                    return
+                else:
+                    self.add([warning(inst.origin or inst.name, "%s: isnoisy=no on a resistor with a model card: "
+                                      "Xyce has no resistor noise switch; the resistor stays noisy" % inst.name)])
         if inst.kind == "l" and inst.name in scope.coupled:
             # Xyce's K pass keeps only L and IC of a coupled inductor: its multiplier and TCs are
             # folded into the value (tables.coupled_inductance)
@@ -629,25 +846,26 @@ class _Deck:
             self.err(inst.origin, "%s has no value" % inst.name)
             return
         value = self.xv(val, inst.origin, "value of " + inst.name) if val is not None else ""
-        self.line(inst, inst.nodes + [master, value] + self.plist(inst, skip)
+        self.line(inst, inst.nodes + [master, value] + self.plist(inst, skip, scope=scope)
                   + (self.mparam(inst, scope) if mparam is None else mparam))
 
     def i_k(self, inst: Instance, scope: T.Scope) -> None:
         if len(inst.ctrl) != 2 or inst.value is None:
             self.err(inst.origin, "mutual inductance %s needs two inductors and a coupling" % inst.name)
             return
-        self.line(inst, [printed_path(self.nl, inst.ctrl[0], scope), printed_path(self.nl, inst.ctrl[1], scope),
+        self.line(inst, [printed_path(self.nl, inst.ctrl[0], scope, self.va),
+                         printed_path(self.nl, inst.ctrl[1], scope, self.va),
                          self.xv(inst.value, inst.origin, "coupling of " + inst.name)])
 
     def i_v(self, inst: Instance, scope: T.Scope) -> None:
-        self.line(inst, inst.nodes + self.source(inst, inst.source or Source()))
+        self.line(inst, inst.nodes + self.source(inst, inst.source or Source(), scope))
 
     def i_i(self, inst: Instance, scope: T.Scope) -> None:
         src = inst.source or Source()
         m = self.mult(inst, scope)
         if m is not None and not src.code_uri:
             src = T.scale_source(src, m)              # Xyce ignores m= on current sources
-        self.line(inst, inst.nodes + self.source(inst, src))
+        self.line(inst, inst.nodes + self.source(inst, src, scope))
 
     def i_e(self, inst: Instance, scope: T.Scope) -> None:
         self.controlled(inst, scope)
@@ -675,7 +893,7 @@ class _Deck:
             if len(inst.ctrl) != 1:
                 self.err(inst.origin, "%s needs one controlling voltage source" % inst.name)
                 return
-            fields.append(printed_path(self.nl, inst.ctrl[0], scope))
+            fields.append(printed_path(self.nl, inst.ctrl[0], scope, self.va))
         fields.append(self.xv(gain, inst.origin, "gain of " + inst.name))
         self.line(inst, fields + self.mparam(inst, scope))
 
@@ -701,13 +919,14 @@ class _Deck:
         lv = T.level_of(m)                       # .option scale reaches a LEVEL 3 diode only
         area = (self.xv(T.scaled("d", "area", inst.value, self.s, lv), inst.origin, "area of " + inst.name)
                 if inst.value is not None else "")
-        self.line(inst, inst.nodes + [m.name, area] + self.plist(inst, ("m", "area"), level=lv)
+        self.line(inst, inst.nodes + [m.name, area] + self.plist(inst, ("m", "area"), level=lv, scope=scope)
                   + self.mparam(inst, scope))
 
     def i_q(self, inst: Instance, scope: T.Scope) -> None:
         m = self.card(inst, scope)
         area = self.xv(inst.value, inst.origin, "area of " + inst.name) if inst.value is not None else ""
-        self.line(inst, inst.nodes + [m.name, area] + self.plist(inst, ("m", "area")) + self.mparam(inst, scope))
+        self.line(inst, inst.nodes + [m.name, area] + self.plist(inst, ("m", "area"), scope=scope)
+                  + self.mparam(inst, scope))
 
     def i_j(self, inst: Instance, scope: T.Scope) -> None:
         m = self.card(inst, scope)
@@ -716,10 +935,11 @@ class _Deck:
         if k is not None:
             area = T.times(area if area is not None else Num(1.0), k)   # J takes no m=: area is equivalent
         text = self.xv(area, inst.origin, "area of " + inst.name) if area is not None else ""
-        self.line(inst, inst.nodes + [m.name, text] + self.plist(inst, ("m", "area")))
+        self.line(inst, inst.nodes + [m.name, text] + self.plist(inst, ("m", "area"), scope=scope))
 
     def i_m(self, inst: Instance, scope: T.Scope) -> None:
-        self.add(T.mos_scale_warnings(inst, self.nl.options))
+        if not self.spectre:
+            self.add(T.mos_scale_warnings(inst, self.nl.options))
         card, bins = scope.card_of(inst)
         if card is None and bins:
             if id(inst) in self.var.bind:        # bound to the bin card vamos selected
@@ -728,16 +948,18 @@ class _Deck:
                     raise _Skip()                # the elaboration recorded the error
             else:                                # Xyce bins natively; it names no bin if none fits
                 master = inst.master or ""
+                params = self.params_of(inst, scope)
                 msg = ("no bin of %s for l=%s, w=%s (scale %s; instance %s%s)"
-                       % (master, X.to_text(inst.params["l"]), X.to_text(inst.params["w"]), fmt(self.s),
+                       % (master, X.to_text(params["l"]), X.to_text(params["w"]), fmt(self.s),
                           inst.name, " in subckt " + scope.path() if scope.in_subckt else ""))
                 self.nobin[len(self.body)] = msg
-                self.nobin_dev[(master.upper(), printed(inst).upper())] = msg
+                self.nobin_dev[(master.upper(), printed(inst, self.va).upper())] = msg
         else:
             m = self.card(inst, scope)
-            self.add(T.mos_junction_warnings(inst, m, self.nl.options))
+            if not self.spectre:
+                self.add(T.mos_junction_warnings(inst, m, self.nl.options))
             master = m.name
-        self.line(inst, inst.nodes + [master] + self.plist(inst) + self.mparam(inst, scope))
+        self.line(inst, inst.nodes + [master] + self.plist(inst, scope=scope) + self.mparam(inst, scope))
 
     def i_x(self, inst: Instance, scope: T.Scope) -> None:
         sub = scope.find_subckt(inst.master or "")
@@ -752,15 +974,41 @@ class _Deck:
         if master is None:
             raise _Skip()                        # the elaboration recorded the error
         fields = list(inst.nodes) + [master]
+        path = self.path_of(inst, scope)
+        hooked = {p for (ipath, p) in self.hooks if ipath == path} if path is not None else set()
         for k, v in inst.params.items():
             if k == "m":
                 continue
+            if k in hooked:
+                fields.append("%s={%s}" % (X.param_ident(k, ENGINE), self.hooks[(path, k)][0]))   # type: ignore[index]
+                continue
             fields.append("%s=%s" % (X.param_ident(k, ENGINE), self.xv(v, inst.origin, "%s parameter %s"
                                                                           % (inst.name, k))))
+        for k in sorted(hooked - set(inst.params)):        # a swept default the X line did not override
+            fields.append("%s={%s}" % (X.param_ident(k, ENGINE), self.hooks[(path, k)][0]))   # type: ignore[index]
         m = self.mult(inst, scope)
         if m is not None:
             fields.append("%s=%s" % (MF, self.xv(m, inst.origin, "multiplier of " + inst.name)))
         self.line(inst, fields)
+
+    def path_of(self, inst: Instance, scope: T.Scope) -> Optional[str]:
+        """The IR path of an instance for the sweep hooks and the noise input: a top-level instance's
+        name; inside a subckt the hooks (and a hierarchical noise input, §5.6) name one path, which the
+        per-path rule of §5.3 guarantees is the only one (plan.build enforces it for both)."""
+        if not self.hooks and self.noise_input is None:
+            return None
+        if not scope.in_subckt:
+            return inst.name
+        for (path, _p) in self.hooks:
+            parts = path.split(".")
+            if parts[-1] == inst.name and len(parts) > 1:
+                return path
+        if self.noise_input is not None and "." in self.noise_input:
+            parts = self.noise_input.split(".")
+            parent = _resolve(self.nl, ".".join(parts[:-1]))     # the X line whose body this is
+            if parts[-1] == inst.name and parent is not None and scope.subckt is not None                     and parent.master == scope.subckt.name:
+                return self.noise_input
+        return None
 
     def i_y(self, inst: Instance, scope: T.Scope) -> None:
         module = inst.master or ""
@@ -770,13 +1018,36 @@ class _Deck:
         if not module:
             self.err(inst.origin, "Verilog-A instance %s has no module" % inst.name)
             return
+        va = self.va.get(module.lower())
+        letter = T.va_letter(va) if va is not None else None
+        multiplied = "m" in inst.params or (scope.in_subckt and scope.subckt.name in self.multiplied)
+        if letter is not None and va is not None:
+            # the letter-device route (§4.5 item 13): PyMS registers the module as that device [E64]
+            if multiplied:
+                self.err(inst.origin, "%s: a Verilog-A device takes no multiplier on Xyce (m= on it or on "
+                         "an enclosing X instance); VACASK honours it" % inst.name)
+                return
+            _letter, kinds, level = letter
+            params = dict(self.params_of(inst, scope))
+            kind, consumed = T.va_polarity(va, params)
+            if consumed is not None:
+                params.pop(consumed)
+            card = "%s__vamos" % module + ("" if kind == kinds[0] else "_" + kind)
+            if card not in self.cards:
+                self.cards.add(card)
+                self.body.append(".model %s %s level=%d" % (card, kind, level))
+            fields = list(inst.nodes) + [card]
+            for k, v in params.items():
+                fields.append("%s=%s" % (k, self.xv(v, inst.origin, "%s parameter %s" % (inst.name, k))))
+            self.line(inst, fields)
+            return
         extra = [k for k in inst.params if k != "m"]
         if extra:
             self.err(inst.origin, "%s: Verilog-A parameters (%s) on Xyce: PyMS ignores parameter "
                      "overrides, so they are not supported (VACASK honours them)"
                      % (inst.name, ", ".join(extra)))
             return
-        if "m" in inst.params or (scope.in_subckt and scope.subckt.name in self.multiplied):
+        if multiplied:
             self.err(inst.origin, "%s: a Verilog-A (Y) device takes no multiplier on Xyce (m= on it or on "
                      "an enclosing X instance); VACASK honours it" % inst.name)
             return
@@ -796,10 +1067,10 @@ class _Deck:
         law = Binary("/", Binary("*", Call("v", (Name(ne),)),
                                  Binary("-", Call("v", (Name(nd),)), Call("v", (Name(n),)))), rr)
         text = self.bx(law, scope, inst.origin, "gated conductance " + inst.name)
-        self.body.append(" ".join([printed(inst), nd, n, "I={%s}" % text] + self.mparam(inst, scope)))
+        self.body.append(" ".join([printed(inst, self.va), nd, n, "I={%s}" % text] + self.mparam(inst, scope)))
 
-    # -- sources (§4.3.8)
-    def source(self, inst: Instance, src: Source) -> List[str]:
+    # -- sources (§4.3.8; Spectre: VAMOS_SPECTRE_DESIGN.md §4.5 item 8)
+    def source(self, inst: Instance, src: Source, scope: Optional[T.Scope] = None) -> List[str]:
         o = inst.origin
         if src.code_uri is not None:
             if src.dc is not None or src.ac is not None or src.wave is not None:
@@ -816,12 +1087,22 @@ class _Deck:
                 raise _Skip()
             return ['PWL FILE "%s"' % src.code_uri]
         xv = lambda e, what: self.xv(e, o, "%s %s" % (inst.name, what))   # noqa: E731
+        path = self.path_of(inst, scope) if scope is not None else None
+        hooked = {p: h[0] for (ipath, p), h in self.hooks.items() if ipath == path} if path is not None else {}
+        if hooked:                                 # the swept fields read their .param hooks [E71]
+            src = _hooked_source(src, hooked)
         out: List[str] = []
         if src.dc is not None:
             out.append("DC " + xv(src.dc, "dc"))
         elif src.wave is None:
             out.append("DC 0.0")
-        if src.ac is not None:
+        elif self.spectre:
+            t0 = T.wave_t0(src)                    # Xyce's operating point without DC is 0, not t = 0 [E70]
+            if t0 is not None:
+                out.append("DC " + xv(t0, "dc (the t = 0 value of the waveform)"))
+        if self.noise_input is not None and self.noise_input == (path or inst.name):
+            out.append("AC 1 0")                   # the noise step's input: INOISE per unit input (§8.4) [E19]
+        elif src.ac is not None:
             out.append("AC %s %s" % (xv(src.ac[0], "ac magnitude"), xv(src.ac[1], "ac phase")))
         w = src.wave
         if w is not None:
@@ -856,15 +1137,26 @@ class _Deck:
 
     # -- control (§4.5)
     def control(self) -> List[str]:
+        if self.step is not None:
+            try:
+                return self.step_control(self.step)
+            except _Skip:
+                return []
+            except T.TableError as exc:
+                self.err(self.step.id, str(exc))
+                return []
         nl, o = self.nl, "control"
-        spice = "spice" in nl.options
+        spice = "spice" in nl.options or self.spectre              # Spectre's defaults are 27 (§3.10)
         temp = nl.temp if nl.temp is not None else (27.0 if spice else 25.0)
         tnom = nl.tnom if nl.tnom is not None else (27.0 if spice else 25.0)
         lines = []
         try:
             opts = ["temp=" + fmt(self.num(temp, o, "temp")), "tnom=" + fmt(self.num(tnom, o, "tnom"))]
-            solver, notes = T.solver_options(nl, o)
-            self.notes.extend(notes)
+            if self.spectre:                                       # no HSPICE tolerance notes (§3.10, §4.4)
+                solver = {"gmin": self.num(nl.options["gmin"], o, "gmin")} if "gmin" in nl.options else {}
+            else:
+                solver, notes = T.solver_options(nl, o)
+                self.notes.extend(notes)
             if "gmin" in solver:
                 opts.append("gmin=" + fmt(solver["gmin"]))
             lines.append(".options device " + " ".join(opts))
@@ -932,7 +1224,7 @@ class _Deck:
                 p = "v(*)" if target == "*" else "v(%s)" % ",".join(t.strip().replace(".", ":")
                                                                   for t in target.split(","))
             elif kind == "i":
-                p = "i(%s)" % printed_path(self.nl, target, top)
+                p = "i(%s)" % printed_path(self.nl, target, top, self.va)
             else:
                 self.err("probe", "unknown probe kind %r" % (kind,))
                 continue
@@ -940,8 +1232,299 @@ class _Deck:
                 out.append(p)
         return out
 
+    # -- one plan step (VAMOS_SPECTRE_DESIGN.md §4.5 items 5-6, §7.2) --------------------------
+    def node_text(self, path: str) -> str:
+        """An IR node path as Xyce's column spells it (§4.5 item 15, §6.4): V(<printed_path(a.b)>:<N>)
+        upper-cased, IR I2.Mid being V(XI2:MID) [E84]."""
+        parts = path.split(".")
+        if len(parts) == 1:
+            return path.upper()
+        top = T.Scope(self.nl.body)
+        return (printed_path(self.nl, ".".join(parts[:-1]), top, self.va) + ":" + parts[-1]).upper()
+
+    def element_text(self, path: str) -> str:
+        return printed_path(self.nl, path, T.Scope(self.nl.body), self.va).upper()
+
+    def column(self, ref: Ref, step_kind: str) -> Optional[str]:
+        """The .PRINT column of a Ref (§6.4), None for one Xyce has no column for."""
+        kind = ref[0]
+        if kind == "v":
+            return "V(%s)" % self.node_text(ref[1])
+        if kind == "i":
+            inst = _resolve(self.nl, ref[1])
+            if inst is not None and inst.kind == "r" and self.spectre and _is_no(inst.params.get("isnoisy", Num(1.0))) \
+                    and not any(k in inst.params for k in ("tc1", "tc2")):
+                raise T.TableError("%s: the current of the noise-free G form of %s needs a probe (signals.resolve)"
+                                   % (ref[1], ref[1]))
+            return "I(%s)" % self.element_text(ref[1])
+        if kind == "noise":
+            return "DNO(%s)" % self.element_text(ref[1])
+        if kind == "onoise":
+            return "ONOISE"
+        if kind in ("inoise", "gain"):
+            return "INOISE"                        # gain = sqrt(ONOISE/INOISE) (§8.4)
+        if kind == "tf":
+            raise T.TableError("xf (%s) runs on VACASK only (§3.11)" % (ref,))
+        return None
+
+    def name_map(self, step_id: str, step_kind: str = "") -> List[str]:
+        """Fill names[step_id] from the SignalMap and return the .PRINT items in order."""
+        sm = self.sigmap
+        if sm is None:
+            return []
+        out = self.names.setdefault(step_id, {})
+        cols: List[str] = []
+        for ref, _spectre_name, _psf in sm.per_step.get(step_id, []):
+            col = self.column(ref, step_kind)
+            if col is None or ref[0] == "gain":
+                if col is not None:
+                    out[ref] = col
+                continue
+            out[ref] = col
+            if col not in cols:
+                cols.append(col)
+        return cols
+
+    def setting_text(self, v: object, origin: str, what: str) -> str:
+        if isinstance(v, bool):
+            return "1" if v else "0"
+        if isinstance(v, (int, float)):
+            return fmt(float(v))
+        if isinstance(v, str):
+            return v
+        self.err(origin, "%s: value %r is not a plan setting" % (what, v))
+        raise _Skip()
+
+    def target_text(self, lv: SweepLevel) -> str:
+        """The .STEP/.DC variable of a sweep level: R1:R, X2:R1:R, NCH:VTH0, TEMP, a .param, or a hook."""
+        kind, name, param = lv.target
+        if kind == "instance":
+            hook = self.hook_name(name, param)
+            if hook is not None:
+                return hook
+            inst = _resolve(self.nl, name)
+            if inst is None:
+                raise T.TableError("sweep %s: no instance %s" % (lv.id, name))
+            return "%s:%s" % (self.element_text(name), self.instance_param(inst, param).upper())
+        if kind == "model":
+            m = self.nl.models().get(name)
+            if m is None:
+                raise T.TableError("sweep %s: a model group (%s) cannot be swept on Xyce in v1" % (lv.id, name))
+            p = param
+            if self.spectre and m.prim in T.SPECTRE_MASTERS:
+                p = _renamed(T.SPECTRE_MASTERS[m.prim].params, param, ENGINE)
+            return "%s:%s" % (name.upper(), p.upper())
+        if kind == "option":
+            return name.upper()
+        if kind == "variable":
+            return X.param_ident(name, ENGINE)
+        raise T.TableError("sweep %s: target kind %r is not a .STEP/.DC variable" % (lv.id, kind))
+
+    def instance_param(self, inst: Instance, param: str) -> str:
+        if not self.spectre:
+            return param
+        scope = T.Scope(self.nl.body)
+        card = scope.model(inst.master) if inst.kind in T.MODEL_KINDS_OF and inst.master else None
+        master = T.spectre_master_of(inst, card)
+        return _renamed(T.SPECTRE_MASTERS[master].instance if master in T.SPECTRE_MASTERS else (), param, ENGINE)
+
+    def sweep_text(self, lv: SweepLevel, keyword: str) -> str:
+        """`.STEP`/`.DC` with the level's grid: `<T> start stop step`, `<T> LIST ...`, `DEC <T> start stop n`."""
+        spec = lv.spec
+        target = self.target_text(lv)
+        if spec.mode in ("values", "log"):             # log: the values plan.build computed (§5.2)
+            return "%s %s LIST %s" % (keyword, target, " ".join(fmt(_numv(v)) for v in spec.values))
+        start, stop = _numv(spec.start), _numv(spec.stop)
+        if spec.mode == "dec":
+            if spec.count is None:
+                raise T.TableError("sweep %s: dec without a point count" % lv.id)
+            return "%s DEC %s %s %s %d" % (keyword, target, fmt(start), fmt(stop), int(spec.count))
+        if spec.mode == "step":
+            return "%s %s %s %s %s" % (keyword, target, fmt(start), fmt(stop), fmt(_numv(spec.step)))
+        if spec.mode == "lin":
+            if not spec.count:
+                raise T.TableError("sweep %s: lin without a step count" % lv.id)
+            return "%s %s %s %s %s" % (keyword, target, fmt(start), fmt(stop), fmt((stop - start) / float(spec.count)))
+        raise T.TableError("sweep %s: mode %r is not one render prints (lin, step, values, log, dec)" % (lv.id, spec.mode))
+
+    def freq_text(self, lv: SweepLevel, data_name: str, lines: List[str]) -> str:
+        """The frequency grid of .AC/.NOISE: DEC n f1 f2, LIN N+1 f1 f2, or DATA=<table> with a .DATA
+        block appended to lines [E21]."""
+        spec = lv.spec
+        if spec.mode == "dec" and spec.count:
+            return "DEC %d %s %s" % (int(spec.count), fmt(_numv(spec.start)), fmt(_numv(spec.stop)))
+        if spec.mode == "lin" and spec.count:
+            return "LIN %d %s %s" % (int(spec.count) + 1, fmt(_numv(spec.start)), fmt(_numv(spec.stop)))
+        if spec.mode in ("values", "log"):             # log: the values plan.build computed (§5.2)
+            values = [_numv(v) for v in spec.values]
+        elif spec.mode == "step":
+            start, stop, step = _numv(spec.start), _numv(spec.stop), _numv(spec.step)
+            values, f = [], start
+            while f <= stop * (1 + 1e-12) and step > 0:
+                values.append(f)
+                f += step
+        else:
+            raise T.TableError("sweep %s: mode %r is not one render prints" % (lv.id, spec.mode))
+        lines.append(".data %s" % data_name)
+        lines.append("+ hertz")
+        lines.extend("+ %s" % fmt(v) for v in values)
+        lines.append(".enddata")
+        return "DATA=%s" % data_name
+
+    def step_control(self, step: AnalysisStep) -> List[str]:
+        o = step.id
+        lines: List[str] = []
+        so = step.options                               # the global Spectre options in force (§5.1)
+        temp = so.get("temp", 27.0 if self.nl.temp is None else self.nl.temp)
+        tnom = so.get("tnom", 27.0 if self.nl.tnom is None else self.nl.tnom)
+        dev = ["temp=" + fmt(self.num(temp, o, "temp")), "tnom=" + fmt(self.num(tnom, o, "tnom"))]
+        if "gmin" in so:
+            dev.append("gmin=" + fmt(self.num(so["gmin"], o, "gmin")))
+        for key in ("reltol", "vabstol", "iabstol", "chargeabstol"):
+            if key in so:
+                self.add([note(o, "option %s=%s is not mapped on Xyce: its tolerances do not have SPICE's "
+                                  "meaning, so the engine runs with its defaults (§0, §3.10)"
+                               % (key, self.setting_text(so[key], o, key)))])
+        lines.append(".options device " + " ".join(dev))
+        if step.kind == "tran":
+            method = step.args.get("method")
+            if isinstance(method, str):
+                row = T.XYCE_METHODS.get(method.lower())
+                if row is None:
+                    raise T.TableError("%s: tran method %s has no Xyce equivalent" % (o, method))
+                lines.append(".options timeint method=%s%s" % (row[0], "" if row[1] is None else " maxord=%d" % row[1]))
+        for (path, param), (hook, nominal) in self.hooks.items():
+            lines.append(".param %s=%s" % (hook, self.xv(nominal, o, "hook of %s %s" % (path, param))))
+        ics = ""
+        if step.kind == "tran" and step.args.get("ic", "all") in ("all", "node"):
+            ics = self.step_pairs(self.nl.ics, ".ic")          # Xyce applies .IC to every DC solve [E18]
+            if ics:
+                lines.append(".IC " + ics)
+        nodesets = self.step_pairs(self.nl.nodesets, ".nodeset")
+        if nodesets:
+            if ics:
+                self.add([note(o, ".nodeset dropped in the tran deck: Xyce cannot take .ic and .nodeset together")])
+            else:
+                lines.append(".NODESET " + nodesets)
+        for lv in reversed(step.context):              # Xyce's first .STEP is the fastest loop [E20]
+            lines.append(self.sweep_text(lv, ".STEP"))
+        own = step.own
+        print_type = "DC"
+        if step.kind in ("op", "dc"):
+            if own is not None and own.target[0] != "freq":
+                lines.append(self.sweep_text(own, ".DC"))
+            elif len(step.context) >= 2:
+                lines.append(".param %s=0" % OP_DUMMY)
+                lines.append(".DC %s LIST 0" % OP_DUMMY)
+            else:
+                lines.append(".OP")
+        elif step.kind in ("ac", "noise"):
+            print_type = "AC" if step.kind == "ac" else "NOISE"
+            data_name = "vamos_f_%s" % step.id
+            if own is not None and own.target[0] == "freq":
+                grid = self.freq_text(own, data_name, lines)
+            else:
+                if own is not None:
+                    lines.append(self.sweep_text(own, ".STEP"))
+                if "freq" not in step.args:
+                    raise T.TableError("%s: an %s parameter sweep needs freq" % (o, step.kind))
+                lines.append(".data %s" % data_name)
+                lines.append("+ hertz")
+                lines.append("+ %s" % fmt(self.num(step.args["freq"], o, "freq")))
+                lines.append(".enddata")
+                grid = "DATA=%s" % data_name
+            if step.kind == "ac":
+                lines.append(".AC " + grid)
+            else:
+                p, n = step.args.get("p"), step.args.get("n", "0")     # §3.11 `p n`: IR node paths, n = "0" for ground
+                if not (isinstance(p, str) and p and isinstance(n, str)):
+                    raise T.TableError("%s: noise without an output (AnalysisStep.args['p'], ['n']: the node pair)" % o)
+                out = [p] if n == "0" else [p, n]
+                if not step.noise_input:
+                    raise T.TableError("%s: noise without an input source (plan.build names vamos_nin<k>)" % o)
+                lines.append(".NOISE V(%s) %s %s" % (",".join(self.node_text(n) for n in out),
+                                                      self.element_text(step.noise_input), grid))
+        elif step.kind == "xf":
+            raise T.TableError("%s: xf runs on VACASK only (§3.11)" % o)
+        elif step.kind == "tran":
+            print_type = "TRAN"
+            a = step.args
+            if "step" not in a or "stop" not in a:
+                raise T.TableError("%s: tran needs step and stop" % o)
+            vals = [fmt(self.num(a["step"], o, "step")), fmt(self.num(a["stop"], o, "stop"))]
+            start = self.num(a["outputstart"], o, "outputstart") if "outputstart" in a else 0.0
+            if "maxstep" in a:
+                vals += [fmt(start), fmt(self.num(a["maxstep"], o, "maxstep"))]
+            elif start:
+                vals.append(fmt(start))
+            lines.append(".TRAN " + " ".join(vals + (["UIC"] if a.get("skipdc") in ("yes", True) else [])))
+        else:
+            raise T.TableError("%s: analysis kind %r is not one Xyce runs" % (o, step.kind))
+        cols = self.name_map(step.id, step.kind)
+        if self.sigmap is not None and step.id in self.sigmap.allpub:
+            cols = ["V(*)"] + [c for c in cols if not c.startswith("V(")]
+        if step.kind == "noise":
+            lines.append(".PRINT NOISE FILE=%s.prn %s" % (step.id, " ".join(cols or ["ONOISE", "INOISE"])))
+        else:
+            lines.append(".PRINT %s FORMAT=RAW FILE=%s.raw %s" % (print_type, step.id, " ".join(cols or ["V(*)"])))
+        lines.append(".end")
+        return lines
+
+    def step_pairs(self, d: Dict[str, object], what: str) -> str:
+        out = []
+        for node, v in d.items():
+            try:
+                out.append("V(%s)=%s" % (self.node_text(node), fmt(self.num(v, what, "%s v(%s)" % (what, node)))))
+            except _Skip:
+                pass
+        return " ".join(out)
+
 
 WAVE = T.WAVE_FIELDS
+
+
+def _is_no(v: Expr) -> bool:
+    if isinstance(v, Num):
+        return v.value == 0.0
+    text = v.text if isinstance(v, Str) else v.name if isinstance(v, Name) else ""
+    return text.lower() in ("no", "false", "0")
+
+
+def _numv(e: object) -> float:
+    if isinstance(e, Num):
+        return e.value
+    if isinstance(e, (int, float)):
+        return float(e)
+    raise T.TableError("sweep value %s is not a number after plan.build" % (X.to_text(e) if isinstance(e, Expr) else e))
+
+
+def _renamed(rules: Sequence[T.ParamRule], param: str, engine: str) -> str:
+    for r in rules:
+        if r.name == param and r.action == "rename":
+            name = r.value
+            if engine == "xyce" and name.startswith("instance_"):
+                name = name[len("instance_"):]
+            return name
+    return param
+
+
+def _hooked_source(src: Source, hooked: Dict[str, str]) -> Source:
+    """src with every hooked Spectre field replaced by its .param name (a copy; Source.spectre kept)."""
+    import copy
+    out = copy.deepcopy(src)
+    for param, hook in hooked.items():
+        where = _SOURCE_FIELD.get(param)
+        if where is None:
+            continue
+        if where[0] == "dc":
+            out.dc = Name(hook)
+        elif where[0] == "args":
+            out.args[where[1]] = Name(hook)                  # type: ignore[index]
+        else:
+            ac = list(out.ac) if out.ac is not None else [Num(0.0), Num(0.0)]
+            ac[where[1]] = Name(hook)                        # type: ignore[index]
+            out.ac = (ac[0], ac[1])
+    return out
 
 
 def _plist(s: Subckt) -> List[Param]:
@@ -950,26 +1533,35 @@ def _plist(s: Subckt) -> List[Param]:
     return list(s.params) + [p for p in s.body if isinstance(p, Param) and p.name not in names]
 
 
-def printed(inst: Instance) -> str:
-    """An element's name in the Xyce deck: it must start with the element's letter."""
+def printed(inst: Instance, va: Optional[Mapping[str, VaModule]] = None) -> str:
+    """An element's name in the Xyce deck: it must start with the element's letter (a Verilog-A
+    module on the letter-device route, §4.5 item 13, takes its group's letter; va: Netlist.va_modules
+    by lower-cased name)."""
     if inst.kind == "y":
-        return inst.name if inst.master != T.GCOND_MODULE or inst.name[:1].lower() == "b" else "b" + inst.name
+        if inst.master == T.GCOND_MODULE:
+            return inst.name if inst.name[:1].lower() == "b" else "b" + inst.name
+        module = va.get((inst.master or "").lower()) if va else None
+        letter = T.va_letter(module) if module is not None else None
+        if letter is None:
+            return inst.name
+        return inst.name if inst.name[:1].lower() == letter[0] else letter[0] + inst.name
     letter = _LETTER.get(inst.kind, "")
     return inst.name if inst.name[:1].lower() == letter else letter + inst.name
 
 
-def printed_path(nl: Netlist, name: str, scope: T.Scope) -> str:
-    """A (hierarchical) element reference with every component as Xyce prints it."""
+def printed_path(nl: Netlist, name: str, scope: T.Scope, va: Optional[Mapping[str, VaModule]] = None) -> str:
+    """A (hierarchical) element reference with every component as Xyce prints it (instances inside
+    Cond branches included)."""
     parts = name.split(".")
     items: Sequence[object] = scope.subckt.body if scope.subckt is not None else nl.body
     sc = scope
     out = []
     for i, part in enumerate(parts):
-        inst = next((it for it in items if isinstance(it, Instance) and it.name == part), None)
+        inst = next((it for it in flat_items(items) if isinstance(it, Instance) and it.name == part), None)
         if inst is None:
             out += parts[i:]
             break
-        out.append(printed(inst))
+        out.append(printed(inst, va))
         if i < len(parts) - 1:
             sub = sc.find_subckt(inst.master or "") if inst.kind == "x" else None
             if sub is None:
@@ -985,7 +1577,7 @@ def _multiplied(nl: Netlist) -> Set[str]:
     calls: Dict[str, Set[str]] = {}
     roots: Set[str] = set()
     for scope, items in [("", nl.body)] + [(s.name, s.body) for s in T.all_subckts(nl)]:
-        for it in items:
+        for it in flat_items(items):                        # X lines inside Cond branches too (E56)
             if isinstance(it, Instance) and it.kind == "x" and it.master:
                 calls.setdefault(scope, set()).add(it.master)
                 if "m" in it.params:
@@ -998,6 +1590,27 @@ def _multiplied(nl: Netlist) -> Set[str]:
             out.add(n)
             todo.extend(calls.get(n, ()))
     return out
+
+
+def _resolve(nl: Netlist, target: str) -> Optional[Instance]:
+    """The element a hierarchical name (x1.x2.v1) names, through the subckt definitions."""
+    parts = target.split(".")
+    items: Sequence[object] = nl.body
+    scope = T.Scope(nl.body)
+    for i, part in enumerate(parts):
+        found = next((it for it in flat_items(items) if isinstance(it, Instance) and it.name == part), None)
+        if found is None:
+            return None
+        if i == len(parts) - 1:
+            return found
+        if found.kind != "x":
+            return None
+        sub = scope.find_subckt(found.master or "")
+        if sub is None:
+            return None
+        scope = T.Scope(sub.body, scope, sub)
+        items = sub.body
+    return None
 
 
 # -- the smoke check (§4.7) -------------------------------------------------------------
@@ -1034,7 +1647,8 @@ def smoke(nl: Netlist, dir: str, osdi: Sequence[str] = (), nvc_libdir: Optional[
                   errors="replace") as fh:
             fh.write(p.stdout)
         msgs = [_nobin(m, deck) for m in _messages(p.stdout)]
-        bad = [m for m in msgs if _UNREC.search(m) or _bad_param(m, binned) or m.startswith("no bin of")]
+        bad = _problem_messages(msgs, binned)
+        bad += [n.message for n in device_summary_problems(p.stdout, snl)]
         if p.returncode != 0 or bad:
             return [error(origin, "Xyce model-parameter check failed (exit %d): %s"
                           % (p.returncode, "\n".join(bad or _errors(msgs) or [_tail(p.stdout)])))]
@@ -1054,20 +1668,94 @@ def smoke(nl: Netlist, dir: str, osdi: Sequence[str] = (), nvc_libdir: Optional[
     return []
 
 
+def _problem_messages(msgs: Sequence[str], binned: Set[str]) -> List[str]:
+    """The smoke patterns: an unknown model parameter (the bounds of binned cards exempt), an
+    unrecognized parameter, a netlist error, a mapped no-bin message."""
+    return [m for m in msgs if _UNREC.search(m) or _bad_param(m, binned) or m.startswith("no bin of")
+            or "Netlist error" in m]
+
+
 def output_problems(text: str, nl: Netlist) -> List[Note]:
-    """The smoke patterns of smoke() as a public function (VAMOS_SPECTRE_DESIGN.md §4.5 item 13,
-    §7.2; S3): the errors in Xyce's output text for nl: unknown model parameters (the bounds of
-    binned cards exempt), unrecognized parameters, netlist errors."""
-    raise NotImplementedError("xyce.output_problems is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.5 "
-                              "item 13, §7.2: phase 1, S3)")
+    """The smoke patterns of smoke() over one Xyce output (VAMOS_SPECTRE_DESIGN.md §4.5 item 13,
+    §7.2): the errors in Xyce's output text for nl: unknown model parameters (the bounds of binned
+    cards exempt), unrecognized parameters, netlist errors.  One error note per message, with
+    Xyce's text."""
+    binned = {m.name.lower() for m in _models(nl) if m.base is not None}
+    return [error("Xyce", m) for m in _problem_messages(_messages(text), binned)]
+
+
+_SUMMARY_BUILTIN = re.compile(r"^\s+([A-Za-z]) level (\d+) \(([^)]*)\)\s+(\d+)\s*$")
+_SUMMARY_MODULE = re.compile(r"^\s+([A-Za-z_][A-Za-z0-9_]*) \(([^)]*)\)\s+(\d+)\s*$")
+_REGISTERED = re.compile(r"\.HDL: compiled and registered (\S+) from ")
+_COUNTED = re.compile(r"^Number of (\S+) (models|instances): (\d+)")
 
 
 def device_summary_problems(text: str, nl: Netlist) -> List[Note]:
-    """The Device Count Summary check (VAMOS_SPECTRE_DESIGN.md §4.5 item 13; S3): an error for a
-    built-in entry (`M level 77 (BSIM6)`) where a Netlist.va_modules module should be listed under
-    its own name (`RESISTOR (resistor)`); smoke()'s -norun step applies it."""
-    raise NotImplementedError("xyce.device_summary_problems is not implemented yet (VAMOS_SPECTRE_DESIGN.md "
-                              "§4.5 item 13: phase 1, S3)")
+    """The Verilog-A binding check of VAMOS_SPECTRE_DESIGN.md §4.5 item 13: an error for every module
+    of Netlist.va_modules that the deck instantiates on the letter-device route (tables.va_letter)
+    and that Xyce did not bind under its own name.
+
+    Evidence, measured on the launcher vamos runs (/usr/local/src/xyce-build/src/Xyce,
+    DEVELOPMENT-202610100047, 7cd78110, under engines.env_for; S3, 2026-10-10, §14 q.50):
+    - `Xyce -norun` and a full run both print a Device Count Summary with one line per device
+      type: a bound module is listed under its own name, `MYDIO (mydio) 1` [E63] or `RESISTOR
+      (resistor) 1` [E64], while a built-in device bound at the module's level is listed as
+      `D level 2002 (DIODE_CMC 2.0.0)` (the 2026-09-29 library) or `M level 77 (BSIM6)` [E99];
+    - the registration line `Netlist warning: .HDL: compiled and registered <module> from <file>`
+      precedes it, and a full run under .op also prints `Number of <module> models: N` and
+      `Number of <module> instances: N`.
+    The check: a built-in summary line whose letter and level are a used module's is an error (the
+    module's level collides with a compiled-in device); when the summary lists device types, a used
+    module missing from it under its own name is an error; when the output carries no per-type
+    summary line (a launcher that prints only the total), the `Number of <module> ...` lines, else
+    the registration line, stand for the listing, and a module with neither is an error.
+    """
+    out: List[Note] = []
+    used: Dict[str, VaModule] = {}
+    va = {k.lower(): v for k, v in nl.va_modules.items()}
+    for items in [nl.body] + [s.body for s in T.all_subckts(nl)]:
+        for it in flat_items(items):
+            if isinstance(it, Instance) and it.kind == "y" and it.master:
+                m = va.get(it.master.lower())
+                if m is not None and T.va_letter(m) is not None:
+                    used[it.master.lower()] = m
+    if not used:
+        return out
+    builtins: List[Tuple[str, int, str]] = []
+    listed: Set[str] = set()
+    for line in text.splitlines():
+        m = _SUMMARY_BUILTIN.match(line)
+        if m:
+            builtins.append((m.group(1).upper(), int(m.group(2)), m.group(3)))
+            continue
+        m = _SUMMARY_MODULE.match(line)
+        if m:
+            listed.add(m.group(2).lower())
+    registered = {m.lower() for m in _REGISTERED.findall(text)}
+    counted = {m.group(1).lower() for m in (_COUNTED.match(l) for l in text.splitlines()) if m}
+    per_type = bool(builtins or listed)
+    for key, module in sorted(used.items()):
+        letter, _kinds, level = T.va_letter(module)       # type: ignore[misc]
+        hit = [b for b in builtins if b[0] == letter.upper() and b[1] == level]
+        if hit:
+            out.append(error(module.path, "Verilog-A module %s: Xyce bound its built-in %s at level %d (the Device "
+                                          "Count Summary lists '%s level %d (%s)', not '%s (%s)'); the module's "
+                                          "level collides with a compiled-in device, so it cannot run on Xyce"
+                             % (module.name, hit[0][2], level, letter.upper(), level, hit[0][2],
+                                module.name.upper(), module.name)))
+            continue
+        if per_type:
+            if key not in listed:
+                out.append(error(module.path, "Verilog-A module %s is not listed under its own name in Xyce's "
+                                              "Device Count Summary ('%s (%s)'): it was not bound on its card"
+                                 % (module.name, module.name.upper(), module.name)))
+            continue
+        if key in counted or key in registered:
+            continue
+        out.append(error(module.path, "Verilog-A module %s: Xyce's output neither lists it in a Device Count "
+                                      "Summary, counts its models or instances, nor reports it compiled and "
+                                      "registered; the module was not bound" % module.name))
+    return out
 
 
 _AT_LINE = re.compile(r"at or near line (\d+)\b.*no valid model card found")

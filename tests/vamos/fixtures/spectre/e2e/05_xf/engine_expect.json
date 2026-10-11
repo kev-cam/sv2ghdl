@@ -1,0 +1,47 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "xf1",
+    "kind": "xf",
+    "columns": {
+     "V1:p": "tf(V1)"
+    },
+    "signals": [
+     "V1:p"
+    ]
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "points": 2
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     0.5,
+     0.0
+    ],
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": -1,
+    "value": [
+     0.5,
+     0.0
+    ],
+    "rel": 1e-09
+   }
+  ]
+ },
+ "xyce": {
+  "status": 2,
+  "refused": "xf is not available on Xyce"
+ }
+}

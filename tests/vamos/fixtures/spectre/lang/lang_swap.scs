@@ -1,0 +1,7 @@
+// stand-in for simulator_lang_swap.scs: the first line after a mid-file switch is a statement, not a title (UG p.53)
+r2 (1 0) resistor r=1k
+simulator lang=spice
+r1 1 0 1k
+c1 1 0 1p
+simulator lang=spectre
+r3 (1 0) resistor r=1k

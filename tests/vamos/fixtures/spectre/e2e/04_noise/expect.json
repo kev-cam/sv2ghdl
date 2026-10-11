@@ -1,0 +1,74 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "nz1.noise",
+  "nz2.noise",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "nz1.noise",
+   "signal": "out",
+   "at": 1000.0,
+   "value": 2.879e-09,
+   "rel": 0.001
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "gain",
+   "at": 1000.0,
+   "value": 0.5,
+   "rel": 0.0001
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "in",
+   "at": 1000.0,
+   "value": 5.758e-09,
+   "rel": 0.001
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "R1",
+   "at": 1000.0,
+   "value": {
+    "rn": 2.0357e-09,
+    "total": 2.0357e-09
+   },
+   "rel": 0.001
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "I2.r3",
+   "at": 1000.0,
+   "value": {
+    "total": 2.0357e-12
+   },
+   "rel": 0.001
+  },
+  {
+   "file": "nz2.noise",
+   "signal": "out",
+   "at": 10000.0,
+   "value": 2.879e-09,
+   "rel": 0.001
+  },
+  {
+   "file": "nz2.noise",
+   "signal": "gain",
+   "at": null,
+   "value": null
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.001
+ },
+ "messages": []
+}

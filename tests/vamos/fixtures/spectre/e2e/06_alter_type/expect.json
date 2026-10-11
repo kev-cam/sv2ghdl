@@ -1,0 +1,55 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "op1.dc",
+  "tr.tran.tran",
+  "op2.dc",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "a",
+   "at": null,
+   "value": 0.0,
+   "abs": 1e-12
+  },
+  {
+   "file": "tr.tran.tran",
+   "signal": "a",
+   "at": 5e-07,
+   "value": 2.0,
+   "abs": 1e-06
+  },
+  {
+   "file": "tr.tran.tran",
+   "signal": "a",
+   "at": 1.5e-06,
+   "value": 0.0,
+   "abs": 1e-06
+  },
+  {
+   "file": "op2.dc",
+   "signal": "a",
+   "at": null,
+   "value": 0.0,
+   "abs": 1e-12
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-06
+ },
+ "messages": [
+  [
+   "warning",
+   "rise is absent"
+  ]
+ ]
+}

@@ -1,0 +1,85 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "op1.dc",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "Vd1:p",
+   "at": null,
+   "value": -0.0001184954,
+   "rel": 0.001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vd2:p",
+   "at": null,
+   "value": -3.175319e-05,
+   "rel": 0.001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vd3:p",
+   "at": null,
+   "value": -0.0003766369,
+   "rel": 0.001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vd4:p",
+   "at": null,
+   "value": -0.0001827805,
+   "rel": 0.001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vd5:p",
+   "at": null,
+   "value": -0.0001827805,
+   "rel": 0.001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vd6:p",
+   "at": null,
+   "value": -0.0001054977,
+   "rel": 0.001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vd7:p",
+   "at": null,
+   "value": -0.0001054977,
+   "rel": 0.001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vd8:p",
+   "at": null,
+   "value": -0.0001522652,
+   "rel": 0.001
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": [
+  [
+   "note",
+   "M6: w not given; the bsim4 master's default 5e-06 m"
+  ],
+  [
+   "note",
+   "M8: l=2e-06 written from the card's l"
+  ]
+ ]
+}

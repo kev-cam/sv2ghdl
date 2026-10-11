@@ -1,0 +1,29 @@
+# cst/DIVERGENCES: every file or statement where vamos's reading of a Spectre construct differs from the
+# NetlistParse.rs d565fd3 CST dump (VAMOS_SPECTRE_DESIGN.md §11.1 "Statements and the CST oracle").  The CST
+# is a differential signal, not ground truth: here vamos follows the manual, and
+# tests/vamos/test_spectre_cst_oracle.py asserts vamos's reading instead of the CST's.  Every line is used
+# by the oracle (an unused line fails the suite).
+#
+# file (relative to fixtures/spectre) | selector | vamos's reading | why [M cite]
+#   selector  file           the whole file: vamos rejects it ("error") or accepts it ("accept")
+#             param <name>   that parameter's expression: "error" (expr.parse raises ExprError),
+#                            "pow-right" (a ** chain is right associative), "constant" (a built-in
+#                            constant folded to a number), "vector:<n>" (a vector of n elements)
+#             spice          the SPICE region after a mid-file switch: its first line is a statement
+cst/corpus/params_expr/arith_ops.scs | param modulo | error | % is a scale factor only directly after a number (5% is 0.05); Spectre has no modulo operator, the CST reads one [M UG p.84; ref19 p.475; E55]
+cst/corpus/params_expr/arith_ops.scs | param chain | pow-right | ** is right associative: 2**3**2 = 2**(3**2) = 512; the CST nests it left [M ref19 p.475; E51, E55]
+cst/corpus/params_expr/relational_logical.scs | param bxor | error | ^ is not a Spectre operator (bitwise XNOR is ~^ or ^~, power is **); the CST accepts it as XOR [M ref19 p.475; E55]
+cst/corpus/params_expr/shift_reduction.scs | param rednand | error | ~& is not a Spectre operator; the CST accepts a reduction NAND [M ref19 p.475; E88]
+cst/corpus/params_expr/reduction_nor_nand.scs | file | error | ~& and ~| are not Spectre operators; the CST accepts them [M ref19 p.475; E88]
+cst/corpus/params_expr/base_specifiers.scs | file | error | based literals (8'hFF, 4'b1010) are not Spectre numbers; the CST accepts them [M UG p.84; E88]
+cst/corpus/params_expr/constants.scs | param invpi | constant | M_1_PI is a built-in constant, a Num at parse time; the CST knows M_PI but reads M_1_PI as an identifier [M ref19 p.466; E55]
+cst/corpus/params_expr/constants.scs | param half | constant | M_PI_2 is a built-in constant; the CST reads it as an identifier [M ref19 p.466; E55]
+cst/corpus/params_expr/constants.scs | param root2 | constant | M_SQRT2 is a built-in constant; the CST reads it as an identifier [M ref19 p.466; E55]
+cst/corpus/model/lenient_name_only.scs | file | error | a model statement needs a master (model name master parameters); the CST is lenient [M UG p.62; E88]
+cst/corpus/include_global/lenient_section_empty.scs | file | error | include "f" section= without a section name is an error; the CST is lenient [M UG p.75; E88]
+cst/corpus/conditional/err_braceless.scs | file | accept | the brace-less one-statement if is legal; the CST requires braces [M UG p.109; E88]
+cst/corpus/arrays_langswitch/lang_swap_spice_start.cir | spice | statement | the first line after a mid-file simulator lang=spice is a statement (r1 1 0 1k), which the CST reads as a title [M UG p.53; E88]
+cst/corpus/analysis/dc.scs | param values | vector:4 | [0.5 1 +p2 (sqrt(p2*p2))] has four elements: a unary sign binds to its element; the CST reads +p2 (...) as a call of p2, three elements [M ref19 p.477; E88]
+lang/vector_elements.scs | param values | vector:4 | as cst/corpus/analysis/dc.scs: the vamos-authored stand-in for the left-out array_sweep.scs / var_reference.scs [M ref19 p.477; §14 q.41]
+lang/pow_chain.scs | param chain | pow-right | 2**3**2 = 512 [M ref19 p.475; E51]
+lang/lang_swap.scs | spice | statement | the stand-in for the left-out simulator_lang_swap.scs: r1 1 0 1k after the switch is a statement, not a title [M UG p.53; §14 q.41]

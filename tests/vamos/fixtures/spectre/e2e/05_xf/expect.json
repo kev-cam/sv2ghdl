@@ -1,0 +1,50 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask"
+ ],
+ "status": 0,
+ "files": [
+  "xf1.xf",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "xf1.xf",
+   "signal": "V1:p",
+   "at": 1000.0,
+   "value": [
+    0.5,
+    0.0
+   ],
+   "rel": 1e-09
+  },
+  {
+   "file": "xf1.xf",
+   "signal": "Ip:in",
+   "at": null,
+   "value": null
+  },
+  {
+   "file": "xf1.xf",
+   "signal": "Rs:1",
+   "at": null,
+   "value": null
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-09
+ },
+ "messages": [],
+ "xyce": {
+  "status": 2,
+  "messages": [
+   [
+    "error",
+    "xf is not available on Xyce"
+   ]
+  ]
+ }
+}

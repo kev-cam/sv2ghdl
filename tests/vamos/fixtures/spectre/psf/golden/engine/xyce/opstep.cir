@@ -1,0 +1,8 @@
+* op under one STEP, raw
+V1 in 0 DC 1 AC 1 0
+R1 in out 1k
+R2 out 0 1k
+.STEP R2:R LIST 1k 2k
+.OP
+.PRINT DC FORMAT=RAW FILE=opstep.raw V(out) I(V1)
+.END

@@ -1,0 +1,62 @@
+HEADER
+"PSFversion" "1.00"
+"Log Generator" "drlLog rev. 1.0"
+"Log Time Stamp" "Tue Apr 15 17:51:25 2025"
+"psfversion" "1.4.0"
+"simulator" "spectre"
+"version" "vamos (psf/golden fixture)"
+"date" "5:46:18 PM, Tue Apr 15, 2025"
+"design" "#RC Low-Pass Filter"
+"signalNameType" "spectre"
+"simMode" "Spectre"
+"measdgt" 0
+"ingold" 2
+"sst2usecolon" 0
+TYPE
+"analysisInst" STRUCT(
+"analysisType" STRING *
+"dataFile" STRING *
+"format" STRING *
+"parent" STRING *
+"sweepVariable" ARRAY ( * ) STRING *
+"description" STRING *
+)
+VALUE
+"sw_op1-sweep" "analysisInst" (
+"sweep"
+"sw_op1.sweep"
+"PSF"
+""
+("R1:r")
+"Sweep parent"
+) PROP(
+"sweep_tree_type" "sweepNode"
+)
+
+"sw-000_op1-dc" "analysisInst" (
+"dc"
+"sw-000_op1.dc"
+"PSF"
+"sw_op1-sweep"
+()
+"DC Analysis `sw-000_op1'"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 1000.00
+)
+
+"sw-001_op1-dc" "analysisInst" (
+"dc"
+"sw-001_op1.dc"
+"PSF"
+"sw_op1-sweep"
+()
+"DC Analysis `sw-001_op1'"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 2000.00
+)
+
+END

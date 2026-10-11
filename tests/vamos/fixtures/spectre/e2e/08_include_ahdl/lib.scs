@@ -1,0 +1,9 @@
+// e2e 8: a library file (UG p.75) with two sections
+library mylib
+  section tt
+    model rmod resistor r=3k
+  endsection tt
+  section ff
+    model rmod resistor r=1k
+  endsection ff
+endlibrary mylib

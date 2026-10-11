@@ -1,0 +1,74 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "myop.dc",
+  "myac.ac",
+  "swp_tr.sweep",
+  "swp-000_tr.tran.tran",
+  "swp-001_tr.tran.tran",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "myop.dc",
+   "signal": "out",
+   "at": null,
+   "value": 0.0,
+   "abs": 1e-12
+  },
+  {
+   "file": "myac.ac",
+   "signal": "out",
+   "at": 1.0,
+   "value": [
+    0.999961,
+    -0.00628294
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "myac.ac",
+   "signal": "freq",
+   "at": null,
+   "value": 1000000.0,
+   "rel": 1e-09,
+   "row": -1,
+   "points": 61
+  },
+  {
+   "file": "swp-000_tr.tran.tran",
+   "signal": "out",
+   "at": 0.005,
+   "value": 0.98173,
+   "rel": 0.0002
+  },
+  {
+   "file": "swp-001_tr.tran.tran",
+   "signal": "out",
+   "at": 0.005,
+   "value": 0.86469,
+   "rel": 0.0002
+  },
+  {
+   "file": "swp_tr.sweep",
+   "signal": "rval",
+   "at": null,
+   "value": [
+    1000.0,
+    2000.0
+   ],
+   "rel": 1e-12
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": []
+}

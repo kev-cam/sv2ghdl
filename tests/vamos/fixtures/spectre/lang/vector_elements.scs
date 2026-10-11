@@ -1,0 +1,7 @@
+// stand-in for array_sweep.scs / var_reference.scs: vector elements (ref19 p.477)
+// [0.5 1 +p2 (sqrt(p2*p2))] has four elements, [1+p2] two (unary signs bind to the element)
+parameters p1=1 p2=2
+dc_sweep dc param=p1 values=[0.5 1 +p2 (sqrt(p2*p2))]
+swp2 sweep param=p1 values=[1+p2] {
+    op1 dc
+}

@@ -1,0 +1,10 @@
+// e2e 6: alter dev=Vdif param=type between an op and a tran, then back to dc (the UG op-amp pattern)
+simulator lang=spectre
+Vdif (a 0) vsource type=dc dc=0 val0=0 val1=2 width=1u delay=10n
+R1 (a 0) resistor r=1k
+op1 dc
+a1 alter dev=Vdif param=type value=pulse
+tr tran stop=2u
+a2 alter dev=Vdif param=type value=dc
+op2 dc
+save a Vdif:p

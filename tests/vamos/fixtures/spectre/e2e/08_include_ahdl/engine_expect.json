@@ -1,0 +1,76 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "b": "b",
+     "c": "c",
+     "d": "d"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "b",
+    "row": 0,
+    "value": 0.25,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 0.3333333333333333,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "d",
+    "row": 0,
+    "value": 0.25,
+    "rel": 1e-06
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "b": "V(B)",
+     "c": "V(C)",
+     "d": "V(D)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "b",
+    "row": 0,
+    "value": 0.25,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 0.3333333333333333,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "d",
+    "row": 0,
+    "value": 0.25,
+    "rel": 1e-06
+   }
+  ]
+ }
+}

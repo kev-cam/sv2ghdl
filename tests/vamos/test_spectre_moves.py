@@ -357,9 +357,8 @@ class TestIterRows(TempDir):
 
 class TestReadPrnStub(unittest.TestCase):
     def test_not_implemented_yet(self):
-        with self.assertRaises(NotImplementedError) as cm:
+        with self.assertRaises(FileNotFoundError):      # phase 1 (S4): implemented; a reader like every other
             rawfile.read_prn("x.prn")
-        self.assertIn("read_prn", str(cm.exception))
 
 
 # -- proc.py ---------------------------------------------------------------------------------

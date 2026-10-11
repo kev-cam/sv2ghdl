@@ -72,8 +72,9 @@ iter_rows(path, plot, columns) -> Iterator[tuple]
     values read_all gives (complex numbers in a complex plot), read from the
     mapped file as the rows are consumed.
 read_prn(path) -> List[Raw]
-    Xyce standard-format .PRINT tables (noise), one Raw per .STEP: not yet
-    implemented (phase 1, S4).
+    Xyce standard-format .PRINT tables (noise), one Raw per .STEP: the table
+    is split where its Index column restarts at 0 (E33); the Index column is
+    dropped, the rows are the points.
 """
 
 from __future__ import annotations
@@ -800,8 +801,68 @@ def fix_points(path: str) -> bool:
 
 # -- Xyce .PRINT tables -------------------------------------------------------------------
 
+_PRN_TYPES = {"time": "time", "freq": "frequency", "frequency": "frequency"}
+_PRN_END = re.compile(r"^End of Xyce\(TM\)", re.I)
+
+
 def read_prn(path: str) -> List[Raw]:
     """Xyce standard-format .PRINT tables (noise), one Raw per .STEP (docs/VAMOS_SPECTRE_DESIGN.md
-    §4.6, §7.2).  Not implemented in phase 0: S4 implements it."""
-    raise NotImplementedError("rawfile.read_prn(%r): not implemented yet (VAMOS_SPECTRE_DESIGN.md "
-                              "§4.6; phase 1, S4)" % (path,))
+    §4.6, §7.2).
+
+    The table is a header line (`Index FREQ ONOISE INOISE DNO(R1) ...`), one row per point and a
+    trailing `End of Xyce(TM) ...` line.  Under .STEP the Index column restarts at 0 for every
+    step, with no label or separator [E33], so the table is split at each reset; the step values
+    come from the deck's .STEP order (the caller's).  Each Raw drops the Index column, names the
+    first column's type (FREQ: frequency, TIME: time), carries the rows as `points` and its count
+    as `declared_points`.  A header-only table (a failed run, §7.2) gives one Raw with no points;
+    an empty file is a RawError, a malformed row too."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    lines = data.decode("latin-1").splitlines()
+    header: Optional[List[str]] = None
+    plots: List[Raw] = []
+    cur: Optional[Raw] = None
+    prev_index: Optional[int] = None
+
+    def new_plot() -> Raw:
+        raw = Raw()
+        raw.path = path
+        raw.plotname = "Xyce .PRINT table %d" % (len(plots) + 1)
+        raw.flags = ["real"]
+        raw.binary = False
+        raw.variables = [(name, _PRN_TYPES.get(name.lower(), "")) for name in header[1:]]  # type: ignore[index]
+        plots.append(raw)
+        return raw
+
+    for lineno, line in enumerate(lines, 1):
+        text = line.strip()
+        if not text:
+            continue
+        if _PRN_END.match(text):
+            break
+        fields = text.split()
+        if header is None:
+            if fields[0].lower() != "index":
+                raise RawError("%s:%d: not a Xyce .PRINT table (the header starts with Index): %r"
+                               % (path, lineno, text[:80]))
+            header = fields
+            continue
+        if len(fields) != len(header):
+            raise RawError("%s:%d: a row with %d fields under a %d-column header"
+                           % (path, lineno, len(fields), len(header)))
+        try:
+            index = int(fields[0])
+            values = tuple(float(f) for f in fields[1:])
+        except ValueError:
+            raise RawError("%s:%d: bad value in row %r" % (path, lineno, text[:80]))
+        if cur is None or (prev_index is not None and index <= prev_index):
+            cur = new_plot()
+        cur.points.append(values)
+        prev_index = index
+    if header is None:
+        raise RawError("%s: empty or headerless .PRINT table" % path)
+    if not plots:
+        new_plot()
+    for raw in plots:
+        raw.declared_points = len(raw.points)
+    return plots

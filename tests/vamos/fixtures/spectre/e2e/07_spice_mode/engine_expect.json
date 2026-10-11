@@ -1,0 +1,180 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "opBegin",
+    "kind": "dc",
+    "columns": {
+     "in": "in",
+     "out": "out",
+     "x": "x",
+     "v1:p": "v1:flow(br)",
+     "v2:p": "v2:flow(br)"
+    }
+   },
+   "vamos_a2": {
+    "name": "frequencySweep",
+    "kind": "ac",
+    "columns": {
+     "in": "in",
+     "out": "out",
+     "x": "x",
+     "v1:p": "v1:flow(br)",
+     "v2:p": "v2:flow(br)"
+    }
+   },
+   "vamos_a3": {
+    "name": "timeSweep",
+    "kind": "tran",
+    "columns": {
+     "in": "in",
+     "out": "out",
+     "x": "x",
+     "v1:p": "v1:flow(br)",
+     "v2:p": "v2:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "x",
+    "row": 0,
+    "value": 0.6,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "points": 61
+   },
+   {
+    "step": "vamos_a2",
+    "col": "frequency",
+    "row": -1,
+    "value": 1000000.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.999961,
+     -0.00628294
+    ],
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "out",
+    "at": 0.001,
+    "value": -0.09801,
+    "rel": 0.001
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "x",
+    "at": 0.0005,
+    "value": 0.6,
+    "rel": 1e-09
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "opBegin",
+    "kind": "dc",
+    "columns": {
+     "in": "V(IN)",
+     "out": "V(OUT)",
+     "x": "V(X)",
+     "v1:p": "I(V1)",
+     "v2:p": "I(V2)"
+    }
+   },
+   "vamos_a2": {
+    "name": "frequencySweep",
+    "kind": "ac",
+    "columns": {
+     "in": "V(IN)",
+     "out": "V(OUT)",
+     "x": "V(X)",
+     "v1:p": "I(V1)",
+     "v2:p": "I(V2)"
+    }
+   },
+   "vamos_a3": {
+    "name": "timeSweep",
+    "kind": "tran",
+    "columns": {
+     "in": "V(IN)",
+     "out": "V(OUT)",
+     "x": "V(X)",
+     "v1:p": "I(V1)",
+     "v2:p": "I(V2)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "x",
+    "row": 0,
+    "value": 0.6,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "points": 61
+   },
+   {
+    "step": "vamos_a2",
+    "col": "FREQUENCY",
+    "row": -1,
+    "value": 1000000.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.999961,
+     -0.00628294
+    ],
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "out",
+    "at": 0.001,
+    "value": -0.09801,
+    "rel": 0.001
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "x",
+    "at": 0.0005,
+    "value": 0.6,
+    "rel": 1e-09
+   }
+  ]
+ }
+}

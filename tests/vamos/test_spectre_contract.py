@@ -23,7 +23,7 @@ from vamos import optable  # noqa: E402
 from vamos.job import NOTED, Unmapped  # noqa: E402
 from vamos.netlist import expr, ir, plan, signals, spectre, spice  # noqa: E402
 from vamos.netlist.expr_ast import Name, Num, Str  # noqa: E402
-from vamos.notes import NOTE, Note  # noqa: E402
+from vamos.notes import NOTE, Note, NoteError  # noqa: E402
 from vamos.output import psf  # noqa: E402
 from vamos.spectre import job as sjob  # noqa: E402
 from vamos.spectre import results  # noqa: E402
@@ -280,13 +280,16 @@ class TestSpectreModuleContracts(unittest.TestCase):
         top = spectre.Stmt("if", branches=[("sel == 1", [s])], children=[])
         self.assertEqual(top.branches[0][1][0].name, "r1")
 
-    def test_stubs_raise_not_implemented(self):
-        with self.assertRaises(NotImplementedError):
-            spectre.statements("r1 (a 0) resistor r=1k\n", "t.scs", title=False)
-        with self.assertRaises(NotImplementedError):
+    def test_phase_1_implements_the_stubs(self):
+        # phase 0 pinned these three as raising NotImplementedError; phase 1 (S1) implements them (§12)
+        self.assertEqual(spectre.statements("r1 (a 0) resistor r=1k\n", "t.scs", title=False),
+                         [spectre.Stmt("instance", "r1", ["a", "0"], "resistor", [("r", "1k")], origin="t.scs:1",
+                                       span=(0, 22))])
+        with self.assertRaises(NoteError) as cm:
             spectre.parse("t.scs", "/tmp", spectre.SpectreParseOpts())
-        with self.assertRaises(NotImplementedError):
-            spectre.resolve_source({"dc": Num(1.0)}, "dc", [1e-3], [])
+        self.assertEqual(cm.exception.notes[0].message, "netlist t.scs not found")
+        self.assertEqual(spectre.resolve_source({"dc": Num(1.0)}, "dc", [1e-3], []),
+                         ir.Source(dc=Num(1.0), spectre={"dc": Num(1.0)}))
 
     def test_number_is_the_spectre_dialect_of_expr_number(self):
         self.assertIsInstance(spectre.number, functools.partial)
@@ -326,8 +329,10 @@ class TestPlanContracts(unittest.TestCase):
             self.assertIn(key, doc)
 
     def test_build_stub(self):
-        with self.assertRaises(NotImplementedError):
-            plan.build(ir.Netlist(dialect="spectre"), "vacask", sjob.Settings())
+        rp = plan.build(ir.Netlist(dialect="spectre"), "vacask", sjob.Settings())   # phase 1 (S2): implemented
+        self.assertIsInstance(rp, plan.RunPlan)
+        self.assertEqual([a.op for a in rp.actions], ["options"])                   # the global set, no analyses
+        self.assertTrue(any("no analyses" in n.message for n in rp.notes), rp.notes)
 
 
 class TestSignalsContracts(unittest.TestCase):
@@ -342,8 +347,10 @@ class TestSignalsContracts(unittest.TestCase):
         self.assertEqual(typing.get_args(signals.Ref), (str, Ellipsis))
 
     def test_resolve_stub(self):
-        with self.assertRaises(NotImplementedError):
-            signals.resolve(ir.Netlist(dialect="spectre"), plan.RunPlan())
+        nl2, sm, notes = signals.resolve(ir.Netlist(dialect="spectre"), plan.RunPlan())   # phase 1 (S2): implemented
+        self.assertIsInstance(nl2, ir.Netlist)
+        self.assertIsInstance(sm, signals.SignalMap)
+        self.assertEqual((sm.per_step, sm.allpub, notes), ({}, set(), []))
 
 
 class TestJobContracts(unittest.TestCase):
@@ -386,8 +393,8 @@ class TestJobContracts(unittest.TestCase):
         self.assertEqual((s.fmt, s.raw, s.outdir, s.maxwarns, s.maxnotes, s.maxwarnstolog, s.maxnotestolog,
                           s.errpreset, s.aps, s.paramdefault, s.options),
                          ("psfascii", "", None, None, None, None, None, None, None, [], {}))
-        with self.assertRaises(NotImplementedError):
-            sjob.settings(sjob.SpectreJob("spectre", [], "/tmp"), ir.Netlist())
+        self.assertIsInstance(sjob.settings(sjob.SpectreJob("spectre", [], "/tmp"), ir.Netlist()),   # phase 1 (S5)
+                              sjob.Settings)
 
 
 class TestResultsContracts(unittest.TestCase):
@@ -427,10 +434,8 @@ class TestPsfContracts(unittest.TestCase):
 
     def test_stubs(self):
         from datetime import datetime
-        with self.assertRaises(NotImplementedError):
-            psf.psf_string('net<3>', escchars=True)
-        with self.assertRaises(NotImplementedError):
-            psf.psf_date(datetime(2021, 2, 2, 13, 7, 28))
+        self.assertEqual(psf.psf_string('net<3>', escchars=True), '"net\\<3\\>"')     # phase 1 (S4): implemented
+        self.assertEqual(psf.psf_date(datetime(2021, 2, 2, 13, 7, 28)), "1:07:28 PM, Tue Feb 2, 2021")
 
 
 class TestOtherOwnersPhase0Dataclasses(unittest.TestCase):

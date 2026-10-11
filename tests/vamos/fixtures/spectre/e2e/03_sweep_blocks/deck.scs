@@ -1,0 +1,15 @@
+// e2e 3: a sweep block with dc and ac children, repeated values and a nested sweep
+simulator lang=spectre
+parameters rval=1k cval=1u
+V1 (in 0) vsource dc=1 mag=1
+R1 (in out) resistor r=rval
+C1 (out 0) capacitor c=cval
+swp sweep param=rval values=[1k 1k 2k] {
+  dc1 dc
+  ac1 ac start=1 stop=1k dec=1
+  nested sweep param=cval values=[1u 2u] {
+    op2 dc
+    ac2 ac start=10 stop=100 dec=1
+  }
+}
+save out V1:p

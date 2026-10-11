@@ -1,0 +1,31 @@
+divider noise and acxf
+load "resistor.osdi"
+model vsrc vsource
+model r resistor
+v1 (in 0) vsrc dc=1.0 mag=1.0
+r1 (in out) r r=1000.0
+r2 (out 0) r r=1000.0
+x1 (out) sub
+subckt sub (a)
+  r3 (a 0) r r=2000.0
+ends
+control
+  abort except analysis
+  options rawfile="binary" strictoutput=0
+  save nc(r1) nc(r2) nc('x1:r3')
+  analysis nz1 noise out="out" in="v1" from=1 to=100 mode="dec" points=2
+  clear saves
+  save v(out) i(v1)
+  sweep w1 instance="r2" parameter="r" values=[1000.0, 2000.0]
+    analysis op1 op
+  sweep w2 instance="r2" parameter="r" values=[1000.0, 1000.0, 2000.0]
+    analysis tr1 tran step=1e-3 stop=5e-3
+  sweep w3 instance="r2" parameter="r" values=[1000.0, 2000.0]
+    sweep w4 instance="r1" parameter="r" values=[1000.0, 3000.0, 5000.0]
+      analysis ac1 ac from=1 to=100 mode="dec" points=1
+  analysis xf1 acxf out="out" from=1 to=100 mode="dec" points=1
+  sweep w5 instance="r2" parameter="r" values=[1000.0, 2000.0]
+    analysis ac2 ac values=[1000.0]
+  sweep w6 instance="r2" parameter="r" values=[1000.0, 2000.0]
+    analysis nz2 noise out="out" in="v1" from=1 to=100 mode="dec" points=1
+endc

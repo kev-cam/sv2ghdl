@@ -1,0 +1,134 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "a": "a",
+     "Vdif:p": "Vdif:flow(br)"
+    }
+   },
+   "vamos_a2": {
+    "name": "tr",
+    "kind": "tran",
+    "columns": {
+     "a": "a",
+     "Vdif:p": "Vdif:flow(br)"
+    }
+   },
+   "vamos_a3": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "a": "a",
+     "Vdif:p": "Vdif:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": 0.0,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "a",
+    "at": 5e-07,
+    "value": 2.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "a",
+    "at": 1.5e-06,
+    "value": 0.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "Vdif:p",
+    "at": 5e-07,
+    "value": -0.002,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "a",
+    "row": 0,
+    "value": 0.0,
+    "abs": 1e-12
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "a": "V(A)",
+     "Vdif:p": "I(VDIF)"
+    }
+   },
+   "vamos_a2": {
+    "name": "tr",
+    "kind": "tran",
+    "columns": {
+     "a": "V(A)",
+     "Vdif:p": "I(VDIF)"
+    }
+   },
+   "vamos_a3": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "a": "V(A)",
+     "Vdif:p": "I(VDIF)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": 0.0,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "a",
+    "at": 5e-07,
+    "value": 2.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "a",
+    "at": 1.5e-06,
+    "value": 0.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "Vdif:p",
+    "at": 5e-07,
+    "value": -0.002,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "a",
+    "row": 0,
+    "value": 0.0,
+    "abs": 1e-12
+   }
+  ]
+ }
+}

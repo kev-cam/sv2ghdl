@@ -8,16 +8,47 @@ hands expression text in, the emitters print with the two printers.
 
 API
 ---
-Dialects (docs/VAMOS_SPECTRE_DESIGN.md §3.5, §4.2): number(), parse(), evaluate()
-and to_text() take dialect="hspice" (this module's HSPICE reader, byte for byte),
-"spectre" or "spectre-spice" (Spectre's semantics; phase 1, S1: until then they
-raise NotImplementedError); a name outside DIALECTS is a ValueError.  parse()
-also takes funcs (user functions inlined as the text is parsed, Spectre only)
-and number()/parse() a warn(severity, message) callback (Warn).  Data for the
+Dialects (docs/VAMOS_SPECTRE_DESIGN.md §3.3, §3.5, §4.2): number(), parse(),
+evaluate() and to_text() take dialect="hspice" (this module's HSPICE reader,
+byte for byte), "spectre" or "spectre-spice" (Spectre's semantics, below); a
+name outside DIALECTS is a ValueError.  parse() also takes funcs (user
+functions inlined as the text is parsed, Spectre dialects only) and
+number()/parse() a warn(severity, message) callback (Warn).  Data for the
 Spectre dialects: SPECTRE_FUNCS (name -> arity), SPECTRE_CONSTANTS (the 22
-M_*/P_* constants), EXTRA_FUNCS (cpow hypot fmod: evaluated in every dialect,
-never parsed from HSPICE text).  RESERVED gains "$tnom" (Spectre's tnom);
-VACASK_CONSTANTS gains M_DEGPERRAD.
+M_*/P_* constants), EXTRA_FUNCS (cpow hypot fmod: evaluated and printed in
+every dialect, never parsed from HSPICE text).  RESERVED holds "$tnom"
+(Spectre's tnom); VACASK_CONSTANTS holds M_DEGPERRAD.
+
+The Spectre dialects (§3.5; "spectre" is Spectre mode, parsed with
+case="sensitive"; "spectre-spice" is SPICE mode, case="lower", which adds the
+{...}, '...' and Cadence par'...' groupings and matches the constants
+case-insensitively):
+    numbers      Spectre mode's or SPICE mode's table (number(), §3.3)
+    precedence   ref19 p.475, lowest first: ?: (right)  ||  &&  |  ~^ ^~  &
+                 == !=  < <= > >=  << >>  + -  * /  ** (right; its right operand
+                 may start with a unary sign)  unary + - !, so -2**2 = 4 and
+                 2**3**2 = 512; ^ alone, ~ alone and % (outside a number) are errors
+    x**y, pow()  Call('cpow', (x, y)): C pow, never HSPICE's truncating forms
+    & | ~^ << >> Binary ops ('^~' parses to '~^'); evaluate() folds them when both
+                 operands are integral in [0, 2**53) (a << result below 2**53), ~^
+                 never (its width is undocumented); the printers raise PrintError
+    functions    SPECTRE_FUNCS only (a closed table, with hypot and fmod) or a user
+                 function from funcs (name -> (parameter names, body Expr)), inlined
+                 as it is parsed; function names keep their case; any other call,
+                 v()/i() included (no behavioral expressions in v1), is an ExprError
+    constants    SPECTRE_CONSTANTS become Num at parse time
+    temp, tnom   Name('temper') and Name('$tnom'): non-constant, substituted by the
+                 plan; time and hertz are ExprErrors; temper is an ExprError in
+                 Spectre mode and the temperature in SPICE mode
+    evaluate     dialect="spectre"/"spectre-spice": log ln log10 raise EvalError for
+                 x <= 0, sqrt for x < 0, exp for x >= 80; && and || evaluate both
+                 operands.  The default dialect keeps HSPICE's forms (identical in
+                 the domain), so fold() and the printers work on Spectre expressions
+    printers     cpow prints (y==0 ? 1 : pow(x,y)), plain pow(x,y) when x or y is a
+                 nonzero constant, 1 when y is a constant 0; hypot(x,y) on VACASK,
+                 sqrt(x*x+y*y) on Xyce; fmod(x,y) on both; $tnom prints $tnom on
+                 VACASK and raises PrintError on Xyce (the emitter substitutes it)
+    to_text      dialect="spectre": cpow spelled **, Spectre's levels
 
 parse(text, case="lower", dialect="hspice", funcs=None, warn=None) -> Expr
     One expression.  An enclosing '...' or {...} is optional; quotes and
@@ -33,10 +64,10 @@ parse(text, case="lower", dialect="hspice", funcs=None, warn=None) -> Expr
     Name('vdd!'))).  A unary minus on a literal is folded ("-1.5" ->
     Num(-1.5)), a unary plus dropped.  Errors raise ExprError(message, text,
     pos).
-    Precedence, lowest first.  The HSPICE manuals document none, so vamos
-    uses C's levels and gives ** and ^ (both power in HSPICE) the binding
-    Xyce's grammar gives **: tighter than unary minus on their left, right
-    associative, and a unary minus allowed on their right:
+    Precedence, lowest first (dialect="hspice").  The HSPICE manuals document
+    none, so vamos uses C's levels and gives ** and ^ (both power in HSPICE)
+    the binding Xyce's grammar gives **: tighter than unary minus on their
+    left, right associative, and a unary minus allowed on their right:
         ?:   ||   &&   == !=   < <= > >=   + -   * /   unary + - !   ** ^
     so -2**2 = -4, 2**-1 = 0.5, 2**3**2 = 512 and a || b && c = a || (b && c).
     ^ is parsed as Binary('**'); & | ~ % and <> are errors (not HSPICE).
@@ -150,26 +181,24 @@ from typing import Callable, Dict, Iterator, List, Mapping, Optional, Sequence, 
 
 from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary, Unary
 from vamos.netlist.numbers import fmt, parse_number
+from vamos.notes import NOTE, WARNING
 
 CONTEXTS = ("param", "behavioral")
 # HSPICE's special variables, and "$tnom", the name the Spectre dialects give Spectre's tnom
 # (docs/VAMOS_SPECTRE_DESIGN.md §3.5, §4.2); HSPICE text can never produce a "$" name.
 RESERVED = ("time", "temper", "hertz", "$tnom")
 CASES = ("lower", "upper", "sensitive")
-# Expression dialects (VAMOS_SPECTRE_DESIGN.md §4.2): "hspice" is today's reader, byte for byte;
-# "spectre" and "spectre-spice" (§3.5) are S1's.  Any other name is a ValueError (spice.py maps
-# its own "spice" to "hspice" first).  Phase 0: the Spectre dialects raise NotImplementedError.
+# Expression dialects (VAMOS_SPECTRE_DESIGN.md §4.2): "hspice" is the HSPICE reader, byte for byte;
+# "spectre" and "spectre-spice" are Spectre's semantics (§3.3, §3.5).  Any other name is a
+# ValueError (spice.py maps its own "spice" to "hspice" first).
 DIALECTS = ("hspice", "spectre", "spectre-spice")
 Warn = Callable[[str, str], None]               # (severity, message); spectre.py adds the origin
 
 
 def _dialect(dialect: str) -> None:
-    """ValueError for a name outside DIALECTS; NotImplementedError for a Spectre dialect (phase 0)."""
+    """ValueError for a name outside DIALECTS."""
     if dialect not in DIALECTS:
         raise ValueError("dialect must be one of %s, not %r" % (DIALECTS, dialect))
-    if dialect != "hspice":
-        raise NotImplementedError("expression dialect %r is not implemented yet (VAMOS_SPECTRE_DESIGN.md "
-                                  "§3.5, §4.2: phase 1, S1)" % (dialect,))
 
 # -- numbers --------------------------------------------------------------------
 
@@ -181,6 +210,18 @@ _SCALE_EXP = (("meg", 6), ("mil", None), ("t", 12), ("g", 9), ("x", 6), ("k", 3)
               ("u", -6), ("n", -9), ("p", -12), ("f", -15), ("a", -18))
 
 
+# Spectre mode (VAMOS_SPECTRE_DESIGN.md §3.3; UG p.84): the SI scale factors T G M K k _ % c m u n
+# p f a, case sensitive, then unit letters, which are ignored; units without a scale factor are an
+# error; no D exponent.  SPICE mode (UG p.84): t g meg k m mil u n p f, case insensitive; any
+# other letters are units read as 1.0; no D exponent.
+_NUMBER_SPECTRE = re.compile(r"^\s*([+-]?(?:\d+\.?\d*|\.\d+))(?:[eE]([+-]?\d+))?([A-Za-z_%][A-Za-z_]*)?\s*$")
+_SPECTRE_SCALE = {"T": 12, "G": 9, "M": 6, "K": 3, "k": 3, "_": 0, "%": -2, "c": -2, "m": -3,
+                  "u": -6, "n": -9, "p": -12, "f": -15, "a": -18}
+_NUMBER_SPICE = re.compile(r"^\s*([+-]?(?:\d+\.?\d*|\.\d+))(?:[eE]([+-]?\d+))?([A-Za-z_]*)\s*$")
+_SPICE_SCALE = (("meg", 6), ("mil", None), ("t", 12), ("g", 9), ("k", 3), ("m", -3), ("u", -6),
+                ("n", -9), ("p", -12), ("f", -15))
+
+
 def number(s: str, dialect: str = "hspice", warn: Optional[Warn] = None) -> float:
     """A SPICE number literal, correctly rounded: numbers.parse_number's grammar (suffixes,
     trailing unit letters) plus HSPICE's D exponent ("1.0D+3" is 1000.0), but a power-of-ten
@@ -188,10 +229,18 @@ def number(s: str, dialect: str = "hspice", warn: Optional[Warn] = None) -> floa
     like "2.2e-7", where parse_number multiplies two rounded values (0.22 * 1e-6 =
     2.1999999999999998e-07), which moves bin edges.  ValueError if s is not a number.
 
-    dialect (VAMOS_SPECTRE_DESIGN.md §3.3, §4.2): "hspice" is this reader; the Spectre dialects
-    (S1) read Spectre's and SPICE mode's number tables and report through warn(severity, message).
+    dialect (VAMOS_SPECTRE_DESIGN.md §3.3, §4.2): "hspice" is this reader; "spectre" reads
+    Spectre mode's table (T G M K k _ % c m u n p f a, case sensitive; units only after a scale
+    factor; "1meg" is 1e-3 with a warning; no D exponent) and "spectre-spice" SPICE mode's (t g
+    meg k m mil u n p f, case insensitive; other letters are units read as 1.0, a warning when
+    they start with x or a; no D exponent).  A scale factor beside an exponent is ignored with
+    a note.  warn(severity, message) receives the notes and warnings (spectre.py adds the origin).
     """
     _dialect(dialect)
+    if dialect == "spectre":
+        return _number_spectre(s, warn)
+    if dialect == "spectre-spice":
+        return _number_spice(s, warn)
     m = _NUMBER.match(s)
     if not m:
         return parse_number(s)                          # raises ValueError naming s
@@ -202,6 +251,56 @@ def number(s: str, dialect: str = "hspice", warn: Optional[Warn] = None) -> floa
                 return float("%se%d" % (mant, exp)) * 25.4e-6
             return float("%se%d" % (mant, exp + k))
     return float("%se%d" % (mant, exp))
+
+
+def _number_spectre(s: str, warn: Optional[Warn]) -> float:
+    """Spectre mode's number (§3.3, UG p.84); ValueError if s is not one."""
+    m = _NUMBER_SPECTRE.match(s)
+    if not m:
+        raise ValueError("%r is not a Spectre number (scale factors T G M K k _ %% c m u n p f a, "
+                         "an e exponent, no D exponent)" % s)
+    mant, exp, tail = m.group(1), m.group(2), m.group(3) or ""
+    if not tail:
+        return float("%se%d" % (mant, int(exp or 0)))
+    k = _SPECTRE_SCALE.get(tail[0])
+    if k is None:
+        raise ValueError("%r: units without a scale factor (Spectre mode: T G M K k _ %% c m u n p f a; "
+                         "write %s_%s)" % (s, mant, tail))
+    if exp is not None:
+        if warn is not None:
+            warn(NOTE, "%s: the scale factor %s is ignored beside an exponent (UG p.83): %se%s"
+                 % (s.strip(), tail[0], mant, exp))
+        return float("%se%d" % (mant, int(exp)))
+    if tail[0] == "m" and tail[1:].lower() in ("eg", "il") and warn is not None:
+        warn(WARNING, "%s: Spectre mode: m is milli, so %s reads as %se-3 (SPICE mode's %s is %s)"
+             % (s.strip(), s.strip(), mant, tail, "1e6" if tail[1:].lower() == "eg" else "25.4e-6"))
+    return float("%se%d" % (mant, k))
+
+
+def _number_spice(s: str, warn: Optional[Warn]) -> float:
+    """SPICE mode's number (§3.3, UG p.84); ValueError if s is not one."""
+    m = _NUMBER_SPICE.match(s)
+    if not m:
+        raise ValueError("%r is not a SPICE-mode number (scale factors t g meg k m mil u n p f, an e "
+                         "exponent, no D exponent)" % s)
+    mant, exp, tail = m.group(1), m.group(2), m.group(3)
+    low = tail.lower()
+    if not tail:
+        return float("%se%d" % (mant, int(exp or 0)))
+    for name, k in _SPICE_SCALE:
+        if low.startswith(name):
+            if exp is not None:
+                if warn is not None:
+                    warn(NOTE, "%s: the scale factor %s is ignored beside an exponent (UG p.83): %se%s"
+                         % (s.strip(), tail[:len(name)], mant, exp))
+                return float("%se%d" % (mant, int(exp)))
+            if k is None:                                   # mil: 25.4e-6, not a power of ten
+                return float("%se0" % mant) * 25.4e-6
+            return float("%se%d" % (mant, k))
+    if low[0] in "xa" and warn is not None:
+        warn(WARNING, "%s: SPICE mode reads %s as units (the value is %s; UG p.84), where HSPICE reads "
+             "%s as %s" % (s.strip(), tail, mant, low[0], "1e6" if low[0] == "x" else "1e-18"))
+    return float("%se%d" % (mant, int(exp or 0)))
 
 # Node/element access calls: their arguments are raw names, never expressions.
 _NODE_FUNC = re.compile(r"(?:v|vr|vi|vm|vp|vdb|vt|i|ir|ii|im|ip|idb|it|i[1-9]|lv\d+|lx\d+)$")
@@ -267,6 +366,13 @@ class EvalError(ValueError):
 
 class PrintError(ValueError):
     """An expression an engine cannot be made to compute as HSPICE does."""
+
+
+class HspiceExtraFunction(ExprError, EvalError, PrintError):
+    """HSPICE text calling cpow(), hypot() or fmod(): the HSPICE dialect rejects them as unknown
+    functions when the text is parsed (§4.2), so HSPICE text gives the error it gave when the call
+    was evaluated or printed, only earlier; the one exception is all three kinds, since the call has
+    no HSPICE value and no engine form either."""
 
 
 # -- lexer --------------------------------------------------------------------
@@ -346,6 +452,87 @@ def _lex(text: str) -> List[_Tok]:
     return toks
 
 
+# a D exponent is consumed so that number() rejects it (neither Spectre table has one, §3.3)
+_NUM_RE_SP = re.compile(r"(?:\d+\.?\d*|\.\d+)(?:[eEdD][+-]?\d+)?(?:%[A-Za-z_]*|[A-Za-z_]*)")
+# Longest first; '^~' is spelled '~^'; '^' alone, '~' alone and '%' are errors (§3.5).
+_OPS_SPECTRE = ("**", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "~^", "^~", "+", "-", "*", "/",
+                "<", ">", "!", "?", ":", ",", "&", "|")
+
+
+def _lex_spectre(text: str, dialect: str, warn: Optional[Warn]) -> List[_Tok]:
+    """The Spectre dialects' tokens (§3.5): Spectre's number table, no node-access tokens, the
+    bitwise operators, '(' grouping ('{', quotes and par'...' in spectre-spice too)."""
+    toks: List[_Tok] = []
+    groups: List[Tuple[str, int]] = []
+    spice = dialect == "spectre-spice"
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in " \t\r\n":
+            i += 1
+        elif c.isdigit() or (c == "." and i + 1 < n and text[i + 1].isdigit()):
+            m = _NUM_RE_SP.match(text, i)
+            try:
+                toks.append(_Tok("NUM", number(m.group(0), dialect, warn), i))
+            except ValueError as exc:
+                raise ExprError(str(exc), text, i)
+            i = m.end()
+        elif c.isalpha() or c == "_":
+            m = _NAME_RE.match(text, i)
+            word = m.group(0)
+            j = m.end()
+            if spice and word.lower() == "par":
+                while j < n and text[j] in " \t":
+                    j += 1
+                if j < n and text[j] == "'":                # Cadence par'expr': a grouping
+                    i = j
+                    continue
+            toks.append(_Tok("NAME", word, i))
+            i = m.end()
+        elif c == '"':
+            end = text.find('"', i + 1)
+            if end < 0:
+                raise ExprError("unterminated string", text, i)
+            toks.append(_Tok("STR", text[i + 1:end], i))
+            i = end + 1
+        elif c == "(" or (spice and (c == "{" or (c == "'" and not (groups and groups[-1][0] == "'")))):
+            groups.append((c, i))
+            toks.append(_Tok("(", c, i))
+            i += 1
+        elif c == ")" or (spice and c in "}'"):
+            want = {")": "(", "}": "{", "'": "'"}[c]
+            if not groups or groups[-1][0] != want:
+                raise ExprError("unbalanced %r" % c, text, i)
+            groups.pop()
+            toks.append(_Tok(")", c, i))
+            i += 1
+        elif text.startswith("<>", i):
+            raise ExprError("operator '<>' is not a Spectre operator (use !=)", text, i)
+        else:
+            for op in _OPS_SPECTRE:
+                if text.startswith(op, i):
+                    toks.append(_Tok("OP", "~^" if op == "^~" else op, i))
+                    i += len(op)
+                    break
+            else:
+                if c == "^":
+                    raise ExprError("'^' is not a Spectre operator (power is **, bitwise XNOR is ~^)",
+                                    text, i)
+                if c == "~":
+                    raise ExprError("'~' is not a Spectre operator (bitwise XNOR is ~^)", text, i)
+                if c == "%":
+                    raise ExprError("'%' is a scale factor only directly after a number (5% is 0.05); "
+                                    "Spectre has no modulo operator", text, i)
+                if c in "[]":
+                    raise ExprError("a vector [...] is not an expression", text, i)
+                raise ExprError("unexpected character %r" % c, text, i)
+    if groups:
+        c, pos = groups[-1]
+        raise ExprError("unclosed %r" % c, text, pos)
+    toks.append(_Tok("EOF", None, n))
+    return toks
+
+
 def _raw_names(text: str, func: str, lparen: int) -> List[str]:
     """The comma-separated raw names of func( ... ) starting at text[lparen] == '('."""
     end = text.find(")", lparen)
@@ -371,12 +558,25 @@ def _raw_names(text: str, func: str, lparen: int) -> List[str]:
 _LBP = {"?": 1, "||": 2, "&&": 3, "==": 4, "!=": 4, "<": 5, "<=": 5, ">": 5, ">=": 5,
         "+": 6, "-": 6, "*": 7, "/": 7, "**": 10}
 _UNARY_RBP = 8          # -a*b = (-a)*b, -a**b = -(a**b)
+# Spectre's levels (ref19 p.475), lowest first, scaled by 10 (§3.5): unary binds tighter than **,
+# so -2**2 = 4; ** is right associative and its right operand may start with a unary sign.
+_SPECTRE_LBP = {"?": 10, "||": 20, "&&": 30, "|": 40, "~^": 50, "&": 60, "==": 70, "!=": 70,
+                "<": 80, "<=": 80, ">": 80, ">=": 80, "<<": 90, ">>": 90, "+": 100, "-": 100,
+                "*": 110, "/": 110, "**": 120}
+_SPECTRE_UNARY_RBP = 130
+_SPECTRE_CONSTANTS_LOWER = {k.lower(): v for k, v in SPECTRE_CONSTANTS.items()}
 
 
 class _Parser:
-    def __init__(self, text: str, case: str):
-        self.text, self.case = text, case
-        self.toks = _lex(text)
+    def __init__(self, text: str, case: str, dialect: str = "hspice",
+                 funcs: Optional[Mapping[str, Tuple[Sequence[str], Expr]]] = None,
+                 warn: Optional[Warn] = None):
+        self.text, self.case, self.dialect = text, case, dialect
+        self.spectre = dialect != "hspice"
+        self.funcs = funcs or {}
+        self.lbp = _SPECTRE_LBP if self.spectre else _LBP
+        self.unary_rbp = _SPECTRE_UNARY_RBP if self.spectre else _UNARY_RBP
+        self.toks = _lex_spectre(text, dialect, warn) if self.spectre else _lex(text)
         self.k = 0
 
     def peek(self) -> _Tok:
@@ -391,10 +591,40 @@ class _Parser:
         raise ExprError(msg, self.text, tok.pos)
 
     def ident(self, name: str) -> str:
+        if self.spectre:
+            return self.ident_spectre(name)
         low = name.lower()
         if low in RESERVED or self.case == "lower":
             return low
         return name.upper() if self.case == "upper" else name
+
+    def fold_name(self, name: str) -> str:
+        if self.case == "lower":
+            return name.lower()
+        return name.upper() if self.case == "upper" else name
+
+    def ident_spectre(self, name: str) -> str:
+        """§3.5: temp and tnom are the predefined parameters (Name("temper"), Name("$tnom")); time
+        and hertz are errors (no behavioral expressions in v1); temper is an error in Spectre mode
+        and the temperature in SPICE mode (HSPICE's spelling)."""
+        folded = self.fold_name(name)
+        if folded == "temp":
+            return "temper"
+        if folded == "tnom":
+            return "$tnom"
+        if folded in ("time", "hertz"):
+            raise ExprError("%s: behavioral expressions are not supported in v1" % name)
+        if folded == "temper":
+            if self.dialect == "spectre":
+                raise ExprError("temper is not a Spectre parameter (the temperature is temp)")
+            return "temper"
+        return folded
+
+    def constant(self, name: str) -> Optional[float]:
+        """A Spectre built-in constant (§3.5), matched case-insensitively in SPICE mode."""
+        if self.dialect == "spectre":
+            return SPECTRE_CONSTANTS.get(name)
+        return _SPECTRE_CONSTANTS_LOWER.get(name.lower())
 
     def parse(self) -> Expr:
         if self.peek().kind == "EOF":
@@ -409,7 +639,7 @@ class _Parser:
         left = self.nud()
         while True:
             t = self.peek()
-            if t.kind != "OP" or t.val not in _LBP or _LBP[t.val] <= rbp:
+            if t.kind != "OP" or t.val not in self.lbp or self.lbp[t.val] <= rbp:
                 return left
             left = self.led(left)
 
@@ -425,7 +655,14 @@ class _Parser:
         if t.kind == "NAME":
             if self.peek().kind == "(" and self.peek().val == "(":
                 return self.call(t)
-            return Name(self.ident(t.val))
+            if self.spectre:
+                c = self.constant(t.val)
+                if c is not None:
+                    return Num(c)
+            try:
+                return Name(self.ident(t.val))
+            except ExprError as exc:
+                self.fail(exc.message, t)
         if t.kind == "(":
             if self.peek().kind == ")":
                 self.fail("empty parentheses", self.peek())
@@ -433,7 +670,7 @@ class _Parser:
             self.close()
             return e
         if t.kind == "OP" and t.val in ("-", "+", "!"):
-            arg = self.expr(_UNARY_RBP)
+            arg = self.expr(self.unary_rbp)
             if t.val == "+":
                 return arg
             if t.val == "-" and isinstance(arg, Num):
@@ -444,7 +681,10 @@ class _Parser:
 
     def call(self, name_tok: _Tok) -> Expr:
         self.next()                                         # (
-        func = name_tok.val.lower()
+        func = self.fold_name(name_tok.val) if self.spectre else name_tok.val.lower()
+        if not self.spectre and func in EXTRA_FUNCS:
+            raise HspiceExtraFunction("unknown function %s() (not an HSPICE function)" % func, self.text,
+                                      name_tok.pos)
         if self.peek().kind == ")":
             self.fail("%s() needs arguments" % func, self.peek())
         args = [self.expr(0)]
@@ -452,6 +692,29 @@ class _Parser:
             self.next()
             args.append(self.expr(0))
         self.close()
+        if self.spectre:
+            return self.call_spectre(func, args, name_tok)
+        return Call(func, tuple(args))
+
+    def call_spectre(self, func: str, args: List[Expr], tok: _Tok) -> Expr:
+        """§3.5: a user function (inlined as it is parsed; its name keeps its case), else a
+        SPECTRE_FUNCS entry with its arity (pow is cpow); node accesses and any other name are
+        errors."""
+        if func in self.funcs:
+            params, body = self.funcs[func]
+            if len(params) != len(args):
+                self.fail("%s() takes %d argument(s), got %d" % (func, len(params), len(args)), tok)
+            return substitute(body, dict(zip(params, args)))
+        if _NODE_FUNC.match(func.lower()):
+            self.fail("%s(): behavioral expressions are not supported in v1" % func, tok)
+        if func not in SPECTRE_FUNCS:
+            self.fail("unknown function %s()" % func, tok)
+        lo, hi = SPECTRE_FUNCS[func]
+        if not lo <= len(args) <= hi:
+            want = str(lo) if lo == hi else "%d or %d" % (lo, hi)
+            self.fail("%s() takes %s argument(s), got %d" % (func, want, len(args)), tok)
+        if func == "pow":
+            return Call("cpow", tuple(args))
         return Call(func, tuple(args))
 
     def close(self) -> None:
@@ -466,10 +729,13 @@ class _Parser:
             c = self.next()
             if c.kind != "OP" or c.val != ":":
                 self.fail("expected ':' of ?:, got %s" % _describe(c), c)
-            return Ternary(left, mid, self.expr(0))
+            return Ternary(left, mid, self.expr(self.lbp["?"] - 1 if self.spectre else 0))
         if op == "**":                                       # right associative
-            return Binary(op, left, self.expr(_LBP[op] - 1))
-        return Binary(op, left, self.expr(_LBP[op]))
+            right = self.expr(self.lbp[op] - 1)
+            if self.spectre:                                 # x**y is C pow in Spectre (§3.5)
+                return Call("cpow", (left, right))
+            return Binary(op, left, right)
+        return Binary(op, left, self.expr(self.lbp[op]))
 
 
 def _describe(t: _Tok) -> str:
@@ -497,10 +763,12 @@ def parse(text: str, case: str = "lower", dialect: str = "hspice",
     if case not in CASES:
         raise ValueError("case must be one of %s" % (CASES,))
     _dialect(dialect)
-    if funcs is not None:
-        raise NotImplementedError("parse(funcs=...) is the Spectre dialects' user-function inlining "
-                                  "(VAMOS_SPECTRE_DESIGN.md §3.5: phase 1, S1); the HSPICE route uses inline()")
-    return _Parser(text, case).parse()
+    if dialect == "hspice":
+        if funcs is not None:
+            raise NotImplementedError("parse(funcs=...) is the Spectre dialects' user-function inlining "
+                                      "(VAMOS_SPECTRE_DESIGN.md §3.5, §4.2); the HSPICE route uses inline()")
+        return _Parser(text, case).parse()
+    return _Parser(text, case, dialect, funcs, warn).parse()
 
 
 # -- inspection and rewriting -------------------------------------------------
@@ -619,21 +887,31 @@ def inline(ast: Expr, funcs: Mapping[str, Tuple[Sequence[str], Expr]]) -> Expr:
 
 # -- HSPICE spelling (messages) ------------------------------------------------
 
-_TPREC = {"?": 1, "||": 2, "&&": 3, "==": 4, "!=": 4, "<": 5, "<=": 5, ">": 5, ">=": 5,
-          "+": 6, "-": 6, "*": 7, "/": 7, "**": 10}
+# The HSPICE levels of _LBP scaled by 10 (the output is unchanged: only the order matters), so the
+# bitwise operators, which HSPICE text never produces, have a level too and no message raises
+# KeyError while it is built (§4.2).
+_TPREC = {"?": 10, "||": 20, "&&": 30, "|": 34, "~^": 35, "&": 36, "==": 40, "!=": 40,
+          "<": 50, "<=": 50, ">": 50, ">=": 50, "<<": 55, ">>": 55, "+": 60, "-": 60, "*": 70, "/": 70,
+          "**": 100}
+_TUNARY = 80
 
 
 def to_text(ast: Expr, dialect: str = "hspice") -> str:
     """HSPICE spelling with the parentheses vamos's precedence needs (parse(to_text(e)) == e).
 
-    dialect (VAMOS_SPECTRE_DESIGN.md §4.2, S1): "spectre" spells cpow as ** and knows << >> & | ~^
-    at the dialect's levels, so messages quote Spectre syntax.
+    dialect (VAMOS_SPECTRE_DESIGN.md §4.2): "spectre" and "spectre-spice" spell cpow as ** and
+    use Spectre's levels (unary minus binds tighter than **, so -(a**2) prints as -(a**2.0)), so
+    messages quote Spectre syntax; parse(to_text(e), dialect=d) == e in every dialect.
     """
     _dialect(dialect)
-    return _text(ast, 0)
+    if dialect == "hspice":
+        return _text(ast, 0, _TPREC, _TUNARY, False)
+    return _text(ast, 0, _SPECTRE_LBP, _SPECTRE_UNARY_RBP, True)
 
 
-def _text(e: Expr, need: int) -> str:
+def _text(e: Expr, need: int, prec: Mapping[str, int], unary: int, spectre: bool) -> str:
+    def t(x: Expr, n: int) -> str:
+        return _text(x, n, prec, unary, spectre)
     if isinstance(e, Num):
         s = repr(float(e.value))
         return "(%s)" % s if s.startswith("-") and need > 0 else s
@@ -642,19 +920,23 @@ def _text(e: Expr, need: int) -> str:
     if isinstance(e, Str):
         return '"%s"' % e.text
     if isinstance(e, Call):
-        return "%s(%s)" % (e.func, ", ".join(_text(a, 0) for a in e.args))
+        if spectre and e.func == "cpow" and len(e.args) == 2:
+            p = prec["**"]
+            s = "%s**%s" % (t(e.args[0], p + 1), t(e.args[1], p))
+            return "(%s)" % s if p < need else s
+        return "%s(%s)" % (e.func, ", ".join(t(a, 0) for a in e.args))
     if isinstance(e, Unary):
-        p = _UNARY_RBP
-        s = e.op + _text(e.arg, p + 1)
+        p = unary
+        s = e.op + t(e.arg, p + 1)
     elif isinstance(e, Binary):
-        p = _TPREC[e.op]
+        p = prec[e.op]
         if e.op == "**":
-            s = "%s**%s" % (_text(e.left, p + 1), _text(e.right, _UNARY_RBP))
+            s = "%s**%s" % (t(e.left, p + 1), t(e.right, p if spectre else unary))
         else:
-            s = "%s %s %s" % (_text(e.left, p), e.op, _text(e.right, p + 1))
+            s = "%s %s %s" % (t(e.left, p), e.op, t(e.right, p + 1))
     elif isinstance(e, Ternary):
-        p = 1
-        s = "%s ? %s : %s" % (_text(e.cond, 2), _text(e.a, 0), _text(e.b, 1))
+        p = prec["?"]
+        s = "%s ? %s : %s" % (t(e.cond, p + 1), t(e.a, 0), t(e.b, p))
     else:
         raise TypeError("not an expression: %r" % (e,))
     return "(%s)" % s if p < need else s
@@ -694,16 +976,58 @@ _C_FUNCS: Dict[str, Callable[[float], float]] = {
 
 def check_arity(e: Call, err=EvalError) -> None:
     """Raise err if a built-in is called with the wrong number of arguments."""
-    lo, hi = FUNCS[e.func]
+    lo, hi = FUNCS[e.func] if e.func in FUNCS else EXTRA_FUNCS[e.func]
     n = len(e.args)
     if n < lo or (hi is not None and n > hi):
         want = str(lo) if lo == hi else ("%d or more" % lo if hi is None else "%d or %d" % (lo, hi))
         raise err("%s() takes %s argument(s), got %d: %s" % (e.func, want, n, to_text(e)))
 
 
+_BITWISE = ("&", "|", "~^", "<<", ">>")
+_TWO53 = 9007199254740992.0
+
+
+def _apply_extra(f: str, a: List[float], e: Call) -> float:
+    """cpow (C pow), hypot and fmod (C's: the sign of x), in every dialect (§3.5, §4.2)."""
+    if f == "cpow":
+        if a[0] == 0 and a[1] < 0:
+            raise EvalError("%s: zero to a negative power" % to_text(e))
+        try:
+            return math.pow(a[0], a[1])
+        except ValueError:
+            raise EvalError("%s: a negative base with a non-integer exponent" % to_text(e))
+    if f == "hypot":
+        return math.hypot(a[0], a[1])
+    if a[1] == 0:
+        raise EvalError("%s: fmod by zero" % to_text(e))
+    return math.fmod(a[0], a[1])
+
+
+def _bitwise(op: str, x: float, y: float, e: Binary) -> float:
+    """§3.5: folded when both operands are integral in [0, 2**53) and a << result stays below
+    2**53; ~^ is always an EvalError (its width is undocumented)."""
+    if op == "~^":
+        raise EvalError("%s: ~^ (bitwise XNOR) has no defined width in Spectre; it cannot be "
+                        "evaluated" % to_text(e))
+    for v in (x, y):
+        if v != math.floor(v) or not 0 <= v < _TWO53:
+            raise EvalError("bitwise operator on a non-integer: %s" % to_text(e))
+    xi, yi = int(x), int(y)
+    if op == "&":
+        return float(xi & yi)
+    if op == "|":
+        return float(xi | yi)
+    if op == ">>":
+        return float(xi >> yi) if yi < 64 else 0.0
+    if yi >= 64 or (xi << yi) >= _TWO53:
+        raise EvalError("%s: the shifted value does not stay below 2**53" % to_text(e))
+    return float(xi << yi)
+
+
 class _Eval:
-    def __init__(self, scope: Mapping[str, float]):
+    def __init__(self, scope: Mapping[str, float], dialect: str = "hspice"):
         self.scope = scope
+        self.spectre = dialect != "hspice"
 
     def ev(self, e: Expr) -> float:
         r = self.raw(e)
@@ -741,11 +1065,16 @@ class _Eval:
 
     def binary(self, e: Binary) -> float:
         op = e.op
+        if op in ("&&", "||") and self.spectre:             # no short circuiting (ref19 p.475)
+            x, y = self.ev(e.left), self.ev(e.right)
+            return 1.0 if (x != 0 and y != 0 if op == "&&" else x != 0 or y != 0) else 0.0
         if op == "&&":
             return 1.0 if self.ev(e.left) != 0 and self.ev(e.right) != 0 else 0.0
         if op == "||":
             return 1.0 if self.ev(e.left) != 0 or self.ev(e.right) != 0 else 0.0
         x, y = self.ev(e.left), self.ev(e.right)
+        if op in _BITWISE:
+            return _bitwise(op, x, y, e)
         if op == "+":
             return x + y
         if op == "-":
@@ -770,18 +1099,40 @@ class _Eval:
         f = e.func
         if is_node_call(e):
             raise EvalError("%s is not a constant (it needs the circuit's solution)" % to_text(e))
+        if f in EXTRA_FUNCS:
+            check_arity(e)
+            a = [self.ev(x) for x in e.args]
+            try:
+                return _apply_extra(f, a, e)
+            except EvalError:
+                raise
+            except (OverflowError, ValueError, ZeroDivisionError) as exc:
+                raise EvalError("%s: %s" % (to_text(e), exc))
         if f not in FUNCS:
             raise EvalError("unknown function %s()" % f)
         check_arity(e)
         if f == "if":
             return self.ev(e.args[1]) if self.ev(e.args[0]) != 0 else self.ev(e.args[2])
         a = [self.ev(x) for x in e.args]
+        if self.spectre:
+            self.domain(f, a, e)
         try:
             return _apply(f, a, e)
         except EvalError:
             raise
         except (OverflowError, ValueError, ZeroDivisionError) as exc:
             raise EvalError("%s: %s" % (to_text(e), exc))
+
+    @staticmethod
+    def domain(f: str, a: List[float], e: Call) -> None:
+        """Spectre's domains (§3.5, ref19 p.476): log ln log10 need x > 0, sqrt x >= 0, exp x < 80;
+        HSPICE's sign-keeping forms never apply."""
+        if f in ("log", "ln", "log10") and a[0] <= 0:
+            raise EvalError("%s: the argument of %s must be positive (Spectre's domain)" % (to_text(e), f))
+        if f == "sqrt" and a[0] < 0:
+            raise EvalError("%s: the argument of sqrt must not be negative (Spectre's domain)" % to_text(e))
+        if f == "exp" and a[0] >= 80:
+            raise EvalError("%s: exp needs x < 80 (ref19 p.476)" % to_text(e))
 
 
 def _signed_log(f: Callable[[float], float], x: float, e: Call) -> float:
@@ -831,7 +1182,7 @@ def evaluate(ast: Expr, scope: Mapping[str, float], dialect: str = "hspice") -> 
     """
     _dialect(dialect)
     try:
-        return _Eval(scope).ev(ast)
+        return _Eval(scope, dialect).ev(ast)
     except RecursionError:
         raise EvalError("expression too deeply nested: %s..." % to_text(ast)[:60])
 
@@ -924,8 +1275,10 @@ def param_ident(name: str, engine: str) -> str:
 
 
 def vacask_quote(name: str) -> str:
-    """A name as a VACASK identifier: bare when it is a plain identifier or all digits, else quoted."""
-    if name.isdigit() or (_VACASK_ID.match(name) and name not in VACASK_RESERVED):
+    """A name as a VACASK identifier: bare when it is a plain identifier or all digits without a
+    leading zero ('007' is quoted: bare, VACASK would read it as 7; §4.5 item 9), else quoted."""
+    if (name.isdigit() and (name == "0" or name[0] != "0")) or \
+            (_VACASK_ID.match(name) and name not in VACASK_RESERVED):
         return name
     if "'" in name or not name:
         raise PrintError("name %r cannot be written as a VACASK identifier" % (name,))
@@ -1058,6 +1411,31 @@ class _Printer:
     def temper(self) -> _F:
         raise NotImplementedError
 
+    def tnom(self) -> _F:
+        """Spectre's tnom (Name("$tnom"), §3.5): VACASK prints $tnom; Xyce has none, so the emitter
+        substitutes the deck's value first and an unsubstituted one is a PrintError."""
+        raise PrintError("tnom has no %s form in an expression: the emitter must substitute it"
+                         % self.engine)
+
+    def hypot(self, x: _F, y: _F) -> _F:
+        """hypot(x, y): sqrt(x*x+y*y) where the engine has no hypot (Xyce) (§4.2)."""
+        return self.call("sqrt", [self.arith("+", self.arith("*", x, x), self.arith("*", y, y))])
+
+    def cpow(self, xast: Expr, yast: Expr) -> _F:
+        """Spectre's x**y / pow(x,y), C pow (§3.5): printed (y==0 ? 1 : pow(x,y)) on both engines,
+        because Xyce's pow(0,0) is 1e50 and VACASK refuses it; plain pow(x,y) when x or y is a
+        nonzero constant, and 1 when y is a constant 0.  A negative base with a non-integer
+        exponent never reaches an engine: plan.build's evaluation refuses it."""
+        if isinstance(yast, Num):
+            if yast.value == 0:
+                return self.num(1.0)
+            return self.call("pow", [self.p(xast), self.num(yast.value)])
+        if isinstance(xast, Num) and xast.value != 0:
+            return self.call("pow", [self.p(xast), self.p(yast)])
+        y = self.p(yast)
+        return self.tern(self.cmp("==", y, self.num(0.0)), self.num(1.0),
+                         self.call("pow", [self.p(xast), y]))
+
     def time(self) -> _F:
         raise NotImplementedError
 
@@ -1081,6 +1459,8 @@ class _Printer:
         if isinstance(e, Name):
             if e.name == "temper":
                 return self.temper()
+            if e.name == "$tnom":
+                return self.tnom()
             if e.name == "time":
                 if not self.beh:
                     raise PrintError("time is only allowed in behavioral sources, not in a "
@@ -1114,6 +1494,9 @@ class _Printer:
                 return self.cmp(e.op, l, r)
             if e.op in ("&&", "||"):
                 return self.logic(e.op, l, r)
+            if e.op in _BITWISE:
+                raise PrintError("bitwise operator %s has no %s form; it must fold to a constant: %s"
+                                 % (e.op, self.engine, to_text(e, "spectre")))
             raise PrintError("operator %s is not HSPICE: %s" % (e.op, to_text(e)))
         if isinstance(e, Call):
             if is_node_call(e):
@@ -1160,6 +1543,14 @@ class _Printer:
 
     def func(self, e: Call) -> _F:
         f = e.func
+        if f in EXTRA_FUNCS:                                # Spectre's cpow, hypot, fmod (§4.2)
+            check_arity(e, PrintError)
+            if f == "cpow":
+                return self.cpow(e.args[0], e.args[1])
+            a = [self.p(x) for x in e.args]
+            if f == "hypot":
+                return self.hypot(a[0], a[1])
+            return self.call("fmod", a)
         if f not in FUNCS:
             raise PrintError("unknown function %s() (user functions must be inlined first)" % f)
         check_arity(e, PrintError)
@@ -1301,6 +1692,12 @@ class _VacaskPrinter(_Printer):
 
     def temper(self) -> _F:
         return _F("$temp")
+
+    def tnom(self) -> _F:
+        return _F("$tnom")
+
+    def hypot(self, x: _F, y: _F) -> _F:
+        return self.call("hypot", [x, y])                   # native (VACASK lib/context.cpp:72)
 
     def time(self) -> _F:
         return _F("$abstime")

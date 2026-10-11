@@ -70,12 +70,15 @@ Model dispatch (§4.3.6)
     STRING_PARAMS[module] -> names of string-typed module parameters (printed
         "quoted" by the VACASK emitter).
     STRIP_KEYS             HSPICE-only geometry keys stripped from cards (warning).
-    Spectre masters (docs/VAMOS_SPECTRE_DESIGN.md §3.9, §4.4, §10; phase 0)
+    Spectre masters (docs/VAMOS_SPECTRE_DESIGN.md §3.9, §4.4, §10)
         ParamRule, MasterRow   the row types; SPECTRE_MASTERS[master] -> MasterRow, the
         data (every ref5 card and instance parameter of every master with its disposition);
-        model_params(dialect="spectre") applies it (S3).
+        model_params(dialect="spectre") applies the card rules and spectre_instance_params the
+        instance rules (the reading rules: the block comment above apply_spectre_rules);
+        rule_for, spectre_master_of, SPECTRE_OPTIONS, VACASK_OPTION_DEFAULTS, VACASK_METHODS,
+        XYCE_METHODS, wave_t0, va_letter, va_polarity: the data both emitters read (§4.5, §5.4).
         bin_bounds_spectre, bin_guard_spectre, select_bin_spectre: bin_rule="spectre"
-        (exact bounds, group order, total w); phase-0 signatures, S1 implements them.
+        (exact bounds, group order, total w); Scope keeps such a group in bin_index order.
 
 Instance rules
     SCALE_POWERS[element] -> {parameter: power of .option scale}   (§4.3.5)
@@ -196,8 +199,11 @@ Shared walk
     PathEnv, path_envs(nl, values=None, strict=False, dialect="hspice") -> Iterator[PathEnv]
         Every instance path (docs/VAMOS_SPECTRE_DESIGN.md §4.4), the top level
         first, depth first in body order, with its subckt, Scope, parameter
-        values (xyce._Deck.child_env's rule) and instances (each Cond resolved
-        on the path).  path_counts(nl) -> {subckt name: paths that reach it}.
+        values (xyce._Deck.child_env's rule; under dialect="spectre" a nested
+        definition sees the enclosing subckt's values, §3.7) and instances (each
+        Cond resolved on the path).  path_counts(nl) -> {subckt name: paths that reach it}.
+    Every walk here sees a Cond (§4.5 item 1): reachable, Scope, item_exprs, enclosing_reads,
+        element_at, current_ref_errors and smoke_netlist read ir.flat_items.
 
 Errors are TableError (a ValueError) naming the construct; the emitters turn
 them into notes with the element's origin.
@@ -208,13 +214,15 @@ from __future__ import annotations
 import copy
 import math
 import os
+import re
 from collections import abc
 from dataclasses import dataclass, field, replace
 from typing import Dict, FrozenSet, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from vamos.netlist import expr as X
 from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary
-from vamos.netlist.ir import Cond, Instance, Model, Netlist, Param, ParamTest, Source, Subckt
+from vamos.netlist.ir import (Cond, Instance, Model, Netlist, Param, ParamTest, Source, Subckt, VaModule,
+                              flat_items)
 from vamos.notes import Note, note, warning
 
 ENGINES = ("vacask", "xyce")
@@ -365,8 +373,7 @@ def model_params(model: Model, engine: str, binned: bool = False,
     if dialect not in ("hspice", "spectre"):
         raise ValueError("dialect must be 'hspice' or 'spectre', not %r" % (dialect,))
     if dialect == "spectre":
-        raise NotImplementedError("model_params(dialect='spectre') is not implemented yet "
-                                  "(VAMOS_SPECTRE_DESIGN.md §3.9, §4.4: phase 1, S3)")
+        return _spectre_model_params(model, engine, binned)
     _engine(engine)
     row = target(model)
     out: List[Tuple[str, Expr]] = []
@@ -416,6 +423,349 @@ def model_params(model: Model, engine: str, binned: bool = False,
         if row.polarity and pol is not None:
             out.insert(0, ("type", Num(pol)))
     return out, notes
+
+
+# -- the Spectre card and instance path (VAMOS_SPECTRE_DESIGN.md §3.9, §4.4; S3) ----------------------
+#
+# model_params(dialect="spectre") never calls hspice_card and never strips STRIP_KEYS (they are Spectre
+# parameters): it applies SPECTRE_MASTERS[Model.prim].params to the card as written, and the engine
+# fixes stay (_xyce_diode_charge, _wire_card's engine renames, the version and bin handling, VACASK's
+# type/level).  spectre_instance_params applies MasterRow.instance to one instance the same way; the
+# emitters call it for every Spectre instance whose master has a row.  The reading rules of §10, as the
+# data block's conventions state them:
+#   - the first rule of a name whose `when` (read on the card or instance as written) and `match` hold
+#     applies; `match` tokens: "absent", "nonzero" (a Num other than 0, or an expression that is not
+#     provably 0), an enumeration word (a Str or Name, compared case-insensitively), or a Spectre number
+#     ("1", "1/3", "7.02e-4") compared numerically with a Num; () = any given value;
+#   - an absent parameter is reached only through match=("absent", ...) or a `when` naming it
+#     ("absent:<name>"): the default rows and the absence warnings;
+#   - fold: consumed by spectre.py (polarity -> Model.kind, level -> Model.level, the card geometry and
+#     the card defaults -> the instances, the instance scale -> w/l, the geometry that fed a computed
+#     value -> Instance.folded), so the printer drops it; `type` is still checked against Model.kind;
+#   - pass: printed as written; rename: printed under the target spelling (an instance rename
+#     instance_<name> is VACASK's, the Xyce path drops the prefix); default: written when absent, "=p"
+#     copying the card's p, one note per card naming the applied defaults; strip: removed with a note
+#     (a warning where warn="card"); error: TableError naming the parameter and the reason;
+#   - warn="card" on a pass row that reaches an absent parameter is the absence warning (the targets'
+#     derivation of phi/gamma/vto from a given nsub); "analyses=..." and "temp!=tnom" are plan.build's.
+
+_SPECTRE_NUM = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?(/(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?)?$")
+
+
+def spectre_rule_number(text: str) -> float:
+    """A Spectre number as the rows write it: "1/3", "1e-7", "1.13e16", "0.5", "2"."""
+    if "/" in text:
+        a, b = text.split("/")
+        return float(a) / float(b)
+    return float(text)
+
+
+def _same_number(a: float, b: float) -> bool:
+    if a == 0 or b == 0:
+        return a == b
+    return abs(a - b) <= 1e-9 * max(abs(a), abs(b))
+
+
+def _token_matches(tok: str, value: Expr) -> bool:
+    """One match token of a rule against a given value (never "absent", which _rule_for handles)."""
+    if tok == "nonzero":
+        return not (isinstance(value, Num) and value.value == 0.0)
+    if tok == "absent":
+        return False
+    if _SPECTRE_NUM.match(tok):
+        return isinstance(value, Num) and _same_number(spectre_rule_number(tok), value.value)
+    text = value.text if isinstance(value, Str) else value.name if isinstance(value, Name) else None
+    return text is not None and text.lower() == tok.lower()
+
+
+def _when_holds(when: str, given: Set[str]) -> bool:
+    for tok in (when.split(",") if when else []):
+        kind, _, p = tok.partition(":")
+        if (kind == "absent" and p in given) or (kind == "given" and p not in given):
+            return False
+    return True
+
+
+def rule_for(rules: Sequence[ParamRule], name: str, value: Optional[Expr], given: Set[str]
+             ) -> Optional[ParamRule]:
+    """The first rule of `name` that applies to `value` (None: the parameter is absent) when the
+    parameters `given` are written; None when no rule covers it."""
+    for r in rules:
+        if r.name != name or not _when_holds(r.when, given):
+            continue
+        if value is None:
+            # a default row is written whenever its `when` holds (nbv's names Spectre's nz, not itself);
+            # any other row reaches an absent parameter only through match "absent" or a when on it
+            if r.action != "default" and "absent" not in r.match and ("absent:%s" % name) not in r.when.split(","):
+                continue
+            if r.match and "absent" not in r.match:
+                continue
+        elif r.match and not any(_token_matches(t, value) for t in r.match):
+            continue
+        return r
+    return None
+
+
+def _rule_reason(rule: ParamRule) -> str:
+    """The reason a row gives: its cite after the page ("ref5 p.630; <reason>")."""
+    _page, sep, reason = rule.cite.partition(";")
+    return reason.strip() if sep else rule.cite.strip()
+
+
+def _default_value(rule: ParamRule, params: Mapping[str, Expr]) -> Optional[Expr]:
+    """The value a default row writes: "=p" copies p (None when p is not given), else the number."""
+    if rule.value.startswith("="):
+        return params.get(rule.value[1:].lower())
+    return Num(spectre_rule_number(rule.value))
+
+
+def _rule_names(rules: Sequence[ParamRule]) -> List[str]:
+    out: List[str] = []
+    for r in rules:
+        if r.name not in out:
+            out.append(r.name)
+    return out
+
+
+def apply_spectre_rules(rules: Sequence[ParamRule], params: Mapping[str, Expr], label: str, origin: str,
+                        engine: str, master: str, what: str = "parameter"
+                        ) -> Tuple[Dict[str, Expr], List[Note], List[str]]:
+    """SPECTRE_MASTERS rules over the parameters of one card or instance, as written (lower-cased
+    keys).  Returns the parameters to print (in order, renamed, the applied defaults appended), the
+    notes, and the names of the applied defaults (for the per-card note).  TableError for an error
+    row and for a parameter no row covers (every ref5 parameter has one, so that is a parameter
+    outside Spectre's documentation of the master)."""
+    given = {k.lower() for k in params}
+    lower = {k.lower(): v for k, v in params.items()}
+    out: Dict[str, Expr] = {}
+    notes: List[Note] = []
+    applied: List[str] = []
+    for key, value in lower.items():
+        rule = rule_for(rules, key, value, given)
+        if rule is None:
+            raise TableError("%s: %s %s=%s is not a parameter of Spectre's %s (SPECTRE_MASTERS has no "
+                             "disposition for it)" % (label, what, key, X.to_text(value), master))
+        txt = X.to_text(value)
+        if rule.action == "fold":
+            continue                                    # consumed by spectre.py (see the block comment)
+        if rule.action == "error":
+            raise TableError("%s: %s=%s is not supported: %s" % (label, key, txt, _rule_reason(rule)))
+        if rule.action == "strip":
+            msg = "%s: Spectre %s %s=%s removed: %s" % (label, what, key, txt, _rule_reason(rule))
+            notes.append(warning(origin, msg) if rule.warn == "card" else note(origin, msg))
+            continue
+        name = key
+        if rule.action == "rename":
+            name = rule.value
+            if engine == "xyce" and name.startswith("instance_"):
+                name = name[len("instance_"):]          # VACASK's spelling carries the prefix, Xyce's does not
+        elif rule.action == "default":                   # a default row reached by a given value: the value stands
+            pass
+        if rule.warn == "card":
+            notes.append(warning(origin, "%s: %s=%s: %s" % (label, key, txt, _rule_reason(rule))))
+        out[name] = value
+    for name in _rule_names(rules):
+        if name in given:
+            continue
+        rule = rule_for(rules, name, None, given)
+        if rule is None:
+            continue
+        if rule.action == "default":
+            value = _default_value(rule, lower)
+            if value is None:
+                continue
+            out[name] = value
+            applied.append("%s=%s" % (name, _txt(value)))
+            if rule.warn == "card":
+                notes.append(warning(origin, "%s: %s=%s applied: %s" % (label, name, _txt(value), _rule_reason(rule))))
+        elif rule.warn == "card":
+            notes.append(warning(origin, "%s: %s is not given: %s" % (label, name, _rule_reason(rule))))
+        elif rule.action == "error":
+            raise TableError("%s: %s must be given: %s" % (label, name, _rule_reason(rule)))
+    return out, notes, applied
+
+
+def _spectre_model_params(model: Model, engine: str, binned: bool) -> Tuple[List[Tuple[str, Expr]], List[Note]]:
+    """model_params(dialect="spectre"): the Spectre card path (the block comment above)."""
+    _engine(engine)
+    if not model.prim:
+        raise TableError("model %s has no Spectre master (Model.prim is empty): every card of a Spectre "
+                         "netlist names one (§3.9)" % model.name)
+    master = SPECTRE_MASTERS.get(model.prim)
+    if master is None:
+        raise TableError("model %s: Spectre master %r has no SPECTRE_MASTERS row (the v1 masters are %s)"
+                         % (model.name, model.prim, ", ".join(sorted(SPECTRE_MASTERS))))
+    origin = model.origin or model.name
+    label = card_label(model)
+    pol = POLARITY.get(model.kind)
+    if master.polarity_key and master.polarity_key in {k.lower() for k in model.params}:
+        value = next(v for k, v in model.params.items() if k.lower() == master.polarity_key)
+        text = value.text if isinstance(value, Str) else value.name if isinstance(value, Name) else X.to_text(value)
+        kinds = dict(master.kinds)
+        if text.lower() in kinds and kinds[text.lower()] != model.kind:
+            raise TableError("model %s: %s=%s contradicts its kind %s" % (model.name, master.polarity_key, text,
+                                                                           model.kind))
+    card, notes, applied = apply_spectre_rules(master.params, model.params, label, origin, engine, model.prim)
+    row = target(model)                          # after the rules: a Spectre level row speaks first (diode level 2)
+    if applied:
+        notes.append(note(origin, "%s: %s applied, Spectre's documented default%s (the targets' own differ, §3.9)"
+                          % (label, " ".join(applied), "s" if len(applied) > 1 else "")))
+    out: List[Tuple[str, Expr]] = []
+    for key, value in card.items():
+        if binned and key in BIN_KEYS and engine == "vacask":
+            continue
+        if key == "version" and engine == "vacask" and row.strip_version:
+            notes.append(note(origin, "%s: version=%s removed; simulated as %s"
+                              % (label, X.to_text(value), row.describe)))
+            continue
+        if key == "version":
+            vn = _version_note(model, row, engine, value)
+            if vn is not None:
+                notes.append(vn)
+        out.append((key, value))
+    if engine == "xyce" and row is _DIODE1:
+        out = _xyce_diode_charge(model, out, notes)
+    if row is _RES or row is _CAP:
+        out = _wire_card(model, row.element, engine, out, notes)
+    if engine == "vacask":
+        if row.keep_level:
+            out.insert(0, ("level", Num(float(level_of(model)))))
+        if row.polarity and pol is not None:
+            out.insert(0, ("type", Num(pol)))
+    return out, notes
+
+
+def spectre_master_of(inst: Instance, card: Optional[Model]) -> str:
+    """The Spectre master whose instance rules apply to inst: Instance.prim when it names a master,
+    else the card's Model.prim (a model instance's prim may be the card's name)."""
+    if inst.kind == "y":
+        return ""                                    # a Verilog-A module, never a Spectre master
+    if inst.prim in SPECTRE_MASTERS:
+        return inst.prim
+    if card is not None and card.prim in SPECTRE_MASTERS:
+        return card.prim
+    return ""
+
+
+def spectre_instance_params(inst: Instance, master: str, engine: str) -> Tuple[Dict[str, Expr], List[Note]]:
+    """MasterRow.instance applied to one instance's parameters, as the emitters print them (§3.9, §4.4,
+    §10): renames (instance_<name> without the prefix on Xyce), the default rows (w/l from the master's
+    geometry, nrd/nrs 0, written with a note), strips with their notes, errors as TableError; an instance
+    whose master has no row keeps its parameters."""
+    row = SPECTRE_MASTERS.get(master)
+    if row is None:
+        return dict(inst.params), []
+    origin = inst.origin or inst.name
+    out, notes, applied = apply_spectre_rules(row.instance, inst.params, inst.name, origin, engine, master,
+                                              "instance parameter")
+    if applied:
+        notes.append(note(origin, "%s: %s written (Spectre's default%s for a %s instance that gives none; the "
+                                  "targets' own defaults differ, §3.9)"
+                          % (inst.name, " ".join(applied), "s" if len(applied) > 1 else "", master)))
+    return out, notes
+
+
+# The Spectre options with an engine meaning (§3.10, §4.5 item 5): Spectre's key -> the engine's.  Xyce has
+# no SPICE-meaning tolerances (its RELTOL/ABSTOL control the LTE and the Newton residual), so reltol,
+# vabstol, iabstol and chargeabstol are a note there (§0's tolerance note).
+SPECTRE_OPTIONS: Dict[str, Dict[str, str]] = {
+    "vacask": {"temp": "temp", "tnom": "tnom", "gmin": "gmin", "reltol": "reltol", "vabstol": "vntol",
+               "iabstol": "abstol", "chargeabstol": "chgtol"},
+    "xyce": {"temp": "temp", "tnom": "tnom", "gmin": "gmin"},
+}
+# VACASK's documented defaults of the options a tran's settings change (cmd-options-relref.md,
+# cmd-options-tran.md, cmd-options-tol.md): what render restores after a step when no earlier line set them.
+VACASK_OPTION_DEFAULTS: Dict[str, object] = {"relref": "alllocal", "relrefsol": "relref", "relrefres": "relref",
+                                             "relreflte": "relref", "tran_method": "trap", "tran_lteratio": 3.5,
+                                             "tran_maxord": 2, "reltol": 1e-3}
+# Spectre tran method -> (VACASK tran_method, tran_maxord or None, note or "") and (Xyce METHOD, MAXORD or None)
+# (§5.4; VACASK cmd-options-tran.md, Xyce E30: TRAP and GEAR only).
+VACASK_METHODS: Dict[str, Tuple[str, Optional[int], str]] = {
+    "trap": ("trap", None, ""), "traponly": ("trap", None, ""),
+    "gear2": ("gear2", None, ""), "gear2only": ("gear2", None, ""),
+    "euler": ("euler", None, ""),
+    "gear3": ("gear", 3, ""), "gear3only": ("gear", 3, ""), "gear2gear3": ("gear", 3, ""),
+    "trapgear2": ("trap", None, "Spectre's trapgear2 (trapezoidal with gear2 fallback) is simulated as "
+                                "VACASK's trap"),
+    "trapeuler": ("trap", None, "Spectre's trapeuler (trapezoidal with euler fallback) is simulated as "
+                                "VACASK's trap"),
+}
+XYCE_METHODS: Dict[str, Tuple[str, Optional[int]]] = {
+    "trap": ("TRAP", None), "traponly": ("TRAP", None), "trapgear2": ("TRAP", None), "trapeuler": ("TRAP", None),
+    "gear2": ("GEAR", 2), "gear2only": ("GEAR", 2),
+    "gear3": ("GEAR", 3), "gear3only": ("GEAR", 3), "gear2gear3": ("GEAR", 3),
+    "euler": ("GEAR", 1),
+}
+
+
+def wave_t0(src: Source) -> Optional[Expr]:
+    """The t = 0 value of a waveform source (§3.8.1, §4.5 item 8: Xyce's derived DC): pulse and exp
+    their v1, sin vo (plus va*sin(phase) for a nonzero phase, phase in degrees), pwl its first value;
+    None for a source without a waveform or with an unresolved field."""
+    w, a = src.wave, src.args
+    if w == "pulse" or w == "exp":
+        return a.get("v1")
+    if w == "sin":
+        vo, va, phase = a.get("vo"), a.get("va"), a.get("phase")
+        if vo is None:
+            return None
+        if va is None or phase is None or _is_zero(phase):
+            return vo
+        return X.fold(Binary("+", vo, Binary("*", va, Call("sin", (Binary("*", phase, Num(math.pi / 180.0)),)))))
+    if w == "pwl":
+        return src.points[0][1] if src.points else None
+    return None
+
+
+# Verilog-A modules on Xyce (§4.5 item 13): a module whose xyceModelGroup is one of these prints as the letter
+# device with the group's card kinds (the first kind for the default polarity), on a .model card with its
+# xyceLevelNumber; cadence2xyce.pl's scan_va_modules maps MOSFET/DIODE/BJT the same way.
+VA_LETTER_GROUPS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "mosfet": ("m", ("nmos", "pmos")), "diode": ("d", ("d",)), "bjt": ("q", ("npn", "pnp")),
+    "resistor": ("r", ("r",)), "capacitor": ("c", ("c",)),
+}
+VA_PTYPE_DEFAULT = "-1"          # ADMS's default xycePTypeValue: TYPE=-1 selects the p-type device
+
+
+def va_letter(module: VaModule) -> Optional[Tuple[str, Tuple[str, ...], int]]:
+    """(letter, card kinds, level) of a module that prints as a letter device on Xyce, else None
+    (the Y form): xyceModelGroup in VA_LETTER_GROUPS and an integer xyceLevelNumber."""
+    group = module.attrs.get("xyceModelGroup", "").lower()
+    level = module.attrs.get("xyceLevelNumber", "")
+    if group not in VA_LETTER_GROUPS or not level:
+        return None
+    try:
+        n = int(level)
+    except ValueError:
+        return None
+    letter, kinds = VA_LETTER_GROUPS[group]
+    return letter, kinds, n
+
+
+def va_polarity(module: VaModule, params: Mapping[str, Expr]) -> Tuple[str, Optional[str]]:
+    """The card kind of a letter-device instance and the parameter the polarity consumed: the card's
+    value of xyceTypeVariable against xycePTypeValue (default VA_PTYPE_DEFAULT) selects the p-type kind,
+    anything else (the parameter absent included) the n-type one."""
+    found = va_letter(module)
+    if found is None:
+        raise TableError("module %s is not a letter device on Xyce" % module.name)
+    _letter, kinds, _level = found
+    tv = module.attrs.get("xyceTypeVariable", "")
+    if len(kinds) == 1 or not tv:
+        return kinds[0], None
+    key = next((k for k in params if k.lower() == tv.lower()), None)
+    if key is None:
+        return kinds[0], None
+    value, ptype = params[key], module.attrs.get("xycePTypeValue", VA_PTYPE_DEFAULT)
+    if isinstance(value, Num):
+        try:
+            is_p = _same_number(value.value, float(ptype))
+        except ValueError:
+            is_p = False
+    else:
+        text = value.text if isinstance(value, Str) else value.name if isinstance(value, Name) else X.to_text(value)
+        is_p = text.lower() == ptype.lower()
+    return (kinds[1] if is_p else kinds[0]), key
 
 
 # -- Spectre masters (VAMOS_SPECTRE_DESIGN.md §3.9, §4.4, §10; phase 0: the row types and the data) ----
@@ -915,6 +1265,7 @@ SPECTRE_MASTERS: Dict[str, MasterRow] = {
             ParamRule("l", "strip", warn="card", cite="ref5 p.304; see 1e-6"),
             ParamRule("w", "strip", match=("1e-6",), cite="ref5 p.304; as l"),
             ParamRule("w", "strip", warn="card", cite="ref5 p.304; as l"),
+            ParamRule("is", "pass", cite="ref5 p.302 (the example `model pdiode diode is=1.8e-5 ...`; the table p.304 spells it js); sp_diode is (alias js, diode.va:111); Xyce IS (N_DEV_Diode.C:108)"),
             ParamRule("js", "pass", cite="ref5 p.304; sp_diode is (alias js, diode.va:111); Xyce JS (N_DEV_Diode.C:108)"),
             ParamRule("jsw", "pass", cite="ref5 p.304; diode.va:112; N_DEV_Diode.C:115"),
             ParamRule("n", "pass", cite="ref5 p.304; diode.va:121; N_DEV_Diode.C:131"),
@@ -3021,7 +3372,8 @@ def element_at(items: Sequence[object], scope: "Scope", target: str) -> Optional
     body items of scope; None when there is none."""
     parts = target.split(".")
     for k, part in enumerate(parts):
-        found = next((it for it in items if isinstance(it, Instance) and it.name == part), None)
+        # every walk sees a Cond (VAMOS_SPECTRE_DESIGN.md §4.5 item 1): an instance in a branch is found
+        found = next((it for it in flat_items(items) if isinstance(it, Instance) and it.name == part), None)
         if found is None or k == len(parts) - 1:
             return found
         sub = scope.where(found.master or "") if found.kind == "x" else None
@@ -3056,7 +3408,8 @@ def current_ref_errors(inst: Instance, items: Sequence[object], scope: "Scope") 
 def item_exprs(item: object) -> List[Expr]:
     """Every expression of one body item (not of the definitions nested in a Subckt): a Param's,
     an Instance's value, parameters, behavioral expression and source fields, a Model's parameters,
-    a Subckt's header parameters."""
+    a Subckt's header parameters; a Cond yields its conditions and a ParamTest its tests
+    (VAMOS_SPECTRE_DESIGN.md §4.4; the items inside a Cond's branches are walked by flat_items)."""
     out: List[Expr] = []
     if isinstance(item, Param):
         out.append(item.expr)
@@ -3064,6 +3417,10 @@ def item_exprs(item: object) -> List[Expr]:
         out.extend(item.params.values())
     elif isinstance(item, Subckt):
         out.extend(p.expr for p in item.params)
+    elif isinstance(item, Cond):
+        out.extend(cond for cond, _body in item.branches)
+    elif isinstance(item, ParamTest):
+        out.extend(e for _kind, e in item.tests if e is not None)
     elif isinstance(item, Instance):
         out.extend(e for e in (item.value, item.expr) if e is not None)
         out.extend(item.params.values())
@@ -3082,7 +3439,7 @@ def enclosing_reads(s: Subckt, enclosing: Sequence[str]) -> List[str]:
     own = {p.name for p in s.params} | {p.name for p in s.body if isinstance(p, Param)}
     want = set(enclosing) - own
     found: Set[str] = set()
-    for it in s.body:
+    for it in flat_items(s.body):                   # a Cond's conditions and the items of its branches too
         if isinstance(it, Subckt):
             continue
         for e in item_exprs(it):
@@ -3230,26 +3587,51 @@ def select_bin(bins: Sequence[Tuple[Model, Tuple[float, float, float, float]]], 
 
 # Spectre model groups, bin_rule="spectre" (VAMOS_SPECTRE_DESIGN.md §3.9, §4.4): exact bounds (no
 # BIN_TOL), group order, the instance's total w (also with nf > 1), and a bound the card omits taken
-# from the master's default (lmin=wmin=0, lmax=wmax=1 m).  Phase-0 signatures; S1 implements them.
+# from the master's default (lmin=wmin=0, lmax=wmax=1 m [M ref5 p.200]: MasterRow.geometry).
 
 def bin_bounds_spectre(model: Model, values: Mapping[str, float]) -> Tuple[float, float, float, float]:
     """(lmin, lmax, wmin, wmax) of a Spectre model-group entry, a bound the card omits filled from
-    SPECTRE_MASTERS (§4.4)."""
-    raise NotImplementedError("bin_bounds_spectre is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.4: "
-                              "phase 1, S1)")
+    SPECTRE_MASTERS (§4.4); TableError for a bound that is not constant with the top-level values, or
+    for a card whose master has no default bounds."""
+    row = SPECTRE_MASTERS.get(model.prim)
+    defaults = dict(row.geometry) if row is not None else {}
+    out = []
+    for k in BIN_KEYS:
+        e = model.params.get(k)
+        if e is None:
+            if k not in defaults:
+                raise TableError("model-group entry %s: master %r has no default %s (SPECTRE_MASTERS.geometry)"
+                                 % (model.name, model.prim, k))
+            out.append(defaults[k])
+            continue
+        try:
+            out.append(X.evaluate(e, values))
+        except X.EvalError as exc:
+            raise TableError("model-group entry %s: %s=%s is not constant (%s): bin bounds are evaluated with "
+                             "the top-level parameters only" % (model.name, k, X.to_text(e), exc))
+    return out[0], out[1], out[2], out[3]
+
+
+def _in_range_exact(x: Expr, lo: float, hi: float) -> Expr:
+    return Binary("&&", Binary(">=", x, Num(lo)), Binary("<", x, Num(hi)))
 
 
 def bin_guard_spectre(bounds: Sequence[float], l: Expr, w: Expr, s: float) -> Expr:
-    """The selection condition of one group entry: lmin <= l*s < lmax and wmin <= w*s < wmax, exact."""
-    raise NotImplementedError("bin_guard_spectre is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.4: "
-                              "phase 1, S1)")
+    """The selection condition of one group entry: lmin <= l*s < lmax and wmin <= w*s < wmax, exact
+    (no BIN_TOL), on the instance's total w (no nf division) [M UG p.108; §14 q.8]."""
+    lmin, lmax, wmin, wmax = bounds
+    return Binary("&&", _in_range_exact(times(l, Num(s)), lmin, lmax),
+                  _in_range_exact(times(w, Num(s)), wmin, wmax))
 
 
 def select_bin_spectre(bins: Sequence[Tuple[Model, Tuple[float, float, float, float]]], l: float,
                        w: float, s: float) -> Optional[Model]:
     """The first entry in group order whose exact bounds hold l*s and the total w*s; None if none."""
-    raise NotImplementedError("select_bin_spectre is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.4: "
-                              "phase 1, S1)")
+    lx, wx = l * s, w * s
+    for m, (lmin, lmax, wmin, wmax) in bins:
+        if lmin <= lx < lmax and wmin <= wx < wmax:
+            return m
+    return None
 
 
 # -- sources (§4.3.8) -----------------------------------------------------------------
@@ -3436,7 +3818,7 @@ class Scope:
         self.binned: Dict[str, List[Model]] = {}
         self.subckts: Dict[str, Subckt] = {}
         self.coupled: Set[str] = set()          # inductors a K element of this body names
-        for it in items:
+        for it in flat_items(items):            # a K pair inside a Cond branch counts (§4.5 item 1)
             if isinstance(it, Model):
                 self.models[it.name] = it
                 if it.base is not None:
@@ -3448,8 +3830,13 @@ class Scope:
         # Bins are tried in Xyce's order (its model map sorts names case-insensitively
         # as strings: nch.1, nch.10, nch.2): at an edge the lower-bound tolerance lets
         # two bins match, and the first match must be the same on both engines.
+        # A Spectre model group (bin_rule="spectre") keeps its group order: the first matching
+        # entry wins there, in the order the group lists them (VAMOS_SPECTRE_DESIGN.md §3.9, §4.4).
         for group in self.binned.values():
-            group.sort(key=lambda m: m.name.upper())
+            if any(m.bin_rule == "spectre" for m in group):
+                group.sort(key=lambda m: (m.bin_index is None, m.bin_index or 0))
+            else:
+                group.sort(key=lambda m: m.name.upper())
 
     @property
     def in_subckt(self) -> bool:
@@ -3531,7 +3918,7 @@ def smoke_netlist(nl: Netlist) -> Netlist:
     out = copy.deepcopy(nl)
 
     def fix(items: Sequence[object]) -> None:
-        for it in items:
+        for it in flat_items(items):                        # bridge sources inside a Cond branch too
             if isinstance(it, Subckt):
                 fix(it.body)
             elif isinstance(it, Instance) and it.source is not None and it.source.code_uri:
@@ -3580,7 +3967,7 @@ def reachable(nl: Netlist) -> Set[int]:
     used: Set[int] = set()
 
     def visit(items: Sequence[object], scope: Scope) -> None:
-        for it in items:
+        for it in flat_items(items):                        # instances in every Cond branch (§4.5 item 1, E44)
             if not isinstance(it, Instance):
                 continue
             if it.kind == "x":
@@ -3692,18 +4079,28 @@ def path_envs(nl: Netlist, values: Optional[Mapping[str, float]] = None, strict:
     strict: a parameter that does not evaluate raises EvalError naming the path and the expression;
     non-strict, it is hidden on that path, as xyce._Deck.child_env hides it today.  A subckt that
     instantiates itself is not entered again (the emitters report it).
+    dialect: the expression dialect of the evaluations, and the visibility rule of a nested
+    definition (§3.7, §4.4): under "spectre" a subckt defined inside another sees the parameters of
+    the enclosing subckt's instance on the path (its values fall back to the env of the path whose
+    body defines it: "any parameters accessible within the scope of s1 are also accessible from
+    within s2" [M UG pp.85-86]); under "hspice" they fall back to the top-level values, as
+    xyce._Deck.child_env's rule has it (a nested definition reading an enclosing parameter is an
+    error on the VACASK HSPICE path and Xyce passes it natively).
     """
     top_values: Mapping[str, float] = nl.values if values is None else values
     top_scope = Scope(nl.body)
     top_items: List[Instance] = []
     _path_items(nl.body, "", top_values, dialect, top_items)
     yield PathEnv("", None, top_scope, top_values, top_items, set())
-    yield from _child_paths(nl, top_items, top_scope, top_values, "", [], top_values, strict, dialect)
+    yield from _child_paths(nl, top_items, top_scope, top_values, "", [], top_values, strict, dialect,
+                            [(None, top_values)])
 
 
 def _child_paths(nl: Netlist, items: Sequence[Instance], scope: Scope, env: Mapping[str, float],
                  path: str, stack: List[int], top_values: Mapping[str, float], strict: bool,
-                 dialect: str) -> Iterator[PathEnv]:
+                 dialect: str, ancestors: Optional[List[Tuple[Optional[Subckt], Mapping[str, float]]]] = None
+                 ) -> Iterator[PathEnv]:
+    chain = ancestors if ancestors is not None else [(None, top_values)]
     for it in items:
         if it.kind != "x":
             continue
@@ -3712,7 +4109,12 @@ def _child_paths(nl: Netlist, items: Sequence[Instance], scope: Scope, env: Mapp
             continue
         sub, where = found
         child_path = it.name if not path else path + "." + it.name
-        child_env = _PathValues(top_values)
+        outer: Mapping[str, float] = top_values
+        if dialect == "spectre" and where.subckt is not None:
+            # the nested definition's names fall back to the enclosing subckt's values on this path:
+            # the nearest ancestor whose body is the defining scope's (§3.7)
+            outer = next((e for s, e in reversed(chain) if s is where.subckt), top_values)
+        child_env = _PathValues(outer)
         over = {k: v for k, v in it.params.items() if k != "m"}
         for p in _subckt_params(sub):
             e = over.get(p.name)
@@ -3732,10 +4134,12 @@ def _child_paths(nl: Netlist, items: Sequence[Instance], scope: Scope, env: Mapp
         _path_items(sub.body, child_path, child_env, dialect, child_items)
         yield PathEnv(child_path, sub, child_scope, child_env, child_items, set(child_env.hidden))
         stack.append(id(sub))
+        chain.append((sub, child_env))
         try:
             yield from _child_paths(nl, child_items, child_scope, child_env, child_path, stack, top_values,
-                                    strict, dialect)
+                                    strict, dialect, chain)
         finally:
+            chain.pop()
             stack.pop()
 
 

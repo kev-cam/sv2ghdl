@@ -1,0 +1,4 @@
+// stand-in for include_global/include_multiple.scs
+include "a.scs"
+include "b.scs" section=tt
+include "c.scs"

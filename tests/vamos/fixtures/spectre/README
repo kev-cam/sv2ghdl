@@ -18,16 +18,22 @@ exist yet.
                    exactly the files in cst/corpus/
   cst/regen.sh     WSL, cargo: builds spectre_dump on NetlistParse.rs at the pinned commit and dumps the
                    vamos-authored fixtures (cadnip/*.scs with their title line stripped, lang/*.scs whole)
-  cst/DIVERGENCES, cst/GAPS *   the oracle's divergence and gap lists (phase 1)
+  cst/DIVERGENCES, cst/GAPS   the oracle's divergence and gap lists (phase 1, owner S1), vamos-authored
   engine_facts/    E<nn>/{deck, expect.json}: the engine facts of §13's T1 rows (phase 0, owner S0G),
                    vamos-authored
-  lang/ *          vamos-authored Spectre inputs for the CST gaps and the left-out corpus files (phase 1)
+  lang/            vamos-authored Spectre inputs for the CST gaps and the left-out corpus files (phase 1,
+                   owner S1): <case>.scs with its CST dump <case>.cst, made by cst/regen.sh
   psf/             PSF ASCII files for psfcheck.py (§11 T0 "psfcheck")
   psf/real/        real Spectre output files from psf-parser and psf_utils; PROVENANCE there lists every
                    file with its Spectre version, kind and date
   psf/bad/         eight malformed PSF files psfcheck.py must reject, vamos-authored (its README lists
                    them; tests/vamos/test_spectre_psfcheck.py regenerates them from its template)
-  psf/golden/ *    the PSF writer's goldens (phase 1)
+  psf/golden/      the PSF writer's goldens (§11.1 "Outputs"; phase 1, owner S4), written by vamos/output/psf.py
+                   from synthetic engine output through vamos.spectre.results.collect and compared byte for
+                   byte by tests/vamos/test_spectre_outputs.py (its README names the regeneration command):
+                   rc/ (psf-parser's 23.1 run rebuilt), noise/, xf/, status1/, status2/, status3/, legacy/;
+                   and psf/golden/engine/{vacask,xyce}: real VACASK and Xyce outputs of small divider decks
+                   (the decks beside them) that the results tests read; vamos-authored
   spice/           the SPICE-mode acceptance corpus (§11 T0 "SPICE-mode acceptance")
   spice/corpus/    NetlistParse.rs tests/corpus/*.sp, byte for byte (all 62)
   spice/expected/  NetlistParse.rs tests/expected/*.txt, byte for byte (61: sky130_inverter.sp has no
@@ -37,7 +43,16 @@ exist yet.
                    they carry XDM's tolerances and the expected xdm message counts) and the auxiliary
                    files D1N3940.scs, ipwlFile and vpwlFile; not copied: CMakeLists.txt, Manifest.txt,
                    exclude and tags (CTest plumbing)
-  e2e/, emit/, plan/, cmc/ *   end-to-end decks, emitter and plan goldens, CMC expectations (phases 1-2)
+  emit/            the emitter goldens (§11.1 "Emitters"; phase 1, owner S3): <case>_vacask.sim and
+                   <case>_xyce.cir, what vacask.render and xyce.render print for the hand-built IR of
+                   tests/vamos/test_spectre_emit.py (Cond, model groups, the §7.3 worked example, the
+                   nested-subckt lift, the Verilog-A letter device), compared byte for byte; vamos-authored
+  e2e/             the end-to-end decks (§11 T2): <nn>_<slug>/deck.scs with its aux files (a library, Verilog-A
+                   modules, a second deck), expect.json (the Spectre-level checks of §11), engine_expect.json
+                   (the same checks in engine terms: exit status, the engine columns names_for gives, values
+                   at points of the raw output) and render/<engine>/ (the rendered decks, goldens of
+                   tests/vamos/test_spectre_chain.py); 1-10 phase 1b (owner S6), 11-30 phase 2; vamos-authored
+  plan/, cmc/ *    plan goldens, CMC expectations (phase 2)
 
 Third-party files
 -----------------
@@ -92,4 +107,8 @@ the licence of this repository (COPYING).  Ten of the twelve .cir.spectre decks 
 
 Everything else in this tree is vamos-authored and GPL-3.0-or-later like the rest of the repository:
 cadnip/*.scs, cadnip/*.cst, cadnip/expect.json, cadnip/BUILD, cst/regen.sh, psf/bad/*, psf/real/PROVENANCE,
-engine_facts/** and this README.
+engine_facts/** and this README; and, from phase 1: emit/* (the emitter goldens, S3, written by
+vamos's own emitters from hand-built IR) and psf/golden/** (the PSF writer's goldens, S4, written by
+vamos's own writer; psf/golden/engine/** holds the vamos-authored divider decks and the output the
+engines VACASK 0.3.4-91-g64489cf7 and Xyce DEVELOPMENT-202610100047 wrote for them on 2026-10-10, as
+psf/golden/README records).

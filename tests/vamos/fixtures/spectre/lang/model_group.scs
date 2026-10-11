@@ -1,0 +1,5 @@
+// a model group (UG p.108): entries k: parameters
+model nch bsim3v3 {
+    1: type=n lmin=1u lmax=2u wmin=1u wmax=10u vtho=0.4
+    2: type=n lmin=2u lmax=10u wmin=1u wmax=10u vtho=0.45
+}

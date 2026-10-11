@@ -1,0 +1,195 @@
+HEADER
+"PSFversion" "1.00"
+"simulator" "spectre"
+"version" "vamos (psf/golden fixture)"
+"date" "5:46:18 PM, Tue Apr 15, 2025"
+"design" "#RC Low-Pass Filter"
+"analysis type" "noise"
+"analysis name" "noiva"
+"analysis description" "Noise Analysis `noiva': freq = (4 Hz -> 4 MHz)"
+"xVecSorted" "ascending"
+"tolerance.relative" 1.000000000000000e-03
+"operating point producer" "noiva"
+"output" "pair of nodes"
+"ground" "0"
+"positive output signal" "noiva"
+"negative output signal" "0"
+TYPE
+"sweep" FLOAT DOUBLE PROP(
+"key" "sweep"
+)
+"V/sqrt(Hz)" FLOAT DOUBLE PROP(
+"units" "V/sqrt(Hz)"
+"key" "noise"
+)
+"V^2/Hz" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+"key" "noise"
+)
+"rref" STRUCT(
+"rn" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+"fn" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+"total" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+) PROP(
+"key" "inst"
+"master" "resistor"
+)
+"resistor" STRUCT(
+"rn" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+"total" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+) PROP(
+"key" "inst"
+"master" "resistor"
+)
+"res_va" STRUCT(
+"flicker" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+"thermal" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+"total" FLOAT DOUBLE PROP(
+"units" "V^2/Hz"
+)
+) PROP(
+"key" "inst"
+"master" "res_va"
+)
+"V/V" FLOAT DOUBLE PROP(
+"units" "V/V"
+"key" "noise"
+)
+SWEEP
+"freq" "sweep" PROP(
+"sweep_direction" 0
+"units" "Hz"
+"plot" 0
+"grid" 3
+)
+TRACE
+"RESref" "rref"
+"Rva" "resistor"
+"RESva" "res_va"
+"out" "V/sqrt(Hz)"
+"gain" "V/V"
+"in" "V/sqrt(Hz)"
+VALUE
+"freq" 4.000000000000000e+00
+"RESref" (
+1.657575000000000e-22
+6.250000000000000e-12
+6.250000000165758e-12
+)
+"Rva" (
+9.999999999999999e-21
+9.999999999999999e-21
+)
+"RESva" (
+6.250000000000000e-12
+1.657575000000000e-22
+6.250000000165758e-12
+)
+"out" 3.535533907393834e-06
+"gain" 5.000000000000000e-01
+"in" 7.071067814787669e-06
+"freq" 1.264911064067352e+01
+"RESref" (
+1.657575000000000e-22
+1.976423537605237e-12
+1.976423537770995e-12
+)
+"Rva" (
+9.999999999999999e-21
+9.999999999999999e-21
+)
+"RESva" (
+1.976423537605237e-12
+1.657575000000000e-22
+1.976423537770995e-12
+)
+"out" 1.988176824515865e-06
+"gain" 5.000000000000000e-01
+"in" 3.976353649031730e-06
+"freq" 4.000000000000000e+01
+"RESref" (
+1.657575000000000e-22
+6.250000000000001e-13
+6.250000001657576e-13
+)
+"Rva" (
+9.999999999999999e-21
+9.999999999999999e-21
+)
+"RESva" (
+6.250000000000001e-13
+1.657575000000000e-22
+6.250000001657576e-13
+)
+"out" 1.118033993370289e-06
+"gain" 5.000000000000000e-01
+"in" 2.236067986740578e-06
+"freq" 1.264911064067352e+02
+"RESref" (
+1.657575000000000e-22
+1.976423537605237e-13
+1.976423539262812e-13
+)
+"Rva" (
+9.999999999999999e-21
+9.999999999999999e-21
+)
+"RESva" (
+1.976423537605237e-13
+1.657575000000000e-22
+1.976423539262812e-13
+)
+"out" 6.287167230578191e-07
+"gain" 5.000000000000000e-01
+"in" 1.257433446115638e-06
+"freq" 4.000000000000000e+02
+"RESref" (
+1.657575000000000e-22
+6.250000000000000e-14
+6.250000016575750e-14
+)
+"Rva" (
+9.999999999999999e-21
+9.999999999999999e-21
+)
+"RESva" (
+6.250000000000000e-14
+1.657575000000000e-22
+6.250000016575750e-14
+)
+"out" 3.535534052042421e-07
+"gain" 5.000000000000000e-01
+"in" 7.071068104084842e-07
+"freq" 1.264911064067352e+03
+"RESref" (
+1.657575000000000e-22
+1.976423537605237e-14
+1.976423554180987e-14
+)
+"Rva" (
+9.999999999999999e-21
+9.999999999999999e-21
+)
+"RESva" (
+1.976423537605237e-14
+1.657575000000000e-22
+1.976423554180987e-14
+)
+"out" 1.988177081741457e-07
+"gain" 5.000000000000000e-01
+"in" 3.976354163482913e-07
+END

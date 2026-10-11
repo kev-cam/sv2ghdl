@@ -1,0 +1,2 @@
+r1 (a 0) resistor r=1k   // line 1 is the title, even when it looks like a statement (UG p.29)
+r2 (a 0) resistor r=2k

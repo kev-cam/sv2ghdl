@@ -1,0 +1,63 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "op1.dc",
+  "sw1.dc",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "q1:c",
+   "at": null,
+   "value": 0.00021492,
+   "rel": 0.002
+  },
+  {
+   "file": "op1.dc",
+   "signal": "q2:c",
+   "at": null,
+   "value": 2.889e-05,
+   "rel": 0.002
+  },
+  {
+   "file": "op1.dc",
+   "signal": "q3:c",
+   "at": null,
+   "value": 2.6418e-05,
+   "rel": 0.002
+  },
+  {
+   "file": "sw1.dc",
+   "signal": "q1:c",
+   "at": 3.5e-10,
+   "value": 0.00021492,
+   "rel": 0.002
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.002
+ },
+ "messages": [],
+ "also": [
+  {
+   "argv": [
+    "deck_cross.scs"
+   ],
+   "status": 2,
+   "messages": [
+    [
+     "error",
+     "changes a structural condition on path q1"
+    ]
+   ]
+  }
+ ]
+}

@@ -1,0 +1,195 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "nz1",
+    "kind": "noise",
+    "columns": {
+     "R1": "n(R1)",
+     "R2": "n(R2)",
+     "I2.r3": "n(I2:r3)",
+     "out": "onoise",
+     "gain": "gain",
+     "in": "gain"
+    },
+    "signals": [
+     "R1",
+     "R2",
+     "I2.r3",
+     "out",
+     "gain",
+     "in"
+    ]
+   },
+   "vamos_a2": {
+    "name": "nz2",
+    "kind": "noise",
+    "columns": {
+     "R1": "n(R1)",
+     "R2": "n(R2)",
+     "I2.r3": "n(I2:r3)",
+     "out": "onoise"
+    },
+    "signals": [
+     "R1",
+     "R2",
+     "I2.r3",
+     "out"
+    ]
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "points": 2
+   },
+   {
+    "step": "vamos_a1",
+    "col": "frequency",
+    "row": 0,
+    "value": 1000.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "row": 0,
+    "value": 8.28796e-18,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "gain",
+    "row": 0,
+    "value": 0.25,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "R1",
+    "row": 0,
+    "value": 4.14398e-18,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "col": "n(R1,thermal)",
+    "row": 0,
+    "value": 4.14398e-18,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "I2.r3",
+    "row": 0,
+    "value": 4.1439800000000005e-24,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": -1,
+    "value": 8.28796e-18,
+    "rel": 0.0001
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "nz1",
+    "kind": "noise",
+    "columns": {
+     "R1": "DNO(R1)",
+     "R2": "DNO(R2)",
+     "I2.r3": "DNO(XI2:R3)",
+     "out": "ONOISE",
+     "gain": "INOISE",
+     "in": "INOISE"
+    },
+    "signals": [
+     "R1",
+     "R2",
+     "I2.r3",
+     "out",
+     "gain",
+     "in"
+    ]
+   },
+   "vamos_a2": {
+    "name": "nz2",
+    "kind": "noise",
+    "columns": {
+     "R1": "DNO(R1)",
+     "R2": "DNO(R2)",
+     "I2.r3": "DNO(XI2:R3)",
+     "out": "ONOISE"
+    },
+    "signals": [
+     "R1",
+     "R2",
+     "I2.r3",
+     "out"
+    ]
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "points": 2
+   },
+   {
+    "step": "vamos_a1",
+    "col": "FREQ",
+    "row": 0,
+    "value": 1000.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "row": 0,
+    "value": 8.28796e-18,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "in",
+    "row": 0,
+    "value": 3.315184e-17,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "R1",
+    "row": 0,
+    "value": 4.14398e-18,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "I2.r3",
+    "row": 0,
+    "value": 4.1439800000000005e-24,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": -1,
+    "value": 8.28796e-18,
+    "rel": 0.0001
+   }
+  ]
+ }
+}

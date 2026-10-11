@@ -1,0 +1,9 @@
+// a library file (UG p.75): read with include "library.scs" section=<name>
+library mylib
+    section tt
+        model nch bsim3v3 type=n vtho=0.4
+    endsection tt
+    section ff
+        model nch bsim3v3 type=n vtho=0.35
+    endsection ff
+endlibrary mylib

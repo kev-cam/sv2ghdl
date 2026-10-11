@@ -1,0 +1,24 @@
+SpectreNetlistSource 72-185
+  Incomplete 72-141
+    Identifier 72-75
+    Keyword 76-86
+    Incomplete 87-141
+      Parameter 87-105
+        Identifier 87-97
+        Notation 97-98
+        Identifier 98-105
+      Parameter 106-115
+        Identifier 106-110
+        Notation 110-111
+        NumberLiteral 111-115
+      Parameter 116-127
+        Identifier 116-123
+        Notation 123-124
+        NumberLiteral 124-127
+      Incomplete 134-141
+        Identifier 134-138
+        Error 139-141
+  Incomplete 146-157
+    Identifier 146-152
+    Error 153-157
+  Error 184-185

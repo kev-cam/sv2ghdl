@@ -1,0 +1,11 @@
+// the brace-less one-statement if (UG p.109)
+parameters rseries=0 gparallel=1 c=1p
+if (rseries == 0) {
+    c1 (a b) capacitor c=c
+    if (gparallel != 0) gp1 a b resistor r=1/gparallel
+} else {
+    r2 (a x) resistor r=rseries
+    c2 (x b) capacitor c=c
+    if (gparallel != 0) gp2 x b resistor r=1/gparallel
+}
+if (gparallel != 0) gp3 (a b) resistor r=1/gparallel

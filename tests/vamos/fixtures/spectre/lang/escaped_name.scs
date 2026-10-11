@@ -1,0 +1,4 @@
+// a backslash escapes the next character into a name (UG p.60): r\2 is the instance r2
+r\2 (a 0) resistor r=1k
+model \2N2222 bjt type=npn bf=100
+q1 (c b e) \2N2222

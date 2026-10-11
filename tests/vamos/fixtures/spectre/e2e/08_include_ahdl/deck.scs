@@ -1,0 +1,14 @@
+// e2e 8: include section= of a library file, ahdl_include of Verilog-A resistors
+simulator lang=spectre
+include "lib.scs" section=tt
+ahdl_include "vares.va"
+ahdl_include "vres.va"
+V1 (a 0) vsource dc=1
+X1 (a b) vares R=3k
+R2 (b 0) resistor r=1k
+X2 (a c) vres
+R3 (c 0) resistor r=1k
+R4 (a d) rmod
+R5 (d 0) resistor r=1k
+op1 dc
+save b c d

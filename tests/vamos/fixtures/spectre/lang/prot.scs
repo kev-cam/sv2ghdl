@@ -1,0 +1,7 @@
+// protect / unprotect, also abbreviated and in any case (ref19 p.497): a note
+protect
+r1 (a 0) resistor r=1k
+unprotect
+PROT
+r2 (a 0) resistor r=2k
+UNPROT

@@ -1,0 +1,23 @@
+# cst/GAPS: the constructs NetlistParse.rs d565fd3's Spectre CST cannot parse (Incomplete/Error nodes on
+# manual-valid input, VAMOS_SPECTRE_DESIGN.md §11.1, §13 E88) and the node groups it truncates, each with
+# the vamos-authored lang/ fixture that covers it.  tests/vamos/test_spectre_cst_oracle.py asserts vamos's
+# reading of the fixture (the statement kinds listed here, in order) and skips the CST comparison for the
+# fixture's Incomplete/Error statements; a fixture not listed here must tile and compare clean.  Every
+# line is used by the oracle (an unused line fails the suite).
+#
+# construct | lang fixture (relative to fixtures/spectre) | vamos's statement kinds, in order | [M cite]
+model group { k: ... } | lang/model_group.scs | model | [M UG p.108]
+statistics block | lang/statistics.scs | parameters statistics | [M ref19 pp.175-179]
+sweep { ... } body | lang/sweep_block.scs | parameters analysis | [M ref19 p.406]
+sweep { ... } body (vector elements) | lang/vector_elements.scs | parameters analysis analysis | [M ref19 pp.406, 477]
+montecarlo { ... } body with export | lang/montecarlo_block.scs | analysis | [M ref19 p.175]
+bare instance node list (r1 a b resistor) | lang/bare_nodes.scs | instance instance instance | [M UG p.60]
+a title line (line 1 is never a statement) | lang/title_line.scs | instance | [M UG p.29]
+a line-1 * comment | lang/star_comment.scs | instance instance | [M UG p.59]
+the escaped name r\2 | lang/escaped_name.scs | instance model instance | [M UG pp.60-62]
+the brace-less if | lang/braceless_if.scs | parameters if if | [M UG p.109]
+library / section / endsection / endlibrary | lang/library.scs | library | [M UG pp.75-76]
+protect / unprotect, prot / unprot in any case | lang/prot.scs | protect instance unprotect protect instance unprotect | [M ref19 p.497]
+save modifiers (depth= sigtype= devtype= exclude= time_window= ports= filter=) | lang/save_modifiers.scs | save save save save | [M ref19 p.517]
+a one-line real function | lang/oneline_function.scs | function parameters | [M UG p.92]
+node groups (1 2)(3 4), which the CST truncates after the first group | lang/node_groups.scs | instance instance | [M UG p.30; E93]

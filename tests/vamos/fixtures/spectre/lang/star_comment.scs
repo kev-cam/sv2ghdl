@@ -1,0 +1,4 @@
+* a line whose first non-blank character is * is a comment (UG p.59)
+r1 (a 0) resistor r=1k
+   * so is an indented one
+r2 (a 0) resistor r=2k

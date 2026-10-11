@@ -1,0 +1,13 @@
+// a statistics block (UG pp.176-179)
+parameters rshsp=200 rshpi=5k xisn=1
+statistics {
+    process {
+        vary rshsp dist=gauss std=12 percent=yes
+        vary rshpi dist=lnorm std=0.4k
+    }
+    mismatch {
+        vary xisn dist=gauss std=0.5
+    }
+    correlate param=[rshsp rshpi] cc=0.6
+    truncate tr=6.0
+}

@@ -1,0 +1,24 @@
+// e2e 10: UG p.110: an inline subckt binning BJT cards by area with same-named branches
+simulator lang=spectre
+inline subckt npn_mod (c b e s)
+  parameters area=1e-12
+  if (area < 100e-12) {
+    npn_mod (c b e s) npn10x10
+  } else if (area < 400e-12) {
+    npn_mod (c b e s) npn20x20
+  } else {
+    npn_mod (c b e s) npn_default
+  }
+  model npn10x10 bjt type=npn is=3.5e-16 vaf=61.5
+  model npn20x20 bjt type=npn is=3.77e-16 vaf=60.5
+  model npn_default bjt type=npn is=3.2e-16 vaf=59.8
+ends npn_mod
+vin (1 0) vsource dc=1
+vb (2 0) vsource dc=0.7
+vb3 (3 0) vsource dc=0.65
+q1 (1 2 0 0) npn_mod area=350e-12
+q2 (1 3 0 0) npn_mod area=25e-12
+q3 (1 3 0 0) npn_mod area=1000e-12
+op1 dc
+sw1 dc sub=q1 param=area values=[150e-12 350e-12]
+save q1:c q2:c q3:c

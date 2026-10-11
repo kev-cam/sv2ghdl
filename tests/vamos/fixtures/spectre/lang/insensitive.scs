@@ -1,0 +1,8 @@
+// simulator lang=spectre insensitive=yes marks the following definitions case-insensitive (UG pp.47-49)
+simulator lang=spectre insensitive=yes
+model NCH bsim3v3 type=n vtho=0.4
+subckt INV (in out)
+    m1 (out in 0 0) nch w=1u l=100n
+ends INV
+simulator lang=spectre insensitive=no
+x1 (a b) inv

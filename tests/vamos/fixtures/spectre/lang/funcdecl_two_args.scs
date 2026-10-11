@@ -1,0 +1,5 @@
+// stand-in for funcdecl/two_args.scs and comment_body.scs
+real add2( real a, real b ) {
+    // the body may hold a comment line
+    return a+2*b;
+}

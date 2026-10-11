@@ -1,0 +1,5 @@
+// a montecarlo block (ref19 p.175): parsed in v1, refused at plan time
+mc1 montecarlo variations=process seed=1234 numruns=200 {
+    dcop dc
+    export gain=oceanEval("ymax(v(out))")
+}

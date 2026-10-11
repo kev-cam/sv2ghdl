@@ -1,8 +1,9 @@
 # vamos `spectre`: design
 
 Status: design, revision 3, 2026-10-04, with the fixes of its own adversarial review (three lenses, §16's
-last part) applied the same day; phase 0 (§12) built and gated on 2026-10-10, the contract text brought to
-what was built (§16's last bullet). This is the implementation contract for the `spectre` personality.
+last part) applied the same day; phases 0, 1 and 1b (§12) built and gated on 2026-10-10, the contract text
+brought to what was built (§16's last two bullets). This is the implementation contract for the `spectre`
+personality.
 It reuses the analog netlist package built for `vcs-ams` (`VAMOS_AMS_DESIGN.md` §4: `vamos/netlist/`) and
 follows that document's conventions: the one rule, one disposition per construct, frozen phase-0 contracts,
 and agents that own files. No Spectre binary or licence is available here, so fidelity rests on three kinds
@@ -17,7 +18,7 @@ PSF samples and readers. §16 lists the changes by area.
 |---|---|
 | **[M]** | manual text: `ref19` = Spectre Circuit Simulator Reference PV19.1 (Jan 2020), `UG` = Spectre User Guide PV5.1.41 (Jul 2004), `ref5` = Spectre Reference PV5.0 (Sep 2003, component chapters). Page numbers are the manuals' own. |
 | **[S]** | real Spectre output files and real ADE netlists. Native psfascii: psf-parser (MIT) `tests/data` (Spectre 23.1.0.242.isr1); psf_utils `samples/` `joop-banaan.{dc,tran}` (19.1), `pnoise.raw` (15.1), `fracpole.dc` (20.1). Cadence-converted (psf GROUP layout): `fracpole.ac`, `dan-zilla`, `rushikesh`. Netlists: Xyce_Regression `Netlists/XDM/SPECTRE` (ADE, ic-5.1.41usr5). psf_utils' `escaped-strings.dc` and `bus_chevrons.tran` are hand-edited fixtures, not [S] [E86]. |
-| **[E]** | an experiment on the installed engines, or a check of the vamos code and tools. Revision 3's experiments (§13, E49-E93), those of its review (E94-E101) and its re-runs of E1-E48 used: VACASK 0.3.4-91-g64489cf7 (`/opt/build.VACASK/Release`) with `diode.osdi` and `mos3.osdi` rebuilt from VACASK 3becb73d on 2026-10-03 (sha1 da0cc2e90ce8, adff42fbc900 [E92]); openvaf-r 20260616-3-g0e83f1ed as `engines.openvaf()` resolves it (never `/opt/openvaf-r/openvaf-r`, OpenVAF 23.5.0, whose OSDI files VACASK refuses [E68]); Xyce DEVELOPMENT-202609292309 (`/usr/local/src/xyce-build/src/Xyce`) and DEVELOPMENT-202609292231 (`/usr/local/bin/Xyce`). Both launchers carry PyMS (`.hdl`), and under `engines.env_for`, which vamos always uses, both load the same `libxyce.so`, from xyce 7cd78110 of 2026-10-03; run without it, `/usr/local/bin/Xyce` loads its own 2026-09-29 `/usr/local/lib/libxyce.so`, which vamos never runs [E68, E96]. §13 names the binary and the library where a row depends on them. E1-E48 first ran on the 2026-10-01 builds. Phase 0's gate (2026-10-10) ran on a rebuilt `/usr/local/src/xyce-build/src/Xyce`, DEVELOPMENT-202610100047 (7cd78110, `libxyce.so` of 2026-10-10), while `/usr/local/bin/Xyce` keeps its 2026-09-29 date; on that build E63's built-in binding no longer reproduces (§13 E63, E68; §14 q.50). |
+| **[E]** | an experiment on the installed engines, or a check of the vamos code and tools. Revision 3's experiments (§13, E49-E93), those of its review (E94-E101) and its re-runs of E1-E48 used: VACASK 0.3.4-91-g64489cf7 (`/opt/build.VACASK/Release`) with `diode.osdi` and `mos3.osdi` rebuilt from VACASK 3becb73d on 2026-10-03 (sha1 da0cc2e90ce8, adff42fbc900 [E92]); openvaf-r 20260616-3-g0e83f1ed as `engines.openvaf()` resolves it (never `/opt/openvaf-r/openvaf-r`, OpenVAF 23.5.0, whose OSDI files VACASK refuses [E68]); Xyce DEVELOPMENT-202609292309 (`/usr/local/src/xyce-build/src/Xyce`) and DEVELOPMENT-202609292231 (`/usr/local/bin/Xyce`). Both launchers carry PyMS (`.hdl`), and under `engines.env_for`, which vamos always uses, both load the same `libxyce.so`, from xyce 7cd78110 of 2026-10-03; run without it, `/usr/local/bin/Xyce` loads its own 2026-09-29 `/usr/local/lib/libxyce.so`, which vamos never runs [E68, E96]. §13 names the binary and the library where a row depends on them. E1-E48 first ran on the 2026-10-01 builds. Phase 0's gate (2026-10-10) ran on a rebuilt `/usr/local/src/xyce-build/src/Xyce`, DEVELOPMENT-202610100047 (7cd78110, `libxyce.so` of 2026-10-10), while `/usr/local/bin/Xyce` keeps its 2026-09-29 date; on that build E63's built-in binding no longer reproduces (§13 E63, E68; §14 q.50). Phases 1 and 1b (2026-10-10, E102-E114) ran on the same builds: Xyce DEVELOPMENT-202610100047 under `env_for`, and VACASK 0.3.4-91 with the rebuilt `diode.osdi` and `mos3.osdi`. |
 | **[I]** | inferred, not verified. Each one names its entry in §14 (open questions) as `[I, §14 q.N]` (a document check in §11 T0 enforces it) and, where it matters, has a fallback that is loud rather than silent. |
 
 **Sources.** Every reused asset this document cites, with its public origin and the commit or version the text
@@ -271,12 +272,16 @@ spectre [opts] [input]                                                         p
     [M ref19 p.38] apply within a layer.
   - List options (`-D`, `-U`, `-I`, `+config`, `+paramdefault`, `-va,define`) accumulate, defaults first. For
     scalar settings argv wins: the job's scalar fields hold argv's values (None when argv does not set one),
-    and `SpectreJob.defaults` the defaults layer's, by field name. Argv's `-%X` undefines a `+%X` from the
-    defaults [M UG p.266].
+    and `SpectreJob.defaults` the defaults layer's, by field name. The booleans (`cpp`, `disable_cpp`,
+    `escchars`, `mts`) have no None: one the defaults layer sets is recorded in `SpectreJob.defaults` and
+    applied to the field as well. An explicit argv `-log` (equal to the field's default) removes the
+    defaults layer's `log_mode`/`log_path`, so it beats a `+log f` in the variable. `args.effective(job,
+    name)` reads a setting across the layers. Argv's `-%X` undefines a `+%X` from the defaults [M UG p.266].
   - A non-option token in the defaults is an error (exit 2).
   - Spectre reads from the defaults variable only the options ref5 marks † [M ref5 p.18; ref19 pp.25, 39].
     An option ref5 lists without † is ignored there, with the note "Spectre does not read <opt> from <var>;
-    ignored": `-help` and its forms, `-V`, `-W`, `-env`, `-%X`, `+note`/`-note`, `-slave`, `-slvhost`,
+    ignored" (a NOTED entry in `SpectreJob.unmapped`, so it reaches the log through `optable.unmapped_notes`
+    like every option note): `-help` and its forms, `-V`, `-W`, `-env`, `-%X`, `+note`/`-note`, `-slave`, `-slvhost`,
     `+sensdata`, `±interactive`, `+mpssession` and `+mpshost` [M ref5 pp.18-21]. Applying them would make a
     `-help` in `SPECTRE_DEFAULTS` turn every run into a help request, and an `+interactive` (an *error* row)
     fail every run. An option ref5 does not list (ref19's additions: the ref19 text carries no † marks) is
@@ -285,7 +290,11 @@ spectre [opts] [input]                                                         p
   defaults: `-format`↔`rawfmt`, `-raw`↔`rawfile`, `-maxwarns`↔`maxwarns`, `-maxnotes`↔`maxnotes`. Every
   other setting is argv ⊕ defaults. `spectre/job.settings(job, nl)` builds the result, a `Settings` (§10;
   S5 owns it), from the job's argv fields, the netlist's `options` and `SpectreJob.defaults`, in that order.
-  `SpectreLog` is opened at step 1b with argv ⊕ defaults; `SpectreLog.limits(settings)` then applies the
+  An `options rawfmt=` with an unknown value, an unreadable `+paramdefault` file and a paramdefault line
+  without three fields are errors appended to `SpectreJob.notes` (so the flow re-checks them after
+  `settings()`); `Settings.raw` stays `""` when no layer names the results path (§2.5 applies `%C:r.raw`
+  and `-outdir`); `Settings.options` is the netlist's options with the four resolved values written over
+  them. `SpectreLog` is opened at step 1b with argv ⊕ defaults; `SpectreLog.limits(settings)` then applies the
   merged `maxwarns`/`maxnotes` from step 6 on (messages printed before the parse keep the early limits).
 
 ### 2.3 Options
@@ -300,7 +309,7 @@ run directory is created. `SpectreJob.unmapped` holds only optable's five dispos
 | Option (abbrev.) | Kind | Disposition |
 |---|---|---|
 | `-help` (`-h`), `-helpsort` (`-hs`), `-helpfull` (`-hf`), `-helpsortfull` (`-hsf`) | prescan, optional topic | mapped: vamos help (the supported subset; with a topic, that primitive's or analysis's dispositions); exit 0 (§2.1) |
-| `-V`, `-W` | flag | mapped: the version / subversion line (§8.7); the run continues when a netlist is given [M UG p.234]; exit 0 when there is none [I, §14 q.16] |
+| `-V`, `-W` | flag | mapped: the version / subversion line (§8.7); the run continues when a netlist is given [M UG p.234]; exit 0 when there is none [I, §14 q.16], printing only that line (no header, no trailer) |
 | `-cmiversion` | flag | noted |
 | `-cmiconfig` | next | noted |
 | `-raw` (`-r`) | next | mapped (§2.5) |
@@ -328,7 +337,7 @@ run directory is created. `SpectreJob.unmapped` holds only optable's five dispos
 | `+param` (`+p`) | next | noted: soft parameter limits are not checked |
 | `-param` (`-p`) | flag | ignored |
 | `+paramdefault`, `=paramdefault` | next | mapped: lines `primitive parameter value` give defaults for analysis and `options` parameters that the netlist does not set [M ref19 p.26] |
-| `-paramdefault` | flag | mapped |
+| `-paramdefault` | flag | mapped: read as `-config`'s rule within a layer: it drops every `+paramdefault` and every preceding `=paramdefault`, and an `=paramdefault` drops every `+paramdefault` |
 | `+errpreset` | eq | mapped: the errpreset of every `tran` that sets none (§5.4) |
 | `+aps`, `++aps` | flag | ignored (Spectre APS) |
 | `+aps`, `++aps` | eq | mapped: the value overrides `errpreset` in every `tran` [M ref19 p.35] (§5.4) |
@@ -416,12 +425,15 @@ run directory is created. `SpectreJob.unmapped` holds only optable's five dispos
   `//` line, and it warns, naming file:line, about an apostrophe in a SPICE `*` comment (`don't`), which the
   rule below would make a warning and `--vamos-strict` an exit status 2 for a valid netlist; traditional mode
   does neither [E82]. Whether Spectre's own CPP behaves as ISO or as traditional cpp stays §14 q.4. A cpp
-  failure is an error, and so is a missing cpp (Cygwin has none [E79]). cpp's stderr is captured: each line
-  becomes a vamos note (a warning when it names a file:line) and is never printed raw.
+  failure is an error, and so is a missing cpp (Cygwin has none [E79]): `cpp.preprocess` raises a
+  `NoteError` (cpp's stderr notes plus the error) and lets the `ToolError` of a bad `VAMOS_CPP` propagate,
+  both exit status 2 (§2.7). cpp's stderr is captured: each line becomes a vamos note (a warning when it
+  names a file:line) and is never printed raw.
 - **Markers.** The `# <line> "<file>" [flags]` lines of cpp's output decide, per source file, the statement
   origins, the directory relative `include`s resolve against, and the language. cpp names an included file
-  as it found it, relative to its own cwd (`# 1 "inc/sub.scs" 1` for `-Iinc` [E82]), so marker paths
-  resolve against the job's cwd; the `<built-in>` and `<command-line>` markers name no file and are skipped.
+  as it found it: a file reached through a relative `-I` relative to its own cwd (`# 1 "inc/sub.scs" 1` for
+  `-Iinc` [E82]), a file included beside the (absolute) input by its absolute path; the reader accepts both,
+  and marker paths resolve against the job's cwd; the `<built-in>` and `<command-line>` markers name no file and are skipped.
   Each file gets §3.1's rule by its own name and first line; flag 1 enters a file, and flag 2 returns to the
   includer and restores its mode [M ref19 p.493: the language rule applies to files read by cpp's `#include`
   too]. The title is line 1 of the original top-level file, read before cpp, so it does not depend on the
@@ -445,12 +457,15 @@ run directory is created. `SpectreJob.unmapped` holds only optable's five dispos
 - After every exit status, the analyses that finished are converted and listed in `logFile`, and the trailer
   is written (§8.2, §8.7). A run that stops before any analysis has run (a parse error) writes no data file
   (a stale `logFile` was removed at the start, §1).
-- **No exception reaches `cli.py`.** `personalities/spectre.main` returns `flow.run`'s status, and
+- **No exception reaches `cli.py`.** `personalities/spectre.main` returns `flow.run`'s status (until phase 2
+  writes `flow.py`, `main` does steps 1 and 1b itself and stops with an error and exit status 2, §12), and
   `flow.run` maps all of these to exit status 2 with the `terminated prematurely` trailer:
   `optable.ScanError`, `tools.ToolError` (a bad `VAMOS_<TOOL>`; `cli.main` would make it 1 [E79]), a banner
   `ValueError`, engine-choice errors (`VAMOS_ANALOG`, `engines.problems`), an `OSError` while setting up the
   log, the run directory or the results, and any other exception (an internal error: one line on the
-  screen, the traceback written into the run directory). In Spectre 1 means "stopped an analysis because of
+  screen, the traceback written into the run directory; before the run directory exists, into the
+  `+log`/`=log` file when one is open, else into a `vamos-spectre-*.traceback` temporary file that the line
+  names). In Spectre 1 means "stopped an analysis because of
   an error" [M UG p.235], so a setup failure must not look like a partial result. The cli-level usage errors
   (`check_vamos_opts`, `cli.py:67-71`) stay exit 2; they happen before `+log` is read, so they have no log
   file and no trailer.
@@ -530,7 +545,8 @@ existing translators were re-evaluated on 2026-10-04; none meets that, and each 
   `.scs` file whose line 1 is `simulator lang=spice` is §14 q.5. A netlist read from standard input has no
   name: SPICE mode unless it starts with `simulator lang=spectre`. `simulator lang=spectre|spice` switches
   at any statement position and holds until the next switch or the end of the file. An included file starts
-  in its own language, and the includer's mode is restored after it; a statement cannot continue across a
+  in its own language, and the includer's mode is restored after it; it starts in the includer's
+  `insensitive=` state, which is restored after it too (a mode holds until the next switch); a statement cannot continue across a
   file boundary [M UG pp.53, 73; ref19 p.493]. A `simulator lang=` inside an `if`, or inside a subckt body in
   either language, is an error in v1 naming the subckt (a SPICE region that ends inside `.subckt` would
   otherwise get spice.py's "has no .ends", `spice.py:852-856`).
@@ -693,7 +709,7 @@ Spectre mode parses with `case="sensitive"`; SPICE mode with `case="lower"` and 
 | division | parameters are real-valued [M UG p.85] | real | real (`7/2` = 3.5; the printers already force real arithmetic on VACASK) |
 | `?:` | right associative | same | same |
 | `&&` `\|\|` | "no short circuiting" [M ref19 p.475] | lazy | the evaluator evaluates both operands, so an EvalError in either is an error; the printed forms give the same value for every value that reaches an engine |
-| vectors | elements space separated "for clarity, though this is not mandatory"; anything but a constant, a parameter or a unary expression must be parenthesized [M ref19 p.477] | — | an element is a run of unary signs followed by a number, a name or a parenthesized expression, so `[0.5 1 +p2 (sqrt(p2*p2))]` has four elements and `[1+p2]` two; spectre.py splits them before `expr.parse` and keeps a list of Expr |
+| vectors | elements space separated "for clarity, though this is not mandatory"; anything but a constant, a parameter or a unary expression must be parenthesized [M ref19 p.477] | — | an element is a run of unary signs followed by a number, a name or a parenthesized expression, so `[0.5 1 +p2 (sqrt(p2*p2))]` has four elements and `[1+p2]` two; a sign right after a mantissa's `e`/`E` and before a digit belongs to the number, so `[150e-12 350e-12]` has two; spectre.py splits them before `expr.parse` and keeps a list of Expr |
 
 - **`temp` and `tnom`** are predefined netlist parameters [M UG p.93]. Both dialects map the identifier
   `temp` to `Name("temper")` and `tnom` to `Name("$tnom")`. `RESERVED` gains `"$tnom"`; HSPICE text can never
@@ -767,7 +783,7 @@ Spectre mode parses with `case="sensitive"`; SPICE mode with `case="lower"` and 
 | `name set p=v…` | `Analysis(kind="set")`, positional |
 | an analysis (§3.11) | `Analysis` in `Netlist.analyses`, in netlist order |
 | `name sweep … {…}`, `name montecarlo … {…}` | `Analysis(kind=…, children=[…])` |
-| `name alter dev=\|mod=\|sub= param=p value=v`, `name alter param=temp\|<netlist param> value=v` | `Analysis(kind="alter")` |
+| `name alter dev=\|mod=\|sub= param=p value=v`, `name alter param=temp\|<netlist param> value=v` | `Analysis(kind="alter")`, `args` keys `dev`/`mod`/`sub` and `param` (`Str`), `value` (an Expr, a `Str` or a vector); an alter's `dev=` needs `param=` |
 | `name altergroup {…}` | `Analysis(kind="altergroup")`: error in v1 |
 | `name info …` | `Analysis(kind="info")`: note, the file is not written |
 | `name paramtest [printif=\|warnif=\|errorif=]… [message=] [severity=]` | `ParamTest`, a component in the body (§4.1). `plan.build` evaluates it once per instance path (inside subckts and taken `if` branches) with that path's parameter values; a test that reads a parameter a sweep or alter changes is evaluated at every value the plan sets. Several tests act if any passes. `errorif` → error (exit status 2); `warnif` → warning; `printif` → note; with no test, `severity` `debug`/`status` → note, `warning` → warning, `error` → that analysis fails (exit status 1), `fatal` → exit status 2; `message` is the text [M UG pp.286-287] |
@@ -776,6 +792,9 @@ Spectre mode parses with `case="sensitive"`; SPICE mode with `case="lower"` and 
 | `name check …`, `name checklimit …`, `name assert …` | note: not evaluated |
 | `name shell …` | warning: the command is not run |
 | anything else | error naming it |
+
+A `save`, `ic`, `nodeset`, `global`, function or `statistics` statement, or an analysis, inside a subckt body
+is an error in v1 ("only the top level may hold it"); `options` there follows its row above.
 
 ### 3.7 Parameters, subcircuits and conditionals
 - Subckt `parameters` (header or body) are defaults that each instance can override. An inner scope shadows
@@ -795,6 +814,8 @@ Spectre mode parses with `case="sensitive"`; SPICE mode with `case="lower"` and 
   refuses it ("parameter p uses q, which is not defined at top level" [E60]).
 - A top-level parameter that a sweep or alter targets, and every parameter that reads one, are never folded
   into what an engine prints as a constant (§4.1, `Netlist.values` in the render copy).
+- A vector-valued netlist parameter (`parameters w=[1 2]`) is an error in v1 (`Param` holds one Expr);
+  vectors are read for analysis arguments, a save's `time_window` and sweep values only.
 - Every subckt instance has an implicit `m` [M UG p.63]. The existing `$mfactor`/`vamos_mfactor` rules apply.
 - An `inline subckt` is printed as a plain subckt with `Subckt.inline=True`. In outputs, its component named
   like the subckt takes the caller's name (§6.4) [M UG p.111].
@@ -822,7 +843,7 @@ Spectre mode parses with `case="sensitive"`; SPICE mode with `case="lower"` and 
 
 | Spectre master | IR kind | terminals (output names) | parameters |
 |---|---|---|---|
-| `resistor` | `r` | `1 2` | `r`: the instance's, else the card's `r`, else `rsh·(l−2·etchl)/(w−2·etch)` with the instance's `l`/`w` or the card's, else ∞ [M ref5 p.627; the card defaults `w`=1e-6 m and `l`=∞ are on p.630]. spectre.py computes it per instance and strips `r rsh l w etch etchl` from the card, so that only temperature and noise parameters reach the card printer (§3.9); a geometry that is not constant on an instance is an error in v1. When it computes `r`, it records the instance parameters that fed it (`w`, `l`) in `Instance.folded` (§4.1): a sweep or alter of one of them, or of a stripped card parameter, would change nothing that is printed, and `plan.build` refuses it (§5.2). An infinite resistor is not printed (note), but it stays in the instance table: `probe=`, `oprobe=` and saves resolve to its node pair, and its terminal currents are 0. `r` = 0 (the resistance form below `thresh` [M ref5 p.630]) prints as a short (§4.5 item 10); a non-constant `r` that evaluates to 0 is an error. `m`; `isnoisy` (§4.5 item 7); `tc1 tc2 w l` → `sp_resistor`. The instance `scale` is never printed: Spectre applies it to `w` and `l` only, overriding the `scale` option [M ref5 p.629], and vamos applies it the same way (with `r` given it has no effect), while `sp_resistor` would multiply the resistance by it and Xyce rejects it [E23]. `tnom` and the other temperature data are card parameters [M ref5 p.630]. `c=` (wire RC), `coeffs=`, `trise` ≠ 0 and a third terminal → error |
+| `resistor` | `r` | `1 2` | `r`: the instance's, else the card's `r`, else `rsh·(l−2·etchl)/(w−2·etch)` with the instance's `l`/`w` or the card's, else ∞ [M ref5 p.627; the card defaults `w`=1e-6 m and `l`=∞ are on p.630]. spectre.py computes it per instance and strips `r rsh l w etch etchl` from the card, so that only temperature and noise parameters reach the card printer (§3.9); a geometry that is not constant on an instance is an error in v1. When it computes `r`, it records the instance parameters that fed it (`w`, `l`) in `Instance.folded` (§4.1): a sweep or alter of one of them, or of a stripped card parameter, would change nothing that is printed, and `plan.build` refuses it (§5.2). An infinite resistor is not printed (note), but it stays in the instance table: `probe=`, `oprobe=` and saves resolve to its node pair, and its terminal currents are 0 (a saved one gets the warning "constant 0, not written" and is dropped, §6.3). `r` = 0 (the resistance form below `thresh` [M ref5 p.630]) prints as a short (§4.5 item 10); a non-constant `r` that evaluates to 0 is an error. `m`; `isnoisy` (§4.5 item 7); `tc1 tc2 w l` → `sp_resistor` (the instance's own `w`/`l` stay on it, `sp_resistor`'s noise area, also when they fed `r`; the card's folded `w`/`l` are not written onto it). A SPICE-mode element's positional value (`r1 a b 1k`, in `Instance.value`, §4.3) is its `r` when the instance gives none, and the same holds for `c` and `l`. The instance `scale` is never printed: Spectre applies it to `w` and `l` only, overriding the `scale` option [M ref5 p.629], and vamos applies it the same way (with `r` given it has no effect), while `sp_resistor` would multiply the resistance by it and Xyce rejects it [E23]. `tnom` and the other temperature data are card parameters [M ref5 p.630]. `c=` (wire RC), `coeffs=`, `trise` ≠ 0 and a third terminal → error |
 | `capacitor` | `c` | `1 2` | `c`: the instance's, else the card's `c`, else `cj·Area_eff + cjsw·Perim_eff` from the card's `etch` and the instance's (or card's) `w`/`l`, or `area`/`perim` [M ref5 pp.282-283]; computed per instance by spectre.py, which strips `c w l etch cj cjsw` from the card and records the instance parameters that fed it (`w l area perim`) in `Instance.folded`, as for the resistor; else 0. `m`; `ic`; `coeffs=`, `trise` ≠ 0, `scalec` ≠ 1 → error |
 | `inductor` | `l` | `1 2` | `l` (default: the card's `l`, else 0 [M ref5 p.372]); `m`; `ic`; `r=` → error (v1) |
 | `vsource` | `v` | `p n` | §3.8.1 |
@@ -859,7 +880,7 @@ tran_stops, notes) -> Source` applies this table; alters use it again (§5.3).
 | `dc` | `Source.dc`; None when absent | Given: the value of every DC-type solve, which is `dc` (operating points and sweeps) and the operating point of `ac`, `noise` and `xf`; the waveform acts in `tran` only [M ref5 pp.383, 686]. Absent: the waveform's t = 0 value [M ref5 p.682], kept derived (None) so that it follows alters and sweeps of the waveform fields. The engines need different prints (§4.5 item 8): VACASK ignores `dc` unless `type="dc"` [E17], and Xyce's operating point for a waveform source printed without `DC` is 0, not its t = 0 value [E70], so Xyce gets the derived value written out. The `tran` initial point uses the t = 0 waveform value on both engines [E17; I for Spectre, §14 q.45]. |
 | `type=dc` | no active wave (`Source.wave` None) | the waveform fields the instance gives stay in `Source.spectre`, for `alter … param=type` (§5.3) |
 | `type=pulse val0 val1 delay rise fall width period` | `pulse v1 v2 td tr tf pw [per]` | `width` and `period` default to ∞ [M]: `pw` = 1e30 s (accepted by VACASK [E10] and by Xyce, whose default period does not cut it [E73]) and no `per`. `rise`/`fall` absent or 0: Spectre's `tran` default `transres` = 1e-9 × stop [M ref19 p.420], taken from the shortest `tran` (`ir.flat_analyses`, so a `tran` inside a sweep block counts; one edge serves every analysis), with a warning when a `tran` runs (Spectre's default edge is undocumented [M ref5 lists no default]; §14 q.20). The rule applies to every value that reaches the engine, not only to literals: a non-constant `rise`/`fall` prints as `(e==0 ? <transres> : e)`, and an alter or sweep value of 0 becomes transres. VACASK reads `fall` ≤ 0 as "no fall", so the pulse stays at val1, and stops the run on `rise` ≤ 0 [E25, E37]; Xyce makes either an ideal step [E25]. An explicit `period` ≤ rise+fall+width is an error (existing check). |
-| `type=sine sinedc ampl freq sinephase damp delay` | `sin vo va freq td theta phase` | `sinedc` defaults to `dc`; `freq` defaults to 0, which gives a constant (folded into dc when `damp`=0, else an error); `ampl2 freq2 sinephase2`, `fmmod*`, `ammod*` → error |
+| `type=sine sinedc ampl freq sinephase damp delay` | `sin vo va freq td theta phase` | the t = 0 value (the derived `dc`) is `sinedc + ampl·sin(sinephase)`, the phase in degrees [I, §14 q.56]; `sinedc` defaults to `dc`; `freq` defaults to 0, which gives a constant (folded into dc when `damp`=0, else an error); `ampl2 freq2 sinephase2`, `fmmod*`, `ammod*` → error |
 | `type=exp val0 val1 td1 tau1 td2 tau2 delay` | `exp v1 v2 td1' tau1 td2' tau2` | `td1' = delay+td1`, `td2' = delay+td2` [I, §14 q.19]; a missing `tau1`/`tau2` is an error (Spectre's defaults are not given) |
 | `type=pwl wave=[t v …] offset scale stretch delay`, or `file=` | `pwl` with `points` (t·stretch, v·scale+offset), `td=delay` | `file=` holds two columns without scale factors [M UG p.74] and is searched in the cwd, then the `-I` directories; `pwlperiod`/`twidth` → error; `allbrkpts` is ignored |
 | `mag`, `phase` | `Source.ac` | |
@@ -938,7 +959,10 @@ tran_stops, notes) -> Source` applies this table; alters use it again (§5.3).
   `mos1.va:138`). The diode's `hcomp` (1 selects HSPICE's junction equations) and `dcap` [M ref5 p.303] are
   Spectre parameters, never HSPICE's DCAP (which `_junctions` would read them as): `hcomp` ≠ 0 → error in v1
   (an explicit `hcomp=0`, Spectre's default, is stripped with a note; `dcap` is stripped, since it acts only
-  with level 3 or `hcomp=1`, both errors). A row whose message depends on the run (the `capmod` warning when an `ac`, `noise`, `xf` or `tran` runs;
+  with level 3 or `hcomp=1`, both errors). The diode card takes `is` beside `js` (a `pass` row before `js`'s:
+  ref5's parameter list has only `js` (p.304), but its own example writes `model pdiode diode is=1.8e-5 …`
+  (p.302), and both targets take `is`: `sp_diode`'s `is` with the alias `js`, Xyce's `IS`; phase 1b added it
+  for the XDM diode clipper's `D1N3940.scs`). A row whose message depends on the run (the `capmod` warning when an `ac`, `noise`, `xf` or `tran` runs;
   the diode `eg` warning at a temperature other than the card's `tnom`) is decided by `plan.build`, which
   knows the analyses and the temperatures of every step; `model_params` only prints the card and its
   per-card notes and warnings. §10's `ParamRule` encodes each row: a value condition (`match`) for the
@@ -990,12 +1014,13 @@ tran_stops, notes) -> Source` applies this table; alters use it again (§5.3).
 | `save`, `nestlvl`, `currents`, `subcktprobelvl`, `pwr`, `useprobes`, `useterms`, `saveahdlvars`, `subcktiprobes`, `savefilter`, `saveports`, `wfdebug` | §6.1 |
 | `maxwarns`, `maxnotes` | message limits |
 | `tempeffects` | `all` silent; any other value → error |
-| `rabsshort rcut ccut cgnd cmax cclamp lshort kcut dcut qcut` (element reduction) | the default is silent; any other value → warning: not applied |
+| `rabsshort rcut ccut cgnd cmax cclamp lshort kcut dcut qcut` (element reduction) | the default is silent (`rabsshort` 0, `rcut ccut cgnd cmax` ∞, `cclamp lshort kcut` 0 [M ref19 pp.196-197]); any other value → warning: not applied; `dcut` and `qcut` have no silent value, so any value warns |
 | `homotopy newton limit maxdeltav gmin_start gmin_converge try_fast_op dcmaxiters pivrel pivabs rforce residualtol digits cols checklimitdest sensfile psfversion topcheck compatible approx icversion` | note |
 | `multithread` | ignored |
 | anything else | warning |
 
-- `set`: positional options (§5.1).
+- `set`: positional options (§5.1). A `set` of an output option (`save`, `nestlvl`, …, §6.1) between
+  analyses gets a warning, "not applied": `signals.resolve` reads `Netlist.options` once for the run.
 - `ic` / `nodeset`: node or hierarchical-node assignments; values are expressions (§4.1), evaluated by
   `plan.build` with `Netlist.values`, and one that reads a swept or altered parameter is an error in v1.
   `signals.py` resolves their names, and the names in `readic`/`readns` files, against the flattened IR
@@ -1008,7 +1033,7 @@ tran_stops, notes) -> Source` applies this table; alters use it again (§5.3).
 
 | analysis | parameters |
 |---|---|
-| `dc` | `start stop center span step lin dec log values valuesfile` and `dev mod sub param` (§5.2); no sweep target → operating point; `readns` (mapped), `write`/`writefinal` (mapped), `useprevic` (VACASK mapped, Xyce warning), `save`/`nestlvl` (§6), `print=yes` (mapped: the values go to the log), `oppoint`≠no (note), `force`/`readforce`≠none (error), `restart` and `swpuseprevic` (mapped to VACASK's sweep `continuation`, §5.2), `homotopy newton maxsteps swp1stpointic` (note), `maxiters` (VACASK `op_itl`), `hysteresis=yes` (error), `check annotate title emir*` (ignored) |
+| `dc` | `start stop center span step lin dec log values valuesfile` and `dev mod sub param` (§5.2; `dev=` without `param=` on a vsource or isource sweeps its `dc` [M UG p.168; I, §14 q.53], on any other device it is an error naming the master); no sweep target → operating point; `readns` (mapped), `write`/`writefinal` (mapped), `useprevic` (VACASK mapped, Xyce warning), `save`/`nestlvl` (§6), `print=yes` (mapped: the values go to the log), `oppoint`≠no (note), `force`/`readforce`≠none (error), `restart` and `swpuseprevic` (mapped to VACASK's sweep `continuation`, §5.2), `homotopy newton maxsteps swp1stpointic` (note), `maxiters` (VACASK `op_itl`), `hysteresis=yes` (error), `check annotate title emir*` (ignored) |
 | `ac` | as `dc`, plus `freq` (the fixed frequency of a parameter sweep) and `prevoppoint=yes` (VACASK mapped, Xyce warning); `skipdc=yes` and `perturbation`≠linear (with `out1 out2 contriblist rf* flin_out fim_out maxharm_nonlin`) → error |
 | `noise` | as `ac`. Output: `p n`, or `oprobe=`: a two-terminal component → its terminal pair (an infinite resistor included, §3.8); a controlled source with `oportv=1` or absent → its output port (p, n); any other port number → error; a current output through a vsource or iprobe → error. Input: `iprobe=` a vsource or isource (a `port` → error), `iportv` 1 or absent. It is optional [M ref19 p.181]: without it §5.6 adds an input, and `in`/`gain` are not written. `separatenoise` (note) |
 | `xf` | as `ac`; output `p n` or `probe=` (two-terminal, an infinite resistor included; a current probe → error); `stimuli=sources` (`nodes_and_terminals` → error); `--vamos-analog=xyce` → error |
@@ -1119,7 +1144,9 @@ Pythons. What the additions mean:
    `temp`), `name`, `param`, `mode` (`lin dec log step values`), `start`, `stop`, `step` (each
    `Optional[Expr]`), `count: Optional[int]`, `values: List[Expr]`, `origin`. Names are IR names, resolved by
    the parser (§3.1). The parser keeps the sweep as written (`center`/`span` become start/stop, a `valuesfile`
-   is read into `values`); `plan.build` evaluates it and expands every grid that is not engine-native (§5.2).
+   is read into `values`; without a step parameter start/stop stay the unfolded expressions `c - s/2` and
+   `c + s/2`, the shape by which `plan.build` recognizes them, §5.2; `dev=` without `param=` on a source
+   arrives as `param="dc"`); `plan.build` evaluates it and expands every grid that is not engine-native (§5.2).
 3. **`SaveSpec`** (new): `items` (raw tokens, as written), `depth`, `sigtype`, `devtype`, `subckt`, `exclude`,
    `probelvl`, `time_window` (a vector of interval pairs, not one interval), `ports`, `filter`, `origin`
    [M ref19 p.517]; `compression=` is noted, not kept. `Netlist.saves: List[SaveSpec]`. HSPICE probes stay in
@@ -1159,7 +1186,11 @@ Pythons. What the additions mean:
     before every call into `expr` (§4.2), and `expr` refuses any name outside `expr.DIALECTS`.
 11. **`Source.spectre: Dict[str, Value]`**, `field(default_factory=dict)`: every parameter written on a
     vsource/isource, in Spectre names, whatever its `type` (§3.8.1). `Value = Union[Expr, List[Expr]]`;
-    enumerations and file names are `Str`.
+    enumerations and file names are `Str`. So are the bare-word values of the enumeration keys on instances
+    and cards in both languages (`type isnoisy capmod struct abs region degradation rbmod file`:
+    `spice.spectre_enum_params()`, derived from `SPECTRE_MASTERS`' word `match` tokens), because `plan.build`
+    evaluates every non-`Str` value; a bare word for any other key stays a `Name`, so an undefined reference
+    is still caught.
 12. `Model.prim: str = ""`: the Spectre master, set on every card of a Spectre netlist from either language
     (§3.9, §4.3); `plan.py` applies its `SPECTRE_MASTERS` renames to `mod=` sweep and alter parameters (§5.2).
 13. **`Netlist.left_out: Dict[str, Note]`**, a real field. Today the subckts left out live in a dynamic
@@ -1304,7 +1335,11 @@ at its position and in the open scope, inside a `.subckt` too, as `spice.py`'s `
 do today (`spice.py:993-1090`, the expansion key holding `id(self.scope)`); a repeat of `(realpath,
 section)` in the same scope is a note. A Spectre-language file named by a SPICE statement splits the region
 there at the top level and is an error inside an open `.subckt` (§3.1). `.hdl` stays as a control (its
-modules were declared in the first phase), and `.end` ends the file. A statement cannot continue across a
+modules were declared in the first phase), and `.end` ends the file. A one-argument `.lib sec` followed by
+`.endl` inside a SPICE region is a section definition and is skipped (indexed with `spice._File`, as spice.py
+skips the definitions of a file it reads whole); a one-argument `.lib other` without `.endl`, a call to
+another section of the same file that spice.py's HSPICE reader supports, is an error in `spectre-spice`
+("write .lib file sec"; whether the Reader takes it is §14 q.57). A statement cannot continue across a
 file boundary [M UG p.73], so in this dialect `_logical` never joins a `+` (or `\`) continuation to a
 statement that started in another file: it is an error naming both origins. A region may not end inside a
 subckt body (§3.1).
@@ -1383,7 +1418,7 @@ TSTEP/TSTOP (`source`, `spice.py:2593-2691`: `pulse(0 1)` gets `tr=tf=1e-9 pw=1e
 | `.protect .prot .unprotect .unprot` | note (§3.1) |
 | `.op` | `dc` named `opBegin` [M UG p.232] |
 | `.dc s1 a b c [s2 d e f]` | `dc dev=s1` named `srcSweep`; a second source is an enclosing sweep [M UG pp.46-47: `.DC VDR 0 5 0.1 VG 0 2 0.1` converts to an outer `sweep … dev=vg` around `dc … dev=vdr`]; `temp` → `param=temp`; a parameter → `param=`; `LIN DEC OCT POI DATA=` → error |
-| `.ac dec\|lin n f1 f2` | `ac` named `frequencySweep`; `oct`, `poi` → error |
+| `.ac dec\|lin n f1 f2` | `ac` named `frequencySweep`: `dec n` is `dec=n` (points per decade in both); `lin n`, SPICE's n points, is `lin=n-1` (Spectre's `lin` counts steps [M ref19]); `oct`, `poi` → error |
 | `.tran tstep tstop [tstart [tmax]] [uic]` | `tran` named `timeSweep`: `step=tstep`, `stop=tstop`, `outputstart=tstart`, `maxstep=tmax`, `uic` → `skipdc=yes` [I, §14 q.9 and q.46]. The fields are SPICE2G's, the language the SPICE Reader takes [M UG p.51: "The SPICE Version 2G User's Guide … is the reference for the SPICE2 input language"], where the third field is TSTART, the time before which nothing is output: Spectre's `outputstart`. A `tstart` other than 0 gets a warning naming that reading. The UG's oscillator pair (pp.48-49), where `.tran 1us 80us 10ns` sits beside `tran stop=80us maxstep=10ns`, is a hand-written comparison ("Here is the Spectre version of the same netlist": it renames the nodes and the analysis and lacks the `insensitive=yes` the Reader inserts, UG pp.49, 52), not Reader output, so it does not decide the field. Today spice.py reads HSPICE's start and adds HSPICE's maxstep (`.tran 1n 1u 10n`: start 1e-8, maxstep 5e-9), and refuses `.tran 1n 1u 0 10n` [E58] |
 | a second analysis of a type | `<type><n>` (`ac2`) [M UG p.232; §14 q.9 for the others] |
 | `.temp t` | `options temp=t`; `.temp t1 t2 …` → error in v1 (Spectre makes a temp sweep of it [M UG pp.46-47]; today spice.py simulates the first value with a warning [E58]); `.temp = t` → error [M UG p.55] |
@@ -1420,7 +1455,9 @@ TSTEP/TSTOP (`source`, `spice.py:2593-2691`: `pulse(0 1)` gets `tr=tf=1e-9 pw=1e
 | `name=expr`, `par(…)`, `par'…'`, `deriv()`, any other function | warning: output expression not written (§0) |
 
 A SPICE-mode netlist also saves allpub, as the converted decks do (`sppSaveOptions options save=allpub`
-[M UG p.47]; [I, §14 q.46] that `.print` adds to it).
+[M UG p.47]; [I, §14 q.46] that `.print` adds to it): when the top-level netlist's own language is SPICE,
+spectre.py sets `options save=allpub` unless the netlist gives `save`, with a note; a mid-file `simulator
+lang=spice` region does not.
 
 **cadence2xyce.pl's rules in `spectre-spice`** (the HSPICE-dialect preprocessor for the CMC decks; each rule
 against today's spice.py [E57, E61]):
@@ -1502,7 +1539,8 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
   on Xyce: every definition of `tables.all_subckts` is listed, an unreached one with 0, keyed by name.
 - `bin_bounds_spectre` (fills a bound the card omits from `SPECTRE_MASTERS`: `lmin=wmin=0`, `lmax=wmax=1` m [M
   ref5 p.200]), `bin_guard_spectre` and `select_bin_spectre` implement `bin_rule="spectre"`: exact bounds,
-  group order, total `w`.
+  group order, total `w`. S3 implemented them in phase 1 (the table's owner; `plan.build`'s bin rule and
+  §4.3's bin comparison call them).
 - `Scope` keeps `bin_rule="spectre"` groups in `bin_index` order; the name sort stays for HSPICE bins
   (`tables.py:1554-1558`).
 - **Walks over `Cond`** (§4.5 item 1): `reachable`, `all_subckts`, `smoke_netlist`; `Scope.__init__`
@@ -1533,7 +1571,8 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
      branch choices. A condition that is not a number on its path is an error.
    - Name-uniqueness checks run on the resolved branch (§3.7).
 3. **`bin_rule="spectre"`.** VACASK prints an `@if` chain in group order, with exact guards on total `w`.
-   Xyce always binds the instance to its card per path (no native binning).
+   Xyce always binds the instance to its card per path (no native binning), so on Xyce a group instance
+   whose geometry is not a number on its path is an error in v1.
 4. **Variables and overridable subckt parameters.** `variables` (from the plan): a top-level parameter that a
    sweep or alter targets.
    - VACASK prints it as `parameters p=vamos_v_p`, with `var vamos_v_p=<value>` in the control block [E].
@@ -1555,7 +1594,9 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
      from the plan instead of `tables.solver_options` (§3.10): the global ones (temp, tnom, gmin, reltol,
      vntol, abstol, chgtol, `strictsave=2`) from the `options` actions, and each tran's settings (§5.4) from
      its `AnalysisStep.args`, printed before the step's sweep statements and restored after it (§7.1). It
-     names each sweep statement by its `SweepLevel.id` (§5.2).
+     names each sweep statement by its `SweepLevel.id` (§5.2). A hierarchical instance path inside a string
+     argument (`sweep … instance="X2:R1"`, `alter instance("x1:r1")`) is printed without the node quoting of
+     item 9: quoted, VACASK finds no instance `'X2:R1'` [E114].
    - `xyce.render(nl, osdi, notes, op=False, step=None, sigmap=None, names=None)` prints one step (§7.2) and a
      `.PRINT` with exactly that step's SignalMap entries, in order; its options are temp, tnom and gmin, with
      the tolerance note of §0.
@@ -1568,7 +1609,7 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
 7. **iprobe and `isnoisy`.** `prim="iprobe"` prints as a 0 V source. `isnoisy=no`: VACASK `noisy=0`
    (resistor and `sp_resistor`); Xyce has no resistor noise switch (`NOISE=0` is "Unrecognized parameter"),
    so the resistor prints as `G<name> a b a b {1/r}`, the same current with no noise [E32]. With `tc1`/`tc2`
-   it stays an `R` and noisy, with a warning.
+   or a model card it stays an `R` and noisy, with a warning: the `G` form is for a plain resistor only.
 8. **Independent sources** (`Netlist.dialect == "spectre"`; the HSPICE path is unchanged, and vcs-ams runs
    only `tran`, where both engines use the waveform):
    - VACASK uses `dc` only when `type="dc"`. For any other type it takes the t = 0 waveform value in every
@@ -1608,7 +1649,11 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
     - A module with `xyceModelGroup` in {MOSFET, DIODE, BJT, Resistor, Capacitor} and an `xyceLevelNumber`
       prints as that letter device (M/D/Q/R/C) on a `.model <card> nmos|pmos|d|npn|pnp|r|c level=<n>` per
       Spectre card (one per module for instances that name the module), with the instance's parameters on the
-      device line. The polarity comes from the card's value of the `xyceTypeVariable` parameter against
+      device line. The card's parameters are merged into the instance (§3.9) before printing, so the printer
+      cannot tell them apart: the card carries only `level`, and every merged parameter goes on the device
+      line. A model-typed parameter there is "Unrecognized parameter … for device …", rc 1, which
+      `output_problems` reports, while an instance-typed one on the card would be only "No model parameter …
+      found …, parameter ignored", rc 0 [E108]; so the refusal below holds by construction. The polarity comes from the card's value of the `xyceTypeVariable` parameter against
       `xycePTypeValue`; that parameter is consumed. PyMS registers such a module as that device, not as a Y
       device: today's Y form fails for it with "Unrecognized parameter A for device YRESISTOR!R1", with or
       without parameters, and the letter form with `R=3k` on the device line gives 0.25 V as it should [E64].
@@ -1625,12 +1670,20 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
       module (`PyMS/vae/xyce_device_gen.py:513-514`) [E99]. So the Device Count Summary of the `-norun` check
       must list every such module under its own name (`RESISTOR (resistor)`, not `R level 6 (…)`) [E64]; a
       built-in entry for the module's letter and level is an error, so every CMC model is refused on Xyce in
-      v1. `xyce.device_summary_problems(text, nl)` (§10, S3) implements the check. `xyce.smoke`'s `-norun`
+      v1. `xyce.device_summary_problems(text, nl)` (§10, S3) implements the check. The launcher vamos runs
+      prints per-type summary lines under `-norun` and in a full run alike (`MYDIO (mydio) 1`, `RESISTOR
+      (resistor) 1` [E109]): where the output has per-type lines, a built-in `<L> level <n> (<name>)` at a
+      used module's letter and level is an error, and so is a used module missing from the listing; where it
+      has none, the binding evidence is the `.op` listing's `Number of <module> models/instances` or the
+      `.HDL: compiled and registered <module>` line, and an error when neither is printed. `xyce.smoke`'s `-norun`
       step applies it, so vcs-ams's Xyce path, which shares the letter-device route (§4), is guarded too, and
       spectre's phase 2 applies it to its first deck (§7.2).
     - Any other module keeps today's Y form and its refusal of card and instance parameters, because PyMS
       ignores a card parameter on a Y device silently (`I(V1)` = −1.000e-3 A, the module default, with no
       message [E63]).
+    - The `.hdl` lines name the Verilog-A sources by base name, the files copied into the run directory:
+      with two modules named by absolute paths PyMS loses their parameters [E104] (phase 2's flow does the
+      copy, §12; phase 1b's chain test does it by hand).
 14. **Cards.** `model_params(…, dialect=nl.dialect)` and no HSPICE M-instance warnings for Spectre (§4.4).
 15. **Xyce spellings of hierarchical names.** Xyce element names start with their letter, so the emitter
     prints a subckt instance whose IR name does not start with `x` as `X<name>` (`printed`, `printed_path`,
@@ -1679,10 +1732,10 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
 
 | `Action.op` | `Action.args` |
 |---|---|
-| `options` | `{<key>: value}` for each option that changes: §3.10's keys with an engine meaning, as Spectre spells them (`temp tnom gmin reltol vabstol iabstol chargeabstol`). The first action holds the whole global set (argv ⊕ options ⊕ defaults and `+paramdefault`, §2.2); each `set` statement gives one more |
+| `options` | `{<key>: value}` for each option that changes: §3.10's keys with an engine meaning, as Spectre spells them (`temp tnom gmin reltol vabstol iabstol chargeabstol`). The first action holds the whole global set (argv ⊕ options ⊕ defaults and `+paramdefault`, §2.2), starting from Spectre's documented defaults `temp=27 tnom=27 reltol=1e-3 vabstol=1e-6 iabstol=1e-12 gmin=1e-12` [M ref19 p.187] (`chargeabstol` only when set), overlaid by the netlist's options and argv's (argv wins) and by `+paramdefault`'s `options` lines; each `set` statement gives one more |
 | `var` | `{<top-level parameter>: float}`: the plan variables (§4.5 item 4) at their nominal values; one action, before the first analysis |
 | `alter` | `{"target": Target, "value": float or str}`, plus `"source": Source` when the target is a field of an independent source: the source re-resolved by `spectre.resolve_source` with the new value (§5.3) |
-| `source` | `{"path": <IR path of the source>, "type": "dc" or the waveform type, "source": Source}`: a VACASK source-state switch (§5.3) |
+| `source` | `{"path": <IR path of the source>, "type": <type>, "source": Source}`: a VACASK source-state switch (§5.3); `<type>` is `"dc"` or Spectre's waveform type word: `sine` for the IR's `sin`, else the IR wave (`pulse`, `exp`, `pwl`) |
 | `analysis` | `{}`; the step is `Action.step` |
 | `note` | `{"note": Note}`: reported by flow in netlist order (an `info` statement, a skipped construct); render prints nothing |
 
@@ -1693,14 +1746,25 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
   The settings of each analysis are in `AnalysisStep.args`, not in actions: §3.11's parameter names as
   keys, evaluated as above, a key absent when it is neither given nor defaulted; for a `tran`, errpreset
   is applied (§5.4): `reltol`, `relref`, `method`, `lteratio` and `maxstep` hold the effective values and
-  `errpreset` the preset used. `AnalysisStep.options` holds the global options in force when the step runs
-  (every earlier `options` and `option`-target `alter` applied), under the same keys: what S4 writes into
+  `errpreset` the preset used, and `step` defaults to (stop − start)/1000, Spectre's documented default
+  [M ref19], which the worked example's decks print (§7.1, §7.2). A `noise` or `xf` step carries its output
+  pair as `p` and `n` (IR node paths; `n` is `"0"` for a single node; `oprobe=`/`probe=` give the probe's two
+  terminals, resolved through the X-line bindings); a parameter sweep at a fixed frequency carries `freq`
+  (its grid's start and stop stay in the `SweepSpec`); an analysis-level `save=`/`nestlvl=` stay in `args`
+  under those names (`AnalysisStep.saves` stays None) and `signals.resolve` reads them per step; `ic`,
+  `skipdc`, `prevoppoint` and `useprevic` keep their §3.11 words. `AnalysisStep.options` holds the global
+  options in force when the step runs (every earlier `options` and `option`-target `alter` applied), under the same keys: what S4 writes into
   the PSF headers (§8.3) and what the Xyce state replay prints (§7.2). A netlist without analyses runs
-  nothing; it exits 0 with a notice and an empty `logFile`.
+  nothing; it exits 0 with a notice and an empty `logFile`. `plan.build` collects every note and raises
+  `NoteError` with all of them when any is an error (the convention of `spectre.parse`); warnings and notes
+  return in `RunPlan.notes`, and the Note of a `note` action is not repeated there.
 - **Evaluation.** `plan.build` also evaluates, on every instance path:
   - every expression of every reachable item, with the Spectre evaluator, for every parameter state the plan
     sets (§3.5): an out-of-domain value is an error naming the expression and the path, so none reaches an
-    engine;
+    engine. The states are the nominal one, every alter, and the Cartesian product of the sweep levels whose
+    target can change a branch, a bin or an expression (variables, `temp`/`tnom` when something reads them,
+    `sub=` overrides, a MOS instance's `w`/`l`/`nf`, `mod=` bin bounds); a level nothing re-evaluates (a
+    source's `dc`, `freq`, an `r=`) is not enumerated, since every evaluation would repeat the nominal one;
   - the `ParamTest`s (§3.6) and the condition/bin rule (§3.7);
   - the analysis parameters, `ic` and `nodeset` values with `Netlist.values` (§3.10, §3.11); one that reads a
     plan variable or one of its dependents is an error in v1;
@@ -1727,26 +1791,42 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
 | `center`, `span` | start/stop = center ∓ span/2 | as above | as above |
 
 - start ≤ 0 without a step parameter is linear [I, §14 q.11]. `center`/`span` with a log sweep is an error
-  [I, §14 q.11]. The open points of `dec`, `center`/`span` and `log` are §14 q.11. Sweep bounds and values
+  [I, §14 q.11]: the parser refuses it with `dec=`/`log=`, and without a step parameter it keeps start/stop
+  as the unfolded `c - s/2`, `c + s/2` (the frozen `SweepSpec` has no mark; the shape is the mark), so that
+  `plan.build`, which can evaluate parameter-valued bounds, refuses the ratio rule's logarithmic choice
+  (stop/start ≥ 10) with a message asking for `step=` or `lin=`, and keeps lin=50 for the linear one. The open points of `dec`, `center`/`span` and `log` are §14 q.11. Sweep bounds and values
   are expressions (`SweepSpec`), evaluated by `plan.build`.
 - **The grid is plan.build's.** Every sweep a step runs under is a `SweepLevel` of the step (§10): the
   enclosing Spectre sweeps outermost first (`AnalysisStep.context`), then the step's own (`own`: a dc
   target, the parameter of an `ac`/`noise`/`xf` at a fixed `freq`, or their frequency axis). Its `spec` is
   evaluated and engine-ready: every Expr field of it is a folded `Num` after `plan.build` (the `SweepLevel`
-  invariant of §10, which S3 may rely on), and `mode` is `lin`, `step`, `values`, or `dec` only when
-  N·log10(stop/start) is an integer; a non-integral `dec`, a `log=N`, a sweep with no step parameter and `center`/`span` are expanded
-  by `plan.build` into `values` (or `lin`), so the "computed by vamos" grids in the table are plan.build's
+  invariant of §10, which S3 may rely on), and `mode` is `lin`, `step`, `values`, `dec` only when
+  N·log10(stop/start) is an integer, or `log` with `values` filled: every logarithmic grid vamos computes
+  (a non-integral `dec`, a `log=N`, the ratio rule's log=50) keeps `mode="log"`, so that the PSF writes grid
+  3 for it (§8.3; the real `myac.ac`, log 20 over 6 decades, has grid 3), and render prints its values as
+  for `values`. A linear sweep with no step parameter and `center`/`span` are expanded into `lin` or
+  `values`. So the "computed by vamos" grids in the table are plan.build's
   (§11's Plan test of the dec grid), and render only prints them. `plan.build` also names each level's
-  VACASK sweep statement (`SweepLevel.id` = `vamos_w<k>`, numbered over the plan; the rawfile's sweep column
-  carries it, §6.4, §7.1) and records its `continuation` (below), its PSF sweep variable (`label`: `"dc"`,
+  VACASK sweep statement (`SweepLevel.id` = `vamos_w<k>`, numbered over every `SweepLevel` of the plan, an
+  `ac`'s own frequency axis included, so the worked example's sweep is `vamos_w2`; each child of a sweep
+  block gets its own copy of the level with a fresh id, one VACASK sweep statement per child; the rawfile's
+  sweep column carries it, §6.4, §7.1) and records its `continuation` (below), its PSF sweep variable (`label`: `"dc"`,
   `"temp"`, the parameter or `"freq"` in a leaf, `"R1:r"` in a parent), the variable as descriptions write it
   (`desc`: `"Vin:dc"`) and that variable's `units` (§8.3), so the results need no IR.
 
 **Targets** (IR names in the action, always a 3-tuple `Target`; the engine forms come from render):
 - `dev=X param=p` → `("instance", "<path>", p')`, where p' applies the instance master's `SPECTRE_MASTERS`
   instance renames (`MasterRow.instance`), as on the cards. VACASK `instance="x1:r1" parameter="p"`
-  (hierarchical `X1.R1` → `"x1:r1"`) [E]; Xyce `.DC R1:R …` (§7.2) [E20]. A field of an independent source
-  (`dc`, `val0`, `ampl`, …) follows §5.3's source rules.
+  (hierarchical `X1.R1` → `"x1:r1"`, unquoted inside the string [E114]) [E]; Xyce `.DC R1:R …` (§7.2) [E20].
+  `dev=` without `param=` is `param=dc` on a vsource or isource and an error on any other device (§3.11
+  [I, §14 q.53]). A field of an independent source (`dc`, `val0`, `ampl`, …) follows §5.3's source rules;
+  the swept fields are those the decks print under an engine name (VACASK `dc val0 val1 delay rise fall
+  width period sinedc ampl freq damp sinephase mag phase tau1 tau2`; Xyce the fields the IR holds directly),
+  and an `exp`'s `td1`/`td2` or a `pwl`'s `wave`/`offset`/`scale`/`stretch` cannot be swept directly in v1
+  (an error). On VACASK a sweep of an instance parameter bound to an expression that reads a subckt or
+  netlist parameter is an error naming what to sweep instead (`sub=`/`param=`): VACASK fails to bind it,
+  while an alter of it works and stays allowed [E102]; Xyce sweeps it natively. A parameter with no rule of
+  a master that has rows is an error ("not an instance parameter of …").
 - `mod=M param=p` → `("model", "<IR card>", p')`, where p' applies the card's `Model.prim` renames from
   `SPECTRE_MASTERS`. VACASK `model="<card>"` [E]; Xyce `.DC M:P …` [E20]. A model group cannot be swept this
   way (a VACASK sweep names one model): error in v1.
@@ -1760,7 +1840,8 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
 - **A parameter vamos folded or stripped is never a target.** A `mod=` target whose `SPECTRE_MASTERS` rule
   folds or strips it (a resistor card's `r rsh l w etch etchl`, a capacitor card's `c w l etch cj cjsw`, a
   MOS card's `w`/`l`, §3.8, §3.9), and a `dev=` target listed in the instance's `Instance.folded` (the `w`/`l`
-  of a resistor, the `w l area perim` of a capacitor, that fed a computed `r` or `c`), is an error naming the
+  of a resistor, the `w l area perim` of a capacitor, that fed a computed `r` or `c`), or one whose
+  instance rule of the master folds or strips it (the resistor's `scale`), is an error naming the
   target: the engines print `r` and `c` explicitly, so such a sweep or alter would run with no effect on
   either engine. Re-folding per point is v2. The same check applies to alters (§5.3).
 
@@ -1799,7 +1880,8 @@ value per level (`SweepLevel.continuation`).
     instance of the same subckt; a `sub=` target whose X line sits in such a body; a source field there) is
     an error in v1 naming the paths: changing the shared item would also change `x2.r1`, where Spectre and
     VACASK change only the path. The path counts come from `tables.path_envs` (§4.4). A uniquified copy of
-    the definitions along the changed path is v2. The same rule covers the Xyce sweep hooks of §7.2.
+    the definitions along the changed path is v2. The same rule covers the Xyce sweep hooks of §7.2 and a
+    noise `iprobe=` input inside a subckt (§5.6).
   - `dev=V param=type`, a waveform field or `dc`, on a vsource or isource: `Source.spectre` is updated and the
     source re-resolved with `spectre.resolve_source`. VACASK gets one complete `alter instance("<v>") type=…
     <every field of the wave> [dc=]`, every field explicit, each from `Source.spectre` or Spectre's defaults:
@@ -1849,7 +1931,8 @@ value per level (`SweepLevel.continuation`).
     value used here exists in VACASK's documentation (`cmd-options-relref.md`, `cmd-options-tran.md`) [E].
   - VACASK method map: `traponly`/`trap` → `"trap"`; `gear2`/`gear2only` → `"gear2"`; `euler` → `"euler"`;
     `gear3`/`gear3only`/`gear2gear3` → `"gear"` with `tran_maxord=3`; `trapgear2`/`trapeuler` → `"trap"`
-    (note). So liberal gives `"trap"`, with that note.
+    (note). So liberal gives `"trap"`, with that note. `plan.build` emits it, and the Xyce tolerance note
+    below, since it knows the engine; `args["method"]` keeps Spectre's word.
   - Xyce gets the method only, and accepts `METHOD=TRAP` and `METHOD=GEAR` only [E30]: `trap traponly
     trapgear2 trapeuler` → `TRAP`; `gear2 gear2only` → `GEAR` with `MAXORD=2`; `gear3 gear3only gear2gear3` →
     `GEAR` with `MAXORD=3`; `euler` → `GEAR` with `MAXORD=1`. The tolerances are a note.
@@ -1870,6 +1953,7 @@ value per level (`SweepLevel.continuation`).
   - `prevoppoint` → `nodeset="vamos_s<k>" opsolve=0`. After a `tran` this linearizes at the final transient
     point (a diode testbench: AC gain 0.019 against 0.99996 from a fresh operating point);
   - `useprevic=ns` → `nodeset=`; `useprevic=yes` → `ic=` (a stored-solution name [VACASK doc]).
+  - With no previous analysis, `prevoppoint`/`useprevic` get a warning and a fresh operating point.
 - **State files.** `readns`/`readic` become nodeset/ic lists read from the file (§8.6). A missing file is a
   note: the UG's own idiom reads and writes the same file. `write`/`writefinal` hold the full solution, every
   node voltage and source current [M UG pp.203-204], but an explicit save list limits what the engines write.
@@ -1892,7 +1976,11 @@ Xyce each deck has its own `.PRINT`.
 Spectre's `iprobe` is optional [M ref19 p.181], but VACASK's `noise` needs `in=` (without it: "Instance ''
 not found.", and the analysis aborts) and Xyce's `.NOISE` names a source [E19]. Without `iprobe`, `plan.build`
 names an input `vamos_nin<k>` in the step, and `signals.resolve` adds `vamos_nin<k> (p n) isource dc=0`
-across the output pair (for `oprobe`, its terminals) to its IR copy. A 0 A current source is an open circuit
+across the output pair (for `oprobe`, its terminals) to its IR copy, in the body where both output nets
+live (a hierarchical pair inside one subckt body goes into that body; nets in different bodies are an
+error in v1). A given `iprobe=` inside a subckt (`X1.V2`) is printed as VACASK's `in="'X1:V2'"`; on Xyce
+its `AC 1 0` is printed in the body of the X line's master and `.NOISE` names its printed path (`XI2:VB`),
+under §5.3's per-path rule. A 0 A current source is an open circuit
 with no noise, so `out` and every contribution are unchanged [E19]. `in` and `gain` are not written.
 `vamos_nin<k>` is a vamos probe (§6.4): never an output, and acxf drops its `tf()`.
 
@@ -1905,7 +1993,8 @@ with no noise, so `out` and every contribution are unchanged [E19]. `in` and `ga
   parameter" [M ref19 p.518]; VACASK takes `save default` followed by the extra directives (`save default p(r1,
   i)` [E84]).
 - **allpub** is computed from the original IR, before the insertions of §5.6 and §6.3. It holds every net at
-  every level (down to `nestlvl` for `lvlpub`), and the currents of IR instances of kind `v` (`prim` vsource
+  every level (down to `nestlvl` for `lvlpub`: `nestlvl=1` is the top level only, and each step adds one
+  level, so a net inside `X1` is level 2 [M ref19 p.188]), and the currents of IR instances of kind `v` (`prim` vsource
   or iprobe) and kind `l`, at every level. It never holds vcvs/ccvs flows, `vamos_*` instances or nets, `r` = 0
   shorts (§4.5 item 10) or device-internal unknowns: VACASK's `save default` writes all of these
   (`d1:a_int`, `d1:implicit_equation_0`, `e1:flow(br)`, `I2:vx:flow(br)`) [E84], and they are ignored by
@@ -1922,7 +2011,8 @@ with no noise, so `out` and every contribution are unchanged [E19]. `in` and `ga
 
 ### 6.2 save statement items [M ref19 pp.517-519]
 - Items: a node (`out`, `OpAmp1.comp`, integer names), `X:term` (a terminal name of §3.8 or its 1-based
-  index [M ref19 p.518]), `X:currents` (all terminals; a two-terminal component gives only the first [M]),
+  index [M ref19 p.518]), `X:currents` (all terminals; a two-terminal component gives only the first [M]; a
+  two-terminal subckt instance lists every terminal, after ref19 p.518's `x1.x21:2` for `sigtype=subckt`),
   `X:oppoint`, `X:<opvar>`, `X:pwr` (both warnings: not written), a bare component name (its currents and, as
   a warning, its operating point), and the wildcards `*` and `?` with `depth`, `sigtype`, `devtype`,
   `subckt` and `exclude`.
@@ -1930,7 +2020,9 @@ with no noise, so `out` and every contribution are unchanged [E19]. `in` and `ga
   [I, §14 q.37]. `X:currents` expansions use names for device terminals and 1-based indices for subckt
   terminals (`useterms=default` [M ref19 p.190]).
 - The statement's own options: `ports=yes` → mapped (as `saveports`, §6.1); `filter=rc` → warning (§6.1);
-  `compression=` → note; `time_window=[t1 t2 t3 t4 …]` filters the written points to those intervals.
+  `compression=` → note; `time_window=[t1 t2 t3 t4 …]` filters the written points to those intervals, for
+  the whole file (the intervals of every save united: a per-trace window cannot be expressed in the PSF
+  layout).
 - Items are resolved against the flattened IR. When a name is both a node and an instance, the node wins
   [M UG p.61]. An item that matches nothing gets a warning and is not passed on: Xyce aborts on an unknown
   node, and VACASK fails every analysis but exits 0 [E28]. A save that fails to bind is never written as a
@@ -1941,14 +2033,21 @@ with no noise, so `out` and every contribution are unchanged [E19]. `in` and `ga
 ### 6.3 Currents
 - vsource `V1:p` → VACASK `i(v1)` (column `v1:flow(br)`) / Xyce `I(V1)`. The sign matches Spectre's "positive
   into the terminal" [M ref19 p.518]: −1 mA for 1 V across 1 kΩ [research E], and −0.5 mA for 1 V across
-  2 kΩ on both engines [E]. `V1:n` is the negation.
+  2 kΩ on both engines [E]. `V1:n` is the negation, measured through a `vamos_tp<k>` probe (below): the
+  SignalMap has no sign slot.
 - inductor `L1:1` → `i(l1)` (column `l1:flow(br)`) / `I(L1)`; iprobe `I1:in` → `i(i1)` / `I(VI1)`: +1 mA for
-  1 mA into terminal 1 or `in`, on both engines [E36]. `L1:2` and `I1:out` are the negation.
+  1 mA into terminal 1 or `in`, on both engines [E36]. `L1:2` and `I1:out` are the negation, probed likewise.
 - **Native currents.** A resistor printed as a resistor: `R1:1` → VACASK `p(r1, i)` (column `r1.i`, which
   `vacask._Deck.isave` already saves for `resistor` and `sp_resistor`, `vacask.py:802-813`) / Xyce
-  `I(R1)`, both positive into terminal 1 [E84]; `R1:2` is the negation. The output port of a vcvs or ccvs
+  `I(R1)`, both positive into terminal 1 [E84]; `R1:2` is the negation (probed). The output port of a vcvs or ccvs
   (`E1:p`) → `i(e1)` / `I(E1)` [E84]. The `r` = 0 short (§4.5 item 10) gives its own current, an infinite
-  resistor 0 (§3.8), and Xyce's `G` form of `isnoisy=no` a probe [I, §14 q.47].
+  resistor 0 (§3.8: a saved one is a warning, "constant 0, not written", and dropped, since no Ref carries a
+  constant and a probe on an unprinted element would float), and Xyce's `G` form of `isnoisy=no` a probe
+  [I, §14 q.47]. The native currents have two exceptions on VACASK, where a probe takes their place: a
+  resistor terminal saved in a run with an `ac` or `xf` step (VACASK has no `dv`/`di` of a resistor), and
+  the terminal current of an instance with `m` ≠ 1 (`v l e h r`), whose native `r1.i` or `l1:flow(br)` is
+  one unit's current, where Spectre's `R1:1` and Xyce's `I(R1)` are the total [E103]; the rule holds for
+  allpub's currents too.
 - **Every other terminal** (capacitor, diode, BJT, MOS, JFET, a source's `sink`/`src`, a subckt-instance
   port, a Verilog-A port): `signals.py` inserts a 0 V probe source `vamos_tp<k>` in series with the terminal,
   in a copy of the IR. The terminal moves to a new node `vamos_tn<k>`, and the source runs from the original
@@ -1979,7 +2078,7 @@ a collision suffixed, §8.4). `signals.resolve` computes them from the IR, so `r
 | noise total | `('onoise',)` | `onoise`, V²/Hz [E] | `ONOISE`, V²/Hz [E] | `out` = √, V/sqrt(Hz) [S] |
 | noise gain, input noise | `('gain',)`, `('inoise',)` | `gain` [E] | `INOISE` [E] | `gain`, `in` (§8.4) |
 | per-instance noise | `('noise', 'r1')` | `n(r1)`, `n(r1,thermal)` [E] | `DNO(R1)`, `DNO(XI2:R3)` [E73, E84] | STRUCT `R1` with `rn`, `total` [S] |
-| xf | `('tf', 'v1')` | `tf(v1)` [E] | — | `V1:p` for a vsource [M UG p.113]; an isource: §14 q.15 |
+| xf | `('tf', 'v1')` | `tf(v1)` [E] | — | `V1:p` for a vsource [M UG p.113], type `V/V`; an isource `I1:sink`, its first terminal, type `V/A` [I, §14 q.15] |
 
 - The hierarchy separator is `.`, and the case is the original (Spectre is case sensitive [M]).
 - An inline subckt's component named like the subckt takes the instance's name (`q1`, not `q1.npn_mod`) [M UG
@@ -2002,7 +2101,9 @@ a collision suffixed, §8.4). `signals.resolve` computes them from the IR, so `r
   come in statement order (duplicates dropped, the first wins); allpub signals are sorted case-insensitively
   by Spectre name [I, §14 q.48: the one sample, `rushikesh` (19.1), was converted from binary PSF by
   Cadence's tools (§0), so its order may be the converter's; the native `joop-banaan.tran` lists explicit
-  saves unsorted, E101]; noise STRUCTs come in IR instance order, then `out`,
+  saves unsorted, E101]; under `save=selected` with only current saves, the sorted allpub signals come
+  first, then the explicit currents not already present (VACASK's `save default p(r1, i)` precedent);
+  noise STRUCTs come in IR instance order, then `out`,
   `gain` and `in`. VACASK sorts `save default` columns bytewise and keeps explicit saves in order, and Xyce's
   `V(*)` has its own order [E84].
 - vamos's own probe sources (§5.6, §6.3) are never outputs. **xf** writes one trace per IR independent source:
@@ -2037,13 +2138,14 @@ control
   analysis vamos_a1 op
   analysis vamos_a2 ac from=1.0 to=1000000.0 mode="dec" points=10
   options relref="sigglobal" tran_method="trap" tran_lteratio=3.5
-  sweep vamos_w1 variable="vamos_v_rval" values=[1000.0, 2000.0] continuation=0
+  sweep vamos_w2 variable="vamos_v_rval" values=[1000.0, 2000.0] continuation=0
     analysis vamos_a3 tran step=5e-06 stop=0.005 maxstep=0.0001
   options relref="alllocal"
 endc
 ```
 
-A `sweep` statement binds to the analysis directly after it. An `options` line between them is a parse
+(`vamos_w1` is `myac`'s own frequency level, §5.2; this block is e2e 1's render golden, §11.) A `sweep`
+statement binds to the analysis directly after it. An `options` line between them is a parse
 error ("expecting sweep or analysis") [E16], so per-analysis `options` lines and the source-state `alter`s of
 §5.3 go before the sweep statements, and the restoring ones after the analysis [E].
 
@@ -2253,7 +2355,11 @@ END
   then per point its leaves and nested parents [S]. vamos re-orders VACASK's analysis-major results.
 - **Writing:** `logFile` is written once at the end, after every exit status (§2.7). It lists the analyses
   that finished, and after status 3 the interrupted one. It is always PSF ASCII. No `logFile` is written
-  for the nutmeg formats (§8.5).
+  for the nutmeg formats (§8.5). After a failed or interrupted sweep point a parent lists only the points
+  whose leaves exist, the complete prefix (`psfcheck` requires children = points). The leaves of the
+  groups an engine wrote are `ok`; from `EngineResult.failed_points` on they are `failed` (a failed step
+  without `failed_points` fails every leaf), have no data and are neither written nor listed; the last
+  present group of an interrupted step is `interrupted`, written and listed.
 - **Date and time stamp.** `"date"` is built from fixed English tables, never `strftime` (padded and
   locale-dependent: `%I:%M:%S %p, %a %b %d, %Y` gives `02:56:17 PM, Thu Oct 01, 2026` [E86]): `"%d:%02d:%02d %s, %s %s
   %d, %d"`, the hour on a 12-hour clock unpadded, AM/PM, the day name Sun…Sat, the month Jan…Dec, the day
@@ -2268,8 +2374,8 @@ END
 ### 8.3 PSF ASCII data files [S]
 - **Grammar:** `HEADER` named values, `TYPE`, `SWEEP`, `TRACE`, `VALUE`, `END` (the psf_utils grammar,
   matching every sample).
-- **Strings.** One encoder, `psf_string(s, escchars)`, writes every PSF string from the unescaped name or text.
-  It puts a backslash before `"` and `\`; under `+escchars`, also before every character outside
+- **Strings.** One encoder, `psf_string(s, escchars)`, writes every PSF string from the unescaped name or text:
+  it returns the quoted token, quotes included (`psf_string("net<3>", True)` is `"net\<3\>"`). It puts a backslash before `"` and `\`; under `+escchars`, also before every character outside
   `[A-Za-z0-9_.:!]`. `+escchars` is never applied to a name beforehand, which would double the backslash
   before `<`. Readers decode backslash-x as x. A title containing `"` written unescaped would make the file
   unparsable. Tags: [I, §14 q.12] for the quote and backslash escapes (the 19.1 `"design"` sample revision 2 cited is a
@@ -2282,8 +2388,15 @@ END
 | every file | `PSFversion`, `simulator`, `version`, `date`, `design`, `analysis type`, `analysis name`, `analysis description`, `xVecSorted`, `tolerance.relative` |
 | `dc` (op and sweep) | + `reltol`, `abstol(V)`, `abstol(I)`, `temp`, `tnom`, `tempeffects`, `gmindc` |
 | `ac`, `xf` | + `start`, `stop`, `"operating point producer"` (the analysis's own name in every 23.1 file; every engine analysis solves its own op) |
-| `noise` | + `"operating point producer"`, `"output" "pair of nodes"`, `"ground" "0"`, `"positive output signal"`, `"negative output signal"` (the `oprobe=` form: §14 q.35) |
+| `noise` | + `"operating point producer"`, `"output" "pair of nodes"`, `"ground" "0"`, `"positive output signal"`, `"negative output signal"` (from the step's `args` `p` and `n`, §5.1; with `oprobe=`, the probe's name as the positive signal [I, §14 q.35]) |
 | `tran` | + `start`, `outputstart`, `stop`, `step`, `istep` (1e-3 in every sample), `maxstep`, `ic`, `useprevic`, `skipdc`, `reltol`, `abstol(V)`, `abstol(I)`, `temp`, `tnom`, `tempeffects`, `errpreset`, `method`, `lteratio`, `relref`, `cmin`, `gmin` (19.1 adds `rabsshort` when set) |
+
+  The values come from `AnalysisStep.options` under Spectre's keys (`gmindc` from `gmindc`, else `gmin`),
+  with Spectre's documented defaults when a key is absent (1e-3, 1e-6, 1e-12, 27, 27, `all`, 1e-12), and
+  the tran keys from `AnalysisStep.args`: `tolerance.relative` is the options reltol, the tran `reltol` the
+  effective one (§5.1). A tran key the step lacks gets: `step` (stop − start)/1000 (§5.1), `maxstep`
+  (stop − start)/50, `start`/`outputstart` 0, `ic` `all`, `useprevic`/`skipdc` `no`, `errpreset` `moderate`,
+  `method` `traponly`, `lteratio` 3.5, `relref` `sigglobal`, `cmin` 0.
 | sweep and Monte Carlo parents | the common keys only |
 
   `xVecSorted` is `ascending` for ac, noise, xf, tran and Monte Carlo parents, `unsorted` for dc, `unknown`
@@ -2294,9 +2407,14 @@ END
   FLOAT|COMPLEX DOUBLE PROP("units" "V" "key" "node" "tolerance" …)`, `"I" … "branch"`, `"sweep" FLOAT DOUBLE
   PROP("key" "sweep")`), plus the types the file needs (noise STRUCTs, §8.4). Readers resolve types by name,
   and both third-party readers accept a file with only the used types [E83]; the full list costs nothing and
-  removes any dependence of a reader on fixed type names [I, §14 q.48].
+  removes any dependence of a reader on fixed type names [I, §14 q.48]. `psf.TYPES` keys the families
+  `op` (`myop.dc`: `LogicV` and 12 FLOAT types), `swept` (`mydc.dc`, `mytran.tran.tran` and the sweep
+  leaves: `sweep` plus the op list), `complex` (`myac.ac`: `sweep` and 12 COMPLEX, no `LogicV`; xf too),
+  `parent` (`mysweep_ac1.sweep`, equal to the Monte Carlo parent's: `sweep` and 12 FLOAT) and `noise` (the
+  three fixed entries of psf_utils' 15.1 `noiva.noise`, the only noise sample), each the verbatim text.
 - **SWEEP:** `"time"` (s), `"freq"` (Hz), or the dc sweep variable, each with `PROP("sweep_direction" 0 "units"
-  … "plot" 0 "grid" g)`. `grid` is 1 for a linear sweep and 3 for a logarithmic one [S]; `sweep_direction` is
+  … "plot" 0 "grid" g)`. `grid` is 1 for a linear sweep and 3 for a logarithmic one [S]: 3 for
+  `SweepSpec.mode` `dec` or `log`, whose computed values the grid reader takes first (§5.2); `sweep_direction` is
   0 in every sample [S] (a descending sweep: §14 q.36). The dc sweep variable is the parameter name: `"dc"` for
   a source [S], `"temp"` and the netlist parameter name [I, §14 q.48]. Parents use `"<dev>:<param>"` (`"R1:r"`,
   units `"Ohm"`) [S], and Monte Carlo parents `"iteration"` (units `"real"`) [S]. `plan.build` records each
@@ -2322,8 +2440,9 @@ END
   signal [I, §14 q.48].
 - **Descriptions** [S]: `` DC Analysis `myop' ``, `` DC Analysis `mydc': Vin:dc = (0 V -> 2 V) ``,
   `` AC Analysis `myac': freq = (1 Hz -> 1 MHz) ``, `` Transient Analysis `mytran': time = (0 s -> 500 ms) ``,
-  `` Noise Analysis `noiva': freq = (4 Hz -> 4.19 MHz) ``, `Sweep parent`, `Monte Carlo parent`. Numbers are
-  `%g` with an SI prefix and the units above (`SweepLevel.units`). The variable is `<inst>:<param>` for
+  `` Noise Analysis `noiva': freq = (4 Hz -> 4.19 MHz) ``, `Sweep parent`, `Monte Carlo parent`; xf, with no
+  sample, `` Transfer Function Analysis `xf1': freq = (…) `` after ref19's chapter title [I, §14 q.48]. Numbers are
+  `%g` with an SI prefix and the units above (`SweepLevel.units`), also with empty units (`rval = (1 k -> 2 k)`). The variable is `<inst>:<param>` for
   `dev=`, `temp`, `<param>` for a netlist parameter and `<model>:<param>` for `mod=` [I, §14 q.48]
   (`SweepLevel.desc`).
 
@@ -2346,7 +2465,12 @@ END
     `"resistor"` for one without, `"res_va"` for a Verilog-A module [S: 15.1 `noiva`]; a name equal to a fixed
     type name (`V`, `I`, `sweep`, …) or to another member set's type gets a suffix `_<k>`, with a note [I, §14
     q.48]. `signals.resolve` computes these type names from the IR and records them as the noise Refs' psf
-    types in the SignalMap (§6.4). On Xyce there is only the `total` member (from `DNO`), with a note.
+    types in the SignalMap (§6.4). The `master` PROP and the `rn`/`fn` rename need the instance's master,
+    which neither the SignalMap (its type is the model name) nor `EngineResult` carries: `results.collect`
+    and `psf.write_analysis` take a `masters` map (STRUCT type name → master; a type absent from it is its
+    own master), which the flow builds from the IR (§10, §12 phase 2). On Xyce there is only the `total`
+    member (from `DNO`), with a note, which `results.collect` gives once per noise step (`signals.resolve`
+    gives none).
   - With an input probe: `gain` = √(power gain) and `in` = out/gain = √(input-referred PSD) [M: IRN =
     sqrt(No²/G²)] [I, §14 q.48 for the units and type names of `gain`/`in`, §6.4]. On VACASK the power gain
     is its `gain`, which does not depend on the source's `mag` [E19]. On Xyce, gain = √(ONOISE/INOISE) and
@@ -2355,14 +2479,17 @@ END
     INOISE by that source's AC magnitude squared, so Spectre's default `mag=0` would give INOISE = 8.3e2 V²/Hz
     for the divider [E19]. `F` and `NF` need a noisy input `port`, which is not in v1.
 - **xf:** one complex trace per IR independent source (§6.4), `tf(<src>)`, named `<src>:p` for a vsource
-  ("closed-loop gain, Av = Vdif:p" [M UG p.113]); isource names are §14 q.15. `zin`/`yin` are not written.
+  ("closed-loop gain, Av = Vdif:p" [M UG p.113]); an isource's is `<src>:sink` [I, §14 q.15]. `zin`/`yin`
+  are not written.
 
 ### 8.5 nutascii / nutbin
 "In the Nutmeg format, the Spectre simulator writes output data to a raw file … In the other formats, the
 Spectre simulator creates and writes output to a directory" [M UG p.229]: one rawfile at the results path,
 and no `logFile` and no parent plots. One plot per analysis (sweep leaves included) in execution order; the
 variables carry the §6.4 names and the types `time`, `frequency`, `voltage` and `current`; a noise plot has
-the columns `frequency`, `out` and `<inst>:<member>` for every STRUCT member [I, §14 q.23]; a plot's name is
+the columns `frequency`, `out` and `<inst>:<member>` for every STRUCT member [I, §14 q.23]; the x variable
+is `time` for a tran, `freq` for ac and xf, `frequency` for noise, and the SWEEP label for a dc sweep, typed
+from its units (`V` voltage, `A` current, else `notype`) [I, §14 q.23]; a plot's name is
 the PSF analysis description [I, §14 q.23]. If the path is an existing directory, the file is `<dir>/%C:r:t.raw`
 (note). It is written by `output/nutmeg.py`, streaming its values (§10); the tests read it back with
 independent readers (§11).
@@ -2413,13 +2540,16 @@ Time used: CPU = 7.29 s, elapsed = 8 s.
 - **Messages** use the 5.1.41 form: `Error from <prog> during <phase>.`, `Warning from <prog> …`, `Notice from
   <prog> …`, each followed by the indented text [M UG pp.270, 274].
 - **Counts** are vamos's notes plus the engine's failures and warnings. For `-maxwarns`/`-maxnotes` a message's
-  id is its text with every number replaced by `#` and every quoted name by a single placeholder, so two
-  warnings that differ only in a node name share an id [I, §14 q.40]; `SpectreLog` counts per (id, analysis)
-  and, at the limit, prints one notice that further ones are suppressed [I, §14 q.40]. The limits are
+  id is its text with every digit run replaced by `#` (inside identifiers too: `r1` and `r2` share an id)
+  and every quoted name by a single placeholder, so two warnings that differ only in a node name share an id
+  [I, §14 q.40]; `SpectreLog` counts per (id, analysis) and, at the limit, prints one notice that further
+  ones are suppressed [I, §14 q.40], which the trailer does not count (bookkeeping, not a message). The limits are
   argv ⊕ defaults until the netlist is parsed, then the merged `Settings` (`SpectreLog.limits`, §2.2).
 - **The last line** is `<prog> completes with N errors, M warnings, and K notices` after exit status 0 or 1,
   without a final period [M UG p.33], and `<prog> terminated prematurely due to fatal error.` after exit
   status 2 [M UG p.270]. After exit status 3 it is the latter as well [I, §14 q.18]. The modern form is §14 q.18.
+  The aggregate audit is printed before the completing line only (status 0 or 1, as the UG p.33 sample
+  shows); status 2 and 3 print the fatal line alone.
 - **Built-in text for every key.** `Banner.text` returns None for `none` or a missing key and an error string
   for an invalid template (`banner.py:72-84`), and `load_profile` returns `{}` when no profile exists
   (`banner.py:62-64`) [E79]. So `log.py` has built-in text for every key. A profile may change the layout of
@@ -2588,7 +2718,9 @@ class ParamRule:
     match: Tuple[str, ...] = ()                   # the rule applies only to these values of the parameter: an
                                                   # enumeration value, "absent", "0" or "nonzero", or a Spectre
                                                   # number ("1", "0.5", "1/3", "7.02e-4"), compared numerically;
-                                                  # () = any value
+                                                  # () = any value. Against a non-constant value: a number
+                                                  # matches a Num only, "nonzero" a Num other than 0 or any
+                                                  # non-Num expression, a word a Str or Name (any case)
     warn: str = ""                                # a warning besides the action: "card" (model_params, per card) |
                                                   # "analyses=ac,noise,xf,tran" | "analyses=noise" | "temp!=tnom"
                                                   # (plan.build, per run)
@@ -2608,7 +2740,10 @@ class ParamRule:
 # prefix), and a VACASK-only name (diode card area -> model_area, perim -> model_pj) fails loudly on Xyce; the
 # sources have params=() and `pass` instance rows whose cite names the §3.8.1 rule resolve_source applies (the
 # run-dependent errors of §3.8.1, xfmag and noisefile/noisevec, have no ParamRule form); strip always carries a
-# note; an instance rule's `when` is read on the instance after the card's folded values were applied.
+# note; an instance rule's `when` is read on the instance after the card's folded values were applied. A rule
+# reaches an absent parameter through match "absent"/"absent:<its name>", or, for a default row, through a
+# `when` that holds (nbv's when="absent:nz,given:n"); a fold row still present on a card or instance is
+# dropped by the printer (a `type` value checked against Model.kind). Diode: ParamRule("is", "pass") before js.
 @dataclass(frozen=True)
 class MasterRow:
     master: str                                   # resistor capacitor inductor vsource ... diode bjt jfet mos1 ... bsim4
@@ -2681,6 +2816,8 @@ def declare_fragment(lines: List[Tuple[str, str]], opts: ParseOpts) -> Tuple[Lis
     # the first phase, SPICE side: the names, and the file statements in order (spectre.py splices them, §4.3)
 def parse_fragment(lines: List[Tuple[str, str]], cwd: str, opts: ParseOpts, resolver: Resolver) -> Fragment
     # sets Instance.prim on every element (§4.1 item 7)
+def spectre_enum_params() -> frozenset            # (phase 1, S1) the enumeration keys whose bare words are Str
+                                                  # in both languages (§4.1 item 11)
 def va_modules(path: str, search: Sequence[str] = (), defines: Sequence[str] = ()
                ) -> Tuple[Dict[str, VaModule], List[str]]
     # modules by lower-cased name, and every file read; follows `include and runs the declaration
@@ -2704,7 +2841,8 @@ class SpectreParseOpts:
     pre: List[str] = field(default_factory=list)             # +pre_config fragment files
     post: List[str] = field(default_factory=list)            # +config fragment files
     cpp_markers: bool = False   # the input is cpp output: origins, include directory and language per
-                                # '# <line> "<file>" [flags]' marker, resolved against the cwd (§2.6)
+                                # '# <line> "<file>" [flags]' marker, resolved against the cwd; absolute and
+                                # cwd-relative marker paths alike (§2.6)
     title: Optional[str] = None # line 1 of the original file when cpp ran
     mts: bool = True            # False under -mts: options inside subckts are global (§3.6)
     va_include: List[str] = field(default_factory=list)      # CDS_VLOGA_INCLUDE (§2.8)
@@ -2740,7 +2878,9 @@ class SweepLevel:               # one sweep a step runs under (§5.2)
     name: str                   # the Spectre sweep's name (an enclosing sweep block); "" for the step's own sweep
     id: str                     # vamos_w<k>: the VACASK sweep statement and its rawfile column (§7.1)
     target: Target
-    spec: SweepSpec             # evaluated, engine-ready: mode lin | step | values, or dec for an integral span.
+    spec: SweepSpec             # evaluated, engine-ready: mode lin | step | values, dec for an integral span, or
+                                # log with `values` filled (every logarithmic grid vamos computes; render
+                                # prints the values, the PSF grid is 3, §8.3).
                                 # Invariant after plan.build: every Expr field of it (start, stop, step, each
                                 # element of values) is a folded Num; S3 may rely on it. S2's tests pin it;
                                 # test_spectre_contract.py need not
@@ -2756,7 +2896,10 @@ class AnalysisStep:
     kind: str                     # op dc ac noise xf tran
     context: List[SweepLevel] = field(default_factory=list)   # enclosing Spectre sweeps, outermost first
     own: Optional[SweepLevel] = None   # a dc target; an ac/noise/xf parameter at a fixed freq, or their frequency axis
-    args: Dict[str, Setting] = field(default_factory=dict)    # §3.11's names, evaluated; tran: errpreset applied (§5.1)
+    args: Dict[str, Setting] = field(default_factory=dict)    # §3.11's names, evaluated; tran: errpreset applied,
+                                  # step defaulted to (stop-start)/1000; noise/xf: the output pair as p, n (IR
+                                  # node paths, n "0" for one node); a fixed-frequency sweep: freq; the
+                                  # analysis-level save/nestlvl (saves stays None) (§5.1)
     options: Dict[str, Setting] = field(default_factory=dict) # the global options in force at this step (§5.1)
     saves: Optional[List[SaveSpec]] = None
     full_solution: bool = False   # write=/writefinal=: save every node (§5.4)
@@ -2770,6 +2913,7 @@ class Action:
         # options:  {<option key>: Setting}            var:    {<top-level parameter>: float}
         # alter:    {"target": Target, "value": Setting, "source": Source (a source field only)}
         # source:   {"path": str, "type": str, "source": Source}     analysis: {}     note: {"note": Note}
+        # (source "type": "dc" or Spectre's wave word: "sine" for the IR's sin, else the IR wave, §5.1)
     step: Optional[AnalysisStep] = None
     origin: str = ""
 @dataclass
@@ -2782,7 +2926,8 @@ class RunPlan:
     dependents: Set[str] = field(default_factory=set)   # filled by build: variables and every top-level Param that
                                                         # reads one (§4.1); signals.resolve only reads it
     engine: str = "vacask"
-def build(nl: Netlist, engine: str, settings: Settings) -> RunPlan
+def build(nl: Netlist, engine: str, settings: Settings) -> RunPlan   # NoteError with every note when one is
+                                                                    # an error; warnings in RunPlan.notes (§5.1)
 
 # vamos/netlist/signals.py  (dataclasses frozen in phase 0)
 Ref = Tuple[str, ...]   # ('v', node path) | ('i', element path) | ('noise', instance path) | ('onoise',)
@@ -2793,7 +2938,8 @@ class SignalMap:
                                                                                      # name, psf type), PSF order
     allpub: Set[str] = field(default_factory=set)       # step ids printed as save default / V(*) (§6.4)
 # psf type (§6.4): "V" | "I" | "V/sqrt(Hz)" (noise out; in with a vsource input) | "A/sqrt(Hz)" (in with an
-# isource input) | "V/V" | "V/A" (gain) | a noise instance's STRUCT type name (its model, else its master, §8.4)
+# isource input) | "V/V" | "V/A" (gain; and an xf trace of a vsource / an isource) | a noise instance's STRUCT
+# type name (its model, else its master, §8.4)
 PSF_V = "V"; PSF_I = "I"; PSF_V_NOISE = "V/sqrt(Hz)"; PSF_A_NOISE = "A/sqrt(Hz)"   # the values above, as
 PSF_GAIN_VV = "V/V"; PSF_GAIN_VA = "V/A"                                            # module constants (phase 0)
 PSF_TYPES = (PSF_V, PSF_I, PSF_V_NOISE, PSF_A_NOISE, PSF_GAIN_VV, PSF_GAIN_VA)    # the STRUCT names are per instance
@@ -2812,7 +2958,9 @@ def names_for(nl: Netlist, plan: RunPlan, sigmap: SignalMap) -> Dict[str, Dict[R
 def output_problems(text: str, nl: Netlist) -> List[Note]           # unknown model parameters (binned-card bounds
                                                                     # exempt), unrecognized parameters, netlist errors
 def device_summary_problems(text: str, nl: Netlist) -> List[Note]   # a built-in entry where a Netlist.va_modules
-                                                                    # module should be listed under its own name
+                                                                    # module should be listed under its own name;
+                                                                    # without per-type lines, the .op listing or the
+                                                                    # .HDL registration line (§4.5 item 13)
 
 # vamos/spectre/job.py  (phase 0)
 @dataclass
@@ -2851,7 +2999,8 @@ class SpectreJob:                       # implements the job protocol optable.sc
     unmapped: List[Unmapped] = field(default_factory=list)   # optable's five dispositions only
     notes: List[Note] = field(default_factory=list)          # scan-time errors (§2.3): exit 2 before the run dir
     defaults: Dict[str, object] = field(default_factory=dict)  # the defaults layer's scalars, by field name; the
-                                                               # scalar fields above hold argv's (None: not given)
+                                                               # scalar fields above hold argv's (None: not given);
+                                                               # a boolean the defaults set is applied as well (§2.2)
     def note(self, option: str, disposition: str, note: str = "") -> None   # appends Unmapped(option,
                                                         # disposition, note) to unmapped, as vamos.job.Job.note does
 def settings(job: SpectreJob, nl: Netlist) -> Settings  # §2.2: argv ⊕ the netlist's options ⊕ job.defaults (S5)
@@ -2902,9 +3051,13 @@ class AnalysisResult:
     status: str = "ok"                                           # ok | failed | interrupted
     rows: Optional[Callable[[], Iterator[Tuple[object, List[object]]]]] = None   # swept: (x, values in
                                                                  # TRACE order), streamed (§4.6)
-def collect(plan: RunPlan, sigmap: SignalMap, er: EngineResult, naming: str) -> Iterator[AnalysisResult]
+def collect(plan: RunPlan, sigmap: SignalMap, er: EngineResult, naming: str,
+            masters: Optional[Mapping[str, str]] = None,
+            notes: Optional[List[Note]] = None) -> Iterator[AnalysisResult]
     # needs no IR: sweep variables, units and descriptions come from each step's SweepLevels (§5.2, §8.3), trace
-    # types and noise STRUCT types from the SignalMap (§6.4), header values from args and options (§5.1)
+    # types and noise STRUCT types from the SignalMap (§6.4), header values from args and options (§5.1);
+    # masters: STRUCT type name -> master (§8.4); notes: its warnings (a missing column, nan/inf, the Xyce
+    # total-only note), none recorded when None, so the flow passes its list
 
 # vamos/spectre/run_vacask.py, run_xyce.py
 def run(nl: Netlist, plan: RunPlan, sigmap: SignalMap, run_dir: str, job: SpectreJob, log: SpectreLog) -> EngineResult
@@ -2912,8 +3065,8 @@ def run(nl: Netlist, plan: RunPlan, sigmap: SignalMap, run_dir: str, job: Spectr
 # vamos/output/psf.py
 SIMULATOR = "spectre"; LOG_GENERATOR = "drlLog rev. 1.0"; SIM_MODE = "Spectre"; SIGNAL_NAME_TYPE = "spectre"   # §8.2
 TYPES: Dict[str, List[str]]                             # the fixed 23.1 TYPE lists per family (§8.3); phase 0 is this
-                                                        # bare declaration, S4 assigns the value (until then psf.TYPES
-                                                        # does not exist)
+                                                        # bare declaration, S4 assigns the value: keys op, swept,
+                                                        # complex, parent, noise
 @dataclass
 class PsfHead:                                          # phase 0
     version: str = ""
@@ -2923,44 +3076,66 @@ class PsfHead:                                          # phase 0
     psfversion: str = "1.4.0"
     precision: str = "%.15e"                            # VALUE reals (options precision, §8.3)
     prop_precision: str = "%#g"                         # logFile PROP reals
-def psf_string(s: str, escchars: bool = False) -> str   # §8.3
+def psf_string(s: str, escchars: bool = False) -> str   # §8.3: the quoted token, quotes included
 def psf_date(t: datetime) -> str                        # §8.2: fixed English tables
-def write_analysis(dirpath: str, res: AnalysisResult, head: PsfHead, escchars: bool = False) -> None
-def write_logfile(dirpath: str, results: Iterable[AnalysisResult], head: PsfHead) -> None
+def precision(text: Optional[str], notes: Optional[List[Note]] = None, origin: str = "") -> str   # §8.3
+def write_analysis(dirpath: str, res: AnalysisResult, head: PsfHead, escchars: bool = False,
+                   notes: Optional[List[Note]] = None, masters: Optional[Dict[str, str]] = None) -> None
+def write_logfile(dirpath: str, results: Iterable[AnalysisResult], head: PsfHead,
+                  escchars: bool = False, stamp: Optional[str] = None) -> None   # stamp: a fixed "Log Time
+                                                        # Stamp" (the byte-identical goldens); None: time.asctime()
 # vamos/output/nutmeg.py
-def write(path: str, results: Iterable[AnalysisResult], binary: bool) -> None   # streams; §8.5
+def write(path: str, results: Iterable[AnalysisResult], binary: bool,
+          notes: Optional[List[Note]] = None, title: str = "", date: Optional[str] = None) -> None   # streams; §8.5
 # vamos/output/statefile.py
+def state_date(t: datetime) -> str                      # "5:39:38 PM, jan 21, 1992" (§8.6)
 def write(path: str, nodes: Mapping[str, float], currents: Mapping[str, float], circuit: str,
           analysis: str, date: str) -> None
-def read(path: str) -> Tuple[Dict[str, float], Dict[str, float]]   # (node entries, current entries), §8.6
+def read(path: str) -> Tuple[Dict[str, float], Dict[str, float]]   # (node entries, current entries: a name
+                                                                    # holding ':'), §8.6
 
 # vamos/spectre/args.py
 def defaults_tokens(env: Mapping[str, str], prog: str) -> Tuple[Optional[str], List[str]]   # (variable, tokens), §2.2
 def prescan(tokens: List[str], job: SpectreJob) -> List[str]   # takes +%X s / -%X and the help options (§2.1)
+# (phase 1, S5) not_read, without_vamos_options (the defaults layer's filters, §2.2), effective(job, name)
+# (a setting across the layers), cpp_runs(job), merged_classes(job)
 # vamos/spectre/percent.py
 def codes(job: SpectreJob, start: datetime, analysis: str = "") -> Dict[str, str]
 def expand(text: str, codes: Mapping[str, str]) -> str  # %X, colon modifiers, %%
 # vamos/spectre/cpp.py
-def preprocess(path: str, job: SpectreJob, run_dir: str) -> Tuple[str, str, List[Note]]   # (cpp.out, title, notes)
+def preprocess(path: str, job: SpectreJob, run_dir: str) -> Tuple[str, str, List[Note]]   # (cpp.out, title, notes);
+                                                        # NoteError for a missing cpp or a non-zero exit (§2.6)
+# (phase 1, S5) command(path, job, run_dir) (the verbose echo), title_of, stderr_notes, and the two checks of
+# §2.6 for flow to call: directive_errors(text, origin) ("CPP directive without -E" when cpp does not run),
+# macro_names/macro_warnings(text, origin, defines) (a defined macro inside a quoted SPICE expression)
 
 # vamos/spectre/log.py
 class SpectreLog:   # stdout/file routing per log_mode, classes, maxwarns/maxnotes per (id, analysis), counts,
                     # the trailer; built-in text for every banner key (§8.7)
-    def __init__(self, job: SpectreJob, banner: Banner, start: datetime) -> None   # limits: argv ⊕ defaults
+    def __init__(self, job: SpectreJob, banner: Banner, start: datetime) -> None   # limits: argv ⊕ defaults;
+                                                        # OSError when the log file cannot be opened
     def limits(self, settings: Settings) -> None        # the merged maxwarns/maxnotes (and to-log) from step 6 (§2.2)
     def message(self, note: Note, phase: str) -> None
     def line(self, text: str) -> None                   # provenance, verbose echoes, the run-directory note
-    def analysis_banner(self, res_or_step) -> None
-    def status_line(self) -> None                       # SIGUSR1, from the main loop (§2.7)
+    def analysis_banner(self, res_or_step) -> None      # an AnalysisStep, an AnalysisResult or (title, name, range)
+    def status_line(self, progress: str = "") -> None   # SIGUSR1, from the main loop (§2.7); the engine's progress
     def finish(self, status: int) -> None
-# vamos/spectre/flow.py
+    # (phase 1, S5, additive) analysis_done(res_or_step, seconds), run_start(), inventory(counts), audit(),
+    # version_text(which), text(key, **fields), file_only(text), close(); path, counts
+# vamos/spectre/flow.py  (phase 2)
 def run(job: SpectreJob, opts: dict) -> int             # the §1 pipeline and §2.7's signals and status mapping
 
 # vamos/personalities/spectre.py
 OPTIONS: List[Opt]; TABLE: Table                       # §2.3
 def build_job(argv: List[str], env: Mapping[str, str], cwd: str, prog: str) -> SpectreJob
 def main(args: List[str], opts: dict) -> int            # cli entry; the invoked name is tools.invoked (§2.1);
-                                                        # returns the Spectre exit status; never raises (§2.7)
+                                                        # returns the Spectre exit status; never raises (§2.7);
+                                                        # flow.run(job, opts) once spectre/flow.py imports
+def open_log(job: SpectreJob, opts: dict, start: datetime) -> SpectreLog   # (phase 1) step 1b; an unopenable
+                                                        # log: an error note and a screen-only log
+def report(job: SpectreJob, opts: dict, log: SpectreLog) -> int   # (phase 1) the scan-time notes and the
+                                                        # unmapped options; 2 when an error or --vamos-strict stops it
+def note_vamos_options(job: SpectreJob, opts: dict) -> None   # (phase 1) the vcs-ams-only options, INAPPLICABLE
 def help_text(topic: Optional[str] = None) -> str       # spectre -h [topic]; ≤ 100 columns, ends with the
                                                         # absolute path of docs/VAMOS_GUIDE.md (§2.1)
 
@@ -3113,12 +3288,17 @@ tests/vamos/fixtures/spectre/
                                     the files that quote or cite a manual until §14 q.41 is answered (below)
   cst/DIVERGENCES, cst/GAPS, cst/regen.sh
   spice/                            NetlistParse.rs tests/corpus/*.sp and their expected dumps
-  emit/, plan/                      goldens
-  psf/golden/, psf/real/ (+ PROVENANCE), psf/bad/
-  e2e/<nn>_<slug>/{deck.scs, expect.json, engine_expect.json}   expect.json: the Spectre-level checks (below);
-                                    engine_expect.json: the same checks in engine terms, for the phase-1b chain
-                                    without flow.py. S6 writes the deck, expect.json and engine_expect.json
-                                    for e2e 1-10 in phase 1b; phase 2 writes 11-30 (§12)
+  emit/, plan/                      goldens (emit/: S3's decks, <case>_vacask.sim / <case>_xyce.cir)
+  psf/golden/<case>/, psf/real/ (+ PROVENANCE), psf/bad/   psf/golden/engine/{vacask,xyce}/: real VACASK and
+                                    Xyce outputs of small divider decks, for the results tests
+  e2e/<nn>_<slug>/{deck.scs, expect.json, engine_expect.json, render/<engine>/}   expect.json: the
+                                    Spectre-level checks (below); engine_expect.json: the same checks in engine
+                                    terms, for the phase-1b chain without flow.py; render/vacask/vamos.sim and
+                                    render/xyce/vamos_a<k>.cir: the rendered decks, golden on both legs
+                                    (regenerated with VAMOS_REGEN_GOLDEN=1); a deck may bring its included
+                                    files (models.scs, lib.scs, *.va) and a second deck (`also`). S6 writes
+                                    the deck, expect.json and engine_expect.json for e2e 1-10 in phase 1b;
+                                    phase 2 writes 11-30 (§12)
   xdm/<CATEGORY>/                   Xyce_Regression XDM/SPECTRE d4685581: .cir.spectre, gold .cir, aux files (the
                                     *.cir.sh run scripts, which carry XDM's tolerances and expected message
                                     counts, and the data files; not the CTest plumbing)
@@ -3132,7 +3312,12 @@ tests/vamos/fixtures/spectre/
 tests/vamos/test_spectre_docs.py    the document check: every inferred tag of this design names an existing §14 q.N
 ```
 `expect.json`: `{argv, engines, status, files, values: [{file, signal, at, value, rel, abs}], cross_engine:
-{rel}, messages: [[severity, substring]]}`.
+{rel}, messages: [[severity, substring]]}`, with the §8.1 modern file names, a STRUCT's members as a dict
+value, an optional per-engine override (`xyce`: e2e 5's refusal) and `also` for a second deck.
+`engine_expect.json` (S6's shape): per engine `{status, refused?, steps: {vamos_a<k>: {name, kind, columns:
+{<Spectre name>: <engine column>}, signals?}}, checks: [...]}`, each check `{step, signal | col, row | at,
+select, plot, value, rel, abs}` or one of `{points}`, `{plots}`, `{groups}`, `{absent}`, `{equal}`; plus
+`also` for a second deck beside `deck.scs` (e2e 10's `deck_cross.scs`).
 
 **Licences.** sv2ghdl is GPL-3.0-or-later (`LICENSE`), so every source below is compatible. `LICENSE`'s
 third-party fixtures clause and `fixtures/README` (whose "Third-party files" section is the precedent) are
@@ -3153,6 +3338,17 @@ classifier, commit 6797146 shipping no licence file, which `fixtures/spectre/REA
 vendored); the XDM decks (GPL-3.0-or-later, Copyright 2019 NTESS, `Xyce_Regression/README.md:62-78`).
 
 ### 11.1 T0: unit (Cygwin Python 3.9 and WSL Python 3.14)
+The lists below live in these files (phase 1 and 1b): `test_spectre_cli.py` (CLI, percent codes, cpp,
+fragments, log; S5), `test_spectre_expr.py` (the expression dialect), `test_spectre_spice.py` (the
+`spectre-spice` switch points), `test_spectre_lang.py` (lexer, numbers, parser, sources and models, on the
+`lang/` fixtures), `test_spectre_cst_oracle.py` (the CST oracle), `test_spectre_spice_corpus.py` (the
+SPICE-mode acceptance; S1), `test_spectre_plan.py` and `test_spectre_signals.py` (S2), `test_spectre_emit.py`
+(the emitter extensions and their HSPICE-route regressions, with WSL engine runs of the §7 rows; S3),
+`test_spectre_outputs.py` (outputs, streaming, and the vendored psf-parser on WSL; S4) and
+`test_spectre_chain.py` (S6: parse → plan → signals → render for e2e 1-10 on both legs, and on WSL the
+decks run on both engines and checked against `engine_expect.json`); beside the phase-0 files
+`test_spectre_contract.py`, `test_spectre_masters.py`, `test_spectre_docs.py` and `test_spectre_psfcheck.py`.
+T3a is `test_spectre_xdm.py` (§11.3).
 - **CLI:**
   - every §2.3 row through `build_job` (the `=` family, abbreviations, `+mt` against `+mt=4` against
     `+mtmode`, `-D` against `-debug`); an *error* row appends to `SpectreJob.notes` and stops before the run
@@ -3334,7 +3530,9 @@ vendored); the XDM decks (GPL-3.0-or-later, Copyright 2019 NTESS, `Xyce_Regressi
   - noise STRUCT naming (`rref`, `resistor`, a Verilog-A module, a collision with `V`), the `nc()` saves and a
     subckt instance's STRUCT;
   - streaming: a 10^6-point synthetic rawfile converts to PSF and to nutbin under a fixed peak RSS (200 MB)
-    [E85];
+    [E85], in a subprocess that reads its own peak from `/proc/self/status` `VmHWM` (reset at exec), with
+    `ru_maxrss` as the fallback where there is no `/proc`: Linux keeps `ru_maxrss` across fork and exec, so
+    late in a whole-suite run it reported the test runner's peak [E112];
   - nutmeg: no `logFile`; read back by `rawfile.read_all` here, and in T2 by ngspice;
   - state files: the two-line header in the UG p.204 layout (`at 5:39:38 PM, jan 21, 1992.`), 15 significant
     digits, nodes then `V1:p`, read back with the current entries dropped and noted, `read=`;
@@ -3405,7 +3603,10 @@ Values asserted in the PSF, `logFile` contents and exit status.
    parent and leaves.
 2. dc sweeps of a source, `temp`, a top-level parameter, a model parameter (one renamed by `SPECTRE_MASTERS`)
    and a subckt-instance parameter, primary and dependent (`X2.R1`); the swept value restored for the next
-   analysis.
+   analysis. As built (phase 1b): the renamed model parameter is a `bsim3v3` card's `vtho` (`vth0`), not the
+   diode's `ik` (`ikf`), on which the engines differ [E107]; the primary is `sub=X2 param=r`, and the
+   hierarchical `dev=` target is `X3.R1` of a second subckt whose `r` is a constant, since VACASK cannot
+   sweep a parameter bound to an expression (§5.2 [E102]; `dev=X2.R1` is pinned as that error).
 3. A sweep block with dc and ac children and a nested sweep; repeated sweep values (`values=[1k 1k 2k]`);
    the nested leaves in the right order on Xyce; an op child under two sweeps.
 4. Noise of a 1 kΩ/1 kΩ divider: `out` = 2.879e-9 V/sqrt(Hz) at 27 °C; a `R1` STRUCT with `rn` and `total`;
@@ -3420,11 +3621,14 @@ Values asserted in the PSF, `logFile` contents and exit status.
    `simulator lang=spice` model section inside a `.scs` file.
 8. `include … section=` with a library file; `ahdl_include` of a Verilog-A resistor declaring `R`, given
    `R=3k` (VACASK); on Xyce an unparameterized plain module and a module carrying `xyceModelGroup` attributes
-   with an instance parameter (the ADMS `toys/resistor.va` pattern [E64]).
+   with an instance parameter (the ADMS `toys/resistor.va` pattern [E64]); on Xyce the `.va` files sit
+   beside the deck, named by base names (§4.5 item 13 [E104]).
 9. A model group (BSIM4 bins split in L and W): every device on its group entry; an edge geometry exactly on
    `lmin`; a MOS without `l`, taking the card's and the master's default, equal on both engines.
 10. An inline subckt binning by `area` with same-named branches (the UG `npn_mod` structure): the outputs name
-    the devices `q1 q2 q3`; a sweep of `area` inside one branch runs, one that crosses it is an error.
+    the devices `q1 q2 q3`; a sweep of `area` inside one branch runs, one that crosses it is an error. The
+    inner `npn_mod` instances carry no `area=` (UG p.110's structure, `area` only the branch selector):
+    passing it would scale the BJTs by 3.5e-10.
 11. Exit status: one failing analysis among good ones (status 1, the others written); a failing sweep point
     (the leaves before it written, status 1); a tran that aborts mid-run (status 1, not 0 [E66]); a VACASK bind
     failure (status 1, not 0); a parse error (status 2, the `terminated prematurely` trailer); SIGINT during a
@@ -3495,9 +3699,18 @@ Values asserted in the PSF, `logFile` contents and exit status.
 - **(a) XDM** (`test_spectre_xdm.py`, written by S6 in phase 1b, §12): the 12 Spectre decks of Xyce_Regression `Netlists/XDM/SPECTRE`
   (d4685581), ten of them real ADE netlists, with D1N3940.scs and two PWL data files. Their hand-written Xyce
   golds run on Xyce with rc 0 in 0.11-0.21 s each [E90]. vamos spectre on Xyce is compared with the gold run
-  on Xyce at XDM's tolerances (absTol 1e-5, relTol 1e-3, zeroTol 1e-10), and VACASK with Xyce within 1 %; the
+  on Xyce at XDM's tolerances (absTol 1e-5, relTol 1e-3, zeroTol 1e-10), pointwise: the gold is re-run with
+  vamos's `.TRAN` line (Spectre's maxstep T/50, §5.4, which XDM drops), so both Xyce runs share a stepping
+  policy, as XDM's own comparison assumes; on the gold's own grid the comparison cannot be made, since
+  linear interpolation across two grids errs by (ωh)²/8 of the amplitude, 0.4 % of full scale on the 1 kHz
+  sines, which no pointwise relTol survives at a zero crossing [E110]. vamos on VACASK is compared with vamos
+  on Xyce (the same decks' semantics and time controls), the Xyce run interpolated at VACASK's time points,
+  within 1 % of the signal's full-scale amplitude, allowing at most 2 % of the points outside it and none
+  beyond 10 % (the outlier rule, §14 q.55): an isolated breakpoint the reference did not sample (the exp
+  source's `td2` [E106]) or a knee the engines step differently (the diode clipper [E105]). The
   name map: `RR1`, `VV1`, `XX1:RR1` are `R1`, `V1`, `X1.R1`. Expected dispositions: `bsimsoi_translation`
-  exits 2 naming `bsimsoi`; `statistics_line` runs at nominal; the info statements, `sensfile`,
+  exits 2 naming `bsimsoi`; `case_sensitive_names` exits 2 on Xyce (`r0` and `R0` differ only in case, which
+  Xyce would merge) and runs on VACASK; `statistics_line` runs at nominal; the info statements, `sensfile`,
   `checklimitdest`, `rforce`, `digits`, `cols` and `pivrel` give notes. A disagreement with a gold is settled
   against [M]: the golds are XDM's own reading (for example the isource with no `ampl`).
 - **(b) Cadnip engine oracle** (optional, `VAMOS_CADNIP_VACASK`; skipped otherwise). Inputs:
@@ -3622,7 +3835,7 @@ every tracked `test_*.py` byte-identical to HEAD, every `vamos/*.py` parsing at 
 importing on both legs. §16's last bullet lists the deviations. The same day the two failures were resolved
 (q.52: R6R-27 updated, committed apart from phase 0; q.50: the E63 fixture re-pinned to the measured launcher) and
 the WSL leg was re-run in the foreground of a live session on the final tree: 1955 tests, OK, 2 skipped, 1609 s;
-§14 q.50 (the level route's rule and the summary check) and q.51 stay open.
+§14 q.50 is answered (a PyMS bug, pinned in the xyce repo; the rule stays until the fix) and q.51 stays open.
 
 **Phase 1** (parallel; each agent owns its files and tests; nobody commits):
 
@@ -3637,6 +3850,25 @@ the WSL leg was re-run in the foreground of a live session on the final tree: 19
 Done when (per agent): its T0 lists are green on both legs, the phase-0 contracts are unchanged
 (`test_spectre_contract.py`), and the merge gate is green.
 
+**Done, 2026-10-10.** Five owners built phase 1 in parallel on the phase-0 tree, and a merge stage settled
+their seams (the conventions of §16's last bullet). Each owner's modules, on the Cygwin leg (Python 3.9.16)
+and the WSL leg (Python 3.14.4): S1 `test_spectre_expr` 32, `test_spectre_spice` 34, `test_spectre_cst_oracle`
+6, `test_spectre_lang` 60, `test_spectre_spice_corpus` 3, OK on both legs (the corpus: 26 of 62 files parse,
+every other failure named [E113]); S2 `test_spectre_plan` and `test_spectre_signals` 94 tests, OK, 2 skipped
+for phase 1b, on both; S3 `test_spectre_emit` 52, OK (7 engine skips on Cygwin; on WSL the VACASK and Xyce
+runs included, 20 s); S4 `test_spectre_outputs` 61, OK (on Cygwin 1 skipped: psf-parser needs Python 3.10),
+every PSF golden accepted by `psfcheck` on both legs and by the vendored psf-parser on WSL; S5
+`test_spectre_cli` 86, OK (3 skipped on Cygwin, 2 on WSL, where the cpp test runs), the vcs, vcs-ams and usage
+help texts byte-identical to HEAD. Each owner's existing-module runs were green except the phase-0 pins of the
+stubs it implemented (`NotImplementedError` asserted by `test_spectre_contract.py`, `test_spectre_shared.py`
+and `test_spectre_moves.py`), which the merge stage (S2-S5's: 9 pins) and phase 1b (S1's: 6) released, each
+replaced by an assertion of the implemented value; every other line of those files is unchanged. After the
+merge, the 19 listed modules ran green on both legs (`test_spectre_engine_facts` 89 OK in 214 s and
+`test_ams_e2e_basics` 79 OK in 169 s on WSL) except S1's six pins and S1's corpus test, then in flight; once S1
+finished, the whole Cygwin suite was 2360 tests with exactly those six failures. A chain smoke (plan → signals
+→ render on both engines for a hand-built IR) found the one convention gap the merge closed: a `tran` without
+`step` stopped the Xyce render, so `plan.build` fills it (§5.1).
+
 **Phase 1b (S6 netlist integration, after S1–S3):** `spectre.parse` → `plan.build` → `signals.resolve` →
 `render` on both engines for e2e 1–10, without `flow.py`, and the T3a XDM decks through the same chain
 (`test_spectre_xdm.py`, which S6 writes). The results directory does not exist yet, so S6 first writes those
@@ -3647,11 +3879,72 @@ values at points in the engine's raw output, the exit status of the engine run. 
 eight seams). Done when: e2e 1-10 and the T3a decks match their engine-level expectations on both engines,
 and the merge gate is green.
 
+**Done, 2026-10-10.** S6 wrote e2e 1-10 (`deck.scs`, `expect.json`, `engine_expect.json`, `render/<engine>/`
+goldens, §11), `test_spectre_chain.py` and `test_spectre_xdm.py`. On both engines e2e 1-10 match their
+engine-level expectations, e2e 5 as Xyce's planned refusal (`xf`, exit 2) and e2e 10's `deck_cross.scs` as
+the condition-change error on both; the engines agree with each other and with the analytic values where
+the circuit gives them [E111]. Of the 12 XDM decks, 10 run on both engines (vamos on Xyce pointwise against
+the re-run gold, vamos on VACASK within 1 % of full scale under the outlier rule, §11.3), `case_sensitive_names`
+runs on VACASK and is refused on Xyce, and `bsimsoi_translation` is refused on both. The chain found seven
+seams, which S6 fixed in `netlist/` (§16's last bullet): the diode `is` row; vector elements with an exponent
+sign; SPICE-mode positional R/C/L values (e2e 7's `r1` had been infinite and `c1` 0); `center`/`span` under
+the ratio rule; VACASK alter and sweep instance paths quoted inside string arguments; VACASK's refusal of a
+sweep of an expression-bound instance parameter; and VACASK's per-unit native currents of `m` ≠ 1 instances
+(XDM `rlc`: half of Xyce's total). S6 released S1's six pins and S2's two phase-1b skips. Gate: the 29 listed
+modules on both legs, OK (Cygwin `test_spectre_chain` 21 and `test_spectre_xdm` 25 with their engine tests
+skipped; WSL `test_spectre_chain` 21 in 21 s and `test_spectre_xdm` 25 in 6 s, both engines run,
+`test_spectre_engine_facts` 89 in 211 s, `test_ams_e2e_basics` 79 in 167 s). The gate stage then ran the
+whole `tests/vamos` suite on the Cygwin leg (Python 3.9.16): 2410 tests, OK, 1050 skipped, 43 s; its first
+whole WSL run (foreground) had one failure, `test_spectre_outputs.TestStreaming`, whose measure read
+`ru_maxrss`, the test runner's 649 MB peak late in the run (alone the test passes at about 67 MB), so the test
+now reads `VmHWM` [E112]; and `regress run hazard3/vamos --filter mandel8_i16`: 1 test, pass, golden match
+(68 words), cycles 35720 = reference. The whole WSL suite, run in the foreground of a live session after the streaming test's measure was corrected: 2410 tests, OK, 4 skipped, 1701 s.
+
 **Phase 2 (integrator):** `spectre/{flow,run_vacask,run_xyce}.py`, with §2.7's signal handling through
 `vamos/proc.py` and its exit-status mapping; the remaining e2e decks (11-30) and their `expect.json`; the T2
 tests and T3 tiers (the Cadnip harness of T3b, the CMC tier of T3c); the run-dependent parts of the guide's
 spectre section, from real runs (§10). Done when: the WSL gate run (T0, T1, T2, T3a) and the merge gate are
-green on both legs.
+green on both legs. What phases 1 and 1b leave to it:
+- `flow.py`: steps 1 and 1b through `personalities.spectre.open_log(job, opts, start)` and `report(job, opts,
+  log)` (no second log opening), the scan-time stop (exit 2 before the run directory), `notes.has_errors(job.
+  notes)` again after `job.settings()` (rawfmt and paramdefault errors land there), `log.limits(settings)` at
+  step 6, `run_start`/`inventory`/`analysis_banner`/`analysis_done`/`status_line`/`finish`; without cpp,
+  `cpp.directive_errors`, after it `cpp.macro_warnings`, and `cpp.command` echoed under `--vamos-verbose`
+  (§2.6, §10);
+- the Xyce state replay of §7.2 (`test_spectre_chain.replay` is the reference: `Action.args` target, value
+  and `source`, the r/c/l value keys, `SPECTRE_MASTERS` renames reversed, model groups by base name,
+  temp/tnom, variables with the `Param` expression);
+- the Verilog-A sources copied into the run directory and named by base names in the `.hdl`/`load` lines
+  (§4.5 item 13 [E104]), or the emitters printing base names when the files sit beside the deck;
+- `signals.resolve` run in the netlist's directory, or absolute state-file names in `AnalysisStep.args`: it
+  reads `readns`/`readic`/`read` files relative to the process cwd;
+- `results.collect` and `psf.write_analysis` given `notes=` (the run's list) and `masters=` (STRUCT type name
+  → master, built from the IR per noise instance, §8.4); `psf.write_logfile(…, escchars=job.escchars)`;
+  `nutmeg.write(…, notes=…, title=<design title>)` and §8.5's `<dir>/%C:r:t.raw` rule; `EngineResult.files`
+  per step (`.prn` for Xyce noise, read by `rawfile.read_prn`), `names` from render for every Ref except the
+  axes, `failed_points` 1-based, status ok|failed|interrupted; `options save=none`/`nooutput` and `dc
+  print=yes` handled outside `collect`; VACASK's `gain` column is the power gain and its `('inoise',)` column
+  `gain` too (e2e 4's `engine_expect.json` pins the raw columns, §8.4 takes the square roots);
+- `spectre_testlib.SpectreCase.check_expect` for e2e 1-10's `expect.json` (written for it: values with
+  `file`/`signal`/`at`/`value`/`rel`|`abs`, STRUCT members as a dict, the `xyce` override, `also`), and the
+  cross-engine comparison at the Spectre level (`cross_engine.rel` is filled; the phase-1b chain test pins
+  each engine against its own measured values); `test_spectre_outputs.compare_results_dir` is e2e 28's
+  structural checker, to move into `spectre_testlib` if phase 2 imports it from there;
+- the two phase-2 skips of `test_spectre_cli` (a run whose defaults hold unread options still simulates and
+  exits 0; `VAMOS_CPP=/nonexistent` with `-E` gives exit 2 through the flow);
+- the duplicate option note (§14 q.54); e2e 9's 20 `nrd`/`nrs` and `w`/`l` default notes for 8 devices,
+  correct per §3.9 and capped by §8.7's `maxnotes`, to be checked for readability;
+- the engine facts E102-E109 and E114 harvested into `engine_facts/` (§11 T1, §13);
+- whether the uncapped Cartesian product of sweep states (§5.1; each state re-walks `tables.path_envs`) needs a
+  cap for 1e5+ states; `plan.build` and `signals.resolve` change the input IR temporarily and restore it
+  (single-threaded); `xyce.path_of`'s noise-input match, like the hooks', assumes §5.3's one-path rule, which
+  only `plan.build` enforces (a hand-built step could print `AC 1 0` into a shared definition); the guards
+  that remain behind the probes (`xyce.names_for`'s "needs a probe", VACASK's "has no branch current");
+- a `bsim4` model-group golden with `nf` > 1 (Spectre's `bsim3v3` instance has no `nf`, so §3.9's total-`w`
+  rule is exercised only through `select_bin_spectre`/`bin_guard_spectre`); Xyce's refusal of a group
+  instance whose geometry is not a number on its path (§4.5 item 3) kept or lifted;
+- `shims/spectre` (a symlink to `../bin/vamos`) added to git from a leg where `core.symlinks` records a link
+  (phase 2f).
 
 **Phases 2b-2f (to commit), as vcs-ams's phases 3-5 and repair rounds were run (`VAMOS_AMS_DESIGN.md` §10):**
 - 2b, review: an adversarial review of the whole diff (several lenses), every finding re-checked by an
@@ -3730,6 +4023,13 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
   alternative, not asserted), E90 and E100 (T3a), E91, E97-E99 (T3c, T0's preprocessor fixture, e2e 29), E92
   (a build record, not asserted) and E78 (the re-runs, which their rows' tiers cover).
 
+E102-E114 come from phases 1 and 1b (2026-10-10, on the builds §0's [E] row names), measured by the owners
+while building and by the chain of e2e 1-10 and the XDM decks. E102-E109 and E114 are engine facts, pinned
+today by the phase-1 tests that rest on them (`test_spectre_plan`, `test_spectre_signals`,
+`test_spectre_emit`, `test_spectre_chain`, `test_spectre_xdm`, E63's added `-norun` run) and harvested into
+`engine_facts/` in phase 2 (§12); E110 and E111 are T3a and e2e measurements, E112 a platform fact behind the
+streaming test, and E113 an observation of the phase-1 code.
+
 | # | experiment | result |
 |---|---|---|
 | E1 | VACASK: top-level `r=rval` with `var rval=1k`, then `sweep variable="rval" values=[1k,3k]`, then an op | the sweep gives b = 0.5 and 0.25; the op after it gives 0.5, so the variable was restored |
@@ -3794,7 +4094,7 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
 | E60 | appended parameters, include order and fragments (`sp3/SPICE/exp4.py`, `exp5.py`, `exp6.py`) | `rload a 0 1k isnoisy=no` printed `rload (a 0) vamos_sp_resistor r=1000.0 isnoisy=no` (VACASK) and `rload a 0 1000.0 isnoisy={no}` (Xyce); `sub/a.sp` including `b.sp` used `./b.sp` (r1 = 1k) over `sub/b.sp` (2k) with only a note; `.include 'models.scs'` holding `simulator lang=spectre`: "an S-parameter element (HSPICE S) is not supported", "model needs 4 nodes and a model"; an undeclared override `zz=3` accepted; `spice.parse([], lines)` found `lib/models.sp` from a `lib/top.scs:4` origin; `.param p=q*2` with q in Spectre text: "parameter p uses q, which is not defined at top level"; "X1: subckt spectre_cell not found" |
 | E61 | the 48 CMC decks through today's `spice.parse` (`sp3/SPICE/cmc_parse.py`, `cmc_parse2.py`) | 8/48 parse with `search=['../code']`, 0/48 without; the 13 `bsimcmg_107` and 13 `BSIMCMG108` decks stop at "bsimcmg.va declares no Verilog-A module", 108/110 at "model type BSIMCMG is not supported"; with a module scan that follows `` `include``, the stem alias and the decks cut at `.alter`: 44/48, the other 4 stop at `.ic 1=1` ("write v(node)=value, not 1"; HSPICE accepted it) |
 | E62 | NetlistParse.rs's SPICE corpus (62 `tests/corpus/*.sp`) through today's `spice.parse` (`sp3/SPICE/nprs_parse.py`) | 25 parse, 37 fail, every failure named (POLY/TABLE/`.data`/`.if`, S/W/N/Y elements, missing include files, the deliberate `err_*.sp`); `b1_dots.sp` and `ex_tran.sp` stop on SPICE3 `.tran` ("tstop values must increase") |
-| E63 | Xyce PyMS, `/usr/local/bin/Xyce` (`sp3/SPICE/xy1.sh`, `xy2.sh`; logs in `sp3/SPICE/out/`) | a module in a file the `.hdl` file includes compiles and runs; `.model rm myres r=2k` + `ymyres x1 a 0 rm`: I(V1) = −1.00000000e-03 (the module default r = 1k), no message; a module tagged `DIODE` level 2002 with `.model dm d level=2002 r=2k`: "No model parameter R found for model DM of type D, parameter ignored", I(V1) = −3.395e-7, and the Device Count Summary lists `D level 2002 (DIODE_CMC 2.0.0)`: the level is Xyce's built-in DIODE_CMC, so the card bound the built-in model, not the module. These ran without `env_for`, on the 2026-09-29 library; the card-parameter fact was re-run under `env_for` on both launchers with the same result (E96); T1 re-runs the rest there. Phase 0's gate (2026-10-10), on the rebuilt `/usr/local/src/xyce-build/src/Xyce` (DEVELOPMENT-202610100047, 7cd78110, `libxyce.so` of 2026-10-10 00:52): the same level-2002 deck prints "Netlist warning: .HDL: compiled and registered mydio from mydio.va" and its Device Count Summary lists `MYDIO (mydio) 1`, so the `.hdl` module is bound on the `level=2002` card and neither message of this row appears, while the Y-form fact and the `` `include`` fact hold; measured again after the gate: the `.op` listing shows one `mydio` model `DM` carrying the card's `R 2000` and one instance `D1`, I(V1) = −1.00000000e-03 (the module's default r = 1k: the card value is listed but not applied, as on the Y form), neither DIODE_CMC message appears and the Device Count Summary prints only `Total Devices 2`, no per-type line; the T1 fixture pins this 2026-10-10 observation as run `level_card_binds_module` (§14 q.50) |
+| E63 | Xyce PyMS, `/usr/local/bin/Xyce` (`sp3/SPICE/xy1.sh`, `xy2.sh`; logs in `sp3/SPICE/out/`) | a module in a file the `.hdl` file includes compiles and runs; `.model rm myres r=2k` + `ymyres x1 a 0 rm`: I(V1) = −1.00000000e-03 (the module default r = 1k), no message; a module tagged `DIODE` level 2002 with `.model dm d level=2002 r=2k`: "No model parameter R found for model DM of type D, parameter ignored", I(V1) = −3.395e-7, and the Device Count Summary lists `D level 2002 (DIODE_CMC 2.0.0)`: the level is Xyce's built-in DIODE_CMC, so the card bound the built-in model, not the module. These ran without `env_for`, on the 2026-09-29 library; the card-parameter fact was re-run under `env_for` on both launchers with the same result (E96); T1 re-runs the rest there. Phase 0's gate (2026-10-10), on the rebuilt `/usr/local/src/xyce-build/src/Xyce` (DEVELOPMENT-202610100047, 7cd78110, `libxyce.so` of 2026-10-10 00:52): the same level-2002 deck prints "Netlist warning: .HDL: compiled and registered mydio from mydio.va" and its Device Count Summary lists `MYDIO (mydio) 1`, so the `.hdl` module is bound on the `level=2002` card and neither message of this row appears, while the Y-form fact and the `` `include`` fact hold; measured again after the gate: the `.op` listing shows one `mydio` model `DM` carrying the card's `R 2000` and one instance `D1`, I(V1) = −1.00000000e-03 (the module's default r = 1k: the card value is listed but not applied, as on the Y form), neither DIODE_CMC message appears and the Device Count Summary lists `MYDIO (mydio) 1` (a first reading of this re-run said it printed only the total: a filter on the captured output had dropped the per-type lines); the T1 fixture pins this 2026-10-10 observation as runs `level_card_binds_module` and `level_card_norun_summary` (§14 q.50) |
 | E64 | Verilog-A on Xyce PyMS and VACASK (`sp3/ENG/r_va.sh`, `r_va2.sh` with the ADMS `toys/resistor.va` and `diode.va`; the Device Count Summaries in `sp3/ENG/va/x5.xlog`, `x7.xlog`) | Xyce: vamos's Y form for an `xyceModelGroup` module, with or without parameters (x1-x4, x6, x8): "Unrecognized parameter A for device YRESISTOR!R1", rc 1; `.model rmod r level=6` + `R1 a b rmod R=3k` (x5): V(B) = 0.25, the summary `RESISTOR (resistor)`; `.model dm d level=1002001 Is=1e-14 Rs=10` + `D1 a 0 dm` (x7): rc 0, "Numerically singular matrix found by Amesos, returning zero", V(A) = 1.01e9; an unattributed module (default r = 2000): no parameters 0.3333, `.model rc vres r=3000` still 0.3333 with no warning, `yvres r1 a b vres__vamos r=3000` "Unrecognized parameter R"; Xyce accepts `R=3k` and `r=3k`. VACASK: `model r1__va resistor R=3k`: "Parameter 'R' not found.", rc 1; `r=3k`: 0.25; `model d1__va diode_simple Is=1e-14 Rs=10`: "Parameter 'Is' not found."; an instance-typed parameter on the per-instance card works. 28 of the 54 ADMS example `.va` files carry `xyceModelGroup`/`xyceLevelNumber`, every CMC model among them (`bsimcmg_111`: MOSFET, 111, `TYPE`, 0). These Xyce runs used `env_for`'s library path (`sp3/ENG/env.sh` sets it; launcher `/usr/local/src/xyce-build/src/Xyce`) |
 | E65 | a nested subckt reading its enclosing subckt's `rr` (`sp3/ENG/r_new.sh` N5) | VACASK: "Variable or constant 'rr' not defined."; Xyce: V(OUT) = 0.5, rr = 1k inherited from the X line |
 | E66 | failed analyses under `strictoutput=0` (`sp3/ENG/r_fail.sh`, `r_new.sh` N2) | two parallel sources: "Analysis 'op1' aborted." …; `op1.raw`, `ac1.raw`, `nz1.raw` exist with a blank `No. Points:` and 0 rows, rc 0; a Verilog-A source that goes NaN at 1 µs: "Timestep too small. Transient analysis aborted.", "Analysis 'tr1' aborted.", rc 0, `tr1.raw` with a blank `No. Points:` and 50 rows, the last at 1.0e-6 s of stop 3e-6 s; every completed analysis fills the field. Xyce: a tran that fails part-way exits 1 ("Time step too small … Exiting transient loop", or "Maximum number of failures … Xyce Abort") and leaves a header-only RAW print file |
@@ -3833,9 +4133,23 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
 | E99 | the CMC decks on Xyce: which device runs (`sp3/FIX/v1.sh` re-running the completeness lens's `sp3/COMP/w12.sh` on the engine lens's cadence2xyce'd BSIM6 `idvg_nmos.cir`, logs `sp3/FIX/b6/{plain,envfor}/run.log`; `sp3/FIX/v4.sh` over `sp3/ORC/p3all/*/run.log`, the logs of E91's `s26_cmc_all.sh`) | the deck holds `.hdl "BSIM6.1.1_inlined.va"` and `.model nmos nmos level=77`. `/usr/local/bin/Xyce` in a plain environment: "compiled and registered bsim6", the Device Count Summary lists `M level 77 (BSIM6) 1`, "End of Xyce", rc 0. Under `env_for`'s library path: "No model parameter GEOMOD found for model NMOS of type NMOS", no M entry in the summary, rc 139 (a segmentation fault). In the 50 CMC run logs, every summary that lists the device lists a built-in ADMS device, `M level 77 (BSIM6)` (the 9 BSIM6 decks) or `M level 107`, `108` or `110 (BSIM-CMG FINFET v107.0.0`, `v108.0.0`, `v110.0.0)`, never a module name; these are the built-ins' names (`N_DEV_ADMSbsim6.h:3335-3336`: "BSIM6", "M level 77"; registered at `N_DEV_RegisterADMSDevices.C:89-93`), while PyMS names a device after its module (`PyMS/vae/xyce_device_gen.py:513-514`). `s26_cmc_all.sh` runs `/usr/local/bin/Xyce` and sets no `LD_LIBRARY_PATH` |
 | E100 | the BSIM-CMG decks and the XDM decks (`sp3/FIX/v1.sh`; first examined by the completeness lens, `sp3/COMP/w7.sh`, `w9.sh`, `w10.sh`) | BSIMCMG108.0.0_20140822: 13 decks, each with `.hdl "bsimcmg.va"`, the modelcards' `.model` type `bsimcmg` (7 cards); `bsimcmg.va:48` is `` `include "bsimcmg_main.va"``, which declares `module bsimcmg_108`; `module bsimcmg` is only in `bsimcmg_nqsmod3.va`, which the tree does not include. BSIMCMG110.0.0_20160101: 13 decks, `.hdl "bsimcmg.va"`, type `bsimcmg`, module `bsimcmg_110`. The XDM SPECTRE decks (Xyce_Regression d4685581): masters `resistor` 46, `vsource` 22, `isource` 9, `inductor` 5, `capacitor` 4, `nfet`/`pfet` 1 each, two diodes; analyses `dc` 1, `tran` 11, `info` 70; no `ac`, `noise`, controlled source, mutual inductor or jfet |
 | E101 | the real samples and the corpus (`sp3/FIX/v1.sh`-`v3.sh`, outputs `v1.out`-`v3.out`) | psf-parser `tests/data` (Spectre 23.1.0.242): `"design" "#RC Low-Pass Filter"` in every file; `myop.dc` in = out = 1 V; `mydc.dc` "Vin:dc = (0 V -> 2 V)", SWEEP `"dc"` (V), step 0.1; `myac.ac` 1 Hz → 1 MHz, grid 3; `mytran.tran.tran` stop 0.5, step 5e-4, maxstep 0.01, errpreset moderate, 6002 points, `in` = 1.0 at t = 0 and 1.5 at t = 8.3333e-5 s (1 + sin(2π·1 kHz·t)); the `mysweep_*.sweep` parents `"R1:r"` (Ohm) 1000/2000/3000, `mysweep-00i_mynestedsweep_ac2.sweep` `"C1:c"` (F) 1e-6/2e-6/3e-6; `binary/logFile` (ASCII) lists the `myinfo_*-info` entries, `myop-dc`, `mydc-dc`, `myac-ac`, `mytran-tran`, the three `mysweep_*-sweep` parents, per point `dc1`, `ac1`, the nested parent and its three `ac2` leaves, then `dc2-dc`, `tran1-tran` (stop 5 ms) and the `mymonte` entries. Dates: `joop-banaan.dc` (19.1, native) `1:07:28 PM, Tue Feb 2, 2021`, `fracpole.dc` (20.1) `11:50:23 AM, Tue Feb 2, 2021`; `bus_chevrons.tran`'s `1:35:51 AM, Mon Dec 1, 2025` sits beside "circuitmuggle". allpub order: `rushikesh-dhanaji-phadtare.tran` (`"BINPSF creation time"`, 19.1.0.063) TRACE `"group" GROUP 5`: `net1 net2 V0:p V1:p vdd!`; the native `joop-banaan.tran` (19.1.0.373.isr7): `V1:p vinp vref_o I2.pup2 I2.pup_b …` (explicit saves, unsorted). NetlistParse.rs `tests/corpus/spectre`: 20 of 126 files cite or quote a manual (`spectre_reference.txt:<line>`, "manual"; the list is in §11), `array_sweep.scs` among them as a "verbatim manual example" |
+| E102 | a VACASK sweep of an instance parameter bound to an expression (VACASK 0.3.4-91 with the rebuilt `.osdi`; e2e 2's `dev=X2.R1`, phase 1b) | `sweep … instance="X2:R1" parameter="r"` with `R1`'s `r=r` reading its subckt's parameter: "parameter r of instance X2:R1 is bound to an expression. Failed to bind sweep parameters.", rc 0, no rawfile; `alter instance("X2:R1") r=2000` on the same instance works and moves the node; Xyce sweeps `.DC X2:R1:R` natively |
+| E103 | native currents of `$mfactor` instances (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; XDM `rlc` with m=2 on R, L, C and in a subckt, phase 1b) | VACASK's `r1.i` and `l1:flow(br)` are one unit's current: 6.26e-5 A against Xyce's total `I(RR1)` 1.25e-4 A, which is Spectre's `R1:1`; with a `vamos_tp` probe the three circuits agree |
+| E104 | Xyce PyMS with several `.hdl` modules (Xyce DEVELOPMENT-202610100047 under `env_for`; e2e 8, phase 1b) | two modules named by absolute `.hdl` paths compile but lose their parameters: "Unrecognized parameter R for device RX1", "Unrecognized parameter A for device YVRES!X2", rc 1; one module by an absolute path, and two by relative (base) names beside the deck, work |
+| E105 | the XDM diode clipper under `tran_lteimplicit=0` (VACASK 0.3.4-91 with the rebuilt `.osdi` against Xyce DEVELOPMENT-202610100047 under `env_for`, phase 1b) | VACASK keeps its 40 µs maxstep across the clamp knee where Xyce refines: 5.8 % of full scale at 1.554 ms, 1 of 70 points; every other point within 0.4 % (§14 q.22) |
+| E106 | Xyce's EXP source at `td2` (Xyce DEVELOPMENT-202610100047 under `env_for`; XDM `i_sources`, `v_sources`, the gold and vamos's runs, phase 1b) | Xyce places no time point at the exp source's td2 breakpoint (600 µs), so VACASK's point there is 5.3 % / 2.9 % of full scale from the interpolated Xyce run, 1 of 71 points |
+| E107 | a diode with `ik` (Spectre) / `ikf` on both engines (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`, phase 1b) | the high-injection knee differs: 0.69777 V (VACASK `sp_diode`) against 0.68850 V (Xyce) at ik=10m; equal without `ik` |
+| E108 | Verilog-A parameters on Xyce's letter-device route (Xyce DEVELOPMENT-202610100047 under `env_for`, the E63/E64 modules, phase 1) | a model-typed parameter on the device line: "Unrecognized parameter R for device D1", rc 1; an instance-typed parameter on the `.model` card: only "No model parameter R found … parameter ignored", rc 0 |
+| E109 | the Device Count Summary of PyMS modules (Xyce DEVELOPMENT-202610100047 under `env_for`; E63 `c.cir`, E64 `x5.cir`, `-norun` and full runs, phase 1) | both print per-type lines: `MYDIO (mydio) 1`, `V level 1 (…) 1`, `Total Devices 2`; `RESISTOR (resistor) 1` for x5; `-norun` prints the same listing (E63's added run `level_card_norun_summary`) |
+| E110 | the XDM golds against vamos on Xyce (Xyce DEVELOPMENT-202610100047 under `env_for`; Xyce_Regression d4685581, phase 1b) | with the gold re-run under vamos's `.TRAN` (maxstep T/50), the two Xyce runs agree pointwise at absTol 1e-5 / relTol 1e-3 on every deck; on the gold's own grid, linear interpolation across the two grids errs by (ωh)²/8 of the amplitude, 0.4 % of full scale on the 1 kHz sines |
+| E111 | e2e 1-10 through the phase-1b chain on both engines (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`) | e2e 1: out(5 ms) 0.981735 / 0.981725 (1k), 0.86469 / 0.864685 (2k), 61 AC points; e2e 2: diode `da` 0.68481 / 0.68479, bsim3v3 currents equal to 1e-9, the sweeps' analytic values (0.25, 2/11, 1/7, …); e2e 3: AC values equal to 1e-6; e2e 4: onoise 8.28804e-18 / 8.28787e-18 V²/Hz, VACASK gain 0.25 (power), Xyce INOISE 3.3152e-17 = out/gain²; e2e 9: engines agree to 1e-7, the edge geometry on `lmin` bound to its entry; e2e 10: `q1:c` 2.1483e-4 / 2.1500e-4, `q2:c` 2.888e-5 / 2.890e-5, `q3:c` 2.6409e-5 / 2.6428e-5 (VACASK / Xyce) |
+| E112 | the streaming test's peak memory (`test_spectre_outputs.TestStreaming`, 10^6 points × 2 columns to PSF and nutbin in a subprocess; Cygwin Python 3.9.16, WSL Python 3.14.4) | Cygwin `ru_maxrss` 22 MB (6.7 s + 3.8 s); on WSL alone about 67 MB, but late in a whole-suite run `ru_maxrss` read 649 MB, the test runner's peak: Linux keeps `ru_maxrss` across fork and exec, while `/proc/self/status` `VmHWM` is reset at exec |
+| E113 | the NetlistParse.rs SPICE corpus through `spectre-spice` (`test_spectre_spice_corpus`, phase 1) | 26 of 62 files parse, every other failure named, against E62's 25 through `spice.parse`: `b1_dots.sp`, `ex_tran.sp` (SPICE2G `.tran` fields) and the two `lib_block` files gained, `controlled_value.sp` lost by design (a B source reads `V(in)`); `ex_1n3064.sp` parses once the diode `is` row exists (phase 1b) |
+| E114 | VACASK instance paths inside string arguments (VACASK 0.3.4-91 with the rebuilt `.osdi`; e2e 2, phase 1b) | `sweep … instance="'X2:R1'"` (the node quoting of §4.5 item 9): "instance 'X2:R1' not found", the analysis missing; unquoted `instance="X2:R1"` and `alter instance("x1:r1")` work |
 
 ## 14. Open questions
 1. The UG's `/tmp%C:t:r.raw` example against its `:t` definition (§2.4). vamos follows the definition.
+   Phase 1 (S5's `percent.py`) gives `/tmpopamp.raw`, as the design says; not checked against a real Spectre.
 2. `-outdir` with a netlist path containing `/` (§2.5): the literal reading is used.
 3. Where `write=`/`writefinal=` state files go (the cwd, `-outdir` or the raw directory); where `ahdlSimDB` goes
    under `-outdir` alone (§2.5).
@@ -3864,7 +4178,8 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
     52] (§3.1).
 11. `dec` placement: floor or round of the interval count (one real sample: 120.4 → 120); `center`/`span` with
     log sweeps (v1: an error); `log=N` endpoint inclusion; a start ≤ 0 with no step parameter (v1: linear)
-    (§5.2).
+    (§5.2). Phase 1b: the parser refuses `center`/`span` with `dec=`/`log=`, and `plan.build` the ratio
+    rule's logarithmic choice for a `center`/`span` sweep without a step parameter.
 12. `+escchars` semantics: `<` and `>` are escaped in a 19.1 Cadence-converted file [S `dan-zilla`]; the quote
     and backslash escapes are inferred, the 19.1 sample revision 2 cited being a hand-edited fixture [E86]
     (§8.3).
@@ -3873,23 +4188,31 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
 14. Spectre's noise contribution names for diodes, BJTs and MOSFETs (the resistor's `rn`/`fn` and Verilog-A
     names are known [S]; VACASK's diode names are `rs id flicker rsw idsw flickersw` [E84]).
 15. xf trace names for an isource (a vsource's is `<src>:p` [M UG p.113]); VACASK gives isource transfer
-    functions [E84].
+    functions [E84]. Phase 1 (S2) names it `<src>:sink`, its first terminal by analogy with `<src>:p`, with
+    psf type `V/A`, and a vsource's trace `V/V` (Spectre's type for a tf is not documented either).
 16. Whether ADE parses `spectre -V`/`-W` output, and in which format; whether Spectre exits 0 after `-V` with
-    no netlist (with one, the run continues [M UG p.234]).
+    no netlist (with one, the run continues [M UG p.234]). Phase 1 (S5): a bare `-V`/`-W` prints only the
+    version line, through `SpectreLog` (so `=log` routing holds), and exits 0 with no header and no trailer.
 17. Whether ADE accepts psfascii results when it asked for psfxl (it reads `logFile`'s `dataFile` and
     `format`); whether ADE, not Spectre, writes `runObjFile`, `artistLogFile`, `variables_file` and
     `simRunData` (v1: ADE does, §9).
 18. Which `spectre.out` lines ADE parses beyond the trailer; the modern message format (`ERROR (SFE-…)`)
     against the 5.1.41 one used here; whether the modern `completes with` line ends with a period (the 5.1.41
     one does not [M UG p.33]); the trailer after a user's interrupt (v1: the `terminated prematurely` form,
-    §8.7).
+    §8.7). Phase 1 (S5) writes the 5.1.41 forms as §8.7 gives them, the audit block before the completing
+    line only; not checked against a real Spectre.
 19. Spectre's `exp` waveform: are `td1`/`td2` measured after `delay`; the default `tau1`/`tau2`.
 20. Spectre's default pulse rise and fall (vamos uses transres, with a warning).
-21. The allpub names of inductor and iprobe currents.
+21. The allpub names of inductor and iprobe currents. Phase 1 (S2) uses `L1:1` and `I1:in`, the
+    terminals §6.3 measures.
 22. errpreset's LTE check (liberal: capacitor and inductor states; moderate and conservative: node voltages
-    [M ref19 p.431]) against VACASK's `tran_lteimplicit=0`, used for every preset (§5.4).
+    [M ref19 p.431]) against VACASK's `tran_lteimplicit=0`, used for every preset (§5.4). Phase 1b measured
+    its cost on a clipper: VACASK keeps its maxstep across the diode knee where Xyce refines, 5.8 % of full
+    scale at one point [E105].
 23. The nutmeg layout Spectre writes: one rawfile and no `logFile` [M UG p.229]; the plot and variable names, and
-    a noise plot's columns (§8.5).
+    a noise plot's columns (§8.5). Phase 1 (S4): the x variable `time` (tran), `freq` (ac, xf), `frequency`
+    (noise) or the dc SWEEP label typed from its units; traces `voltage`/`current`/`notype`; STRUCT members
+    `<inst>:<member>`.
 24. Tran `start` ≠ 0 semantics (refused in v1).
 25. Whether a tran's own `errpreset` beats `+errpreset=` (assumed; `+aps=` beats both [M ref19 p.35]).
 26. Whether Xyce's noise `.prn` table is readable after an interrupt; its `FORMAT=RAW` print files are [E72]
@@ -3917,16 +4240,22 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
 33. Spectre's behaviour for `exp(x)` with x ≥ 80, outside its documented domain: an error, a clamp or an
     overflow (v1: an error, §3.5).
 34. The day names of the PSF `date` (`Thur` in one 21.1 file [E86]) (§8.2).
-35. The PSF header of a `noise` analysis with `oprobe=` (§8.3).
+35. The PSF header of a `noise` analysis with `oprobe=` (§8.3). Phase 1 (S4) writes the probe's name as the
+    positive output signal when the step has no `p`; with the merge's convention (`p`/`n` always filled from
+    the probe's terminals, §5.1) the header names those nodes.
 36. `sweep_direction` of a descending sweep (every sample has 0) (§8.3).
 37. How an indexed terminal save (`L1:1`) is named in outputs (v1: as written, §6.2).
 38. What a converted SPICE `SIN` without a frequency simulates: SPICE3's 1/TSTOP or a Spectre `sine` with
     `freq` 0 (v1: an error naming both, §4.3).
 39. The order in which `<prog>_DEFAULTS` and `<PROG>_DEFAULTS` are tried for an alias (§2.2); which of ref19's
     additions (the options ref5 does not list, whose † marks the ref19 text does not carry) Spectre reads from
-    the defaults variable (v1: all of them).
+    the defaults variable (v1: all of them). Phase 1 (S5) tries `<prog>_DEFAULTS`, then `<PROG>_DEFAULTS`, then
+    `SPECTRE_DEFAULTS`, and applies every ref19-only option from the variable (tested with `+aps=liberal`);
+    not checked against a real Spectre.
 40. What Spectre counts as one message for `-maxwarns`/`-maxnotes` (v1: the text with numbers and quoted names
-    normalized, §8.7), and what it prints when a limit is reached (v1: one notice).
+    normalized, §8.7), and what it prints when a limit is reached (v1: one notice). Phase 1 (S5) replaces
+    every digit run, inside identifiers too (`r1` and `r2` share an id), and every quoted name; the one
+    notice is not counted in the trailer.
 41. **A decision for the user:** whether to commit the NetlistParse.rs corpus files that quote Spectre manual
     examples (20 files cite manual lines; `arrays_langswitch/array_sweep.scs` calls itself a verbatim manual
     example, and `julia_parse_tests/var_reference.scs` carries the same line) (§11) [E88, E101]. Until the
@@ -3959,7 +4288,11 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
     warning; the description variables (`<inst>:<param>`, `<model>:<param>`, `temp`, `<param>`); noise STRUCT
     trace names (Spectre instance paths), the order and the units and type names of `gain` and `in` (`V/V` or
     `V/A`; `V/sqrt(Hz)` or `A/sqrt(Hz)`, by the input's kind), and the suffix of a colliding STRUCT type name;
-    the order of allpub signals, which rests on one Cadence-converted sample (`rushikesh`) [E101].
+    the order of allpub signals, which rests on one Cadence-converted sample (`rushikesh`) [E101]. Phase 1
+    applied these readings as written (S2: allpub sorted case-insensitively, explicit currents after it under
+    `save=selected`, the gain/in types by the input's kind; S4: those types declared like `V/sqrt(Hz)`, the
+    SI-prefix rule also for unitless parameters, the xf description `Transfer Function Analysis` after
+    ref19's chapter title), none checked against a real Spectre run.
 49. State files (§8.6): the modern header and number layout. The only sample, UG p.204's (dated 1992), writes
     `# during 'stepresponse' at 5:39:38 PM, jan 21, 1992.` (no day name, the month in lower case) and values
     with 15 significant digits and no leading zero (`.588793510612534`); vamos follows the header and keeps
@@ -3976,12 +4309,21 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
     on E64 as well, which held), or the 2026-09-29 build is pinned for T1. Measured after the gate, on that launcher under
     `engines.env_for`: the `.op` listing shows the card's `R 2000` on the `mydio` model, but I(V1) = −1.000e-3,
     the module's default r = 1k, so the card value is listed and not applied, as on the Y form (E63's first
-    fact), and the Device Count Summary prints only `Total Devices 2`, no per-type line. The fixture was
-    re-pinned to that observation (§13 E63). The refusal stays (its two facts, the Y form and E64, hold).
-    Still open: whether the level route may carry card parameters once PyMS applies them, and §4.5 item
-    13's Device Count Summary check, which on this build sees no per-type lines (S3 measures `.op` listings
-    or `Number of <module> instances` as the binding evidence instead; E99's CMC bindings were seen on the
-    old library) (§0, §4.5 item 13, §11 T1, §13).
+    fact); the Device Count Summary lists `MYDIO (mydio) 1` (and `-norun` prints the same listing). The
+    fixture was re-pinned to that observation (§13 E63). The refusal stays (its two facts, the Y form and E64, hold).
+    Still open: whether the level route may carry card parameters once PyMS applies them. §4.5 item 13's
+    Device Count Summary check reads the per-type lines where they are printed and falls back to the `.op`
+    listing's `Number of <module> models/instances` or the `.HDL: compiled and registered` line (S3, phase
+    1; E99's CMC bindings were seen on the old library) (§0, §4.5 item 13, §11 T1, §13). **Answered 2026-10-10 (the user: a bug; test it, fix later):**
+    it is a PyMS bug, not a Spectre question. The card value reaches the generated model object and the
+    JIT parameter file, but `utils/PyMS/vae/build_vae_so.py` uppercases the names it reads there and the
+    GiNaC emitter overlays `R=2000` beside the module's own case-sensitive `r`, so every substitution of `r`
+    bakes the default into the generated math (the `__GIVEN__` set has the same flaw: `$param_given` on a
+    lower-case parameter is always false). Pinned by xyce 919b89d2,
+    `utils/PyMS/vae/tests/test_hdl_model_card_params.py` (both card forms; the value half an expected
+    failure until the fix). Until the fix: the refusal stays, the T1 fixture keeps the measured −1.000e-3,
+    and S3's summary check reads the per-type listing with the `.op` fallback. After the fix: re-pin E63 to −5.0e-4 and
+    revisit the refusal for both forms (q.50 then becomes a design choice, not a workaround).
 51. Spectre's resistor flicker-noise formula: how its exponents `wdexp ldexp weexp leexp fexp` enter the
     noise term (ref5 p.631 lists the names without a formula), and its W·L normalization. Phase 0 maps
     `wdexp`→`wf`, `ldexp`→`lf` and `fexp`→`ef` onto `sp_resistor`'s three exponents and strips
@@ -3998,6 +4340,24 @@ kept), so that an engine upgrade that changes a fact fails and names the rule th
     translation is iverilog's deliberate, gated behaviour (8fd03deda), so R6R-27 became
     `TestVoidFunctionIsTranslated.test_like_vvp` (no ivl assertion, no "write it as a task" message, the
     nvc output equal to vvp's), committed apart from phase 0.
+53. `dev=` without `param=` on a `dc` or `sweep` (§3.11, §5.2): v1 sweeps a vsource's or isource's `dc`,
+    resting on UG p.168's own example (`SwpVccDC dc dev=Vcc values=[0 2 6 7 8 10]`), while ref19 p.43 gives
+    `param` no default; any other device needs `param=` (an error naming the master), and an `alter` keeps
+    §3.6's `dev= param=` form. The XDM `dc_directive` deck uses the form (`dev=ia` with no `param`).
+54. Who reports an option with no effect (§3.10, §5.1): the parser notes `options rforce=1: not applied
+    (§3.10)` and `plan.build` warns `options: rforce=1 has no effect here` for the same key, so a user sees
+    two messages (phase 1b left both: each owner's tests pin its own). Either the flow drops the plan's note
+    for keys the parser already noted, or §3.10/§5.1 assign the message to one of them (phase 2, §12).
+55. T3a's outlier rule (§11.3): vamos on VACASK against vamos on Xyce within 1 % of full scale, at most 2 %
+    of the points outside it and none beyond 10 %. It is a measured compromise for breakpoints one engine does
+    not sample and knees the engines step differently [E105, E106]; a tighter rule needs breakpoint-aware
+    interpolation or engines that sample the same points.
+56. The t = 0 value of a `sine` source with a nonzero `sinephase`, which is its derived `dc` (§3.8.1) and the
+    Xyce `DC` expression (§4.5 item 8): vamos uses `sinedc + ampl·sin(sinephase)`, the phase in degrees; E70's
+    cases had phase 0 or 90 only.
+57. Whether Spectre's SPICE Reader takes a one-argument `.lib other` inside a `.lib` section as a call to
+    another section of the same file, as HSPICE (and spice.py's HSPICE reader) does; `spectre-spice` makes it
+    an error ("write .lib file sec", §4.3).
 
 ## 15. Review changes
 
@@ -4377,4 +4737,177 @@ evidence held only in part, the choice is listed at the end.
     once the pristine tree's own root, which the `vamos`/`sv2ghdl` rows print, is mapped onto the live one
     and the CPU-time line dropped (the engine and tool rows identical as they are); the hazard3 smoke run
     `--seq` with a private results database and work directory and `SV2GHDL_SRC_ROOT` unset (the harness
-    defaults to the shared tree). Open after phase 0: §14 q.50 (the level route's card parameters and the summary check) and q.51; q.52 resolved.
+    defaults to the shared tree). Open after phase 0: §14 q.51; q.50 answered (a PyMS bug, test in xyce, fix pending; rule unchanged); q.52 resolved.
+- **Phase 1 (2026-10-10).** Five owners built §12's phase 1 in parallel (S1 language, S2 plan and signals,
+  S3 emitters and tables, S4 outputs, S5 command line and log), a merge stage settled the seams between S2-S5,
+  and S6 built phase 1b, the netlist chain on e2e 1-10 and the XDM decks, fixing the seams it found; a gate
+  stage ran the suites (§12 records the counts). Every deviation from the contract text, with its reason;
+  where one changed a field, a signature, a file name, an `args` key, a stated fact or a rule, §2, §3, §4, §5,
+  §6, §7, §8, §10, §11 or §13 now say what was built:
+  - *Contracts and facts changed: the merge's conventions.* (a) The noise/xf output pair is
+    `AnalysisStep.args` `p` and `n`, IR node paths, `n` `"0"` for one node, `oprobe=`/`probe=` giving the
+    probe's terminals through the X-line bindings: §10 gave the step no field for it, and S3 read `out`, S4
+    `p`/`n` and S2 the IR; ir.py's `Analysis.nodes` already spelled them `p n` (§5.1, §10). (b) A parameter
+    sweep at a fixed frequency carries `freq` only, its start/stop staying in the `SweepSpec`; the own
+    frequency level is labelled `freq`, `Hz` (consistent, no change). (c) Every logarithmic grid vamos
+    computes (`log=N`, a non-integral `dec`, the ratio rule's log=50) keeps `SweepSpec.mode` `"log"` with the
+    values filled, so the PSF writes grid 3: S2 had expanded them to `values`, which gives grid 1, while the
+    real `myac.ac` (log 20) has 3 (§5.2, §8.3, the `SweepLevel.spec` comment of §10). (d) `SweepLevel`
+    labels, units and descriptions as §8.3 (consistent). (e) A `source` action's `type` is `"dc"` or
+    Spectre's word, `sine` for the IR's `sin` (§5.1, §10). (f) A resistor terminal saved in a run with an `ac`
+    or `xf` step gets a `vamos_tp` probe on VACASK, which has no `dv`/`di` of a resistor (S3's render refused
+    it); the Xyce `G` form was already probed; a hierarchical noise `iprobe=` prints `AC 1 0` in the body of
+    the X line's master on Xyce, under §5.3's per-path rule, where S3 had matched the input by top-level name
+    only (§5.3, §5.6, §6.3). (g) The Xyce `DNO` total-only note is `results.collect`'s, once per noise step,
+    not `signals.resolve`'s (§8.4). (h) A `tran` without `step` gets (stop − start)/1000, Spectre's
+    documented default and the worked example's value: `xyce.render` refused a tran without one, and one rule
+    in the plan beats the same default in two emitters (§5.1, §8.3, §10).
+  - *Contracts and facts changed: phase 1b (S6).* The diode card takes `is` (a `pass` row before `js`; ref5's
+    own example and both targets use it; `test_spectre_masters`' ref5 count 1740 → 1741) (§3.9, §10). A sign
+    after a mantissa's `e`/`E` before a digit belongs to the vector element (`[150e-12 350e-12]` was read as
+    four elements, "cannot read 150e") (§3.5). A SPICE-mode element's positional value is its r/c/l when the
+    instance gives none (`r1 in out 1k` had become an infinite resistor and `c1 out 0 1u` c=0: the masters
+    pass never read `Instance.value`) (§3.8). `center`/`span` without a step parameter: the parser keeps
+    start/stop as the unfolded `c ∓ s/2`, and `plan.build` refuses the ratio rule's logarithmic choice, since
+    the frozen `SweepSpec` has no mark and only the plan can evaluate parameter-valued bounds; with
+    `dec=`/`log=` the parser refuses it as before (§4.1, §5.2, §14 q.11). VACASK alter and sweep instance
+    paths print unquoted inside the string argument (`instance="X2:R1"`): S3 had used the node quoting, and
+    VACASK found no instance `'X2:R1'` [E114] (§4.5 item 5, §5.2). A VACASK `dev=` sweep of an instance
+    parameter bound to an expression is an error naming what to sweep instead; an alter of it stays allowed
+    [E102] (§5.2). On VACASK an `m` ≠ 1 `v l e h r` instance's terminal current is probed, in saves and
+    allpub: VACASK's native current is one unit's [E103] (§6.3). The e2e layout gains `render/<engine>/`
+    goldens and S6's `engine_expect.json` shape, which §11 gave by name only; T3a compares against the gold
+    re-run with vamos's `.TRAN` (on the gold's own grid interpolation errs by 0.4 % of full scale [E110]) and
+    VACASK against vamos on Xyce at full scale with the outlier rule, where §11 said "within 1 %" (§11.3,
+    §14 q.55). The streaming test reads `VmHWM` with `ru_maxrss` as the fallback: Linux keeps `ru_maxrss`
+    across fork and exec, and the first whole WSL run failed on the runner's 649 MB [E112] (§11.1). Sweep
+    statement ids count every `SweepLevel`, an `ac`'s frequency axis included, so §7.1's example reads
+    `vamos_w2` (e2e 1's golden) (§5.2, §7.1).
+  - *Contracts and facts changed: S1.* `dev=` without `param=` on a `dc`/`sweep` sweeps a source's `dc`,
+    after UG p.168's example, and is an error on another device; an alter keeps `dev= param=` (§3.11, §5.2,
+    §4.1 item 2, [I, §14 q.53]). An included file inherits the includer's `insensitive=` state, which is
+    restored after it (§3.1 did not say; a first attempt reset it to `no`) (§3.1). Bare-word values of the
+    enumeration keys on instances and cards are `Str` in both languages (`spice.spectre_enum_params()`), since
+    `plan.build` evaluates every non-`Str` value and §4.1 item 11 named analysis arguments and sources only
+    (§4.1, §10). A resistor keeps its own `w`/`l` (the `pass` rows, `sp_resistor`'s noise area), scaled by
+    the instance `scale`; a first attempt dropped them whenever `r` was given or computed (§3.8). The SPICE-mode
+    allpub default applies when the top-level netlist is SPICE, not to a mid-file region (§4.3). A
+    one-argument `.lib sec` … `.endl` in a SPICE region is skipped as a section definition, and a `.lib
+    other` call without `.endl` is an error (§4.3, §14 q.57). A vector-valued netlist parameter is an error
+    (`Param` holds one Expr) (§3.7). `.ac lin n` is `lin=n-1` (Spectre's `lin` counts steps) (§4.3). A
+    `save`/`ic`/`nodeset`/`global`/function/`statistics` statement or an analysis inside a subckt body is an
+    error (§3.6 placed none of them) (§3.6). An alter's `args` keys are `dev`|`mod`|`sub`, `param`, `value`
+    (§3.6).
+  - *Contracts and facts changed: S2.* `plan.build` raises `NoteError` with every note when one is an error,
+    §5.1 giving no mechanism (§5.1, §10). The first `options` action starts from Spectre's documented
+    defaults (ref19 p.187, what §7.1's block prints), `chargeabstol` only when set (§5.1). The element-reduction
+    options' silent defaults are ref19 pp.196-197's, `dcut`/`qcut` having none (§3.10). An analysis-level
+    `save=`/`nestlvl=` stays in `AnalysisStep.args` (`saves` stays None): §5.5 gave no `SaveSpec` form for it
+    (§5.1, §10). `V1:n`, `R1:2`, `L1:2` and `I1:out` are probed: the SignalMap has no sign slot (§6.3). A saved
+    terminal current of an infinite resistor is a warning, "constant 0, not written": no Ref carries a
+    constant (§3.8, §6.3). Under `save=selected` with only currents, the explicit currents follow the sorted
+    allpub signals (§6.4). `X:currents` of a two-terminal subckt instance lists every terminal, after ref19
+    p.518's `x1.x21:2` (§6.2). The isource xf trace is `<src>:sink`, type `V/A`, a vsource's `V/V`
+    ([I, §14 q.15]; §6.4, §8.4, §10). `prevoppoint`/`useprevic` with no previous analysis: a warning and a fresh
+    operating point (§5.4). `plan.build` emits the `trapgear2` → `trap` note and the Xyce tolerance note
+    (§5.4). A `set` of an output option between analyses is a warning, "not applied" (§3.10). The noise input
+    goes into the body where both output nets live, nets in different bodies an error (§5.6). A `dev=` target
+    whose instance rule folds or strips it (the resistor's `scale`) is refused too, and a parameter with no
+    rule of a master that has rows is an error (§5.2). The evaluation's Cartesian product runs over the sweep
+    levels that can change a branch, a bin or an expression only, the others repeating the nominal state
+    (§5.1). `nestlvl=1` is the top level only [M ref19 p.188] (§6.1).
+  - *Contracts and facts changed: S3.* On Xyce's letter-device route the card carries only `level` and every
+    merged parameter goes on the device line, since after §3.9's merge the printer cannot tell card from
+    instance parameters; a model-typed parameter there fails loudly, rc 1, so the card-parameter refusal
+    holds by construction [E108] (§4.5 item 13). `device_summary_problems` reads the per-type lines that the
+    launcher prints under `-norun` and in a full run alike (the brief's "only `Total Devices 2`" did not
+    reproduce), with the `.op` listing or the `.HDL` registration line where there are none [E109] (§4.5 item
+    13, §10). `ParamRule.match` against a non-constant value: a number matches a `Num` only, `nonzero` any
+    non-`Num` too, a word a `Str` or `Name`, so `scaler=p` and `trise=p` reach their error rows (§10). A
+    `default` row is written whenever its `when` holds, also when the `when` names another parameter (diode
+    `nbv`) (§10). Source-field sweep targets are the fields the decks print under an engine name; an `exp`'s
+    `td1`/`td2` and a `pwl`'s `wave`/`offset`/`scale`/`stretch` cannot be swept in v1 (§5.2). `isnoisy=no`
+    prints Xyce's `G` form only for a plain resistor; with `tc1`/`tc2` or a model card it stays a noisy `R`
+    with a warning (§4.5 item 7). A Spectre group instance whose geometry is not a number on its path is an
+    error on Xyce (§4.5 item 3). The `bin_*_spectre` functions are S3's (§4.4).
+  - *Contracts and facts changed: S4.* `psf.TYPES` keys the families `op`, `swept`, `complex`, `parent` and
+    `noise`, verbatim from the samples, §8.3 naming no keys (§8.3, §10). `psf_string` returns the quoted
+    token (§8.3, §10). `collect` and `write_analysis` take `masters` (STRUCT type → master), which the `master`
+    PROP and the `rn`/`fn` rename need and neither the SignalMap nor `EngineResult` carries (§8.4, §10).
+    `collect`, `write_analysis` and `nutmeg.write` take `notes` (the warnings §8.3 and §6.4 ask for had no
+    channel); `write_logfile` takes `escchars` and `stamp` (a fixed time stamp for the byte-identical goldens);
+    `nutmeg.write` takes `title` and `date`; `psf.precision` and `statefile.state_date` are public (§10). The
+    header values come from `AnalysisStep.options`/`args` with Spectre's documented defaults, and a missing
+    tran key gets §8.3's defaults; the noise header's output signals are the step's `p`/`n` (§8.3). The
+    tran output filters (`outputstart`, `skipstart`/`skipstop`/`skipcount`) are applied by `collect`. A sweep parent after a failed point lists the complete prefix
+    (`psfcheck` requires children = points), and the leaf statuses are as §8.2 now says (§8.2). A save's
+    `time_window` applies to the whole file, the intervals united (a per-trace window has no PSF form)
+    (§6.2). The xf description is `Transfer Function Analysis` ([I, §14 q.48]; §8.3). The nutmeg x variable
+    and trace types ([I, §14 q.23]; §8.5). The test file is `test_spectre_outputs.py`, the goldens are under
+    `psf/golden/<case>/` and the engine samples under `psf/golden/engine/{vacask,xyce}`, not a new top-level
+    fixture directory, which `test_spectre_docs` would have required the phase-0 README to name (§11).
+  - *Contracts and facts changed: S5.* `main` does steps 1 and 1b itself until `flow.py` exists and then
+    stops with "the spectre run is not implemented yet", exit 2; `open_log`, `report` and
+    `note_vamos_options` are module functions for `flow.run` to reuse (§2.7, §10, §12). The "does not read"
+    note is a NOTED entry in `SpectreJob.unmapped`, §2.2 not saying where it goes (§2.2). A boolean the
+    defaults set is recorded in `SpectreJob.defaults` and applied (booleans have no None), an explicit argv
+    `-log` removes the defaults' log settings, and `args.effective` reads across the layers (§2.2, §10).
+    `-paramdefault` follows `-config`'s rule within a layer, §2.3 giving no rule text (§2.3). A bare `-V`/`-W`
+    prints only its line and exits 0 (§2.3). `settings()` errors land on `SpectreJob.notes`; `Settings.raw`
+    stays `""` unless a layer names it (§2.2). The suppression notice is not counted, and the audit precedes
+    the completing line only (§8.7). `SpectreLog` gains `analysis_done`, `run_start`, `inventory`, `audit`,
+    `version_text`, `text`, `file_only`, `close`, `path`, `counts` and a `progress` argument of
+    `status_line`, and its constructor raises `OSError` for an unopenable log (§10). An internal error before
+    the run directory exists writes its traceback to the open log file or a named temporary file (§2.7).
+    `cpp.preprocess` raises `NoteError` for a missing cpp or a non-zero exit, and `cpp.py` exports `command`,
+    `title_of`, `stderr_notes`, `directive_errors` and `macro_names`/`macro_warnings`, §2.6 naming the two
+    checks but no module (§2.6, §10). cpp's markers name a file beside the absolute input by its absolute
+    path and one found through a relative `-I` relative to the cwd; the reader accepts both (§2.6, §10). A
+    message id replaces every digit run, inside identifiers too (§8.7).
+  - *Implementation details, the contracts unchanged.* S1: the first attempt's files were inspected and kept,
+    its untested WSL leg run; SPICE-mode corpus expectations corrected to E62's real list (26 of 62 now parse
+    [E113]); the four `NotImplementedError` sites left are by design (`parse(funcs=)` under `hspice`, the
+    printers' abstract methods); a Q line with five bare fields before a keyed parameter reads the fourth as
+    a terminal and fails with a named error (UG p.52); §4.2's HSPICE rejection of `cpow`/`hypot`/`fmod` is
+    `HspiceExtraFunction`, an ExprError, EvalError and PrintError raised at parse time; the 22 `lang/` dumps
+    come from the pinned `spectre_dump` build, which `cst/regen.sh --check` re-verifies; `xdm/MODELS/
+    bsimsoi_translation` does not parse (`bsimsoi` is not a v1 master). S2: the dialect is the module constant
+    `plan.DIALECT` (S2's unit tests ran under `hspice` until S1's evaluator existed, and pass under
+    `spectre`); a `paramtest` `error` and `fatal` are both error notes, suffixed "(the analysis fails)" or
+    "(fatal)", since a Note carries no exit status; SPICE-mode bins are recognized for §4.3's comparison by
+    every card carrying the four bin keys, the IR having no SPICE-mode mark on instances; `+paramdefault`
+    values are read as a number or constant expression, else a `Str`; the local `opts` dicts were renamed
+    (`gopts`, `nlopts`) so `test_vamos_driver`'s key scan, which they tripped, stays unchanged and green.
+    S3: the phase-0 stub pins could not stay green and were released by the merge; the §7.1 options lines
+    around a tran print each setting that differs from the option state in force and restore each printed
+    one whose previous value differs, reproducing the example byte for byte; saves are one directive set per
+    step, re-issued after `clear saves` when the set changes; a `fold` row still on a card is dropped (a
+    `type` checked against `Model.kind`; a diode `level=2` reaches its error row first); the §6.4 table's
+    VACASK `gain` column serves both `('gain',)` and `('inoise',)`; the nested-subckt lift declares the
+    enclosing parameters `p=0.0`, names the definition `<outer>__<s>` and lifts deeper nesting by a fixpoint;
+    an absent `xycePTypeValue` is ADMS's `-1`; `xyce._Deck.child_env` is kept and called (its result unused),
+    since `test_spectre_shared` spies on it; the plan-less render of a Spectre netlist prints the HSPICE-style
+    control block with temp/tnom 27 and no `solver_options`; a VACASK `@if` condition prints through the
+    parameter-context printer; E63 gained a `-norun` run, its other runs unchanged. S4: the TYPE samples are
+    the local psf-parser files (`myop.dc`, `myac.ac`, `mysweep_ac1.sweep`); the Xyce x axis is taken by
+    position and an ac/noise/xf parameter sweep's own level is the innermost `.STEP`; VACASK groups split by
+    the known inner count or the restart of a time/frequency axis; `gain`/`in` are chosen by which columns the
+    SignalMap maps, not by engine name; `statefile.read` takes a name holding `:` as a current; the e2e 28
+    structural checker is `test_spectre_outputs.compare_results_dir`; its stub pins were released by the
+    merge. S5: an op's analysis banner drops the template's trailing `: `; `tools.invoked` still `vamos`
+    (main called outside `cli.main`) gives `spectre`; the help topics come from `SPECTRE_MASTERS` (grouped by
+    action) and a transcription of §3.11, an unknown topic is a note with exit 0, and a help request beside a
+    scan-time error reports the error; a bare `-D`/`-U`/`-I` and a non-integer `-maxwarns` are errors; the
+    guide's spectre section is its §12, so the existing anchors stay; the T0 "ref19-only option" case applies
+    `+aps=liberal` (a bare `+aps` is an ignored flag); `shims/spectre` is a symlink not yet added to git; the
+    WSL whole suite was left to the gate. Merge: a cut-off earlier launch had applied most of its edits, which
+    were verified rather than redone and one wrong pin (`output_problems`' message) corrected; the
+    `fixtures/spectre/README` lines for `lang/`, `cst/DIVERGENCES` and `cst/GAPS` lost their `*`, and it names
+    `emit/` and `psf/golden/`; an empty `fixtures/spectre/results/` seen mid-build was gone (S4 moved its
+    samples), with no test naming it; a shell quoting slip in one test edit was fixed before any counted
+    run; the design document and the WSL whole suite were left to this pass and the gate. S6: the e2e 2 deck sweeps `vtho` and `X3.R1` instead of the diode's `ik`
+    and `X2.R1` [E102, E107]; e2e 10's inner `npn_mod` instances carry no `area=`; e2e 8 copies the `.va`
+    files beside the decks on Xyce [E104]; the chain test replays the Xyce state itself (`replay`), the
+    reference for phase 2's; the render goldens were generated on Cygwin with `VAMOS_REGEN_GOLDEN=1` and are
+    checked on both legs; the duplicate option note was left (§14 q.54). Open after phase 1: §14 q.51 and
+    q.53-q.57, and the list in §12's phase 2.

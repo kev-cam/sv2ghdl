@@ -1,0 +1,3 @@
+// node groups are concatenated (UG p.30): Gm (1 2)(3 4) vccs gm=.01
+Gm (1 2)(3 4) vccs gm=.01
+E1 (out 0) (in 0) vcvs gain=2

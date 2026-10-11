@@ -1,0 +1,5 @@
+// save modifiers (ref19 p.517)
+save x*.*1 depth=3
+save x*.*1 sigtype=subckt
+save *:c devtype=bjt exclude=[q1 q2]
+save out time_window=[0 1u 2u 3u] ports=yes filter=none

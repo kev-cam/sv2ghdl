@@ -1,0 +1,29 @@
+// e2e 9: a BSIM4 model group binned in l and w; an edge geometry exactly on lmin; a MOS without l
+simulator lang=spectre
+model nch bsim4 {
+  1: type=n lmin=0.1u lmax=1u wmin=0.1u wmax=1u vtho=0.40 toxe=2n
+  2: type=n lmin=1u lmax=10u wmin=0.1u wmax=1u vtho=0.45 toxe=2n
+  3: type=n lmin=0.1u lmax=1u wmin=1u wmax=10u vtho=0.50 toxe=2n
+  4: type=n lmin=1u lmax=10u wmin=1u wmax=10u vtho=0.55 toxe=2n
+}
+model b4ref bsim4 type=n vtho=0.55 toxe=2n
+model b1ref bsim4 type=n vtho=0.40 toxe=2n l=2u w=2u
+Vg (g 0) vsource dc=1.2
+Vd1 (d1 0) vsource dc=1.2
+Vd2 (d2 0) vsource dc=1.2
+Vd3 (d3 0) vsource dc=1.2
+Vd4 (d4 0) vsource dc=1.2
+Vd5 (d5 0) vsource dc=1.2
+Vd6 (d6 0) vsource dc=1.2
+Vd7 (d7 0) vsource dc=1.2
+Vd8 (d8 0) vsource dc=1.2
+M1 (d1 g 0 0) nch w=0.5u l=0.5u
+M2 (d2 g 0 0) nch w=0.5u l=2u
+M3 (d3 g 0 0) nch w=2u l=0.5u
+M4 (d4 g 0 0) nch w=2u l=1u
+M5 (d5 g 0 0) b4ref w=2u l=1u
+M6 (d6 g 0 0) nch
+M7 (d7 g 0 0) b4ref w=5u l=5u
+M8 (d8 g 0 0) b1ref
+op1 dc
+save Vd1:p Vd2:p Vd3:p Vd4:p Vd5:p Vd6:p Vd7:p Vd8:p

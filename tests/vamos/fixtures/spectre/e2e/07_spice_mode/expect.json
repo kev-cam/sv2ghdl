@@ -1,0 +1,51 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "opBegin.dc",
+  "frequencySweep.ac",
+  "timeSweep.tran.tran",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "opBegin.dc",
+   "signal": "out",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "frequencySweep.ac",
+   "signal": "out",
+   "at": 1.0,
+   "value": [
+    0.999961,
+    -0.00628294
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "timeSweep.tran.tran",
+   "signal": "out",
+   "at": 0.001,
+   "value": -0.09801,
+   "rel": 0.001
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.001
+ },
+ "messages": [
+  [
+   "note",
+   "saves allpub"
+  ]
+ ]
+}

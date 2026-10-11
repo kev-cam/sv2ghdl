@@ -4,7 +4,8 @@
  "result": "the included module compiles and runs; the Y card's parameter is ignored: I(V1) = -1.00000000e-03 (the module default r = 1k), no message; a module tagged DIODE level 2002 with .model dm d level=2002 r=2k: on the 2026-09-29 library the card bound Xyce's built-in DIODE_CMC (\"No model parameter R found for model DM of type D, parameter ignored\", I(V1) = -3.395e-7, Device Count Summary D level 2002 (DIODE_CMC 2.0.0)); on the launcher vamos runs since 2026-10-10 (DEVELOPMENT-202610100047, 7cd78110) the .hdl module is bound on the card (\"compiled and registered mydio\", .op listing: 1 mydio model DM with R 2000, 1 instance D1), the module still runs with its default r = 1k (I(V1) = -1.00000000e-03: the card value is listed but not applied, as on the Y form), neither DIODE_CMC message appears and the Device Count Summary prints only the total. The fixture pins the 2026-10-10 observation (design section 14 q.50). T1 runs these under env_for (E96)",
  "rules": [
   "\u00a73.1/\u00a74.5 item 13 Verilog-A on Xyce: PyMS ignores a model card's parameters on a Y device and binds a built-in device on a letter-device level, so v1 refuses Verilog-A card parameters on Xyce",
-  "\u00a73.1 both engines' compilers follow a Verilog-A `include"
+  "\u00a73.1 both engines' compilers follow a Verilog-A `include",
+  "\u00a74.5 item 13 xyce.device_summary_problems: the -norun Device Count Summary lists a bound module under its own name, a built-in device of the module's level as '<L> level <n> (<name>)'"
  ],
  "runs": [
   {
@@ -93,10 +94,36 @@
      "rel": 1e-06
     }
    ]
+  },
+  {
+   "name": "level_card_norun_summary",
+   "tool": "xyce",
+   "deck": "c.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "compiled and registered mydio from mydio.va",
+     "MYDIO (mydio)"
+    ],
+    "absent": [
+     "DIODE_CMC",
+     "No model parameter R found",
+     "Netlist error"
+    ]
+   },
+   "note": "S3 2026-10-10 (design section 4.5 item 13, section 14 q.50): under -norun the launcher prints the Device Count Summary with one line per device type, the bound .hdl module under its own name (MYDIO (mydio) 1); xyce.device_summary_problems reads it in the smoke's -norun step"
   }
  ],
  "provenance": [
   "sp3/SPICE/xy1.sh, xy2.sh (2026-10-04); the design session ran /usr/local/bin/Xyce without env_for, T1 runs engines.xyce_bin() under env_for",
-  "re-pinned 2026-10-10 after phase 0's gate: run level_card_binds_builtin (the 2026-09-29 library's DIODE_CMC binding) became level_card_binds_module, measured on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) under engines.env_for"
+  "re-pinned 2026-10-10 after phase 0's gate: run level_card_binds_builtin (the 2026-09-29 library's DIODE_CMC binding) became level_card_binds_module, measured on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) under engines.env_for",
+  "run level_card_norun_summary added 2026-10-10 by S3 (phase 1), measured on the same launcher under engines.env_for: -norun prints the per-type Device Count Summary; the existing runs are unchanged"
  ]
 }

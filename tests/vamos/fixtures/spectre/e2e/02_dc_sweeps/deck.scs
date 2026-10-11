@@ -1,0 +1,32 @@
+// e2e 2: dc sweeps of a source, temp, a top-level parameter, a model parameter, a subckt parameter
+simulator lang=spectre
+parameters rtop=1k
+V1 (in 0) vsource dc=1
+R1 (in mid) resistor r=rtop
+X1 (mid out) cell r=1k
+X2 (out 0) cell r=1k
+X3 (out 0) cell2
+subckt cell (a b)
+  parameters r=1k
+  R1 (a b) resistor r=r
+ends cell
+subckt cell2 (a b)
+  R1 (a b) resistor r=2k
+ends cell2
+Vd (d 0) vsource dc=1
+Rd (d da) resistor r=100
+D1 (da 0) dm
+model dm diode is=1e-14 n=1
+Vg (g 0) vsource dc=1.2
+Vm (dm 0) vsource dc=1.2
+M1 (dm g 0 0) nch w=2u l=0.5u
+model nch bsim3v3 type=n vtho=0.4 tox=4n toxm=4n u0=0.04
+op0 dc
+swsrc dc dev=V1 param=dc start=0 stop=2 step=0.5
+swtemp dc param=temp start=0 stop=100 step=50
+swpar dc param=rtop values=[1k 2k 3k]
+swmod dc mod=nch param=vtho values=[0.4 0.5 0.6]
+swsub dc sub=X2 param=r values=[1k 2k]
+swdev dc dev=X3.R1 param=r values=[1k 2k 4k]
+op1 dc
+save out da V1:p Vd:p Vm:p X2.R1:1 X3.R1:1

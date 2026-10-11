@@ -266,8 +266,8 @@ from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, 
 from vamos.netlist import expr as E
 from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary
 from vamos.netlist.ir import (MODEL_KINDS, Analysis, Instance, Item, Model, Netlist, Param, ParseOpts,
-                              Source, Subckt, VaModule)
-from vamos.notes import ERROR, Note, NoteError, error, note, warning
+                              Source, Subckt, VaModule, flat_items)
+from vamos.notes import ERROR, NOTE, WARNING, Note, NoteError, error, note, warning
 
 GROUND_ALIASES = ("0", "gnd", "gnd!", "ground")
 _GROUND = frozenset(GROUND_ALIASES)
@@ -314,14 +314,15 @@ def _colon_clashes(nl: Netlist) -> List[Tuple[str, str]]:
 
     def defs_of(items: Sequence[object], defs: Dict[str, Subckt]) -> Dict[str, Subckt]:
         d = dict(defs)
-        d.update({it.name.lower(): it for it in items if isinstance(it, Subckt)})
+        d.update({it.name.lower(): it for it in flat_items(items) if isinstance(it, Subckt)})
         return d
 
     def xs_of(items: Sequence[object]) -> Dict[str, Instance]:
-        return {it.name.lower(): it for it in items if isinstance(it, Instance) and it.kind == "x"}
+        return {it.name.lower(): it for it in flat_items(items) if isinstance(it, Instance) and it.kind == "x"}
 
     def internal(sub: Subckt) -> Set[str]:
-        nodes = {n.lower() for it in sub.body if isinstance(it, Instance) for n in it.nodes}
+        # a net used only inside an if branch counts too (ir.flat_items, §4.5 item 1)
+        nodes = {n.lower() for it in flat_items(sub.body) if isinstance(it, Instance) for n in it.nodes}
         return nodes - {p.lower() for p in sub.ports} - glob - {"0"}
 
     def clash(name: str, items: Sequence[object], defs: Dict[str, Subckt]) -> Optional[str]:
@@ -337,7 +338,7 @@ def _colon_clashes(nl: Netlist) -> List[Tuple[str, str]]:
     def visit(items: Sequence[object], defs: Dict[str, Subckt]) -> None:
         defs = defs_of(items, defs)
         seen: Set[str] = set()
-        for it in items:
+        for it in flat_items(items):
             if isinstance(it, Subckt):
                 visit(it.body, defs)
             elif isinstance(it, Instance):
@@ -466,8 +467,19 @@ def _strip_comment(text: str, quote: str) -> Tuple[str, str]:
     return text, quote
 
 
-def _logical(phys: Sequence[Tuple[str, str]]) -> Tuple[List[_Stmt], List[Note]]:
-    """Statements from (line, origin) pairs: comments dropped, continuations joined."""
+def _file_of(origin: str) -> str:
+    """The file part of a 'file:line' origin ('' when there is none)."""
+    name, sep, line = origin.rpartition(":")
+    return name if sep and line.strip().isdigit() else origin
+
+
+def _logical(phys: Sequence[Tuple[str, str]], dialect: str = "hspice") -> Tuple[List[_Stmt], List[Note]]:
+    """Statements from (line, origin) pairs: comments dropped, continuations joined.
+
+    dialect "spectre-spice" (VAMOS_SPECTRE_DESIGN.md §3.13, §4.3): a continuation never joins a
+    statement that started in another file (an error naming both origins), and a '* spectre:'
+    comment, which carries Spectre text hidden from SPICE, is an error (v1 does not read it)."""
+    sp = dialect == "spectre-spice"
     stmts: List[_Stmt] = []
     notes: List[Note] = []
     parts: Optional[List[str]] = None
@@ -485,16 +497,29 @@ def _logical(phys: Sequence[Tuple[str, str]]) -> Tuple[List[_Stmt], List[Note]]:
                 break
             if not _strip_comment(s, quote)[0].rstrip().endswith("\\"):
                 break
+            if sp and _file_of(phys[k][1]) != _file_of(origin):
+                notes.append(error(origin, "the statement continues with '\\' into another file (%s): a "
+                                   "statement cannot continue across a file boundary (UG p.73)" % phys[k][1]))
+                line = s[:-1]
+                break
             nxt = phys[k][0].rstrip("\r\n")
             k += 1
             line = s[:-2].rstrip() + nxt.lstrip() if s.endswith("\\\\") else s[:-1] + nxt
         t = line.lstrip()
         if not t or t[0] == "*":
+            if sp and t[1:].lstrip().lower().startswith("spectre:"):
+                notes.append(error(origin, "'* spectre:' carries Spectre text hidden from SPICE, which v1 "
+                                   "does not read; the element or parameter it carries would be lost (§3.13)"))
             continue
         if t[0] == "+":
             body, quote = _strip_comment(t[1:], quote)
             if parts is None:
                 notes.append(error(origin, "continuation line '+' without a statement before it"))
+                continue
+            if sp and _file_of(origin) != _file_of(first):
+                notes.append(error(origin, "continuation line '+' would continue the statement at %s, which "
+                                   "is in another file: a statement cannot continue across a file boundary "
+                                   "(UG p.73)" % first))
                 continue
             parts.append(body)
             continue
@@ -680,6 +705,7 @@ class _Scope:
         self.model_at: Dict[int, Model] = {}                        # id(.model statement) -> Model
         self.funcs_cache: Optional[Dict[str, Tuple[Sequence[str], Expr]]] = None
         self.raw_params: List[Tuple[str, str, str]] = []           # (name, value text, origin)
+        self.header_params: Set[str] = set()                        # the .subckt line's parameter names
         self.params: List[Tuple[str, Expr, str]] = []               # parsed, in source order
         self.funcs: Dict[str, Tuple[Tuple[str, ...], Expr, str]] = {}
         self.local: Set[str] = set()        # parameter names of this and enclosing subckts
@@ -858,8 +884,24 @@ class _Parser:
         self.wl = False
         self.parhier = "global"
         self.parhier_eff = "global"
+        # the spectre personality's SPICE mode (VAMOS_SPECTRE_DESIGN.md §4.3): names resolved against
+        # spectre.py's table, Spectre's expression semantics, no file access
+        self.sp = opts.dialect == "spectre-spice"
+        self.edialect = "spectre-spice" if self.sp else "hspice"
+        self.resolver: Optional[Resolver] = None
+        self.pending: List[Tuple[str, str, str]] = []
+        self.va_mods: Dict[str, VaModule] = {}
+        self.cur_origin = ""                                        # for the number reader's notes
 
     # -- notes ------------------------------------------------------------------
+
+    def ewarn(self, severity: str, msg: str) -> None:
+        """expr.number's notes and warnings (the Spectre dialects' scale-factor rules, §3.3)."""
+        self.notes.append(Note(severity, self.cur_origin, msg))
+
+    def is_ground(self, text: str) -> bool:
+        """'0' and HSPICE's aliases; in spectre-spice only '0' (§3.4, §4.3 Lexical)."""
+        return text == "0" if self.sp else fold_ground(text) == "0"
 
     def err(self, origin: str, msg: str) -> None:
         self.notes.append(error(origin, msg))
@@ -907,7 +949,7 @@ class _Parser:
             self.close_scopes(path)
         if extra:
             phys = [(line, origin) for line, origin in extra]
-            stmts, notes = _logical(phys)
+            stmts, notes = _logical(phys, self.edialect)
             self.notes.extend(notes)
             f = _File("", stmts)
             self.notes.extend(f.notes)
@@ -1018,6 +1060,8 @@ class _Parser:
                     self.err(st.origin, ".alter is not supported (one simulation per run)")
                 if section is not None and kw == ".end":
                     self.err(st.origin, "a .lib section cannot contain .end")
+                if self.sp and kw == ".end":
+                    self.controls.append((".end", st))
                 rest = [s for s in f.stmts[i + 1:end]]
                 if rest and kw == ".end":
                     self.note(rest[0].origin, "ignored after .end (%d statement%s)"
@@ -1061,6 +1105,24 @@ class _Parser:
             self.scope.items.append(st)
             return
         canon = _DOT.get(kw)
+        if self.sp and canon not in (".subckt", ".ends", ".param", ".model", ".inc", ".lib", ".endl",
+                                     ".data", ".enddata", ".if", ".alter"):
+            # spectre.py reads every other dot statement from Fragment.controls (§4.3's table)
+            if canon in _CONTROLS_TOP_ONLY and self.scope is not self.top:
+                self.err(st.origin, "%s inside .subckt %s is not supported" % (kw, self.scope.name))
+                return
+            if canon == ".option" and self.scope is not self.top:
+                self.err(st.origin, "%s inside .subckt %s: Spectre's multi-technology mode scopes options "
+                         "given in a subcircuit to it, which v1 does not model (§3.6)" % (kw, self.scope.name))
+                return
+            if canon is None and kw not in _DOT_OTHER_ANALYSES and kw not in _DOT_NOTED and kw not in _DOT_ERRORS:
+                self.err(st.origin, "unsupported dot-command %s" % kw)
+                return
+            self.controls.append((canon or kw, st))
+            return
+        if self.sp and canon in (".inc", ".lib", ".endl"):
+            self.err(st.origin, "%s was not spliced in before the SPICE region was read (internal)" % kw)
+            return
         if canon is None:
             if kw in _DOT_OTHER_ANALYSES:
                 self.warn(st.origin, "%s ignored: only the first .tran is simulated in a "
@@ -1231,17 +1293,13 @@ class _Parser:
             return
         if path not in self.hdl:
             self.hdl.append(path)
-        try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                text = _VA_COMMENT.sub(" ", fh.read())
-        except OSError as exc:
-            self.err(st.origin, "cannot read %s: %s" % (path, exc))
-            return
-        mods = _VA_MODULE.findall(text)
+        mods, files = va_modules(path, self.search)     # `include followed (§3.1, the shared fix)
         if not mods:
-            self.err(st.origin, "%s declares no Verilog-A module" % path)
-        for m in mods:
-            self.va_modules.setdefault(m.lower(), m)
+            self.err(st.origin, "%s declares no Verilog-A module%s"
+                     % (path, " (files read: %s)" % ", ".join(files) if len(files) > 1 else ""))
+        for low, vm in mods.items():
+            self.va_modules.setdefault(low, vm.name)
+            self.va_mods.setdefault(low, vm)
 
     # =========================================================================
     # Options needed before elements are read
@@ -1276,6 +1334,15 @@ class _Parser:
             self.spell(n, w)
         self.globals = g
         self.global_set = set(g)
+
+    def va_module(self, name: str) -> Optional[str]:
+        """A Verilog-A module name as declared: this parse's .hdl files, then the resolver's (§4.3)."""
+        found = self.va_modules.get(name.lower())
+        if found is None and self.resolver is not None:
+            vm = self.resolver.va_module(name.lower())
+            if vm is not None:
+                found = vm.name
+        return found
 
     # =========================================================================
     # Pass 2a: subckt headers, parameters, functions, models
@@ -1354,8 +1421,9 @@ class _Parser:
             name = self.fold(key)
             self.spell(name, key, True)
             scope.raw_params.append((name, text, st.origin))
+            scope.header_params.add(name)
         scope.orig_ports = ports
-        scope.gnd_ports = [i for i, p in enumerate(ports) if fold_ground(p) == "0"]
+        scope.gnd_ports = [i for i, p in enumerate(ports) if self.is_ground(p)]
         scope.ports = [p for i, p in enumerate(ports) if i not in scope.gnd_ports]
 
     def port_text(self, text: str) -> str:
@@ -1364,9 +1432,9 @@ class _Parser:
             raise _Defer("%r is not a node name" % text)
         _no_period(text)
         t = text
-        if t.isdigit():
+        if t.isdigit() and not self.sp:                 # Spectre: 007 is not 7 (§3.4)
             t = str(int(t))
-        if "{" in t:
+        if "{" in t and not self.sp:
             t = t.replace("{", "[").replace("}", "]")
         return self.fold(t)
 
@@ -1378,6 +1446,12 @@ class _Parser:
         if terminal:
             _no_period(text)
         t = text
+        if self.sp:                                     # node names are strings; only 0 is ground (§3.4)
+            if t == "0":
+                return "0"
+            n = self.fold(t)
+            self.spell(n, text)
+            return n
         if t.isdigit():
             t = str(int(t))
         if "{" in t:
@@ -1407,14 +1481,24 @@ class _Parser:
             if m:
                 fname = m.group(1).lower()
                 args = tuple(self.fold(a.strip()) for a in m.group(2).split(",") if a.strip())
-                if fname in E.FUNCS or E.is_node_call(Call(fname, ())):
+                if self.sp:
+                    if fname in E.SPECTRE_FUNCS:         # a user function wins, with a warning (§3.5)
+                        self.warn(st.origin, ".param %s(): a user function named like the built-in %s(); "
+                                  "the user function is used (UG p.92)" % (fname, fname))
+                elif fname in E.FUNCS or E.is_node_call(Call(fname, ())):
                     self.err(st.origin, ".param %s(): redefines a built-in function" % fname)
                     continue
                 if not args or any(not _IDENT.match(a) for a in args):
                     self.err(st.origin, ".param %s: bad argument list" % key)
                     continue
                 try:
-                    body = E.parse(text, self.case)
+                    if self.sp:
+                        self.cur_origin = st.origin
+                        body = E.parse(text, self.case, self.edialect, funcs=self.visible_funcs(scope),
+                                       warn=self.ewarn)
+                        scope.funcs_cache = None
+                    else:
+                        body = E.parse(text, self.case)
                 except E.ExprError as exc:
                     self.err(st.origin, "function %s: %s" % (fname, exc))
                     continue
@@ -1450,6 +1534,8 @@ class _Parser:
         t = text.strip()
         if not t:
             raise _Defer("empty value")
+        if self.sp:
+            return self.expr_spectre(t, text, scope, ctx)
         if len(t) >= 2 and ((t[0] == "'" and t[-1] == "'") or (t[0] == "{" and t[-1] == "}")):
             inner = t[1:-1].strip()
             if inner and not any(c in inner for c in "'{}\""):
@@ -1504,6 +1590,42 @@ class _Parser:
                 raise _Defer("%s: %s" % (text, exc))
         return ast
 
+    def expr_spectre(self, t: str, text: str, scope: _Scope, ctx: str) -> Expr:
+        """The spectre-spice dialect's value (§3.5, §4.3's switch points): SPICE mode's numbers, temp
+        and tnom as the predefined parameters, the constants, user functions through
+        expr.parse(funcs=), the Spectre function table, and the parse-time fold with Spectre's
+        evaluator, so an out-of-domain constant is an error here, never Num(-2.0) for sqrt(-4)."""
+        if len(t) >= 2 and ((t[0] == "'" and t[-1] == "'") or (t[0] == "{" and t[-1] == "}")):
+            inner = t[1:-1].strip()
+            if inner and not any(c in inner for c in "'{}\""):
+                t = inner
+        if _FAST_NUM.match(t):
+            try:
+                return Num(E.number(t, self.edialect, self.ewarn))
+            except ValueError:
+                pass
+        funcs = self.visible_funcs(scope) if any(s.funcs for s in scope.chain()) else None
+        if _IDENT.match(t):
+            low = t.lower()
+            if low == "temp":
+                return Name("temper")
+            if low == "tnom":
+                return Name("$tnom")
+            if low in ("time", "hertz"):
+                raise _Defer("%s: behavioral expressions are not supported in v1" % text)
+            if low not in E._SPECTRE_CONSTANTS_LOWER and low != "temper":
+                return Name(low)
+        try:
+            ast = E.parse(t, self.case, self.edialect, funcs=funcs, warn=self.ewarn)
+        except E.ExprError as exc:
+            raise _Defer("cannot read %s: %s" % (text, exc))
+        if ctx == "value" and E.is_constant(ast):
+            try:
+                return Num(E.evaluate(ast, {}, self.edialect))
+            except E.EvalError as exc:
+                raise _Defer("%s: %s" % (text, exc))
+        return ast
+
     def fold_vnodes(self, ast: Expr) -> Expr:
         """Ground aliases (and leading zeros) inside v(): x1.gnd -> 0."""
         def f(e: Expr) -> Expr:
@@ -1529,7 +1651,7 @@ class _Parser:
         if ns & scope.local:
             return None
         try:
-            return E.evaluate(e, self.values)
+            return E.evaluate(e, self.values, self.edialect)
         except E.EvalError:
             return None
 
@@ -1565,13 +1687,15 @@ class _Parser:
                 scope.va_cards[name][2] if name in scope.va_cards else scope.bad_models[name]
             self.err(st.origin, ".model %s is defined twice: %s and %s" % (name, prev, st.origin))
             return
+        va_name = self.va_module(mtype)
         if mtype in MODEL_KINDS:
             kind = mtype
-        elif mtype in self.va_modules:
-            kind = self.va_modules[mtype]                  # a card of a .hdl Verilog-A module
+        elif va_name is not None:
+            kind = va_name                                 # a card of a .hdl Verilog-A module
         else:
             self.leave_model(scope, name, st.origin, "model type %s is not supported" % ttext.upper())
             return
+        self.cur_origin = st.origin
         params: Dict[str, Expr] = {}
         flat: List[Tuple[Optional[str], str]] = []
         for f in rest:
@@ -1606,7 +1730,18 @@ class _Parser:
         level: Optional[float] = None
         if "level" in params:
             level = self.const(params["level"], scope)
-        scope.models[name] = Model(name, kind, level, params, st.origin)
+        prim = ""
+        if self.sp:                                        # the Spectre master (§4.3 Models, §3.9)
+            if "level" in params and level is None:
+                self.leave_model(scope, name, st.origin, "level=%s is not a constant; SPICE mode needs a "
+                                 "literal level to choose the Spectre master" % E.to_text(params["level"]))
+                return
+            master, why = _spice_master(mtype, level)
+            if master is None:
+                self.leave_model(scope, name, st.origin, why or "no Spectre master")
+                return
+            prim = master
+        scope.models[name] = Model(name, kind, level, params, st.origin, prim=prim)
         scope.model_at[id(st)] = scope.models[name]
 
     def leave_model(self, scope: _Scope, name: str, origin: str, why: str) -> None:
@@ -1619,6 +1754,8 @@ class _Parser:
             if mm is None or not all(b in m.params for b in _BIN_BOUNDS):
                 continue
             m.base, m.bin_index = mm.group(1), int(mm.group(2))
+            if self.sp:
+                m.bin_rule = "spectre"                      # x.N bins form a Spectre model group (§4.3)
             scope.bins.setdefault(m.base, []).append(m)
         for base, bins in scope.bins.items():
             kinds = {b.kind for b in bins}
@@ -1630,7 +1767,8 @@ class _Parser:
             bins.sort(key=lambda b: b.bin_index)
 
     def find_model(self, scope: _Scope, name: str) -> Optional[Tuple[str, object]]:
-        """('card', Model) | ('bins', [Model]) | ('bad', reason), innermost scope first."""
+        """('card', Model) | ('bins', [Model]) | ('bad', reason) | ('decl', Decl: a model of another
+        region or language, through the resolver), innermost scope first."""
         for s in scope.chain():
             if name in s.models and name not in s.bins:
                 return ("card", s.models[name])
@@ -1638,6 +1776,10 @@ class _Parser:
                 return ("bins", s.bins[name])
             if name in s.bad_models:
                 return ("bad", s.bad_models[name])
+        if self.resolver is not None:
+            d = self.resolver.model(name)
+            if d is not None:
+                return ("decl", d)
         return None
 
     def model_kind(self, scope: _Scope, name: str) -> Optional[str]:
@@ -1647,6 +1789,9 @@ class _Parser:
         what, obj = found
         if what == "bad":
             return "?"
+        if what == "decl":
+            letter = _MASTER_LETTER.get(obj.master)             # type: ignore[union-attr]
+            return _LETTER_KINDS[letter][0] if letter else "?"
         if what == "bins":
             return obj[0].kind                                  # type: ignore[index]
         return obj.kind                                         # type: ignore[union-attr]
@@ -1659,11 +1804,55 @@ class _Parser:
         what, obj = found
         if what == "bad":
             raise _Defer("%s: model %s is left out: %s" % (elem, name_text, obj))
+        if what == "decl":
+            letter = _MASTER_LETTER.get(obj.master)             # type: ignore[union-attr]
+            if letter is None or kinds[0] not in _LETTER_KINDS[letter]:
+                raise _Defer("%s: model %s is a %s card, not one of %s" % (elem, name_text,
+                                                                           obj.master, " ".join(kinds)))  # type: ignore[union-attr]
+            return obj.name                                     # type: ignore[union-attr]
         kind = obj[0].kind if what == "bins" else obj.kind      # type: ignore[index,union-attr]
         if kind not in kinds:
             raise _Defer("%s: model %s is a %s model, not %s" % (elem, name_text, kind,
                                                                  " or ".join(kinds)))
         return name
+
+    def card_prim(self, scope: _Scope, name: str) -> str:
+        """The Spectre master of a resolved card (Instance.prim of its devices, §4.1 item 7)."""
+        found = self.find_model(scope, name)
+        if found is None:
+            return ""
+        what, obj = found
+        if what == "decl":
+            return obj.master                                   # type: ignore[union-attr]
+        if what == "bins":
+            return obj[0].prim                                  # type: ignore[index]
+        if what == "card":
+            return obj.prim                                     # type: ignore[union-attr]
+        return ""
+
+    def is_param_name(self, scope: _Scope, name: str) -> bool:
+        """A parameter of this fragment's scopes or of spectre.py's table (§4.3: an R/C/L field)."""
+        for s in scope.chain():
+            if any(n == name for n, _, _ in s.raw_params) or any(n == name for n, _, _ in s.params):
+                return True
+        return self.resolver is not None and self.resolver.param(name) is not None
+
+    def spectre_keys(self, scope: _Scope, st: _Stmt, orig: str, letter: str, prim: str,
+                     params: Dict[str, Expr]) -> None:
+        """§4.3 Elements: a keyed parameter the SPICE element does not define is a Spectre instance
+        parameter of the element's master; one the master does not have is an error.  A bare word
+        written for an enumeration parameter (isnoisy=no, region=sat) is its Str value."""
+        from vamos.netlist import tables as T
+        row = T.SPECTRE_MASTERS.get(prim)
+        known = set(_SPICE_KEYS.get(letter, ())) | ({r.name for r in row.instance} if row else set())
+        enums = spectre_enum_params()
+        for key in list(params):
+            if key not in known:
+                raise _Defer("%s: %s= is neither a SPICE %s parameter nor a Spectre %s instance parameter"
+                             % (orig, key, letter.upper(), prim or "?"))
+            v = params[key]
+            if key in enums and isinstance(v, Name) and v.name not in E.RESERVED:
+                params[key] = Str(v.name)
 
     def find_subckt(self, scope: _Scope, name: str) -> Optional[_Scope]:
         for s in scope.chain():
@@ -1687,6 +1876,7 @@ class _Parser:
                     scope.out.append(scope.model_at[id(it)])
                 continue
             try:
+                self.cur_origin = it.origin
                 inst = self.element(scope, it)
             except _Defer as exc:
                 self.fail(scope, it.origin, str(exc))
@@ -1784,6 +1974,7 @@ class _Parser:
         value: Optional[Expr] = None
         params: Dict[str, Expr] = {}
         k = 0
+        prim = {"r": "resistor", "c": "capacitor", "l": "inductor"}[kind] if self.sp else ""
         if k < len(rest) and _bare(rest[k]):
             word = rest[k][1]
             if word.lower() == "poly":
@@ -1791,6 +1982,13 @@ class _Parser:
             # HSPICE: a model of that name wins over a parameter of the same name
             if self.find_model(scope, self.fold(word)) is not None:
                 master = self.need_model(scope, word, (kind,), orig)
+                k += 1
+            elif self.sp and _IDENT.match(word) and not self.is_param_name(scope, self.fold(word)) and \
+                    self.fold(word) not in E._SPECTRE_CONSTANTS_LOWER and \
+                    self.fold(word) not in ("temp", "tnom", "temper", "time", "hertz"):
+                # a field that names nothing is a model name (UG p.45); spectre.py reports pending names
+                master = self.fold(word)
+                self.pending.append(("model", master, st.origin))
                 k += 1
         if k < len(rest) and _bare(rest[k]):
             value = self.value(scope, rest[k][1], orig, "value")
@@ -1825,11 +2023,16 @@ class _Parser:
         if value is None and master is None:
             raise _Defer("%s needs a value or a model" % orig)
         if "scale" in params:
+            if self.sp:                                     # HSPICE scales the value; Spectre w and l (§4.3)
+                raise _Defer("%s: scale= on a SPICE-mode %s is an error in v1 (HSPICE multiplies the value "
+                             "by it, Spectre's resistor scale acts on w and l)" % (orig, kind.upper()))
             if value is None:
                 raise _Defer("%s: SCALE= on a model-only element is not supported" % orig)
             value = _mul(value, params.pop("scale"))
+        if self.sp:
+            self.spectre_keys(scope, st, orig, kind, prim, params)
         return Instance(name, kind, nodes, master=master, value=value, params=params,
-                        origin=st.origin)
+                        origin=st.origin, prim=prim)
 
     # -- K
 
@@ -1850,7 +2053,8 @@ class _Parser:
         if kv:
             raise _Defer("%s: %s not supported" % (orig, " ".join(sorted(kv))))
         ctrl = [self.fold(b) for b in bare[:2]]
-        return Instance(name, "k", [], value=coupling, ctrl=ctrl, origin=st.origin)
+        return Instance(name, "k", [], value=coupling, ctrl=ctrl, origin=st.origin,
+                        prim="mutual_inductor" if self.sp else "")
 
     # -- V I
 
@@ -1964,10 +2168,52 @@ class _Parser:
             src.wave = "pwl" if wave == "pl" else wave
         elif wkeys:
             raise _Defer("%s: TD=/R= without a PWL function" % orig)
+        if self.sp:                                         # §4.3 Sources: Spectre names, resolve_source later
+            src.spectre = self.spectre_source(orig, src, wave, wargs, wkeys)
+            self.spectre_keys(scope, st, orig, kind, "vsource" if kind == "v" else "isource", params)
+            return Instance(name, kind, nodes, params=params, source=src, origin=st.origin,
+                            prim="vsource" if kind == "v" else "isource")
         inst = Instance(name, kind, nodes, params=params, source=src, origin=st.origin)
         if wave is not None:
             scope.sources.append((inst, wave, wargs, wkeys))   # defaults resolved in pass 3
         return inst
+
+    def spectre_source(self, orig: str, src: Source, wave: Optional[str], args: List[Expr],
+                       keys: Dict[str, Expr]) -> Dict[str, object]:
+        """A V or I line's fields in Spectre names (§4.3 Sources): DC -> dc; AC -> mag phase; PULSE ->
+        type=pulse val0 val1 delay rise fall width period; SIN -> type=sine sinedc ampl freq delay damp
+        sinephase; EXP -> type=exp val0 val1 td1 tau1 td2 tau2; PWL -> type=pwl wave=[...] delay.
+        spectre.resolve_source then applies §3.8.1."""
+        out: Dict[str, object] = {}
+        if src.dc is not None:
+            out["dc"] = src.dc
+        if src.ac is not None:
+            out["mag"], out["phase"] = src.ac
+        if wave is None:
+            return out
+        if wave in ("pwl", "pl"):
+            if "r" in keys:
+                raise _Defer("%s: PWL R= (a repeating PWL) is not supported" % orig)
+            if len(args) % 2 or not args:
+                raise _Defer("%s: PWL needs time-value pairs" % orig)
+            pairs = [(args[k], args[k + 1]) for k in range(0, len(args), 2)]
+            if wave == "pl":
+                pairs = [(t, v) for v, t in pairs]
+            out["type"] = Str("pwl")
+            out["wave"] = [x for pair in pairs for x in pair]
+            if "td" in keys:
+                out["delay"] = keys["td"]
+            return out
+        lo, hi = _SOURCE_ARITY[wave]
+        if not lo <= len(args) <= hi:
+            raise _Defer("%s: %s takes %d to %d values, got %d" % (orig, wave.upper(), lo, hi, len(args)))
+        out["type"] = Str("sine" if wave == "sin" else wave)
+        for sname, value in zip(_SPICE_SOURCE_NAMES[wave], args):
+            out[sname] = value
+        if wave == "sin" and "freq" not in out:
+            raise _Defer("%s: SIN without a frequency: SPICE3 reads 1/TSTOP, a converted Spectre sine freq=0 "
+                         "(a constant); give the frequency (§14 q.38)" % orig)
+        return out
 
     # -- E G
 
@@ -1996,6 +2242,8 @@ class _Parser:
                 if bad in kv:
                     raise _Defer("%s: %s= is not supported" % (orig, bad.upper()))
             if "scale" in kv:
+                if self.sp:
+                    raise _Defer("%s: scale= on a SPICE-mode %s is an error in v1" % (orig, kind.upper()))
                 ex = _mul(ex, kv.pop("scale"))
             if "m" in kv:
                 if kind == "e":
@@ -2004,7 +2252,8 @@ class _Parser:
             if kv:
                 raise _Defer("%s: %s not supported" % (orig, " ".join(sorted(kv))))
             return Instance(name, "b", nodes, params=params, expr=ex,
-                            expr_kind="v" if kind == "e" else "i", origin=st.origin)
+                            expr_kind="v" if kind == "e" else "i", origin=st.origin,
+                            prim=("vcvs" if kind == "e" else "vccs") if self.sp else "")
         if rest and _bare(rest[0]) and rest[0][1].lower() == ("vcvs" if kind == "e" else "vccs"):
             rest = rest[1:]
         if rest and _bare(rest[0]):
@@ -2030,6 +2279,8 @@ class _Parser:
             if bad in kv:
                 raise _Defer("%s: %s= is not supported" % (orig, bad.upper()))
         if "scale" in kv:
+            if self.sp:
+                raise _Defer("%s: scale= on a SPICE-mode %s is an error in v1" % (orig, kind.upper()))
             gain = _mul(gain, kv.pop("scale"))
         if "m" in kv:
             if kind == "e":
@@ -2037,7 +2288,8 @@ class _Parser:
             params["m"] = kv.pop("m")
         if kv:
             raise _Defer("%s: %s not supported" % (orig, " ".join(sorted(kv))))
-        return Instance(name, kind, nodes + cnodes, value=gain, params=params, origin=st.origin)
+        return Instance(name, kind, nodes + cnodes, value=gain, params=params, origin=st.origin,
+                        prim=("vcvs" if kind == "e" else "vccs") if self.sp else "")
 
     # -- F H
 
@@ -2067,6 +2319,8 @@ class _Parser:
             if bad in kv:
                 raise _Defer("%s: %s= is not supported" % (orig, bad.upper()))
         if "scale" in kv:
+            if self.sp:
+                raise _Defer("%s: scale= on a SPICE-mode %s is an error in v1" % (orig, kind.upper()))
             gain = _mul(gain, kv.pop("scale"))
         if "m" in kv:
             if kind == "h":
@@ -2075,7 +2329,7 @@ class _Parser:
         if kv:
             raise _Defer("%s: %s not supported" % (orig, " ".join(sorted(kv))))
         return Instance(name, kind, nodes, value=gain, params=params, ctrl=[self.fold(bare[0])],
-                        origin=st.origin)
+                        origin=st.origin, prim=("cccs" if kind == "f" else "ccvs") if self.sp else "")
 
     # -- D Q J M
 
@@ -2096,16 +2350,30 @@ class _Parser:
         value = params.pop(value_key, None) if value_key else None
         return value, params
 
+    def device_model(self, scope, fields, k, kinds, orig, letter) -> Tuple[str, str]:
+        """(IR master, Instance.prim) of the model field k of a device line (§4.3)."""
+        if self.sp and self.find_model(scope, self.fold(fields[k][1])) is None and _IDENT.match(fields[k][1]):
+            name = self.fold(fields[k][1])                  # defined nowhere: pending (spectre.py reports it)
+            self.pending.append(("model", name, self.cur_origin))
+            return name, ""
+        master = self.need_model(scope, fields[k][1], kinds, orig)
+        return master, self.card_prim(scope, master) if self.sp else ""
+
     def e_d(self, scope, st, name, orig, fields):
         nodes = self.nodes(fields, 2, orig)
         if len(fields) < 3 or not _bare(fields[2]):
             raise _Defer("%s needs a model" % orig)
-        master = self.need_model(scope, fields[2][1], ("d",), orig)
+        master, prim = self.device_model(scope, fields, 2, ("d",), orig, "d")
         value, params = self.device(scope, st, orig, fields[3:], ("area", "pj"), "area")
-        return Instance(name, "d", nodes, master=master, value=value, params=params, origin=st.origin)
+        if self.sp:
+            self.spectre_keys(scope, st, orig, "d", prim, params)
+        return Instance(name, "d", nodes, master=master, value=value, params=params, origin=st.origin,
+                        prim=prim)
 
     def three_or_four(self, scope, fields, kinds, orig, four_ok: bool = True) -> int:
-        """How many nodes before the model of a Q/J line (3, or 4 with a substrate/bulk)."""
+        """How many nodes before the model of a Q/J line (3, or 4 with a substrate/bulk).  In
+        spectre-spice the fourth field is a terminal unless a model has that name or it is the
+        last field (UG p.52); the model then names nothing defined (pending)."""
         def is_model(k):
             return k < len(fields) and _bare(fields[k]) and \
                 self.model_kind(scope, self.fold(fields[k][1])) is not None
@@ -2113,6 +2381,11 @@ class _Parser:
             return 3
         if four_ok and is_model(4):
             return 4
+        if self.sp and len(fields) >= 4 and all(_bare(f) for f in fields[:4]):
+            if len(fields) == 4 or not _bare(fields[4]):
+                return 3
+            if four_ok:
+                return 4
         if len(fields) > 3 and _bare(fields[3]):
             self.need_model(scope, fields[3][1], kinds, orig)   # raises: not found
         raise _Defer("%s needs nodes and a model" % orig)
@@ -2120,18 +2393,24 @@ class _Parser:
     def e_q(self, scope, st, name, orig, fields):
         n = self.three_or_four(scope, fields, ("npn", "pnp"), orig)
         nodes = self.nodes(fields, n, orig)
-        master = self.need_model(scope, fields[n][1], ("npn", "pnp"), orig)
+        master, prim = self.device_model(scope, fields, n, ("npn", "pnp"), orig, "q")
         value, params = self.device(scope, st, orig, fields[n + 1:], ("area",), "area")
-        return Instance(name, "q", nodes, master=master, value=value, params=params, origin=st.origin)
+        if self.sp:
+            self.spectre_keys(scope, st, orig, "q", prim, params)
+        return Instance(name, "q", nodes, master=master, value=value, params=params, origin=st.origin,
+                        prim=prim)
 
     def e_j(self, scope, st, name, orig, fields):
         n = self.three_or_four(scope, fields, ("njf", "pjf"), orig)
         if n == 4:
             raise _Defer("%s: a JFET bulk node is not supported" % orig)
         nodes = self.nodes(fields, 3, orig)
-        master = self.need_model(scope, fields[3][1], ("njf", "pjf"), orig)
+        master, prim = self.device_model(scope, fields, 3, ("njf", "pjf"), orig, "j")
         value, params = self.device(scope, st, orig, fields[4:], ("area",), "area")
-        return Instance(name, "j", nodes, master=master, value=value, params=params, origin=st.origin)
+        if self.sp:
+            self.spectre_keys(scope, st, orig, "j", prim, params)
+        return Instance(name, "j", nodes, master=master, value=value, params=params, origin=st.origin,
+                        prim=prim)
 
     def e_m(self, scope, st, name, orig, fields):
         def is_mos(k):
@@ -2143,9 +2422,12 @@ class _Parser:
         if len(fields) < 5 or not _bare(fields[4]):
             raise _Defer("%s needs 4 nodes and a model" % orig)
         nodes = self.nodes(fields, 4, orig)
-        master = self.need_model(scope, fields[4][1], ("nmos", "pmos"), orig)
+        master, prim = self.device_model(scope, fields, 4, ("nmos", "pmos"), orig, "m")
         pos = ("w", "l") if self.wl else ("l", "w")
         _, params = self.device(scope, st, orig, fields[5:], pos, None)
+        if self.sp:                                         # no DEFL/DEFW: §3.9 fills the geometry
+            self.spectre_keys(scope, st, orig, "m", prim, params)
+            return Instance(name, "m", nodes, master=master, params=params, origin=st.origin, prim=prim)
         for opt, key in _OPT_MOSDEF.items():
             if key in params:
                 continue
@@ -2194,6 +2476,20 @@ class _Parser:
                 raise _Defer("%s: %s=%s" % (orig, key, exc))
         target = self.find_subckt(scope, master)
         actuals = [self.node_text(a, terminal=True) for a in actual_texts]
+        if target is None and self.resolver is not None:
+            decl = self.resolver.subckt(master)
+            if decl is not None:                            # a subckt of another region or language (§4.3)
+                if decl.ports is not None and len(actuals) != decl.ports:
+                    raise _Defer("%s has %d node%s but subckt %s has %d port%s (%s)"
+                                 % (orig, len(actuals), "" if len(actuals) == 1 else "s", master_text,
+                                    decl.ports, "" if decl.ports == 1 else "s", decl.origin))
+                for pk in params:
+                    if pk != "m" and pk not in decl.params:
+                        raise _Defer("%s: %s is not a parameter of subckt %s's definition line (%s); an "
+                                     "override must name one declared there, in lower case (UG pp.55, 97)"
+                                     % (orig, pk, master_text, decl.origin))
+                return Instance(name, "x", actuals, master=decl.name, params=params, origin=st.origin,
+                                prim="subckt" if self.sp else "")
         if target is not None:
             if len(actuals) != len(target.orig_ports):
                 raise _Defer("%s has %d node%s but subckt %s has %d port%s (%s)"
@@ -2215,18 +2511,27 @@ class _Parser:
                     raise _Defer("%s binds port %s of subckt %s, a .global net, to %s; the port "
                                  "always joins the global net (port_connect -cell %s (%s => %s) "
                                  "states it)" % (orig, p, master_text, a, target.name, p, p))
-            inst = Instance(name, "x", nodes, master=target.name, params=params, origin=st.origin)
+            if self.sp:                                 # an override must name a header parameter (UG p.55)
+                for pk in params:
+                    if pk != "m" and pk not in target.header_params:
+                        raise _Defer("%s: %s is not a parameter of .subckt %s's definition line (%s); an "
+                                     "override must name one declared there (UG p.55)"
+                                     % (orig, pk, master_text, target.stmt.origin))
+            inst = Instance(name, "x", nodes, master=target.name, params=params, origin=st.origin,
+                            prim="subckt" if self.sp else "")
             scope.xrefs.append((inst, target))
             return inst
-        va = self.va_modules.get(master_text.lower())
+        va = self.va_module(master_text)
         if va is not None:
-            return Instance(name, "y", actuals, master=va, params=params, origin=st.origin)
+            return Instance(name, "y", actuals, master=va, params=params, origin=st.origin,
+                            prim=va if self.sp else "")
         for s in scope.chain():
             if master in s.va_cards:
                 module, card, _ = s.va_cards[master]
                 merged = dict(card)
                 merged.update(params)                      # instance values win over the card's
-                return Instance(name, "y", actuals, master=module, params=merged, origin=st.origin)
+                return Instance(name, "y", actuals, master=module, params=merged, origin=st.origin,
+                                prim=module if self.sp else "")
         found = self.find_model(scope, master)
         if found is not None and found[0] == "bad":
             raise _Defer("%s: model %s is left out: %s" % (orig, master_text, found[1]))
@@ -2897,7 +3202,7 @@ class _Parser:
                 self.err(st.origin, "%s: %s" % (st.kw, exc))
                 continue
             last = node.rsplit(".", 1)[-1]
-            if fold_ground(last) == "0":
+            if self.is_ground(last):
                 node = "0"
             v = self.eval_top(text, st.origin, "%s v(%s)" % (st.kw, raw))
             if v is None:
@@ -3061,6 +3366,7 @@ class _Parser:
         self.controls_pass(nl)
         nl.body = list(self.top.sorted_params) + self.items(self.top)
         nl.values = dict(self.values)
+        nl.va_modules = dict(self.va_mods)
         spelling = dict(self.spelling_use)
         spelling.update(self.spelling_def)
         nl.spelling = spelling
@@ -3072,12 +3378,33 @@ class _Parser:
             if isinstance(it, _Scope):
                 if not self.kept(it):
                     continue
-                out.append(Subckt(it.name, list(it.ports), list(it.sorted_params), self.items(it),
+                params = [Param(n, e, o) for n, e, o in it.params] if self.sp else list(it.sorted_params)
+                out.append(Subckt(it.name, list(it.ports), params, self.items(it),
                                   list(it.orig_ports), list(it.gnd_ports), it.stmt.origin,
                                   dict(it.spelling)))
             else:
                 out.append(it)
         return out
+
+    def fragment(self) -> Fragment:
+        """A spectre-spice region's Fragment (§4.3): raw Params in source order, then the body."""
+        frag = Fragment()
+        frag.items = [Param(n, e, o) for n, e, o in self.top.params] + self.items(self.top)
+        for canon, st in self.controls:
+            try:
+                fields = st.fields()
+            except _LexError as exc:
+                self.err(st.origin, "%s: %s" % (st.kw, exc))
+                continue
+            if fields and fields[0][0] is not None:        # '.temp = 125': the keyword became a key
+                fields = [("", fields[0][1])] + fields[1:]
+            else:
+                fields = fields[1:]
+            frag.controls.append((canon, fields, st.origin))
+        frag.notes = list(self.notes)
+        frag.left_out = dict(self.left)
+        frag.pending = list(self.pending)
+        return frag
 
 
 def parse(paths: Sequence[NetlistRef], extra: Sequence[Tuple[str, str]], cwd: str,
@@ -3105,26 +3432,485 @@ def parse(paths: Sequence[NetlistRef], extra: Sequence[Tuple[str, str]], cwd: st
 
 # -- the spectre personality's SPICE mode: phase-0 signatures (VAMOS_SPECTRE_DESIGN.md §4.3, §10) -------
 
+# SPICE model types -> Spectre masters (§4.3 Models): the level decides the MOS master.
+_SPICE_MASTERS = {"d": "diode", "npn": "bjt", "pnp": "bjt", "njf": "jfet", "pjf": "jfet",
+                  "r": "resistor", "c": "capacitor", "l": "inductor"}
+_MOS_MASTERS = {1: "mos1", 2: "mos2", 3: "mos3", 49: "bsim3v3", 53: "bsim3v3", 54: "bsim4"}
+_MASTER_LETTER = {"resistor": "r", "capacitor": "c", "inductor": "l", "diode": "d", "bjt": "q", "jfet": "j",
+                  "mos1": "m", "mos2": "m", "mos3": "m", "bsim3v3": "m", "bsim4": "m"}
+_LETTER_KINDS = {"r": ("r",), "c": ("c",), "l": ("l",), "d": ("d",), "q": ("npn", "pnp"), "j": ("njf", "pjf"),
+                 "m": ("nmos", "pmos")}
+# the keys a SPICE element line defines itself (any other key is a Spectre instance parameter of the
+# element's master, checked against SPECTRE_MASTERS, §4.3 Elements)
+_SPICE_KEYS = {"r": ("r", "tc1", "tc2", "m", "scale", "ac", "w", "l", "dtemp"),
+               "c": ("c", "tc1", "tc2", "m", "scale", "w", "l", "ic", "dtemp"),
+               "l": ("l", "tc1", "tc2", "m", "scale", "ic", "dtemp"),
+               "d": ("area", "pj", "w", "l", "m", "dtemp"), "q": ("area", "m", "dtemp"), "j": ("area", "m", "dtemp"),
+               "m": ("l", "w", "ad", "as", "pd", "ps", "nrd", "nrs", "nf", "m", "dtemp", "geo", "delvto", "mulu0"),
+               "v": ("m",), "i": ("m",), "e": ("m",), "g": ("m",), "f": ("m",), "h": ("m",)}
+_SPICE_SOURCE_NAMES = {"pulse": ("val0", "val1", "delay", "rise", "fall", "width", "period"),
+                       "sin": ("sinedc", "ampl", "freq", "delay", "damp", "sinephase"),
+                       "exp": ("val0", "val1", "td1", "tau1", "td2", "tau2")}
+
+
+_ENUM_PARAMS: Optional[frozenset] = None
+
+
+def spectre_enum_params() -> frozenset:
+    """The instance and card parameters of the v1 masters whose values are enumerations (words): the
+    names of SPECTRE_MASTERS rules with a word-valued match token (type, capmod, struct, abs, ...)
+    plus isnoisy (yes|no), a source's type, region and file.  A bare identifier written for one of them
+    is a Str, as §4.1 item 11 keeps enumerations, never a parameter reference: plan.build evaluates
+    every other value, and the emitters read these as text (spectre.py and parse_fragment share it)."""
+    global _ENUM_PARAMS
+    if _ENUM_PARAMS is None:
+        from vamos.netlist import tables as T
+        out = {"isnoisy", "type", "region", "file"}
+        for row in T.SPECTRE_MASTERS.values():
+            for r in tuple(row.params) + tuple(row.instance):
+                if any(tok not in ("absent", "nonzero") and not T._SPECTRE_NUM.match(tok) for tok in r.match):
+                    out.add(r.name)
+        _ENUM_PARAMS = frozenset(out)
+    return _ENUM_PARAMS
+
+
+def _spice_master(mtype: str, level: Optional[float]) -> Tuple[Optional[str], Optional[str]]:
+    """(the Spectre master of a SPICE .model type at a level, an error message) (§4.3 Models)."""
+    low = mtype.lower()
+    if low in ("nmos", "pmos"):
+        lv = 1 if level is None else level
+        if lv != int(lv) or int(lv) not in _MOS_MASTERS:
+            return None, "level %s of a %s card has no Spectre master (mos1 mos2 mos3 are levels 1-3, " \
+                         "bsim3v3 49 and 53, bsim4 54)" % (level, mtype)
+        return _MOS_MASTERS[int(lv)], None
+    if low == "d":
+        if level is not None and level != 1:
+            return None, "diode level %s is not Spectre's level 1 (junction diode; ref5 p.303)" % level
+        return "diode", None
+    if low in _SPICE_MASTERS:
+        if level is not None and level != 1:
+            return None, "level %s of a %s card has no Spectre master" % (level, mtype)
+        return _SPICE_MASTERS[low], None
+    return None, "model type %s is not supported" % mtype.upper()
+
+
+def _level_text(fields: Sequence[Tuple[Optional[str], str]]) -> Tuple[Optional[float], Optional[str]]:
+    """(the literal level of a card's fields, the text when it is not a literal)."""
+    for key, text in fields:
+        if key is not None and key.lower() == "level":
+            try:
+                return E.number(text.strip("'\"{}"), "spectre-spice"), None
+            except ValueError:
+                return None, text
+    return None, None
+
+
+def _card_fields(fields: Sequence[Tuple[Optional[str], str]]) -> List[Tuple[Optional[str], str]]:
+    """A .model's parameter fields with the '( ... )' grouping flattened."""
+    flat: List[Tuple[Optional[str], str]] = []
+    for f in fields:
+        inner = _unparen(f[1]) if _bare(f) else None
+        if inner is not None:
+            try:
+                flat.extend(_lex(inner))
+            except _LexError:
+                flat.append(f)
+        else:
+            flat.append(f)
+    return flat
+
+
 def declare_fragment(lines: List[Tuple[str, str]], opts: ParseOpts) -> Tuple[List[Decl], List[FileRef]]:
-    """The first phase, SPICE side: the names a region declares, and its file statements in order
-    (.include/.inc/.incl, both .lib forms, .hdl), from the same lexing (_logical), so spectre.py
-    never re-lexes SPICE text and splices the files in before the second phase (§4.3)."""
-    raise NotImplementedError("declare_fragment is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.3: "
-                              "phase 1, S1)")
+    """The first phase, SPICE side (§4.3): the names a region declares (.subckt with its port count
+    and header parameter names, .model with its Spectre master, .param), and its file statements
+    in order (.include/.inc/.incl, both .lib forms, .hdl: the path as written, the section, the
+    enclosing .subckt, the origin), from the same lexing (_logical), so spectre.py never re-lexes
+    SPICE text and splices the files in before the second phase.  Names are lower-cased
+    (UG p.59).  A one-argument .lib inside a section (a call to another section of the same file)
+    has path ''."""
+    decls: List[Decl] = []
+    refs: List[FileRef] = []
+    stmts, _notes = _logical(lines, "spectre-spice")
+    stack: List[str] = []
+    for st in stmts:
+        canon = _DOT.get(st.kw)
+        sub = stack[-1] if stack else ""
+        if canon == ".subckt":
+            try:
+                fields = st.fields()
+            except _LexError:
+                fields = [(None, w) for w in st.text.split()]
+            name = fields[1][1].lower() if len(fields) > 1 and _bare(fields[1]) else "?"
+            ports = 0
+            params: List[str] = []
+            k = 2
+            while k < len(fields) and _bare(fields[k]) and fields[k][1].lower() != "params:":
+                ports += 1
+                k += 1
+            for key, _text in fields[k:]:
+                if key is not None:
+                    params.append(key.lower())
+            decls.append(Decl("subckt", name, "", ports, params, st.origin))
+            stack.append(name)
+        elif canon == ".ends":
+            if stack:
+                stack.pop()
+        elif canon == ".model":
+            try:
+                fields = st.fields()
+            except _LexError:
+                continue
+            if len(fields) < 3 or not _bare(fields[1]) or not _bare(fields[2]):
+                continue
+            mtype = fields[2][1]
+            rest = list(fields[3:])
+            m = _CALLISH.match(mtype)
+            if m:
+                mtype = m.group(1)
+                try:
+                    rest = _lex(m.group(2)) + rest
+                except _LexError:
+                    pass
+            level, bad = _level_text(_card_fields(rest))
+            master, _err = _spice_master(mtype, level) if bad is None else (None, None)
+            decls.append(Decl("model", fields[1][1].lower(), master or mtype.lower(), origin=st.origin))
+        elif canon == ".param":
+            try:
+                fields = st.fields()[1:]
+            except _LexError:
+                continue
+            for key, _text in fields:
+                if key is not None and _IDENT.match(key):
+                    decls.append(Decl("param", key.lower(), origin=st.origin))
+        elif canon in (".inc", ".lib", ".hdl"):
+            try:
+                args = _path_args(st.text[len(st.kw):])
+            except _LexError:
+                continue
+            if canon == ".lib":
+                if len(args) == 2:
+                    refs.append(FileRef(st.kw.lower(), args[0], args[1].lower(), sub, st.origin))
+                elif len(args) == 1:
+                    refs.append(FileRef(st.kw.lower(), "", args[0].lower(), sub, st.origin))
+            elif args:
+                refs.append(FileRef(st.kw.lower(), args[0], None, sub, st.origin))
+    return decls, refs
 
 
 def parse_fragment(lines: List[Tuple[str, str]], cwd: str, opts: ParseOpts, resolver: Resolver) -> Fragment:
-    """The second phase: _Parser.read([], lines) with opts.dialect == "spectre-spice", case="lower"
-    and parhier_local=True, every name resolved against resolver; sets Instance.prim on every
-    element (§4.1 item 7).  spice.parse keeps refusing "spectre-spice"."""
-    raise NotImplementedError("parse_fragment is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.3: "
-                              "phase 1, S1)")
+    """The second phase (§4.3): _Parser.read([], lines) in the spectre-spice dialect, every name
+    resolved against resolver (spectre.py's complete table of both languages).  Returns the raw
+    Params (unsorted, unevaluated; a subckt's header and body parameters on its Subckt), the
+    Models with Model.prim, the Subckts and the Instances with Instance.prim in source order, the
+    dot statements other than definitions as controls (keyword, fields, origin), the notes (errors
+    included: spectre.py raises), the left-out subckts and the names defined nowhere (pending).
+    Files are never read here: spectre.py splices includes in before this phase."""
+    if opts.dialect != "spectre-spice":
+        raise ValueError("parse_fragment reads the spectre-spice dialect only, not %r" % (opts.dialect,))
+    if opts.case != "lower" or not opts.parhier_local:
+        raise ValueError("parse_fragment needs ParseOpts(case='lower', parhier_local=True) (§4.3)")
+    p = _Parser(cwd, opts)
+    p.resolver = resolver
+    p.read([], lines)
+    p.declare(p.top)
+    p.elements(p.top)
+    p.prune()
+    p.ground()
+    p.references()
+    return p.fragment()
+
+
+# -- Verilog-A module discovery (§3.1): a minimal preprocessor and the declaration scan ----------------
+
+_VA_DIRECTIVE = re.compile(r"^\s*`(define|undef|ifdef|ifndef|elsif|else|endif|include)\b(.*)$", re.S)
+_VA_MACRO_USE = re.compile(r"`([A-Za-z_][A-Za-z0-9_$]*)")
+_VA_MODULE_HEAD = re.compile(r"(?:\(\*(?P<attrs>.*?)\*\)\s*)?\b(?:module|macromodule)\s+(?P<name>[A-Za-z_][A-Za-z0-9_$]*)",
+                             re.S)
+_VA_ATTR = re.compile(r"([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*(\"[^\"]*\"|[^\s,]+)")
+_VA_ATTR_BLOCK = re.compile(r"\(\*.*?\*\)", re.S)
+_VA_PARAM = re.compile(r"\b(parameter|aliasparam|localparam)\b")
+# the standard headers are never scanned (§3.1 names *.vams; the legacy discipline.h and constants.h
+# spellings, which PSP103 and the ADMS examples use, are the same headers)
+_VA_STD_HEADER = (".vams", "discipline.h", "disciplines.h", "constants.h")
+_VA_MAX_DEPTH = 64
+
+
+class _VaPre:
+    """A minimal stdlib Verilog-A preprocessor (§3.1): `define with and without arguments, `undef,
+    `ifdef/`ifndef/`elsif/`else/`endif, `include on the search list, comments stripped.  Problems
+    that leave a module's parameter list unknown are recorded in `trouble` (the caller's note)."""
+
+    def __init__(self, search: Sequence[str], defines: Sequence[str]):
+        self.search = [os.path.abspath(d) for d in search]
+        self.macros: Dict[str, Tuple[Optional[List[str]], str]] = {}
+        for d in defines:
+            name, _eq, val = d.partition("=")
+            self.macros[name.strip()] = (None, val.strip() if _eq else "1")
+        self.files: List[str] = []
+        self.trouble: List[str] = []
+        self.out: List[str] = []
+
+    def read(self, path: str, depth: int = 0) -> None:
+        path = os.path.abspath(path)
+        if path in self.files:
+            return
+        self.files.append(path)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError as exc:
+            self.trouble.append("cannot read %s: %s" % (path, exc))
+            return
+        text = _VA_COMMENT.sub(lambda m: " " if "\n" not in m.group(0) else "\n" * m.group(0).count("\n"), text)
+        lines = text.split("\n")
+        cond: List[Tuple[bool, bool]] = []          # (this branch active, some branch taken)
+        k = 0
+        while k < len(lines):
+            line = lines[k]
+            k += 1
+            m = _VA_DIRECTIVE.match(line)
+            if m is None:
+                if all(c[0] for c in cond):
+                    self.out.append(line)               # expanded whole at the end: a call may span lines
+                continue
+            what, rest = m.group(1), m.group(2)
+            active = all(c[0] for c in cond)
+            if what in ("ifdef", "ifndef"):
+                name = rest.strip().split()[0] if rest.strip() else ""
+                taken = (name in self.macros) == (what == "ifdef")
+                cond.append((active and taken, taken))
+            elif what == "elsif":
+                if not cond:
+                    self.trouble.append("%s: `elsif without `ifdef" % path)
+                    continue
+                _a, taken = cond.pop()
+                outer = all(c[0] for c in cond)
+                name = rest.strip().split()[0] if rest.strip() else ""
+                now = not taken and name in self.macros
+                cond.append((outer and now, taken or now))
+            elif what == "else":
+                if not cond:
+                    self.trouble.append("%s: `else without `ifdef" % path)
+                    continue
+                _a, taken = cond.pop()
+                outer = all(c[0] for c in cond)
+                cond.append((outer and not taken, True))
+            elif what == "endif":
+                if not cond:
+                    self.trouble.append("%s: `endif without `ifdef" % path)
+                    continue
+                cond.pop()
+            elif not active:
+                continue
+            elif what == "define":
+                while rest.rstrip().endswith("\\") and k < len(lines):
+                    rest = rest.rstrip()[:-1] + "\n" + lines[k]
+                    k += 1
+                self.define(rest, path)
+            elif what == "undef":
+                self.macros.pop(rest.strip().split()[0] if rest.strip() else "", None)
+            else:                                   # `include
+                self.include(rest, path, depth)
+        if cond:
+            self.trouble.append("%s: unbalanced `ifdef at the end of the file" % path)
+
+    def define(self, rest: str, path: str) -> None:
+        mm = re.match(r"\s*([A-Za-z_][A-Za-z0-9_$]*)(\([^)]*\))?[ \t]*(.*)$", rest, re.S)
+        if mm is None:
+            self.trouble.append("%s: malformed `define %s" % (path, rest.strip()[:40]))
+            return
+        args = None
+        if mm.group(2):
+            args = [a.strip() for a in mm.group(2)[1:-1].split(",") if a.strip()]
+        self.macros[mm.group(1)] = (args, mm.group(3).strip())
+
+    def include(self, rest: str, path: str, depth: int) -> None:
+        mm = re.search(r'"([^"]+)"', rest)
+        if mm is None:
+            self.trouble.append("%s: `include without a quoted file name" % path)
+            return
+        name = mm.group(1)
+        if name.endswith(_VA_STD_HEADER):            # disciplines.vams, constants.vams: not scanned
+            return
+        if depth >= _VA_MAX_DEPTH:
+            self.trouble.append("%s: `include nesting deeper than %d" % (path, _VA_MAX_DEPTH))
+            return
+        cands = [name] if os.path.isabs(name) else \
+            [os.path.join(os.path.dirname(path), name)] + [os.path.join(d, name) for d in self.search]
+        for c in cands:
+            if os.path.isfile(c):
+                self.read(c, depth + 1)
+                return
+        self.trouble.append("%s: `include \"%s\" not found (tried %s)" % (path, name, ", ".join(cands)))
+
+    def expand(self, line: str, depth: int = 0) -> str:
+        """Macro uses replaced; an undefined macro stays as written (it only matters at the head
+        of a declaration, where the scan reports it)."""
+        if "`" not in line or depth > _VA_MAX_DEPTH:
+            return line
+        out: List[str] = []
+        i = 0
+        while i < len(line):
+            m = _VA_MACRO_USE.search(line, i)
+            if m is None:
+                out.append(line[i:])
+                break
+            out.append(line[i:m.start()])
+            name = m.group(1)
+            i = m.end()
+            if name not in self.macros:
+                out.append(m.group(0))
+                continue
+            args, body = self.macros[name]
+            if args is None:
+                out.append(self.expand(body, depth + 1))
+                continue
+            j = i
+            while j < len(line) and line[j] in " \t":
+                j += 1
+            if j >= len(line) or line[j] != "(":
+                out.append(self.expand(body, depth + 1))
+                continue
+            actuals, end = _split_args(line, j)
+            if end < 0:
+                out.append(m.group(0))
+                continue
+            i = end
+            text = body
+            for formal, actual in zip(args, actuals + [""] * (len(args) - len(actuals))):
+                text = re.sub(r"\b%s\b" % re.escape(formal), lambda _m, a=actual: a, text)
+            out.append(self.expand(text, depth + 1))
+        return "".join(out)
+
+
+def _split_args(text: str, lparen: int) -> Tuple[List[str], int]:
+    """The comma-separated arguments of the '(' at text[lparen]; (args, index after ')'), -1 unclosed."""
+    depth = 0
+    args: List[str] = []
+    cur: List[str] = []
+    quote = ""
+    for j in range(lparen, len(text)):
+        c = text[j]
+        if quote:
+            cur.append(c)
+            if c == quote:
+                quote = ""
+            continue
+        if c == '"':
+            quote = c
+            cur.append(c)
+        elif c in "([{":
+            depth += 1
+            if depth > 1:
+                cur.append(c)
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append("".join(cur).strip())
+                return args, j + 1
+            cur.append(c)
+        elif c == "," and depth == 1:
+            args.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(c)
+    return args, -1
+
+
+def _va_params(body: str) -> Tuple[List[str], Optional[str]]:
+    """The names declared by `parameter` and `aliasparam` in an expanded module body (not localparam),
+    the (* ... *) attributes before them skipped; (names, the first unexpanded macro at a declaration head)."""
+    names: List[str] = []
+    text = _VA_ATTR_BLOCK.sub(" ", body)
+    m_analog = re.search(r"\banalog\b", text)
+    decl_end = m_analog.start() if m_analog else len(text)   # declarations precede the analog block
+    pos = 0
+    for stmt in text.split(";"):
+        at, pos = pos, pos + len(stmt) + 1
+        s = stmt.strip()
+        if not s:
+            continue
+        lead = len(stmt) - len(stmt.lstrip())
+        if at + lead >= decl_end:
+            break                                           # the analog block holds no declarations
+        if s.startswith("`"):
+            return names, s.split()[0]
+        m = _VA_PARAM.search(s)
+        if m is None:
+            continue
+        if at + lead + m.start() >= decl_end:
+            break
+        head = s[:m.start()].strip()
+        if "`" in head:
+            return names, head
+        kind = m.group(1)
+        if kind == "localparam":
+            continue
+        decl = s[m.end():].strip()
+        decl = re.sub(r"^(real|integer|string)\b", "", decl).strip()
+        for piece in _split_decls(decl):
+            mm = re.match(r"([A-Za-z_][A-Za-z0-9_$]*)", piece.strip())
+            if mm:
+                names.append(mm.group(1))
+    return names, None
+
+
+def _split_decls(decl: str) -> List[str]:
+    """'a = 1 from (0:inf), b = 2' -> ['a = 1 from (0:inf)', 'b = 2'] (commas inside brackets kept)."""
+    out: List[str] = []
+    depth = 0
+    cur: List[str] = []
+    for c in decl:
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if c == "," and depth == 0:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+    out.append("".join(cur))
+    return out
 
 
 def va_modules(path: str, search: Sequence[str] = (), defines: Sequence[str] = ()
                ) -> Tuple[Dict[str, VaModule], List[str]]:
-    """The Verilog-A modules of path by lower-cased name, and every file read: `include followed
-    (search: the -I directories) and the declaration preprocessor run (§3.1); spice.d_hdl uses it
-    too, and both parses store the result in Netlist.va_modules (§4.1 item 16)."""
-    raise NotImplementedError("va_modules is not implemented yet (VAMOS_SPECTRE_DESIGN.md §3.1, §4.3: "
-                              "phase 1, S1)")
+    """The Verilog-A modules of path by lower-cased name, and every file read (§3.1): `include is
+    followed, recursively, relative to the including file and then the search directories
+    (CDS_VLOGA_INCLUDE and -I; the *.vams standard headers are skipped), and the declaration
+    preprocessor runs with `defines` (-va,define's NAME or NAME=value) defined.  Each VaModule holds
+    the names its `parameter` and `aliasparam` declarations give (not localparam; the (* ... *)
+    attributes skipped) and the module header's attributes.  When the preprocessor cannot finish
+    (an undefined macro at a declaration, an unbalanced `ifdef, an include not found), params is
+    None and attrs["vamos_unknown_params"] names the reason: the caller notes it, and the engines
+    still fail loudly on a wrong parameter name.  spice.d_hdl uses it too, and both parses store
+    the result in Netlist.va_modules (§4.1 item 16)."""
+    pre = _VaPre(search, defines)
+    pre.read(path)
+    text = pre.expand("\n".join(pre.out))             # whole: a macro call may span lines
+    out: Dict[str, VaModule] = {}
+    pos = 0
+    while True:
+        m = _VA_MODULE_HEAD.search(text, pos)
+        if m is None:
+            break
+        name = m.group("name")
+        end = text.find("endmodule", m.end())
+        body = text[m.end():end if end >= 0 else len(text)]
+        pos = end + len("endmodule") if end >= 0 else len(text)
+        attrs: Dict[str, str] = {}
+        if m.group("attrs"):
+            for k, v in _VA_ATTR.findall(m.group("attrs")):
+                attrs[k] = v.strip('"')
+        params, bad = _va_params(body)
+        reason = None
+        if bad is not None:
+            reason = "an undefined macro at a parameter declaration (%s)" % bad.strip()[:40]
+        elif pre.trouble:
+            reason = pre.trouble[0]
+        if reason is not None:
+            attrs["vamos_unknown_params"] = reason
+            params = None
+        out.setdefault(name.lower(), VaModule(name, os.path.abspath(path), params, attrs))
+    return out, list(pre.files)

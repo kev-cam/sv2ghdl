@@ -1,0 +1,24 @@
+SpectreNetlistSource 28-79
+  Incomplete 28-52
+    Keyword 28-32
+    Identifier 33-35
+    Notation 35-36
+    FunctionArgs 36-42
+      FunctionDeclArg 36-42
+        Keyword 36-40
+        Identifier 41-42
+    Notation 42-43
+    Notation 44-45
+    Error 46-52
+  Parameters 60-79
+    Keyword 60-70
+    Parameter 71-78
+      Identifier 71-72
+      Notation 72-73
+      FunctionCall 73-78
+        Identifier 73-75
+        Notation 75-76
+        FunctionArgs 76-77
+          NumberLiteral 76-77
+        Notation 77-78
+    Notation 78-79

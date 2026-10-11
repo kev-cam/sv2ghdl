@@ -1,0 +1,2 @@
+// ** is right associative and binds tighter than nothing but unary (ref19 p.475): 2**3**2 = 512, -2**2 = 4
+parameters chain=2**3**2 neg=-2**2 mixed=2*3**2

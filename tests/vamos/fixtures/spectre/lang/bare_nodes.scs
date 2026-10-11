@@ -1,0 +1,4 @@
+// a bare instance node list (UG p.60): name n1 n2 master parameters
+r1 a b resistor r=1k
+c1 b 0 capacitor c=1p
+v1 a 0 vsource dc=1

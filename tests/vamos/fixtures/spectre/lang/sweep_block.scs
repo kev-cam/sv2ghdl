@@ -1,0 +1,9 @@
+// a sweep block (ref19 p.406): the opening brace ends the line
+parameters rval=1k
+swp sweep param=rval values=[1k 2k] {
+    dc1 dc
+    ac1 ac start=1 stop=1M dec=10
+    nested sweep param=temp start=0 stop=100 step=50 {
+        tr1 tran stop=1u
+    }
+}

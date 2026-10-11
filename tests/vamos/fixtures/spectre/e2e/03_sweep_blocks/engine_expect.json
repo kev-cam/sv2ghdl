@@ -1,0 +1,289 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "dc1",
+    "kind": "dc",
+    "columns": {
+     "out": "out",
+     "V1:p": "V1:flow(br)"
+    }
+   },
+   "vamos_a2": {
+    "name": "ac1",
+    "kind": "ac",
+    "columns": {
+     "out": "out",
+     "V1:p": "V1:flow(br)"
+    }
+   },
+   "vamos_a3": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "out": "out",
+     "V1:p": "V1:flow(br)"
+    }
+   },
+   "vamos_a4": {
+    "name": "ac2",
+    "kind": "ac",
+    "columns": {
+     "out": "out",
+     "V1:p": "V1:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "points": 3
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "row": 1,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 1,
+    "value": 1000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 2,
+    "value": 2000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "points": 12
+   },
+   {
+    "step": "vamos_a2",
+    "groups": 3
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 3,
+    "value": [
+     0.024704523,
+     -0.1552230961
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": -1,
+    "value": [
+     0.0062927248,
+     -0.0790767124
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "points": 6
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "out",
+    "row": -1,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a4",
+    "points": 12
+   },
+   {
+    "step": "vamos_a4",
+    "groups": 6
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.9960676824,
+     -0.0625847783
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "out",
+    "select": {
+     "vamos_w6": 1000.0,
+     "vamos_w7": 2e-06
+    },
+    "row": 0,
+    "value": [
+     0.9844541236,
+     -0.1237101537
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "out",
+    "row": -1,
+    "value": [
+     0.1366764985,
+     -0.3435055069
+    ],
+    "rel": 1e-06
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "dc1",
+    "kind": "dc",
+    "columns": {
+     "out": "V(OUT)",
+     "V1:p": "I(V1)"
+    }
+   },
+   "vamos_a2": {
+    "name": "ac1",
+    "kind": "ac",
+    "columns": {
+     "out": "V(OUT)",
+     "V1:p": "I(V1)"
+    }
+   },
+   "vamos_a3": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "out": "V(OUT)",
+     "V1:p": "I(V1)"
+    }
+   },
+   "vamos_a4": {
+    "name": "ac2",
+    "kind": "ac",
+    "columns": {
+     "out": "V(OUT)",
+     "V1:p": "I(V1)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "plots": 3
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 1,
+    "signal": "out",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "plots": 3
+   },
+   {
+    "step": "vamos_a2",
+    "plot": 0,
+    "points": 4
+   },
+   {
+    "step": "vamos_a2",
+    "plot": 0,
+    "signal": "out",
+    "row": -1,
+    "value": [
+     0.024704523,
+     -0.1552230961
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "plot": 1,
+    "signal": "out",
+    "row": -1,
+    "value": [
+     0.024704523,
+     -0.1552230961
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "plot": 2,
+    "signal": "out",
+    "row": -1,
+    "value": [
+     0.0062927248,
+     -0.0790767124
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "plots": 6
+   },
+   {
+    "step": "vamos_a3",
+    "plot": 5,
+    "signal": "out",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a4",
+    "plots": 6
+   },
+   {
+    "step": "vamos_a4",
+    "plot": 0,
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.9960676824,
+     -0.0625847783
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a4",
+    "plot": 1,
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.9844541236,
+     -0.1237101537
+    ],
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a4",
+    "plot": 5,
+    "signal": "out",
+    "row": -1,
+    "value": [
+     0.1366764985,
+     -0.3435055069
+    ],
+    "rel": 1e-06
+   }
+  ]
+ }
+}

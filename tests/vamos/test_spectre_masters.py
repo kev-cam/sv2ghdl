@@ -306,8 +306,9 @@ REF5 = {
         "coupling ind1 ind2",
     ),
     "diode": (
-        # card (pp.303-308)
-        "level hcomp dcap etch etchl shrink l w js jsw n ns ik ikp ikr area perim allow_scaling tt cd cjo vj pb m "
+        # card (pp.303-308; `is` is the spelling of p.302's own example `model pdiode diode is=1.8e-5 ...`,
+        # accepted beside the table's js: phase 1b, S6)
+        "level hcomp dcap etch etchl shrink l w is js jsw n ns ik ikp ikr area perim allow_scaling tt cd cjo vj pb m "
         "cjsw vjsw mjsw fc fcs lm lp wm wp xm xp xoi xom xw bv vb ibv nz bvj rs rsw gleak gleaksw minr tlev tlevc "
         "eg gap1 gap2 xti tbv1 tbv2 tnom trise trs trs2 tgs tgs2 cta ctp pta ptp jmelt jmax dskip if ir ecrf ecrr "
         "nf nr tox kf af",
@@ -543,7 +544,7 @@ class TestMasters(MastersCase):
         self.assertEqual(counts["bsim4"], (327, 31))
         self.assertEqual(counts["vsource"], (0, 47))
         self.assertEqual(counts["iprobe"], (0, 0))
-        self.assertEqual(sum(a + b for a, b in counts.values()), 1740)
+        self.assertEqual(sum(a + b for a, b in counts.values()), 1741)   # +1: the diode `is` row (phase 1b)
 
 
 class TestDefaults(MastersCase):

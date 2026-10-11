@@ -10,7 +10,8 @@ Contents: [1 What vamos is](#1-what-vamos-is) · [2 Set up](#2-set-up) ·
 [5 Quick start: AMS](#5-quick-start-ams) · [6 The control file in brief](#6-the-control-file-in-brief) ·
 [7 vamos options and environment variables](#7-vamos-options-and-environment-variables) ·
 [8 Banners, provenance and licences](#8-banners-provenance-and-licences) · [9 Troubleshooting](#9-troubleshooting) ·
-[10 Limitations](#10-limitations) · [11 Other documents](#11-other-documents)
+[10 Limitations](#10-limitations) · [11 Other documents](#11-other-documents) ·
+[12 The spectre personality](#12-the-spectre-personality)
 
 ## 1. What vamos is
 
@@ -25,9 +26,11 @@ vamos is a drop-in replacement for a simulator's command line. You keep your `vc
 vamos never runs a vendor tool, and needs no vendor licence.
 
 **Working today:** the `vcs` personality (the two-step flow: `vcs`, then `./simv`), `vcs-ams`, the `simv`
-runtime, and an `nvc` pass-through. **Planned:** the VCS MX three-step flow (`vlogan`/`vhdlan`), Cadence
-`xrun`/`irun`/`ncverilog` and Questa (docs/VAMOS_PLAN.md §8), `spectre` (docs/VAMOS_SPECTRE_DESIGN.md), an
-installer and `use-vamos` (docs/VAMOS_PLAN.md §2a, §2c).
+runtime, and an `nvc` pass-through. **Being built:** `spectre`, Cadence Spectre's command line on VACASK or
+Xyce (docs/VAMOS_SPECTRE_DESIGN.md): its command line, defaults variable and log are in place (§12); the run
+itself is the design's phase 2. **Planned:** the VCS MX three-step flow (`vlogan`/`vhdlan`), Cadence
+`xrun`/`irun`/`ncverilog` and Questa (docs/VAMOS_PLAN.md §8), an installer and `use-vamos`
+(docs/VAMOS_PLAN.md §2a, §2c).
 
 The tools a job runs:
 
@@ -39,6 +42,7 @@ The tools a job runs:
 | VACASK (kev-cam fork) | default analog engine | AGPL-3.0-only |
 | OpenVAF-r | compiles Verilog-A for VACASK | GPL-3.0-only |
 | Xyce (kev-cam fork) | alternative analog engine | GPL-3.0-or-later |
+| cpp | the C preprocessor of a `spectre` run with `-E`, `-D`, `-U` or `-I` (§12) | GPL-3.0-or-later |
 
 Each compile and each run prints the tools it actually used (§8). `vamos --vamos-licenses` prints the whole
 licence table, with the source each tool is built from (the kev-cam forks, and the project each fork comes
@@ -100,9 +104,12 @@ vamos takes its personality from the name it was run as. You can put the shipped
 PATH:
 
 ```sh
-export PATH=$SV2GHDL/shims:$PATH             # vcs, vcs-ams, nvc
+export PATH=$SV2GHDL/shims:$PATH             # vcs, vcs-ams, nvc, spectre
 vcs -h                                       # usage of the vcs personality (vcs-ams -h has its own)
 ```
+
+`shims/spectre` shadows a real Spectre when `shims/` is first on PATH (§12 says how to run the spectre
+personality under another name instead).
 
 Every help text ends with the path of this guide.
 
@@ -119,8 +126,9 @@ export PATH=~/vamos-shims:$PATH
 (`bin/*-sv2ghdl`), not vamos. With the whole directory on PATH, the `iverilog` command in your shell runs
 the wrapper. If you only want `vcs`, use your own directory.
 
-You can also run a personality without a link: `vamos -vcs <args>` is the same as `vcs <args>`, and
-`vamos -vcs-ams <args>` is the same as `vcs-ams <args>`.
+You can also run a personality without a link: `vamos -vcs <args>` is the same as `vcs <args>`,
+`vamos -vcs-ams <args>` is the same as `vcs-ams <args>`, and `vamos -spectre <args>` the same as
+`spectre <args>`.
 
 What "drop-in" means here:
 
@@ -778,16 +786,20 @@ option in a digital compile, `--vamos-keep` in a compile without `-R`, a compile
 | `--vamos-verbose` | all | prints each command vamos runs (`vamos: + ...`) |
 | `--vamos-licenses` | - | prints the tool/licence table and exits |
 | `--vamos-version` | - | prints the version and exits |
-| `--vamos-analog=vacask\|xyce` | AMS compile | the analog engine |
+| `--vamos-analog=vacask\|xyce` | AMS compile, spectre | the analog engine |
 | `--vamos-analog-stop=<time>` | AMS compile | end time for a netlist with no `.tran` (default 3600 s; above 9000 s it is clamped); beside a `.tran` it has no effect (a warning) |
 | `--vamos-analog-maxstep=<time>` | AMS compile | analog maximum time step; replaces the `.tran`'s (default with no `.tran`: `.option delmax`, else 10 ns); the compile notes the value used |
 | `--vamos-no-deck-check` | AMS compile | skips the compile-time check, in which the engine computes an operating point of the deck |
 | `--vamos-parhier=local\|global` | AMS compile | `local`: a parameter defined both at top level and in a subckt takes the inner value; `global`, the default: such a collision is an error |
-| `--vamos-keep` | AMS `./simv`, or `vcs -R` | keeps the per-run directory |
+| `--vamos-keep` | AMS `./simv`, or `vcs -R`; spectre | keeps the per-run directory |
+| `--vamos-psf-names=modern\|legacy` | spectre | the PSF file names: `modern` (Spectre 23.1: `n.tran.tran`, `s-00i_c.<ext>` and sweep parents) or `legacy` (Spectre 5.x: `n.tran`, `s_00i_c.<ext>`, no parents); default `modern` |
 | `--vamos-append-log` | `simv` | with `-l`, appends to the log (`vcs -R` uses it) |
 | `--vamos-daidir=<dir>` | `simv` | used by the generated `./simv`; not for direct use |
 
-Times are SPICE numbers: `20n`, `50p`, `1e-6`.
+Times are SPICE numbers: `20n`, `50p`, `1e-6`. The `where` column is what each personality's `-h` prints in
+brackets after an option: `spectre -h` lists only the options that have an effect under spectre, `vcs -h` and
+`vcs-ams -h` list `--vamos-psf-names` as `[spectre]`, and an option given where it has no effect is the
+warning above (an error under `--vamos-strict`) in every personality, the spectre log included.
 
 | variable | effect |
 |---|---|
@@ -806,6 +818,10 @@ Times are SPICE numbers: `20n`, `50p`, `1e-6`.
 | `VAMOS_IVERILOG_TIMEOUT` | seconds allowed for each iverilog preprocess or check run (default 3600) |
 | `VAMOS_DEV=1` | dev mode: also look in the source build areas for nvc and iverilog (automatic in a source checkout; `VAMOS_DEV=0` does not turn it off) |
 | `VAMOS_REDIRECT` | `:`-separated extra directories to remove from the PATH vamos gives to the tools it runs |
+| `VAMOS_SPECTRE_NAMES` | `:`-separated alias names that run the spectre personality (`specsim`), beside `spectre` and `spectre<version>` (§12) |
+| `<prog>_DEFAULTS`, `<PROG>_DEFAULTS`, `SPECTRE_DEFAULTS` | Spectre's default command-line options, read by the spectre personality (§12) |
+| `VAMOS_CPP` | the C preprocessor of a spectre run (`-E`, `-D`, `-U`, `-I`); checked like every `VAMOS_<TOOL>` |
+| `CDS_VLOGA_INCLUDE`, `CDS_AHDLCMI_SIMDB_DIR`, `CDS_AHDL_*` | Spectre's Verilog-A variables, as the spectre personality reads them (§12) |
 | `XDG_CONFIG_HOME` | where the user configuration layer is (default `~/.config`) |
 | `COSIM_TRACE=1` | nvc's: prints the co-simulation bindings and every D2A change (useful in §9) |
 
@@ -854,7 +870,8 @@ them, `NVC_RESOLVER_DIR` and `NVC_WORK` (the resolver plugin's cache and work li
   not just the ones you change. The keys are
   `brand`, `compile_start`, `compile_tops`, `compile_done`, `compile_failed` and `run_footer`. The
   placeholders are listed in the shipped file's `_comment`; `{exe}` is the executable relative to the current
-  directory (`Vamos: ./sim/tb_simv is up to date`). No placeholder exists for licence text.
+  directory (`Vamos: ./sim/tb_simv is up to date`). No placeholder exists for licence text. The spectre
+  personality has its own profile, `vamos/banners/spectre.json` (§12).
 - **Licences.** `vamos --vamos-licenses` prints `vamos/licenses.json`: each tool's licence, the source the
   stack runs (the kev-cam forks of nvc, iverilog, VACASK and Xyce) and the upstream project each fork comes
   from. A site can override entries in a `licenses.json` in any of the layers above (a later layer wins,
@@ -988,7 +1005,8 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 ## 10. Limitations
 
 - Personalities: only `vcs`, `vcs-ams`, `simv` and the `nvc` pass-through. No three-step flow, no VHDL
-  sources, no `xrun`/Questa yet (docs/VAMOS_PLAN.md §8), no `spectre` yet (docs/VAMOS_SPECTRE_DESIGN.md).
+  sources, no `xrun`/Questa yet (docs/VAMOS_PLAN.md §8); `spectre` takes its command line but does not run a
+  netlist yet (§12; docs/VAMOS_SPECTRE_DESIGN.md §12, phase 2).
 - Accepted and reported, but not done yet: debug and other wave formats (`-debug_access`, VPD/FSDB, `-kdb`;
   `$dumpvars` writes a VCD, §3), coverage (`-cm`), UCLI (`-ucli`, `-do`), VPI/PLI/DPI (`-P`, `-load`, C
   sources), UVM and SystemVerilog classes (`-ntb_opts uvm`; the route is docs/TODO-uvm-translator.md; a
@@ -1040,8 +1058,161 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 |---|---|
 | docs/VAMOS_PLAN.md | the overall plan, phases and decisions (installation, use-vamos, provenance), as of 2026-09-27. Its AMS parts (§6 and phase 4) predate VACASK, the default engine; they are marked superseded and point to docs/VAMOS_AMS_DESIGN.md and this guide |
 | docs/VAMOS_AMS_DESIGN.md | the `vcs-ams` contract: every control-file command, key and disposition; the runtime; the open items |
-| docs/VAMOS_SPECTRE_DESIGN.md | the planned `spectre` personality (a design; not built) |
+| docs/VAMOS_SPECTRE_DESIGN.md | the `spectre` personality's contract: the command line, the Spectre language, the engine mappings, the outputs and the work breakdown (its §12: phase 0 and the phase-1 command line and log are built; the run flow is phase 2) |
 | docs/TODO-uvm-translator.md | the planned UVM route |
 | docs/vamos-manuals.html | links to the vendor manuals vamos follows |
 | tests/vamos/ | working examples. `test_vamos.py` and `test_vamos_driver.py` cover digital; `test_ams_e2e_*.py` cover AMS end to end; `test_r6_*.py` cover the latest fixes, such as file I/O (`test_r6_F.py`) and waves (`test_r6_W.py`) (each item is described in docs/VAMOS_AMS_DESIGN.md §9). Run them from `tests/vamos`: `python3 -m unittest test_vamos` (about 10 s), `python3 -m unittest test_ams_e2e_basics` (2 to 3 minutes). Tests that need a tool or engine the machine lacks are skipped |
 | tests/hazard3_mandelbrot/README.md | a larger working example: the Hazard3 RISC-V Mandelbrot test case (Verijit's), which Verilator, Icarus and vamos run the same way; with the regression harness, `regress/regress run hazard3/vamos` compiles it with `vcs` and runs `./simv` |
+
+## 12. The spectre personality
+
+`spectre [options] [netlist]` is Cadence Spectre's command line, run on VACASK (the default) or Xyce
+(`--vamos-analog=xyce`, or `VAMOS_ANALOG=xyce`). The contract is docs/VAMOS_SPECTRE_DESIGN.md. This section
+covers what needs no run: the names, the defaults variable, the options and their dispositions, the
+environment variables and the banner profile. The quick start, the outputs (the results directory,
+`logFile`, the PSF files, `+log`, the state files), how a run ends and the troubleshooting table are written
+from real runs when the run flow exists (the design's phase 2); until then a command line that would run a
+netlist is accepted, checked and reported, and stops with `spectre terminated prematurely due to fatal
+error.` and exit status 2 after the message `the spectre run is not implemented yet`.
+
+### The names
+
+vamos runs the spectre personality when it is invoked as:
+
+- `spectre` (the shim `shims/spectre`, a link to `bin/vamos`, or your own link);
+- `spectre` plus a version suffix: `spectre231`, `spectre-23.1`, `spectre_23`, `spectre.23.1.0.242` (the
+  rule is `spectre`, an optional `-`, `_` or `.`, then a digit, then anything);
+- a name listed in `VAMOS_SPECTRE_NAMES`, colon-separated: `export VAMOS_SPECTRE_NAMES=specsim:myspectre`
+  (`specsim` is the Spectre User Guide's own alias example);
+- `vamos -spectre <args>`.
+
+The name you ran is `%S` in file names, the `<prog>` of `<prog>_DEFAULTS`, and the `<prog>` of every message
+and of the log's last line (`specsim completes with 0 errors, 0 warnings, and 0 notices`). Under
+`vamos -spectre` it is `spectre`.
+
+Any other name that starts with `spectre` is a Cadence program vamos does not provide. A link named
+`spectrespp` or `spectre_encrypt` (or `spectre-` with no digit after it) prints
+`vamos: error: 'spectrespp' is a Cadence program vamos does not provide (vamos provides spectre, and the
+alias names listed in VAMOS_SPECTRE_NAMES)`, then the usage text, and exits 2. An alias that is not listed
+in `VAMOS_SPECTRE_NAMES` is an ordinary unknown name: the usage text, exit 2.
+
+```sh
+export PATH=$SV2GHDL/shims:$PATH             # shims/spectre is a link to bin/vamos
+spectre -h                                   # the usage text; the last line is this guide's path
+spectre -h resistor                          # the dispositions of a primitive's parameters
+spectre -hsf tran                            # ... or of an analysis's; -h all prints every one
+spectre -V                                   # vamos 0.1.0 (spectre personality); exit 0
+```
+
+`shims/spectre` shadows a real Spectre when `shims/` is first on PATH. To keep a real Spectre and run vamos
+under another name, link `bin/vamos` as `specsim` (or any name) in a directory of your own and list the name
+in `VAMOS_SPECTRE_NAMES`; such a directory is not detected as a shim directory (vamos probes only the fixed
+names), so list it in `VAMOS_REDIRECT` if the tools vamos runs must not see it. To make ADE call vamos, put
+the shim first on the PATH that ADE inherits, or point ADE's simulator setting at an alias name.
+
+The vamos options (`--vamos-*`, §7) are read from the command line only. Under spectre `--vamos-analog`,
+`--vamos-keep`, `--vamos-psf-names`, `--vamos-banner`, `--vamos-strict` and `--vamos-verbose` have an effect;
+the vcs-ams compile options and the `./simv` options get the `has no effect` warning in the log (an error
+under `--vamos-strict`).
+
+### The defaults variable
+
+Spectre reads default options from an environment variable [Spectre Reference, Command Options, "Default
+Values"]. vamos reads the first of these that exists: `<prog>_DEFAULTS` (`spectre_DEFAULTS` for `spectre`),
+then `<PROG>_DEFAULTS` in capitals when it differs (`SPECSIM_DEFAULTS` for a `specsim` alias), then
+`SPECTRE_DEFAULTS`. A variable that exists but is empty means no defaults, and the next one is not read.
+
+```sh
+export SPECTRE_DEFAULTS="+param range.lmts +log %C:r.o -E"
+export SPECSIM_DEFAULTS="+param corner.lmts =log %C:r.log -f psfbin"
+```
+
+The command line beats the netlist's `options` statements, which beat the defaults. The list options
+(`-D`, `-U`, `-I`, `+config`, `+paramdefault`, `-va,define`) accumulate, defaults first; for every other
+setting the command line's value wins. Each layer is scanned on its own, so the `+config`/`=config`/
+`-config` rules apply within the variable and within the command line separately (a `-config` on the
+command line does not drop a `+config` from the variable). A `-%X` on the command line undefines a `+%X`
+from the variable.
+
+Spectre reads only the options the 5.0 Reference marks with a dagger from the variable. `-help` and its
+forms, `-V`, `-W`, `-env`, `-%X`, `+note`/`-note`, `-slave`, `-slvhost`, `+sensdata`, `+interactive`/
+`-interactive`, `+mpssession` and `+mpshost` are ignored there, each with the notice `Spectre does not read
+<option> from <variable>; ignored`; a `--vamos-*` token there is a warning (`vamos options are read from the
+command line only, not from SPECTRE_DEFAULTS; use VAMOS_ANALOG, VAMOS_BANNER or VAMOS_VERBOSE`); a
+non-option token there (a netlist name) is an error.
+
+### Options
+
+Three option families: `-x` (off, or a plain option), `+x` (on) and `=x` (exclusive: `=log f` is the file
+only). The first non-option token is the netlist; a second one is an error; with none, the netlist is read
+from standard input and `%C` is `stdin`. The abbreviations are the manual's (`-r`, `-f`, `+l`, `=l`, `-l`,
+`-c`, `-maxw`, `-maxn`, `-maxwtl`, `-maxntl`, `+cp`, `-cp`, `+ss`, `-ss`, `+rec`, `-rec`, `+mt`, `-mt`,
+`-proc`, `-inter`, `+inter`, `-mdl`, `=mdl`, `=mdle`, `-cl`, `+docl`, `-docl`, `+lqt`, `+lqs`, `+lsusp`,
+`-ac`, `-cc`, `+p`, `-p`, `-h`, `-hs`, `-hf`, `-hsf`). `-f` is `-format`, not an option file. Unlike vcs,
+three options are usage errors (exit 2): `+top`, `+interactive` and `-format uwi` (with any unknown
+`-format` value). Every other option gets one of §4's dispositions; an unknown one is the warning
+`unknown option <x> ignored`, an error under `--vamos-strict`.
+
+| option | disposition |
+|---|---|
+| `-help`/`-h`, `-helpsort`/`-hs`, `-helpfull`/`-hf`, `-helpsortfull`/`-hsf` `[topic]` | the help text (with a topic: that primitive's or analysis's dispositions; an unknown topic gets a note); exit 0, nothing simulated |
+| `-V`, `-W` | the version line `vamos 0.1.0 (spectre personality)`; exit 0 when there is no netlist, else the run continues |
+| `-raw`/`-r <path>`, `-format`/`-f <fmt>`, `-outdir <dir>` | mapped. Formats: `psfascii`, `nutascii`, `nutbin` as given; `psfbin psfbinf psfxl sst2 fsdb fsdb5 wdf wsfbin wsfascii awb tr0ascii` are written as psfascii (a note); `uwi` or anything else is an error |
+| `+log`/`+l <file>`, `=log`/`=l <file>`, `-log`/`-l` | the screen and the file, the file only, the screen only (the default); the path takes percent codes and is relative to the current directory, or to `-outdir` when it has no `/` |
+| `+error -error +warn -warn +note -note +info -info +debug -debug` | whether that class of message is printed; the counts in the last line are unaffected |
+| `-maxwarns`/`-maxw N`, `-maxnotes`/`-maxn N`, `-maxwarnstolog`/`-maxwtl N`, `-maxnotestolog`/`-maxntl N` | how often one kind of warning or notice is printed per analysis, on the screen and in the log file; at the limit one notice says the rest are suppressed |
+| `+%X string`, `-%X` | define or undefine the percent code `%X` (below) |
+| `-E`, `-D<x>[=<y>]`, `-U<x>`, `-I<dir>`, `-disableCPP` | the C preprocessor (`cpp -traditional-cpp -nostdinc -undef`, found as `VAMOS_CPP`, then on PATH): `-E` always runs it, `-D`/`-U`/`-I` run it unless `-disableCPP` is given; a missing cpp is an error; `-I` also names search directories for `include`, PWL `file=`, `ahdl_include` and Verilog-A `` `include`` |
+| `+config <f>`, `=config <f>`, `-config`, `+pre_config <f>`, `-pre_config <f>` | netlist fragments appended (`config`) or prepended after the title (`pre_config`); `=config` drops every `+config`, `-config` drops every `+config` and every preceding `=config`, `-pre_config` drops every `+pre_config` |
+| `+paramdefault <f>`, `=paramdefault <f>`, `-paramdefault` | defaults for analysis and `options` parameters the netlist does not set (lines `primitive parameter value`); the same `+`/`=`/`-` rules |
+| `+errpreset=<p>`, `+aps=<p>`, `++aps=<p>` | the errpreset of every `tran` that sets none; `+aps=`/`++aps=` override every `tran`'s |
+| `-mts` | multi-technology mode off: `options` statements inside subckts are global (a note) |
+| `-ahdllibdir <dir>`, `-va,define <m>[=<v>]` | where compiled Verilog-A is kept; a macro for the Verilog-A compiler (VACASK; a note on Xyce) |
+| `+escchars` | backslash-escape non-name characters in PSF signal names (an ADE option) |
+| `+top <subckt>`, `+interactive[=type]`/`+inter` | errors (exit 2) |
+| `-uwifmt`, `-uwilib`, `+recover[=f]`/`+rec`, `+mpssession=`, `+mpshost=`, `-slave`, `-slvhost`, `+mdlcontrol`, `+mdlcontrole`, `=mdlcontrol`/`=mdl`, `=mdlcontrole`/`=mdle` | unsupported (a warning): no recovery, no MDL measurements |
+| `-cmiversion`, `-cmiconfig`, `+varedefnerror`, `+param`/`+p`, `+preset=`, `+postlpreset=`, `-preset_override`, `+diagnose`, `+transteps`, `+diagnose_fpe`, `+detect_negcap`, `+fix_bad_pivot`, `+diagnose_minstep=`, `+diagnose_top=`, `+checkpoint`/`+cp`, `+savestate`/`+ss`, `-checklimitfile`/`-cl`, `-ahdlsourceramp`, `+sensdata` | noted |
+| `+rtsf`, `-cols`/`-c`, `-colslog`, `-param`/`-p`, `+aps`, `++aps`, `+xps`, `+ms`, `+xdp`, `+speed`, `+query`, `+lite`, `-hpc`, `+dcopt`, `+disk_check`, `-clearcache`/`-cc`, `+hosts`, `+multithread`/`+mt[=N]`, `-multithread`/`-mt`, `-64`, `-32`, `+mtmode`, `-processor`/`-proc`, `-checkpoint`/`-cp`, `-savestate`/`-ss`, `-recover`/`-rec`, `-interactive`/`-inter`, `-mdlcontrol`/`-mdl`, `+dochecklimit`/`+docl`, `-dochecklimit`/`-docl`, `-dynchecks`, `+lqtimeout`/`+lqt`, `+lqsleep`/`+lqs`, `+lmode`, `+lorder`, `-alias`, `+lqmmtoken`, `+lsuspend`/`+lsusp`, `+liclog`, `-ahdlcom`/`-ac`, `-ahdllint*`, `-rf_ahdl_functionality`, `-ahdlshipdbdir=`, `-ahdlshipdbmode=`, `+spp`, `-spp`, `-sppbin`, `-env`, `+logstatus` | ignored (threading, licensing, accelerator modes, GUI environments) |
+
+The full table is `OPTIONS` in `vamos/personalities/spectre.py`.
+
+**Percent codes.** `%A` the analysis name, `%C` the input file as given (`stdin` for standard input), `%D` the
+date as `yy-mm-dd`, `%H` the host, `%M` the CMI version (empty), `%P` the process id, `%S` the invoked name,
+`%T` the start time `hh:mm:ss`, `%V` vamos's version, `%%` a percent. `+%X string` defines or redefines a
+code and `-%X` undefines it (back to the predefined value, or to nothing). The colon modifiers `:r` (root),
+`:e` (extension), `:h` (head; `.` without a slash), `:t` (tail) and `::` (a literal colon) chain left to
+right: for `/users/maxwell/circuits/opamp.ckt`, `%C:r.raw` is `/users/maxwell/circuits/opamp.raw`, `%C:t:r`
+is `opamp` and `%C:e.%C:r:t` is `ckt.opamp`. The codes apply in `-raw`, `+log`/`=log`, `-outdir`,
+`-checklimitfile`, the `rawfile`/`rawfmt` options, `include` names and the netlist's quoted strings.
+
+**Messages and the log.** Every line goes to the screen and/or the log file; nothing goes to stderr.
+Messages take Spectre's 5.1 form, `Warning from spectre during command-line processing.` followed by the
+indented text (`Error from ...`, `Notice from ...`), and the last line is `spectre completes with N errors,
+M warnings, and K notices` after exit status 0 or 1 and `spectre terminated prematurely due to fatal error.`
+after 2 or 3. `<prog>` is the name you ran. An internal error of vamos is one line on the screen
+(`internal error: ...`, naming the file that holds the traceback) and exit status 2 with the trailer.
+
+### Environment variables
+
+| variable | effect |
+|---|---|
+| `<prog>_DEFAULTS`, `<PROG>_DEFAULTS`, `SPECTRE_DEFAULTS` | the defaults variable (above) |
+| `VAMOS_SPECTRE_NAMES` | `:`-separated alias names of the personality |
+| `VAMOS_ANALOG`, `VAMOS_BANNER`, `VAMOS_VERBOSE`, `VAMOS_<TOOL>` | as for every personality (§7); `VAMOS_CPP` names the C preprocessor |
+| `CDS_AHDLCMI_SIMDB_DIR` | where compiled Verilog-A is kept when `-ahdllibdir` is not given (an error when it is missing or not writable) |
+| `CDS_VLOGA_INCLUDE` | the Verilog-A include directories (before `-I`); noted on Xyce, whose `.hdl` compile takes none |
+| `CDS_AHDL_FINISH_MODE`, `CDS_AHDL_DDT_SCALE`, `CDS_AHDL_IDT_SCALE`, `CDS_AHDL_IGNORE_HIDDEN_STATE`, `CDS_AHDL_IGNORE_OPPOINT`, `CDS_AHDL_AUTOGDEV_SUPPORT`, `CDS_AHDL_LRM_COMPATIBILITY` | a warning when set to a non-default value; not applied (they change results) |
+| `CDS_AHDLCMI_SHIPDB_COPY`, `CDS_AHDLCMI_SHIPDB_DIR`, `CDS_AHDL_COMPILEC_MAX_LOAD`, `CDS_AHDL_REUSE_LIB`, `CDS_CMI_COMPLEVEL` | ignored (caches and performance) |
+
+### The banner profile
+
+The screen and `+log` layout comes from `vamos/banners/spectre.json`, selected and layered as §8 describes
+(`--vamos-banner=<name|path|none>`, `$VAMOS_BANNER`, then `spectre`, whatever name vamos was invoked as).
+Its keys: `version`, `subversion` (the `-V`/`-W` line), `run_start`, `inventory`, `analysis_banner`,
+`analysis_done`, `audit`, `error_block`, `warning_block`, `notice_block`, `trailer_ok`, `trailer_fatal`, plus
+`brand`; the placeholders are in the file's `_comment` (`{prog}` is the invoked name). A profile changes the
+layout only: `version`, `subversion`, the three message blocks and the two trailers always print, from the
+profile or, for a missing key, an invalid template (which also gets one notice) or `--vamos-banner=none`,
+from vamos's built-in text, so a script that greps the last line always finds it. `none` drops only
+`run_start`, `inventory`, `analysis_banner`, `analysis_done` and `audit`. No key holds licence or copyright
+text, and no key holds a PSF format field.

@@ -1,0 +1,8 @@
+// e2e 5: xf of a divider: the transfer function of V1, no trace for an iprobe or a short
+simulator lang=spectre
+V1 (in 0) vsource dc=0 mag=1
+R1 (in mid) resistor r=1k
+Ip (mid out) iprobe
+Rs (out o2) resistor r=0
+R2 (o2 0) resistor r=1k
+xf1 (out 0) xf start=1k stop=10k dec=1

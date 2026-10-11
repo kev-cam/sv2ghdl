@@ -1,0 +1,96 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "swp_dc1.sweep",
+  "swp-000_dc1.dc",
+  "swp-001_dc1.dc",
+  "swp-002_dc1.dc",
+  "swp_ac1.sweep",
+  "swp-000_ac1.ac",
+  "swp-001_ac1.ac",
+  "swp-002_ac1.ac",
+  "swp-000_nested_op2.sweep",
+  "swp-000_nested-000_op2.dc",
+  "swp-000_nested-001_op2.dc",
+  "swp-002_nested-001_ac2.ac",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "swp-001_dc1.dc",
+   "signal": "out",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp_dc1.sweep",
+   "signal": "rval",
+   "at": null,
+   "value": [
+    1000.0,
+    1000.0,
+    2000.0
+   ],
+   "rel": 1e-12
+  },
+  {
+   "file": "swp-000_ac1.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    0.024704523,
+    -0.1552230961
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "swp-002_ac1.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    0.0062927248,
+    -0.0790767124
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "swp-000_nested-001_op2.dc",
+   "signal": "out",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-000_nested-001_ac2.ac",
+   "signal": "out",
+   "at": 10.0,
+   "value": [
+    0.9844541236,
+    -0.1237101537
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "swp-002_nested-001_ac2.ac",
+   "signal": "out",
+   "at": 100.0,
+   "value": [
+    0.1366764985,
+    -0.3435055069
+   ],
+   "rel": 1e-06
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-06
+ },
+ "messages": []
+}

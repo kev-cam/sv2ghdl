@@ -1,0 +1,4 @@
+// e2e 7: a Spectre file whose model section is SPICE text (simulator lang=spice)
+simulator lang=spice
+.model dm d is=1e-14 n=1.5
+simulator lang=spectre

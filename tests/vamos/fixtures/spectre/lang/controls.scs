@@ -1,0 +1,12 @@
+// stand-ins for the control_named files: the named control statements of §3.6
+myalt alter dev=R1 param=r value=2k
+grp altergroup {
+    model nch bsim3v3 type=n vtho=0.4
+}
+chk check what=inst
+lim checklimit checkallasserts=yes
+inf info what=models where=rawfile
+opts options reltol=1e-3 temp=27
+tst paramtest errorif=(r<0) message="negative r"
+sets set reltol=1e-4
+sh shell cmd="echo hello"

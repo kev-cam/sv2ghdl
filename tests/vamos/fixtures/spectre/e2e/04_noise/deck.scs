@@ -1,0 +1,11 @@
+// e2e 4: noise of a 1k/1k divider, with and without an input probe, a resistor inside a subckt
+simulator lang=spectre
+V1 (in 0) vsource dc=0
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+I2 (out) cell
+subckt cell (a)
+  r3 (a 0) resistor r=1G
+ends cell
+nz1 (out 0) noise iprobe=V1 start=1k stop=10k dec=1
+nz2 (out 0) noise start=1k stop=10k dec=1

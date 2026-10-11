@@ -1,0 +1,15 @@
+// RC Low-Pass Filter
+simulator lang=spectre
+parameters rval=1k
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=1m rise=1u fall=1u width=4m period=10m mag=1
+X1 (in out) rcsec r=rval
+subckt rcsec (a b)
+  parameters r=1k
+  R1 (a b) resistor r=r
+  C1 (b 0) capacitor c=1u
+ends rcsec
+myop dc
+myac ac start=1 stop=1M dec=10
+swp sweep param=rval values=[1k 2k] {
+  tr tran stop=5m
+}

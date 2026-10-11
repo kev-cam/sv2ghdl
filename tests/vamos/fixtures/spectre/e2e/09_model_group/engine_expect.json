@@ -1,0 +1,192 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "Vd1:p": "Vd1:flow(br)",
+     "Vd2:p": "Vd2:flow(br)",
+     "Vd3:p": "Vd3:flow(br)",
+     "Vd4:p": "Vd4:flow(br)",
+     "Vd5:p": "Vd5:flow(br)",
+     "Vd6:p": "Vd6:flow(br)",
+     "Vd7:p": "Vd7:flow(br)",
+     "Vd8:p": "Vd8:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "Vd1:p",
+    "row": 0,
+    "value": -0.0001184954,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd2:p",
+    "row": 0,
+    "value": -3.175319e-05,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd3:p",
+    "row": 0,
+    "value": -0.0003766369,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd4:p",
+    "row": 0,
+    "value": -0.0001827805,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd5:p",
+    "row": 0,
+    "value": -0.0001827805,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd6:p",
+    "row": 0,
+    "value": -0.0001054977,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd7:p",
+    "row": 0,
+    "value": -0.0001054977,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd8:p",
+    "row": 0,
+    "value": -0.0001522652,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "equal": [
+     "Vd4:p",
+     "Vd5:p"
+    ],
+    "row": 0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "equal": [
+     "Vd6:p",
+     "Vd7:p"
+    ],
+    "row": 0,
+    "rel": 1e-09
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "Vd1:p": "I(VD1)",
+     "Vd2:p": "I(VD2)",
+     "Vd3:p": "I(VD3)",
+     "Vd4:p": "I(VD4)",
+     "Vd5:p": "I(VD5)",
+     "Vd6:p": "I(VD6)",
+     "Vd7:p": "I(VD7)",
+     "Vd8:p": "I(VD8)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "Vd1:p",
+    "row": 0,
+    "value": -0.0001184954,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd2:p",
+    "row": 0,
+    "value": -3.175319e-05,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd3:p",
+    "row": 0,
+    "value": -0.0003766369,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd4:p",
+    "row": 0,
+    "value": -0.0001827805,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd5:p",
+    "row": 0,
+    "value": -0.0001827805,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd6:p",
+    "row": 0,
+    "value": -0.0001054977,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd7:p",
+    "row": 0,
+    "value": -0.0001054977,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vd8:p",
+    "row": 0,
+    "value": -0.0001522652,
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a1",
+    "equal": [
+     "Vd4:p",
+     "Vd5:p"
+    ],
+    "row": 0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "equal": [
+     "Vd6:p",
+     "Vd7:p"
+    ],
+    "row": 0,
+    "rel": 1e-09
+   }
+  ]
+ }
+}

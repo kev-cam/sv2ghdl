@@ -1,0 +1,36 @@
+HEADER
+"PSFversion" "1.00"
+"Log Generator" "drlLog rev. 1.0"
+"Log Time Stamp" "Tue Apr 15 17:51:25 2025"
+"psfversion" "1.4.0"
+"simulator" "spectre"
+"version" "vamos (psf/golden fixture)"
+"date" "5:46:18 PM, Tue Apr 15, 2025"
+"design" "#RC Low-Pass Filter"
+"signalNameType" "spectre"
+"simMode" "Spectre"
+"measdgt" 0
+"ingold" 2
+"sst2usecolon" 0
+TYPE
+"analysisInst" STRUCT(
+"analysisType" STRING *
+"dataFile" STRING *
+"format" STRING *
+"parent" STRING *
+"sweepVariable" ARRAY ( * ) STRING *
+"description" STRING *
+)
+VALUE
+"noiva-noise" "analysisInst" (
+"noise"
+"noiva.noise"
+"PSF"
+""
+("freq")
+"Noise Analysis `noiva': freq = (4 Hz -> 4 MHz)"
+) PROP(
+"data_type" "swept_struct"
+)
+
+END
