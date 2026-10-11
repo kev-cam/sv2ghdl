@@ -1,0 +1,9 @@
+* plain VA module on the Y form, parameter on the Y line
+.hdl "vres.va"
+.model vres__vamos vres
+V1 a 0 1
+yvres r1 a b vres__vamos r=3000
+R2 b 0 1k
+.op
+.print dc format=raw file=y3.raw v(b)
+.end

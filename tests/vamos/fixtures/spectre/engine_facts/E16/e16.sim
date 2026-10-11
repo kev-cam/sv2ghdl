@@ -1,0 +1,12 @@
+options between sweep and analysis
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource dc=1
+r1 (a b) resistor r=1k
+r2 (b 0) resistor r=1k
+control
+  sweep s1 instance="r1" parameter="r" values=[1k, 3k]
+  options reltol=1e-4
+    analysis bad op
+endc

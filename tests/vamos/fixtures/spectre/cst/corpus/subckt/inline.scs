@@ -1,0 +1,7 @@
+// inline subckt: the inline component shares the subcircuit name
+inline subckt s1 (a b)
+    parameters l=1u w=2u
+    s1 (a b 0 0) mos_mod l=l w=w
+    cap1 (a 0) capacitor c=1n
+    cap2 (b 0) capacitor c=1n
+ends s1

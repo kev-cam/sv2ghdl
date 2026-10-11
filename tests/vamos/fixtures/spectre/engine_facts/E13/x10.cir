@@ -1,0 +1,11 @@
+* op printed to a raw file
+.subckt rdiv a b
+R1 a mid 500
+R2 mid b 500
+.ends
+V1 in 0 DC 1
+X1 in out rdiv
+R3 out 0 1k
+.op
+.print dc format=raw file=op10.raw v(out) v(x1:mid) i(v1)
+.end

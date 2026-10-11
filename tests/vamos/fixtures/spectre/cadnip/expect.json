@@ -1,0 +1,325 @@
+{
+ "_comment": "The Cadnip engine oracle of VAMOS_SPECTRE_DESIGN.md section 11 T3b: for each <deck>.scs here, the operating point the Cadnip-enabled VACASK (0.3.4-94-gcdf13d22, -DCADNIP_PARSERS=ON; recipe in BUILD) computed on 2026-10-04 from the deck with its title line stripped, wrapped as T3b says (ground 0, one `model <p> <p>` line per primitive master used, `include \"body.scs\" lang=spectre`, a control block with `options rawfile=\"ascii\"` and `analysis op1 op`), with SIM_MODULE_PATH=/opt/build.VACASK/Release/devices. Values are every column of its ASCII rawfile op1.raw at point 0 as vamos.netlist.rawfile reads them; the signal names are VACASK's rawfile columns (a node as spelled, <inst>:flow(br) for a source or inductor current, <inst>:<node> for a node inside a subckt instance). The shape is section 11's expect.json; `at` is null because an operating point has no sweep. The T3b harness (phase 2) compares every column with vamos->VACASK at rel 1e-9 and may also pin the oracle to these values.",
+ "pilot_inline_if": {
+  "argv": [
+   "pilot_inline_if.scs"
+  ],
+  "engines": [
+   "vacask"
+  ],
+  "status": 0,
+  "files": [
+   "op1.raw"
+  ],
+  "values": [
+   {
+    "file": "op1.raw",
+    "signal": "in",
+    "at": null,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "n1",
+    "at": null,
+    "value": 0.9333333333333333,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "n2",
+    "at": null,
+    "value": 0.2666666666666667,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "v1:flow(br)",
+    "at": null,
+    "value": -6.66666666666668e-05,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x3:m",
+    "at": null,
+    "value": 0.1333333333333333,
+    "rel": 1e-09,
+    "abs": 0.0
+   }
+  ],
+  "cross_engine": {
+   "rel": 1e-09
+  },
+  "messages": []
+ },
+ "param_scoping": {
+  "argv": [
+   "param_scoping.scs"
+  ],
+  "engines": [
+   "vacask"
+  ],
+  "status": 0,
+  "files": [
+   "op1.raw"
+  ],
+  "values": [
+   {
+    "file": "op1.raw",
+    "signal": "in",
+    "at": null,
+    "value": 3.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "isrc",
+    "at": null,
+    "value": 3.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "v1:flow(br)",
+    "at": null,
+    "value": -0.004500000000000001,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x1:mid",
+    "at": null,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x2:mid",
+    "at": null,
+    "value": 1.5,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x3:mid",
+    "at": null,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x4:mid",
+    "at": null,
+    "value": 1.5,
+    "rel": 1e-09,
+    "abs": 0.0
+   }
+  ],
+  "cross_engine": {
+   "rel": 1e-09
+  },
+  "messages": []
+ },
+ "param_defaults": {
+  "argv": [
+   "param_defaults.scs"
+  ],
+  "engines": [
+   "vacask"
+  ],
+  "status": 0,
+  "files": [
+   "op1.raw"
+  ],
+  "values": [
+   {
+    "file": "op1.raw",
+    "signal": "in",
+    "at": null,
+    "value": 3.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "v1:flow(br)",
+    "at": null,
+    "value": -0.002,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x1:mid",
+    "at": null,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x2:mid",
+    "at": null,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   }
+  ],
+  "cross_engine": {
+   "rel": 1e-09
+  },
+  "messages": []
+ },
+ "cond_chain": {
+  "argv": [
+   "cond_chain.scs"
+  ],
+  "engines": [
+   "vacask"
+  ],
+  "status": 0,
+  "files": [
+   "op1.raw"
+  ],
+  "values": [
+   {
+    "file": "op1.raw",
+    "signal": "in",
+    "at": null,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "n0",
+    "at": null,
+    "value": 0.5,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "n1",
+    "at": null,
+    "value": 0.3333333333333333,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "n2",
+    "at": null,
+    "value": 0.04761904761904762,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "n3",
+    "at": null,
+    "value": 0.2,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "v1:flow(br)",
+    "at": null,
+    "value": -0.001080952380952381,
+    "rel": 1e-09,
+    "abs": 0.0
+   }
+  ],
+  "cross_engine": {
+   "rel": 1e-09
+  },
+  "messages": []
+ },
+ "hier_nested": {
+  "argv": [
+   "hier_nested.scs"
+  ],
+  "engines": [
+   "vacask"
+  ],
+  "status": 0,
+  "files": [
+   "op1.raw"
+  ],
+  "values": [
+   {
+    "file": "op1.raw",
+    "signal": "in",
+    "at": null,
+    "value": 4.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "in2",
+    "at": null,
+    "value": 4.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "l1:flow(br)",
+    "at": null,
+    "value": 0.004,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "n1",
+    "at": null,
+    "value": 2.666666666666667,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "v1:flow(br)",
+    "at": null,
+    "value": -0.004333333333333333,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x1:m",
+    "at": null,
+    "value": 3.666666666666667,
+    "rel": 1e-09,
+    "abs": 0.0
+   },
+   {
+    "file": "op1.raw",
+    "signal": "x2:m",
+    "at": null,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 0.0
+   }
+  ],
+  "cross_engine": {
+   "rel": 1e-09
+  },
+  "messages": []
+ }
+}

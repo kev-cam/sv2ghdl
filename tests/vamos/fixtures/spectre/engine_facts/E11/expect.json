@@ -1,0 +1,58 @@
+{
+ "row": "E11",
+ "experiment": "VACASK: sweep and alter of instance=\"x2:r1\"; tran store=\"final\", then ac nodeset=\"final\" opsolve=0",
+ "result": "hierarchical targets work; AC at the final transient state 0.019 against 0.99996 from a fresh op",
+ "rules": [
+  "\u00a75.2 hierarchical dev= targets (x2:r1)",
+  "\u00a75.4 prevoppoint=yes -> store=/nodeset= opsolve=0 on VACASK"
+ ],
+ "runs": [
+  {
+   "name": "hier_targets_prevoppoint",
+   "tool": "vacask",
+   "deck": "e1p.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "s1",
+     "values": [
+      1000.0,
+      3000.0
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "out2",
+     "values": [
+      0.5,
+      0.25
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "col": "out2",
+     "value": 0.25
+    },
+    {
+     "raw": "ac1.raw",
+     "col": "out",
+     "value": [
+      0.0189733,
+      -2.26186e-06
+     ],
+     "rel": 0.001
+    },
+    {
+     "raw": "ac2.raw",
+     "col": "out",
+     "value": [
+      0.999961,
+      -0.00628294
+     ],
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

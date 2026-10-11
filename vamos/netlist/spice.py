@@ -30,6 +30,23 @@ left_out(nl) -> Dict[str, Note]
     The top-level subckts vamos cannot simulate and left out of the IR (see
     Libraries below), by IR name, each with the note saying why.  A cut cell
     that is not in nl.subckts() but is here should be reported with that note.
+    Stored in Netlist.left_out (a real field, docs/VAMOS_SPECTRE_DESIGN.md §4.1
+    item 13, so that dataclasses.replace keeps it).
+
+The spectre personality's SPICE mode (docs/VAMOS_SPECTRE_DESIGN.md §3.13, §4.3;
+phase-0 contracts, S1 implements them)
+    Decl, FileRef, Resolver, Fragment      the two-phase types (§4.3, §10)
+    declare_fragment(lines, opts) -> (List[Decl], List[FileRef])
+        The first phase, SPICE side: the names a region declares and its file
+        statements in order (spectre.py splices them in).
+    parse_fragment(lines, cwd, opts, resolver) -> Fragment
+        The second phase: _Parser.read([], lines) with opts.dialect ==
+        "spectre-spice", resolving names against spectre.py's complete table;
+        sets Instance.prim on every element (§4.1 item 7).
+    va_modules(path, search=(), defines=()) -> (Dict[str, VaModule], List[str])
+        The Verilog-A modules of a file (`include followed, the declaration
+        preprocessor run, §3.1), by lower-cased name, and every file read; both
+        parses store the result in Netlist.va_modules.
 
 Lines and statements (§4.3.2)
 -----------------------------
@@ -243,12 +260,13 @@ import heapq
 import math
 import os
 import re
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Tuple, Union
 
 from vamos.netlist import expr as E
 from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary
-from vamos.netlist.ir import (MODEL_KINDS, Analysis, Instance, Model, Netlist, Param, ParseOpts,
-                              Source, Subckt)
+from vamos.netlist.ir import (MODEL_KINDS, Analysis, Instance, Item, Model, Netlist, Param, ParseOpts,
+                              Source, Subckt, VaModule)
 from vamos.notes import ERROR, Note, NoteError, error, note, warning
 
 GROUND_ALIASES = ("0", "gnd", "gnd!", "ground")
@@ -340,7 +358,54 @@ def _colon_clashes(nl: Netlist) -> List[Tuple[str, str]]:
 
 def left_out(nl: Netlist) -> Dict[str, Note]:
     """Top-level subckts left out because vamos cannot simulate them, with the reason."""
-    return dict(getattr(nl, "_vamos_left_out", {}))
+    return dict(nl.left_out)
+
+
+# -- the spectre personality's SPICE mode: phase-0 contracts (VAMOS_SPECTRE_DESIGN.md §4.3, §10) ---------
+
+@dataclass
+class Decl:
+    """A name the first phase declares (§4.3, two phases)."""
+    kind: str                                     # subckt | model | param
+    name: str                                     # IR name
+    master: str = ""                              # model: the Spectre master (Model.prim)
+    ports: Optional[int] = None                   # subckt: the port count
+    params: List[str] = field(default_factory=list)   # subckt: the header parameter names
+    origin: str = ""
+
+
+@dataclass
+class FileRef:
+    """A SPICE file statement the first phase found (§3.1, §4.3 Files)."""
+    keyword: str                                  # .include | .inc | .incl | .lib | .hdl
+    path: str                                     # as written
+    section: Optional[str] = None                 # .lib's section
+    subckt: str = ""                              # the enclosing .subckt's IR name; "" at the top level
+    origin: str = ""
+
+
+class Resolver(Protocol):
+    """What parse_fragment resolves names against: spectre.py's complete first-phase table of every
+    subckt, model, parameter and Verilog-A module of every file in both languages (§4.3)."""
+
+    def subckt(self, name: str) -> Optional[Decl]: ...
+
+    def model(self, name: str) -> Optional[Decl]: ...
+
+    def param(self, name: str) -> Optional[Decl]: ...
+
+    def va_module(self, name: str) -> Optional[VaModule]: ...
+
+
+@dataclass
+class Fragment:
+    """What parse_fragment returns for one SPICE-mode region (§4.3)."""
+    items: List[Item] = field(default_factory=list)   # raw Params, Models with prim, Subckts, Instances; source order
+    controls: List[Tuple[str, List[Tuple[Optional[str], str]], str]] = field(default_factory=list)
+                                                  # (keyword, spice.py's (key, text) fields, origin)
+    notes: List[Note] = field(default_factory=list)
+    left_out: Dict[str, Note] = field(default_factory=dict)
+    pending: List[Tuple[str, str, str]] = field(default_factory=list)   # (kind, name, origin): defined nowhere
 
 
 # =============================================================================
@@ -3034,5 +3099,32 @@ def parse(paths: Sequence[NetlistRef], extra: Sequence[Tuple[str, str]], cwd: st
     if any(n.severity == ERROR for n in p.notes):
         raise NoteError(p.notes)
     nl.notes = list(p.notes)
-    nl._vamos_left_out = dict(p.left)                       # type: ignore[attr-defined]
+    nl.left_out = dict(p.left)
     return nl
+
+
+# -- the spectre personality's SPICE mode: phase-0 signatures (VAMOS_SPECTRE_DESIGN.md §4.3, §10) -------
+
+def declare_fragment(lines: List[Tuple[str, str]], opts: ParseOpts) -> Tuple[List[Decl], List[FileRef]]:
+    """The first phase, SPICE side: the names a region declares, and its file statements in order
+    (.include/.inc/.incl, both .lib forms, .hdl), from the same lexing (_logical), so spectre.py
+    never re-lexes SPICE text and splices the files in before the second phase (§4.3)."""
+    raise NotImplementedError("declare_fragment is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.3: "
+                              "phase 1, S1)")
+
+
+def parse_fragment(lines: List[Tuple[str, str]], cwd: str, opts: ParseOpts, resolver: Resolver) -> Fragment:
+    """The second phase: _Parser.read([], lines) with opts.dialect == "spectre-spice", case="lower"
+    and parhier_local=True, every name resolved against resolver; sets Instance.prim on every
+    element (§4.1 item 7).  spice.parse keeps refusing "spectre-spice"."""
+    raise NotImplementedError("parse_fragment is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.3: "
+                              "phase 1, S1)")
+
+
+def va_modules(path: str, search: Sequence[str] = (), defines: Sequence[str] = ()
+               ) -> Tuple[Dict[str, VaModule], List[str]]:
+    """The Verilog-A modules of path by lower-cased name, and every file read: `include followed
+    (search: the -I directories) and the declaration preprocessor run (§3.1); spice.d_hdl uses it
+    too, and both parses store the result in Netlist.va_modules (§4.1 item 16)."""
+    raise NotImplementedError("va_modules is not implemented yet (VAMOS_SPECTRE_DESIGN.md §3.1, §4.3: "
+                              "phase 1, S1)")

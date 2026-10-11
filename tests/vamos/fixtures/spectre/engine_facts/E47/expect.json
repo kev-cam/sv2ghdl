@@ -1,0 +1,62 @@
+{
+ "row": "E47",
+ "experiment": "cpp -nostdinc -undef on a netlist whose line 1 is a // comment",
+ "result": "the title line comes out empty. Re-checked 2026-10-04 with GCC cpp 15.2.0: unchanged in ISO mode; -traditional-cpp keeps the line [E82]",
+ "rules": [
+  "\u00a72.6 the C preprocessor: ISO mode empties a // line, so the title is taken from the unpreprocessed file; -undef keeps unix/linux unexpanded"
+ ],
+ "runs": [
+  {
+   "name": "iso_mode_empties_title",
+   "tool": "cpp",
+   "deck": "cpptest.scs",
+   "args": [
+    "-nostdinc",
+    "-undef",
+    "{deck}",
+    "iso.scs"
+   ],
+   "status": 0,
+   "checks": [
+    {
+     "text": "iso.scs",
+     "first_unmarked": "",
+     "contains": [
+      "R1 (in out) resistor r=2k",
+      "parameters unix=1 linux=2"
+     ],
+     "absent": [
+      "RVAL"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "traditional_keeps_title",
+   "tool": "cpp",
+   "deck": "cpptest.scs",
+   "args": [
+    "-traditional-cpp",
+    "-nostdinc",
+    "-undef",
+    "{deck}",
+    "trad.scs"
+   ],
+   "status": 0,
+   "stderr": {
+    "empty": true
+   },
+   "checks": [
+    {
+     "text": "trad.scs",
+     "first_unmarked": "// RC test, don't edit",
+     "contains": [
+      "R1 (in out) resistor r=2k",
+      "parameters unix=1 linux=2",
+      "// a 'quoted' word"
+     ]
+    }
+   ]
+  }
+ ]
+}

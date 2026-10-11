@@ -1,0 +1,173 @@
+{
+ "row": "E19",
+ "experiment": "noise of the divider: VACASK without in=; a 0 A isource across the output as the input on both engines; Xyce input source AC 0, 1 and 2; VACASK mag=2",
+ "result": "VACASK without in=: \"Instance '' not found.\", \"Analysis 'nz2' aborted.\" (a failed analysis: vamos exit status 1). With the 0 A input: onoise 8.288e-18 / 8.2879e-18, as with V1. Xyce INOISE 3.3152e-17 (AC 1), 8.2879e-18 (AC 2), 8.2879e+02 (AC 0), ONOISE unchanged; VACASK gain 0.25 with mag=2",
+ "rules": [
+  "\u00a75.6 the noise input: vamos_nin<k> (a 0 A isource) when the netlist gives none; the input source prints AC 1 0 on Xyce (\u00a78.4)"
+ ],
+ "runs": [
+  {
+   "name": "vacask_no_input",
+   "tool": "vacask",
+   "deck": "nz.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Instance '' not found.",
+     "Analysis 'nz2' aborted."
+    ]
+   },
+   "files": {
+    "absent": [
+     "nz2.raw"
+    ],
+    "present": [
+     "nz1.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "nz1.raw",
+     "col": "onoise",
+     "value": 8.28804e-18,
+     "rel": 0.0001
+    },
+    {
+     "raw": "nz1.raw",
+     "col": "gain",
+     "value": 0.25
+    },
+    {
+     "raw": "xf1.raw",
+     "col": "tf(v1)",
+     "value": 0.5
+    },
+    {
+     "raw": "xf1.raw",
+     "col": "zin(v1)",
+     "value": 2000.0
+    }
+   ]
+  },
+  {
+   "name": "vacask_zero_isource_input",
+   "tool": "vacask",
+   "deck": "nzin.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nz6.raw",
+     "col": "onoise",
+     "value": 8.28804e-18,
+     "rel": 0.0001
+    },
+    {
+     "raw": "nz7.raw",
+     "col": "onoise",
+     "value": 8.28804e-18,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "vacask_mag2",
+   "tool": "vacask",
+   "deck": "nzmag.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nz8.raw",
+     "col": "gain",
+     "value": 0.25
+    },
+    {
+     "raw": "nz8.raw",
+     "col": "onoise",
+     "value": 8.28804e-18,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac1",
+   "tool": "xyce",
+   "deck": "nz.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nz.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 0.0001
+    },
+    {
+     "prn": "nz.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 3.31515099e-17,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac2",
+   "tool": "xyce",
+   "deck": "nzac2.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nzac2.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 0.0001
+    },
+    {
+     "prn": "nzac2.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac0",
+   "tool": "xyce",
+   "deck": "nzac0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nzac0.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 0.0001
+    },
+    {
+     "prn": "nzac0.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 828.787747,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "xyce_zero_isource_input",
+   "tool": "xyce",
+   "deck": "nzin.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nzin.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

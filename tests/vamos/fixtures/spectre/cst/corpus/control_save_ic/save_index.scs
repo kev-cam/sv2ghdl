@@ -1,0 +1,3 @@
+// save: numeric terminal-index modifier, plus a named-terminal identifier modifier
+save Q1:1
+save Q1:c

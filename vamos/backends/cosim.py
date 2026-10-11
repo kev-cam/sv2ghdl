@@ -28,7 +28,9 @@ abi_check(engine, nvc_libdir, ld_path) -> (notes, error or None)
 check_raw(path) -> (point count rewritten, last time or None)
     rawfile.fix_points plus rawfile.read(path).last_time() for the publish path,
     with the reader's rules, in one pass over a mapped file: O(1) memory however
-    long the run (scan_raw: every plot's count, first and last time).
+    long the run (rawfile.scan, every plot's count, first and last time, and
+    rawfile.fix_scanned; both moved there from here and imported back under
+    their old names scan_raw and _fix_points, docs/VAMOS_SPECTRE_DESIGN.md §4.6).
 tran_start(deck, engine) -> the .tran output start (TSTART) of an emitted deck
 """
 
@@ -37,7 +39,6 @@ from __future__ import annotations
 import decimal
 import glob
 import math
-import mmap
 import os
 import re
 import shutil
@@ -51,7 +52,10 @@ from vamos.backends.nvc import (BackendError, NvcBackend, footer_time, fs_text, 
                                 remap_exit, signal_name)
 from vamos.console import Console
 from vamos.job import Job
-from vamos.netlist.rawfile import RawError
+# RawPlot, scan_raw and _fix_points moved to netlist/rawfile.py (RawPlot, scan, fix_scanned) and
+# are re-exported here under their old names (docs/VAMOS_SPECTRE_DESIGN.md §4.6)
+from vamos.netlist.rawfile import RawError, RawPlot  # noqa: F401
+from vamos.netlist.rawfile import fix_scanned as _fix_points, scan as scan_raw  # noqa: F401
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
@@ -365,266 +369,10 @@ def abi_check(engine: str, nvc_libdir: str, ld_path: str) -> Tuple[List[str], Op
 
 
 # -- the rawfile check (O(1) memory) -----------------------------------------------------
-
-# rawfile.py's layout rules, applied to a mapped file without materialising the data
-_PLOT_START = re.compile(rb"[\r\n]*(?:Title|Plotname|Date):", re.I)
-_HEADER_LINE = re.compile(r"^\s*([A-Za-z][A-Za-z. ]*):(.*)$")
-_LAYOUT_FLAGS = frozenset(("real", "complex", "padded", "unpadded", "double"))
-_TOKEN = re.compile(rb"\S+")
-_NONBLANK = re.compile(rb"\S")
-_MAX_HEADER_LINE = 1 << 16
-
-
-class RawPlot:
-    """One plot of a rawfile as scan_raw reads it: counts and times, no data."""
-
-    def __init__(self) -> None:
-        self.declared: Optional[int] = None         # the header's "No. Points:" value
-        self.n = 0                                  # the points the data holds
-        self.first: Optional[float] = None          # the first and last time (real part)
-        self.last: Optional[float] = None
-        self.time_scale = False                     # variable 0 is the time
-        self.points_field: Optional[Tuple[int, int, bool]] = None
-        self.nvars_line_end = -1
-        self.next_start = -1
-
-
-def scan_raw(path: str) -> List[RawPlot]:
-    """Every plot's point count and first/last time, counted the way rawfile.read counts
-    them (a blank or wrong "No. Points:" and a truncated last point are tolerated), in one
-    pass over the mapped file.  RawError as rawfile.read raises it."""
-    with open(path, "rb") as fh:
-        if os.fstat(fh.fileno()).st_size == 0:
-            raise RawError("%s: empty rawfile" % path)
-        mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
-        try:
-            if _NONBLANK.search(mm) is None:
-                raise RawError("%s: empty rawfile" % path)
-            plots: List[RawPlot] = []
-            pos = 0
-            while True:
-                plot = _scan_plot(mm, pos, path)
-                plots.append(plot)
-                if plot.next_start < 0:
-                    return plots
-                pos = plot.next_start
-        finally:
-            try:
-                mm.close()
-            except BufferError:         # a token iterator of an error being raised holds it
-                pass
-
-
-def _header_line(mm, pos: int, path: str) -> Tuple[str, int, int]:
-    eol = mm.find(b"\n", pos)
-    if eol < 0:
-        eol = len(mm)
-    if eol - pos > _MAX_HEADER_LINE:
-        raise RawError("%s: not a rawfile header line at byte %d" % (path, pos))
-    return mm[pos:eol].decode("latin-1").rstrip("\r"), eol, eol + 1
-
-
-def _scan_plot(mm, pos: int, path: str) -> RawPlot:
-    plot = RawPlot()
-    nvars = None
-    marker = None
-    cplx = False
-    listed = False
-    while pos < len(mm):
-        start = pos
-        line, eol, pos = _header_line(mm, pos, path)
-        if not line.strip():
-            continue
-        m = _HEADER_LINE.match(line)
-        if not m:
-            raise RawError("%s: not a rawfile header line: %r" % (path, line[:80]))
-        key, value = m.group(1).strip().lower(), m.group(2).strip()
-        if key == "flags":
-            flags = value.lower().split()
-            odd = [f for f in flags if f not in _LAYOUT_FLAGS]
-            if odd:
-                raise RawError("%s: unsupported rawfile flags %s" % (path, " ".join(odd)))
-            cplx = "complex" in flags
-        elif key == "no. variables":
-            try:
-                nvars = int(value)
-            except ValueError:
-                raise RawError("%s: bad No. Variables: %r" % (path, value))
-            plot.nvars_line_end = pos
-        elif key == "no. points":
-            a = start + line.index(":") + 1
-            spaced = mm[a:a + 1] == b" "
-            if spaced:
-                a += 1
-            b = eol - 1 if mm[eol - 1:eol] == b"\r" else eol
-            plot.points_field = (a, max(a, b), spaced)
-            try:
-                plot.declared = int(value) if value else None
-            except ValueError:
-                plot.declared = None
-        elif key == "variables":
-            if nvars is None:
-                raise RawError("%s: Variables: before No. Variables:" % path)
-            pos, plot.time_scale = _scan_variables(mm, pos, nvars, value, path)
-            listed = True
-        elif key in ("binary", "values"):
-            marker = key
-            break
-    if marker is None:
-        raise RawError("%s: no Binary: or Values: section" % path)
-    if nvars is None or nvars < 1 or not listed:
-        raise RawError("%s: the variable list does not match No. Variables:" % path)
-    if marker == "binary":
-        _scan_binary(mm, pos, nvars, cplx, plot)
-    else:
-        _scan_ascii(mm, pos, nvars, cplx, plot, path)
-    return plot
-
-
-def _scan_variables(mm, pos: int, nvars: int, first: str, path: str) -> Tuple[int, bool]:
-    lines = [first] if first else []
-    while len(lines) < nvars:
-        if pos >= len(mm) or mm.find(b"\n", pos) < 0:
-            raise RawError("%s: the variable list ends early" % path)
-        line, _, pos = _header_line(mm, pos, path)
-        if line.strip():
-            lines.append(line)
-    time_scale = False
-    for k, line in enumerate(lines):
-        if "\t" in line.strip():
-            fields = [f.strip() for f in line.split("\t") if f.strip()]
-        else:
-            fields = line.split()
-        if len(fields) < 2 or not fields[0].isdigit() or int(fields[0]) != k:
-            raise RawError("%s: bad variable line %r" % (path, line))
-        if k == 0:
-            time_scale = fields[1].lower() == "time" or (len(fields) > 2 and
-                                                          fields[2].lower() == "time")
-    return pos, time_scale
-
-
-def _scan_binary(mm, data_start: int, nvars: int, cplx: bool, plot: RawPlot) -> None:
-    row = nvars * (2 if cplx else 1) * 8
-    avail = max(0, len(mm) - data_start)
-    n = plot.declared
-    if n is not None and 0 <= n and n * row <= avail:
-        end = data_start + n * row
-        if end < len(mm) and _NONBLANK.search(mm, end) is not None:
-            if _PLOT_START.match(mm, end):
-                plot.next_start = end                       # another plot follows
-            else:
-                n = None                                    # the count is wrong
-    else:
-        n = None
-    if n is None:
-        n = avail // row
-    plot.n = n
-    if n:
-        plot.first = struct.unpack_from("<d", mm, data_start)[0]
-        plot.last = struct.unpack_from("<d", mm, data_start + (n - 1) * row)[0]
-
-
-def _value(s: str, cplx: bool) -> float:
-    if cplx:
-        return float(s.partition(",")[0])
-    return float(s)
-
-
-def _scan_ascii(mm, data_start: int, nvars: int, cplx: bool, plot: RawPlot, path: str) -> None:
-    # The token iterator holds the mapping open: an error is raised again only once the
-    # iterator, and the traceback that refers to it, are gone (scan_raw closes the map).
-    toks = _TOKEN.finditer(mm, data_start)
-    err = None
-    try:
-        _count_points(mm, toks, nvars, cplx, plot, path)
-    except RawError as e:
-        err = str(e)
-    del toks
-    if err is not None:
-        raise RawError(err)
-
-
-def _count_points(mm, toks, nvars: int, cplx: bool, plot: RawPlot, path: str) -> None:
-    for tok in toks:
-        if not tok.group(0).isdigit():
-            if _PLOT_START.match(mm, tok.start()):
-                plot.next_start = tok.start()
-                return
-            raise RawError("%s: expected a point index at byte %d, got %r"
-                           % (path, tok.start(), tok.group(0)[:40]))
-        got, t0 = 0, None
-        for t in toks:
-            s = t.group(0).decode("latin-1")
-            while s.endswith(","):                          # "re, im"
-                t = next(toks, None)
-                if t is None:
-                    break
-                s += t.group(0).decode("latin-1")
-            try:
-                v = _value(s, cplx)
-                if cplx and s.partition(",")[2]:
-                    float(s.partition(",")[2])
-            except ValueError:
-                raise RawError("%s: bad value %r in point %d" % (path, s, plot.n))
-            if got == 0:
-                t0 = v
-            got += 1
-            if got == nvars:
-                break
-        if got < nvars:
-            return                                          # a truncated last point
-        plot.n += 1
-        if plot.first is None:
-            plot.first = t0
-        plot.last = t0
-
-
-def _fix_points(path: str, plots: List[RawPlot]) -> bool:
-    """rawfile.fix_points from a scan: in place when every new count fits its field, else
-    a streamed rewrite (beside the file, then os.replace).  True if the file changed."""
-    edits: List[Tuple[int, int, bytes]] = []
-    for p in plots:
-        if p.points_field is None:                          # no such line: add one
-            edits.append((p.nvars_line_end, p.nvars_line_end, b"No. Points: %d\n" % p.n))
-            continue
-        if p.declared == p.n:
-            continue
-        a, b, spaced = p.points_field
-        digits = b"%d" % p.n
-        if len(digits) <= b - a:
-            edits.append((a, b, digits.ljust(b - a)))
-        else:
-            edits.append((a, b, digits if spaced else b" " + digits))
-    if not edits:
-        return False
-    if all(len(rep) == e - s for s, e, rep in edits):
-        with open(path, "r+b") as fh:
-            for s, _, rep in edits:
-                fh.seek(s)
-                fh.write(rep)
-        return True
-    tmp = path + ".vamos-fix"
-    with open(path, "rb") as src, open(tmp, "wb") as dst:
-        prev = 0
-        for s, e, rep in sorted(edits):
-            src.seek(prev)
-            _copy(src, dst, s - prev)
-            dst.write(rep)
-            prev = e
-        src.seek(prev)
-        shutil.copyfileobj(src, dst, 1 << 20)
-    os.replace(tmp, path)
-    return True
-
-
-def _copy(src, dst, n: int) -> None:
-    while n > 0:
-        chunk = src.read(min(n, 1 << 20))
-        if not chunk:
-            return
-        dst.write(chunk)
-        n -= len(chunk)
-
+#
+# The scan (every plot's count, first and last time, where the count field is) and the
+# repair from a scan live in netlist/rawfile.py (scan, fix_scanned; moved from here,
+# docs/VAMOS_SPECTRE_DESIGN.md §4.6) and are imported above as scan_raw and _fix_points.
 
 def check_raw(path: str) -> Tuple[bool, Optional[float]]:
     """(the point count was rewritten, the first plot's last time or None for no points).

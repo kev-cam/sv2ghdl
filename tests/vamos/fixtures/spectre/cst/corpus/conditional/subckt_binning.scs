@@ -1,0 +1,10 @@
+// conditional instantiation nested inside a subcircuit definition
+simulator lang=spectre
+subckt s1 (d g s b)
+    parameters l=1u w=1u
+    if ( l < 0.5u ) {
+        m1 (d g s b) shortmod l=l w=w
+    } else {
+        m2 (d g s b) longmod l=l w=w
+    }
+ends s1

@@ -1,0 +1,259 @@
+{
+ "row": "E13",
+ "experiment": "Xyce: .DC of a global .param; .STEP DMOD:IS; .DC TEMP; .STEP R1:R with .AC DATA=; .PRINT ... FORMAT=RAW FILE= after .DC and after .OP; a singular .OP",
+ "result": "all work; the print file holds exactly the printed columns (V(OUT), V(X1:MID), I(V1); after .OP one point, plot \"DC transfer characteristic\", plus a sweep column); I(V1) has VACASK's flow(br) sign; the singular op exits 1",
+ "rules": [
+  "\u00a77.2 the dc/ac/step mapping rows (.DC p, .STEP M:X, .DC TEMP, .STEP R1:R + .AC DATA=)",
+  "\u00a77.2 Output: .PRINT FORMAT=RAW FILE= writes exactly the printed columns; a singular .OP exits 1 (status 1)"
+ ],
+ "runs": [
+  {
+   "name": "minus_r_op_hier",
+   "tool": "xyce",
+   "deck": "x3.cir",
+   "args": [
+    "-r",
+    "x3.raw",
+    "{deck}"
+   ],
+   "status": 0,
+   "checks": [
+    {
+     "raw": "x3.raw",
+     "names": [
+      "sweep",
+      "IN",
+      "OUT",
+      "V1#branch",
+      "X1:MID"
+     ]
+    },
+    {
+     "raw": "x3.raw",
+     "col": "X1:MID",
+     "value": 0.75
+    },
+    {
+     "raw": "x3.raw",
+     "col": "V1#branch",
+     "value": -0.0005
+    }
+   ]
+  },
+  {
+   "name": "dc_source_step_temp",
+   "tool": "xyce",
+   "deck": "x4.cir",
+   "args": [
+    "-r",
+    "x4.raw",
+    "{deck}"
+   ],
+   "status": 0,
+   "checks": [
+    {
+     "raw": "x4.raw",
+     "plots": 2
+    },
+    {
+     "raw": "x4.raw",
+     "plot": 0,
+     "plotname_contains": [
+      "TEMP value = 0"
+     ]
+    },
+    {
+     "raw": "x4.raw",
+     "plot": 1,
+     "plotname_contains": [
+      "TEMP value = 50"
+     ]
+    },
+    {
+     "raw": "x4.raw",
+     "col": "sweep",
+     "values": [
+      0.0,
+      0.5,
+      1.0,
+      1.5,
+      2.0
+     ],
+     "plot": 0
+    }
+   ]
+  },
+  {
+   "name": "singular_op",
+   "tool": "xyce",
+   "deck": "x6.cir",
+   "status": 1
+  },
+  {
+   "name": "dc_param_step_model",
+   "tool": "xyce",
+   "deck": "x7.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "x7a.raw",
+     "plots": 2
+    },
+    {
+     "raw": "x7a.raw",
+     "plot": 0,
+     "plotname_contains": [
+      "DMOD:IS value = 1e-14"
+     ],
+     "names": [
+      "sweep",
+      "V(OUT)",
+      "I(V1)"
+     ]
+    },
+    {
+     "raw": "x7a.raw",
+     "col": "sweep",
+     "values": [
+      1000.0,
+      2000.0,
+      3000.0
+     ],
+     "plot": 0
+    },
+    {
+     "raw": "x7a.raw",
+     "col": "V(OUT)",
+     "value": 0.629424,
+     "rel": 0.0001,
+     "plot": 0
+    },
+    {
+     "raw": "x7a.raw",
+     "plot": 1,
+     "plotname_contains": [
+      "DMOD:IS value = 1e-12"
+     ]
+    },
+    {
+     "raw": "x7a.raw",
+     "col": "V(OUT)",
+     "value": 0.51716,
+     "rel": 0.0001,
+     "plot": 1
+    }
+   ]
+  },
+  {
+   "name": "dc_temp",
+   "tool": "xyce",
+   "deck": "x8.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "x8a.raw",
+     "col": "sweep",
+     "values": [
+      0.0,
+      25.0,
+      50.0
+     ]
+    },
+    {
+     "raw": "x8a.raw",
+     "col": "V(OUT)",
+     "values": [
+      0.676139,
+      0.6329,
+      0.589294
+     ],
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "step_instance_ac_data",
+   "tool": "xyce",
+   "deck": "x9.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "x9a.raw",
+     "plots": 2
+    },
+    {
+     "raw": "x9a.raw",
+     "plot": 0,
+     "plotname_contains": [
+      "R1:R value = 1000"
+     ]
+    },
+    {
+     "raw": "x9a.raw",
+     "col": "FREQUENCY",
+     "values": [
+      1.0,
+      7.0,
+      159.15
+     ],
+     "rel": 1e-09,
+     "plot": 0
+    },
+    {
+     "raw": "x9a.raw",
+     "plot": 1,
+     "plotname_contains": [
+      "R1:R value = 2000"
+     ]
+    },
+    {
+     "raw": "x9a.raw",
+     "col": "V(OUT)",
+     "value": [
+      0.999961,
+      -0.00628294
+     ],
+     "rel": 0.0001,
+     "plot": 0
+    }
+   ]
+  },
+  {
+   "name": "print_raw_after_op",
+   "tool": "xyce",
+   "deck": "x10.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op10.raw",
+     "plots": 1,
+     "names": [
+      "sweep",
+      "V(OUT)",
+      "V(X1:MID)",
+      "I(V1)"
+     ],
+     "points": 1,
+     "plotname_contains": [
+      "DC transfer characteristic"
+     ]
+    },
+    {
+     "raw": "op10.raw",
+     "col": "V(OUT)",
+     "value": 0.5
+    },
+    {
+     "raw": "op10.raw",
+     "col": "V(X1:MID)",
+     "value": 0.75
+    },
+    {
+     "raw": "op10.raw",
+     "col": "I(V1)",
+     "value": -0.0005
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+* R device route, lower-case r
+.hdl "toy_resistor.va"
+.model rmod r level=6
+V1 a 0 1
+R1 a b rmod r=3k
+R2 b 0 1k
+.op
+.print dc format=raw file=xc.raw v(b)
+.end

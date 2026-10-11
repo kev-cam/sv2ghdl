@@ -1,0 +1,4 @@
+// Hierarchical (dotted) node names referencing nodes inside subcircuits
+Rmon (s1.r1 0) resistor r=1meg
+Cprobe (s1.r1.r2.r3 gnd) capacitor c=1f
+Rtap (s1.n1 top.out) resistor r=1k

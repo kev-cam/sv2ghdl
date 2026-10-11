@@ -1,0 +1,9 @@
+// area-based binning of a bipolar device, three-way selection
+simulator lang=spectre
+if ( area < 100e-12 ) {
+    npn_mod (c b e s) npn10x10
+} else if ( area < 400e-12 ) {
+    npn_mod (c b e s) npn20x20
+} else {
+    npn_mod (c b e s) npn_default
+}

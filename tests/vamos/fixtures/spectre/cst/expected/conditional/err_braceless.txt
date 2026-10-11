@@ -1,0 +1,17 @@
+SpectreNetlistSource 69-117
+  Simulator 69-92
+    Keyword 69-78
+    Keyword 79-83
+    Notation 83-84
+    Keyword 84-91
+    Notation 91-92
+  Incomplete 92-117
+    Incomplete 92-117
+      Keyword 92-94
+      Notation 95-96
+      BinaryExpression 97-111
+        Identifier 97-106
+        Operator 107-109
+        NumberLiteral 110-111
+      Notation 112-113
+      Error 114-117

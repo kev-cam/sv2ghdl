@@ -1,0 +1,16 @@
+{
+  "_comment": "Default spectre-personality banner profile: the layout of the screen and +log output of a spectre run (docs/VAMOS_SPECTRE_DESIGN.md 8.7), branded vamos. To change it, copy this file to banners/<name>.json in a later configuration layer and edit it (e.g. set brand); the layers, lowest first: this package, the site layer etc/vamos/ in the directory above the package (PREFIX/etc/vamos/ when installed), ~/.config/vamos/ ($XDG_CONFIG_HOME/vamos/), ~/.vamos/, ./.vamos/. The last layer that has the file wins and replaces the whole profile, so copy every key. Select it with --vamos-banner=<name|path> or $VAMOS_BANNER (default: spectre, whatever name vamos was invoked as). A profile changes the layout only: version, subversion, error_block, warning_block, notice_block, trailer_ok and trailer_fatal always print (vamos falls back to its built-in text for a missing key, an invalid template or --vamos-banner=none, which drops only run_start, inventory, analysis_banner, analysis_done and audit). Placeholders: {brand} {Brand} {BRAND} {BRAND_SPACED} {version} {personality} {prog} (the name vamos was invoked as: spectre, or an alias) {netlist} (the input file as given, or stdin) {host} {time} {inventory_lines} {analysis} (the analysis instance name) {analysis_type} (tran, dc, ac, ...) {analysis_title} (Transient Analysis, DC Analysis, ...) {range} (the swept range, as in time = (0 s -> 80 us)) {rule} (a line of asterisks as long as the banner line) {seconds} {cpu} {elapsed} {phase} {text} {errors} {warnings} {notices}. There is deliberately no slot for vendor licence/copyright text, and no key holds a PSF format field.",
+  "brand": "vamos",
+  "version": "{brand} {version} ({personality} personality)",
+  "subversion": "{brand} {version} ({personality} personality)",
+  "run_start": "Simulating `{netlist}' on {host} at {time}.\n",
+  "inventory": "Circuit inventory:\n{inventory_lines}",
+  "analysis_banner": "{rule}\n{analysis_title} `{analysis}': {range}\n{rule}",
+  "analysis_done": "Total time required for {analysis_type} analysis `{analysis}' was {seconds:.2f} s.\n",
+  "audit": "Aggregate audit ({time}):\nTime used: CPU = {cpu:.2f} s, elapsed = {elapsed:.0f} s.",
+  "error_block": "Error from {prog} during {phase}.\n    {text}",
+  "warning_block": "Warning from {prog} during {phase}.\n    {text}",
+  "notice_block": "Notice from {prog} during {phase}.\n    {text}",
+  "trailer_ok": "{prog} completes with {errors} errors, {warnings} warnings, and {notices} notices",
+  "trailer_fatal": "{prog} terminated prematurely due to fatal error."
+}

@@ -1,0 +1,3 @@
+// save: plain node names (voltages), including a numeric node name
+save 7
+save vcc out

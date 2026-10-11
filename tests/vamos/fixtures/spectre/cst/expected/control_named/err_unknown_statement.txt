@@ -1,0 +1,4 @@
+SpectreNetlistSource 138-145
+  Incomplete 138-145
+    Identifier 138-141
+    Error 142-145

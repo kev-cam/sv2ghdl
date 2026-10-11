@@ -1,0 +1,5 @@
+// Source instances: vsource / isource with multiple parameters
+Vcc (cc 0) vsource dc=5
+Iee (e 0) isource dc=1mA
+Vin (in 0) vsource dc=0 mag=1 type=sine ampl=0.5 freq=1k
+L1 (cc out) inductor l=1uH

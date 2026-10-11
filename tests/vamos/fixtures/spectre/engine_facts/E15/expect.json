@@ -1,0 +1,23 @@
+{
+ "row": "E15",
+ "experiment": "openvaf-r --help",
+ "result": "-D MACRO[=VALUE] exists",
+ "rules": [
+  "\u00a73.1 -va,define and `ifdef selection through openvaf-r -D"
+ ],
+ "runs": [
+  {
+   "name": "help_lists_D",
+   "tool": "openvaf",
+   "args": [
+    "--help"
+   ],
+   "status": 0,
+   "output": {
+    "regex": [
+     "-D\\s*<?MACRO\\[=VALUE\\]>?"
+    ]
+   }
+  }
+ ]
+}

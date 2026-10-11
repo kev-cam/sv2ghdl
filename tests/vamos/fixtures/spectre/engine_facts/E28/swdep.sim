@@ -1,0 +1,20 @@
+sweep of a dependent subckt parameter
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+subckt sub (a)
+  parameters w=1000.0
+  parameters r=2*w
+  parameters $mfactor=1.0
+  r1 (a 0) vamos_resistor r=r
+ends
+v1 (a 0) vamos_vsource dc=1
+x1 (a) sub
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  save i(v1)
+  sweep s instance="x1" parameter="r" values=[1000, 4000]
+  analysis op1 op
+endc

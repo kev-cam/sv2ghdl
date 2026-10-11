@@ -1,0 +1,13 @@
+* nested subckt inheritance
+.subckt outer a b params: rr=3k
+.subckt inner x y
+R1 x y {rr}
+.ends inner
+XI a b inner
+.ends outer
+V1 in 0 1
+X1 in out outer rr=1k
+R2 out 0 1k
+.OP
+.PRINT DC FORMAT=RAW FILE=nest.raw V(OUT)
+.end

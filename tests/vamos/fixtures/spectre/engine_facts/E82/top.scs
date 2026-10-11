@@ -1,0 +1,15 @@
+// opamp test bench, title line
+#define VDD 1.8
+#define WN 2u
+simulator lang=spectre
+include "models.scs" section=tt
+parameters vdd=VDD wn=WN  // a trailing comment
+#include "sub.scs"
+V1 (vdd 0) vsource dc=VDD
+M1 (d g 0 0) nch w=WN l=0.18u
+simulator lang=spice
+.param rr='VDD*1k'   $ SPICE-mode quoted expression with a macro
+.param it = 'wn*2'
+* a SPICE comment with an apostrophe: don't
+simulator lang=spectre
+tr tran stop=1u

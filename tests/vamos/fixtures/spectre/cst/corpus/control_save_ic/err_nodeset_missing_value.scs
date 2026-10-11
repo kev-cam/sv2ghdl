@@ -1,0 +1,2 @@
+// ERROR: nodeset parameter has '=' but no value expression before end-of-line
+nodeset vc=

@@ -1,0 +1,10 @@
+* dc vs waveform tran
+V1 a 0 DC 0.9 PULSE(0 1.8 1u 1n 1n 1u)
+R1 a 0 1k
+V2 b 0 DC 0.5 SIN(0 1 1k 0 0 0)
+R2 b 0 1k
+V3 c 0 DC 0.7 PWL 0 0.2 1u 1
+R3 c 0 1k
+.TRAN 10n 2u
+.PRINT TRAN FORMAT=RAW FILE=tr.raw V(A) V(B) V(C)
+.end

@@ -1,0 +1,56 @@
+{
+ "row": "E41",
+ "experiment": "VACASK: a binned MOS (w < 10 um: vto 0.5; w >= 10 um: vto 1.0), sweep instance=\"m1\" parameter=\"w\" values=[5u, 20u]",
+ "result": "2.25 mA at 20 um, bin 1's current (bin 2's card gives 1.00 mA); exit 0",
+ "rules": [
+  "\u00a73.9 bins: a sweep of the instance's own geometry keeps the nominal bin (the bin guard is folded at the nominal geometry), so vamos warns about it"
+ ],
+ "runs": [
+  {
+   "name": "swept_width_keeps_nominal_bin",
+   "tool": "vacask",
+   "deck": "bin.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "sw",
+     "values": [
+      5e-06,
+      2e-05
+     ],
+     "rel": 1e-09
+    },
+    {
+     "raw": "op1.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.0005625,
+      -0.00225
+     ],
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "bin2_reference",
+   "tool": "vacask",
+   "deck": "ref.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "vd:flow(br)",
+     "value": -0.001,
+     "rel": 0.0001
+    },
+    {
+     "raw": "op1.raw",
+     "col": "vd2:flow(br)",
+     "value": -0.00225,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

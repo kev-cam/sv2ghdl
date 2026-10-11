@@ -1,0 +1,9 @@
+* step of an unknown model param
+V1 a 0 DC 1
+R1 a b 1k
+D1 b 0 dmod
+.model dmod D (is=1e-14)
+.step dmod:bogusparam list 1 2
+.op
+.print dc format=raw file=s.raw v(b)
+.end

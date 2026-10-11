@@ -1,0 +1,2 @@
+// ERROR: library section reference has 'section=' but no section name after it
+include "corner.scs" section=

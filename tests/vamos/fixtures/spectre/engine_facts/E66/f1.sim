@@ -1,0 +1,14 @@
+failing op/ac/noise under strictoutput=0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource dc=1 mag=1
+v2 (a 0) vsource dc=2
+r1 (a 0) resistor r=1k
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  analysis op1 op
+  analysis ac1 ac values=[1k]
+  analysis nz1 noise out="a" in="v1" values=[1k]
+endc

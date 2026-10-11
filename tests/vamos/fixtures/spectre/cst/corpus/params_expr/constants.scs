@@ -1,0 +1,7 @@
+// builtin mathematical (M_) and physical (P_) constants
+simulator lang=spectre
+parameters temp=300
+parameters circ=2*M_PI invpi=M_1_PI e=M_E
+parameters vt=P_K*temp/P_Q
+parameters twopi=M_TWO_PI half=M_PI_2 root2=M_SQRT2
+parameters mixed=M_PI*sqrt(P_Q)+P_C

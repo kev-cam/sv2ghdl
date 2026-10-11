@@ -1,0 +1,11 @@
+* ic on hierarchical node through the IR spelling
+.subckt sub1 p q
+r3 p Mid 1k
+c3 Mid q 1n
+.ends
+v1 vin 0 dc 1
+xI2 vin 0 sub1
+.ic v(I2:MID)=0.3
+.tran 1n 2n
+.print tran format=raw file=p2.raw v(XI2:MID)
+.end

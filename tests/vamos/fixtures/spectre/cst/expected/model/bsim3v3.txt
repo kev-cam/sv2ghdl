@@ -1,0 +1,22 @@
+SpectreNetlistSource 27-77
+  Model 27-77
+    Keyword 27-32
+    Identifier 33-36
+    Identifier 37-44
+    Parameter 45-51
+      Identifier 45-49
+      Notation 49-50
+      Identifier 50-51
+    Parameter 52-60
+      Identifier 52-55
+      Notation 55-56
+      NumberLiteral 56-60
+    Parameter 61-69
+      Identifier 61-65
+      Notation 65-66
+      NumberLiteral 66-69
+    Parameter 70-76
+      Identifier 70-74
+      Notation 74-75
+      NumberLiteral 75-76
+    Notation 76-77

@@ -1,0 +1,2 @@
+// ERROR: include statement with no filename string literal
+include

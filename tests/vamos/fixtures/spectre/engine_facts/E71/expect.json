@@ -1,0 +1,126 @@
+{
+ "row": "E71",
+ "experiment": "Xyce sweeps of a source field (sp3/ENG/r_new.sh N3)",
+ "result": "DC {p} PULSE({p} 1.8 ...) with .DC vamos_x_v1_val0 LIST 0.2 0.4: 0.2 and 0.4; a .STEP of it with .TRAN: a(0) = 0.2 and 0.4, a(1.5u) = 1.8; .STEP V1:V1 LIST 0.2 0.4: the same",
+ "rules": [
+  "\u00a77.2 dev= a field of an independent source: the field prints through a generated .param vamos_x_<src>_<field>, which the derived DC reads too; .DC and .STEP of it work, and so does .STEP V1:V1"
+ ],
+ "runs": [
+  {
+   "name": "dc_of_source_field_param",
+   "tool": "xyce",
+   "deck": "sf1.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "sf1.raw",
+     "col": "sweep",
+     "values": [
+      0.2,
+      0.4
+     ]
+    },
+    {
+     "raw": "sf1.raw",
+     "col": "V(A)",
+     "values": [
+      0.2,
+      0.4
+     ]
+    }
+   ]
+  },
+  {
+   "name": "step_of_source_field_param",
+   "tool": "xyce",
+   "deck": "sf2.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "sf2.raw",
+     "plots": 2,
+     "plot": 0,
+     "plotname_contains": [
+      "VAMOS_X_V1_VAL0 value = 0.2"
+     ]
+    },
+    {
+     "raw": "sf2.raw",
+     "col": "V(A)",
+     "at": 0.0,
+     "value": 0.2,
+     "plot": 0
+    },
+    {
+     "raw": "sf2.raw",
+     "col": "V(A)",
+     "at": 1.5e-06,
+     "value": 1.8,
+     "rel": 0.001,
+     "plot": 0
+    },
+    {
+     "raw": "sf2.raw",
+     "col": "V(A)",
+     "at": 0.0,
+     "value": 0.4,
+     "plot": 1
+    },
+    {
+     "raw": "sf2.raw",
+     "col": "V(A)",
+     "at": 1.5e-06,
+     "value": 1.8,
+     "rel": 0.001,
+     "plot": 1
+    }
+   ]
+  },
+  {
+   "name": "step_of_V1_V1",
+   "tool": "xyce",
+   "deck": "sf3.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "sf3.raw",
+     "plots": 2,
+     "plot": 0,
+     "plotname_contains": [
+      "V1:V1 value = 0.2"
+     ]
+    },
+    {
+     "raw": "sf3.raw",
+     "col": "V(A)",
+     "at": 0.0,
+     "value": 0.2,
+     "plot": 0
+    },
+    {
+     "raw": "sf3.raw",
+     "col": "V(A)",
+     "at": 1.5e-06,
+     "value": 1.8,
+     "rel": 0.001,
+     "plot": 0
+    },
+    {
+     "raw": "sf3.raw",
+     "col": "V(A)",
+     "at": 0.0,
+     "value": 0.4,
+     "plot": 1
+    },
+    {
+     "raw": "sf3.raw",
+     "col": "V(A)",
+     "at": 1.5e-06,
+     "value": 1.8,
+     "rel": 0.001,
+     "plot": 1
+    }
+   ]
+  }
+ ]
+}

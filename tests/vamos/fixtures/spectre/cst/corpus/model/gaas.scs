@@ -1,0 +1,2 @@
+// gallium-arsenide mesfet model with a unary-minus value and dotted magnitudes
+model nGaAs gaas type=n vto=-2 beta=0.012 cgs=.148p cgd=.016p fc=0.5

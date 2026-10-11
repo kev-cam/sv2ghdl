@@ -3,11 +3,22 @@ Test fixtures for the vamos AMS tests (docs/VAMOS_AMS_DESIGN.md §9).
 netlist/  SPICE inputs and emitter goldens
 vhdl/     design.vhd files captured from iverilog-sv2ghdl (WSL) for the cut tests
 ams/      control files and small mixed-signal designs
+spectre/  the spectre personality's fixtures (docs/VAMOS_SPECTRE_DESIGN.md §11):
+          Spectre netlists and CST dumps, real PSF files, XDM decks; spectre/README
+          names the origin, commit and licence of every file there
 
 Third-party files
 -----------------
-Two sets of files here come from other projects and keep their own licences
-(see the repository's LICENSE).
+The files below come from other projects and keep their own licences (see
+the repository's LICENSE).  The Spectre fixtures under spectre/ bring four more
+sets, each copied byte for byte at a named commit: the NetlistParse.rs Spectre
+and SPICE corpus with its CST dumps (MIT, Copyright (c) JuliaHub, Inc. and
+other contributors, licence text in LICENSES/MIT.txt), psf-parser's real
+Spectre PSF files (MIT; its code is vendored as tests/vamos/third_party/psf_parser
+with its LICENSE), psf_utils' PSF samples (GPL-3.0-or-later) and the
+Xyce_Regression XDM/SPECTRE decks (GPL-3.0-or-later, Copyright 2019 NTESS).
+spectre/README names each file's origin, commit and licence, and the files
+left out and why.
 
 x-heep, https://github.com/x-heep/x-heep (formerly
 https://github.com/esl-epfl/x-heep): hw/ip_examples/ams/analog/adc.sp and

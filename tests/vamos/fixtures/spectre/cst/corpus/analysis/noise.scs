@@ -1,0 +1,3 @@
+// Noise analysis using the with-nodelist output form
+FindNoise (out gnd) noise start=1 stop=1MHz
+cmNoise noise start=1k stop=1G dec=10 oprobe=Rocm iprobe=Vcm

@@ -1,0 +1,26 @@
+SPICENetlistSource 0-38
+  Title 0-4
+    Notation 0-3
+    Notation 3-4
+  LibStatement 4-38
+    Notation 4-5
+    Keyword 5-8
+    Identifier 9-14
+    Notation 14-15
+    Resistor 15-25
+      HierarchialNode 15-17
+        NodeName 15-17
+          Identifier 15-17
+      HierarchialNode 18-19
+        NodeName 18-19
+          Identifier 18-19
+      HierarchialNode 20-21
+        NodeName 20-21
+          Identifier 20-21
+      NumberLiteral 22-24
+      Notation 24-25
+    EndlStatement 25-38
+      Notation 25-26
+      Keyword 26-30
+      Identifier 31-36
+      Notation 37-38

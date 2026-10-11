@@ -1,0 +1,16 @@
+inductor and iprobe currents
+ground 0
+load "resistor.osdi"
+load "inductor.osdi"
+model vs vsource
+model r resistor
+model l inductor
+v1 (in 0) vs dc=1
+l1 (in m) l l=1u
+ip (m n) vs dc=0
+r1 (n 0) r r=1k
+control
+  options rawfile="ascii"
+  save default i(l1)
+  analysis op1 op
+endc

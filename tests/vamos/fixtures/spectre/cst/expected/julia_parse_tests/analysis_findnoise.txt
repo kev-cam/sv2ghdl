@@ -1,0 +1,20 @@
+SpectreNetlistSource 0-44
+  Analysis 0-44
+    Identifier 0-9
+    SNodeList 10-19
+      Notation 10-11
+      SNode 11-14
+        Identifier 11-14
+      SNode 15-18
+        Identifier 15-18
+      Notation 18-19
+    Keyword 20-25
+    Parameter 26-33
+      Identifier 26-31
+      Notation 31-32
+      NumberLiteral 32-33
+    Parameter 34-43
+      Identifier 34-38
+      Notation 38-39
+      NumberLiteral 39-43
+    Notation 43-44

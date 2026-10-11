@@ -1,0 +1,8 @@
+* noise with dummy input
+V1 in 0 DC 1
+R1 in out 1k
+R2 out 0 1k
+Ivamos_nin out 0 DC 0
+.NOISE V(out) Ivamos_nin DEC 1 1k 10k
+.PRINT NOISE FILE=nzin.prn ONOISE INOISE DNO(R1) DNO(R2)
+.end

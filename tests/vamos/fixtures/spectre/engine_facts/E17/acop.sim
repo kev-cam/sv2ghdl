@@ -1,0 +1,22 @@
+ac op of a waveform source
+ground 0
+load "resistor.osdi"
+load "spice/diode.osdi"
+model vs vsource
+model is isource
+model r resistor
+model dm sp_diode level=1 is=1e-14
+v1 (a 0) vs type="pulse" dc=0.9 val0=0 val1=1.8 delay=1u rise=1n fall=1n width=1u mag=1
+r1 (a k) r r=1k
+d1 (k 0) dm
+i1 (0 j) is type="pulse" dc=1m val0=0 val1=2m delay=1u rise=1n fall=1n width=1u
+r2 (j 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis ac1 ac values=[1] writeop=1
+  alter instance("v1", "i1") type="dc"
+  analysis op2 op
+  analysis ac2 ac values=[1] writeop=1
+  alter instance("v1", "i1") type="pulse"
+  analysis tr2 tran stop=2u step=10n
+endc

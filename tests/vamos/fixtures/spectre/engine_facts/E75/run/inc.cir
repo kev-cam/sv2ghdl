@@ -1,0 +1,8 @@
+* VA with a local include, .hdl given as an absolute path from another directory
+.hdl "@CWD@/va/ires.va"
+.model ires__vamos ires
+V1 a 0 1
+yires r1 a 0 ires__vamos
+.op
+.print dc format=raw file=inc.raw i(v1)
+.end

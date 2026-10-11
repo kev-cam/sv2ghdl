@@ -1,0 +1,3 @@
+// Advanced analyses: parameter sweep with a values vector, and Monte Carlo
+swp_tmp1 sweep param=temp values=[25 75 100]
+mc1 montecarlo variations=process seed=1234 numruns=200

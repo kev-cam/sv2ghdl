@@ -1,0 +1,81 @@
+{
+ "row": "E73",
+ "experiment": "Xyce PULSE width 1e30 and hierarchical DNO (sp3/ENG/r_pw.sh, r_dno.sh)",
+ "result": "PULSE(0 1 1u 1n 1n 1e+30) with .TRAN 10n 10u: a(0.5u) = 0, a(2u) = a(5u) = a(9.9u) = 1; .PRINT NOISE ... DNO(X1:R1) DNO(R2): 4.1439e-18 each",
+ "rules": [
+  "\u00a73.8.1 a Spectre pulse without width/period prints pw = 1e30 and no per on Xyce, whose default period does not cut it",
+  "\u00a77.2 noise: hierarchical DNO(X1:R1) works; \u00a76.4 per-instance noise DNO(XI2:R3)"
+ ],
+ "runs": [
+  {
+   "name": "pulse_width_1e30",
+   "tool": "xyce",
+   "deck": "pw.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "pw.raw",
+     "col": "V(A)",
+     "at": 5e-07,
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "pw.raw",
+     "col": "V(A)",
+     "at": 2e-06,
+     "value": 1.0,
+     "rel": 1e-06
+    },
+    {
+     "raw": "pw.raw",
+     "col": "V(A)",
+     "at": 5e-06,
+     "value": 1.0,
+     "rel": 1e-06
+    },
+    {
+     "raw": "pw.raw",
+     "col": "V(A)",
+     "at": 9.9e-06,
+     "value": 1.0,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "hierarchical_dno",
+   "tool": "xyce",
+   "deck": "dno.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "dno.prn",
+     "columns": [
+      "Index",
+      "FREQ",
+      "ONOISE",
+      "INOISE",
+      "DNO(X1:R1)",
+      "DNO(R2)"
+     ],
+     "rows": 2
+    },
+    {
+     "prn": "dno.prn",
+     "col": "DNO(X1:R1)",
+     "row": 0,
+     "value": 4.14393873e-18,
+     "rel": 0.0001
+    },
+    {
+     "prn": "dno.prn",
+     "col": "DNO(R2)",
+     "row": 0,
+     "value": 4.14393873e-18,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,6 @@
+* dec placement dc
+V1 in 0 DC 1 AC 1
+R1 in 0 1k
+.DC DEC V1 2 500 10
+.PRINT DC FORMAT=RAW FILE=decdc.raw V(IN)
+.end

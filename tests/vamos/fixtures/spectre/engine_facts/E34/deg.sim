@@ -1,0 +1,16 @@
+diode eg default
+ground 0
+load "spice/diode.osdi"
+model vs vsource
+model is isource
+model d1m sp_diode level=1 is=1e-14
+model d2m sp_diode level=1 is=1e-14 eg=1.124481
+i1 (0 a) is dc=1m
+d1 (a 0) d1m
+i2 (0 b) is dc=1m
+d2 (b 0) d2m
+control
+  options rawfile="ascii"
+  sweep s option="temp" values=[27, 127, -40]
+    analysis op1 op
+endc

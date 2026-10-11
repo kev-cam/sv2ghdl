@@ -1,0 +1,10 @@
+VA with a local include on VACASK
+load "@CWD@/va/ires.va"
+model vs vsource
+model c1 ires
+v1 (a 0) vs dc=1
+r1 (a 0) c1
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

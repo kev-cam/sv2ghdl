@@ -1,0 +1,10 @@
+* ac op of a waveform source
+V1 a 0 DC 0.9 PULSE(0 1.8 1u 1n 1n 1u) AC 1
+R1 a k 1k
+D1 k 0 DM
+.MODEL DM D IS=1e-14
+I1 0 j DC 1m PULSE(0 2m 1u 1n 1n 1u)
+R2 j 0 1k
+.AC LIN 1 1 1
+.PRINT AC FORMAT=RAW FILE=ac.raw VR(K) VI(K) V(J)
+.end

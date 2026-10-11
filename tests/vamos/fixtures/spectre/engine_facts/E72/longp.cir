@@ -1,0 +1,7 @@
+* long tran for SIGINT, standard print format
+V1 in 0 SIN(0 1 1k 0 0 0)
+R1 in out 1k
+C1 out 0 1u
+.TRAN 1e-7 2 0 1e-7
+.PRINT TRAN FILE=longp.prn V(OUT)
+.end

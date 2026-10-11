@@ -1,0 +1,8 @@
+* method GEAR MAXORD=1
+V1 in 0 PULSE(0 1 0 1n 1n 1u)
+R5 in out 1k
+C1 out 0 1n
+.OPTIONS TIMEINT METHOD=GEAR MAXORD=1
+.TRAN 1n 2u
+.PRINT TRAN FORMAT=RAW FILE=maxord1.raw V(OUT)
+.end

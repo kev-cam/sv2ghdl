@@ -1,0 +1,7 @@
+// relational, equality, logical and bitwise operators
+simulator lang=spectre
+parameters a=1 b=2
+parameters lt=a<b gt=a>b le=a<=b ge=a>=b
+parameters eq=a==b ne=a != b
+parameters land=a&&b lor=a||b
+parameters band=a&b bor=a|b bxor=a^b

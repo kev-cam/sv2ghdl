@@ -1,0 +1,13 @@
+noise with mag 2
+ground 0
+load "resistor.osdi"
+model vs vsource
+model r resistor
+v1 (in 0) vs dc=1 mag=2
+r1 (in out) r r=1k
+r2 (out 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis nz8 noise out="out" in="v1" from=1k to=10k mode="dec" points=1
+  analysis xf8 acxf out="out" from=1k to=10k mode="dec" points=1
+endc

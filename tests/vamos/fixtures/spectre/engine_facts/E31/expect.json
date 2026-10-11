@@ -1,0 +1,72 @@
+{
+ "row": "E31",
+ "experiment": "ic/nodeset naming a node that does not exist",
+ "result": "VACASK accepts ic={\"nosuch\",1} and nodeset={\"nosuch\",1} silently; Xyce warns \"Initial conditions specified at nodes not present in circuit ... Ignoring nodes: NOSUCH\"",
+ "rules": [
+  "\u00a76 ic/nodeset/readns names are resolved by vamos and unmatched ones warned, since the engines do not report them alike"
+ ],
+ "runs": [
+  {
+   "name": "vacask_silent",
+   "tool": "vacask",
+   "deck": "badns.sim",
+   "status": 0,
+   "output": {
+    "absent": [
+     "nosuch",
+     "not found"
+    ]
+   },
+   "files": {
+    "present": [
+     "op1.raw",
+     "tr1.raw",
+     "tr2.raw",
+     "tr3.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tr2.raw",
+     "col": "out",
+     "at": 0.0,
+     "value": 0.3,
+     "rel": 1e-06
+    },
+    {
+     "raw": "tr3.raw",
+     "col": "out",
+     "at": 0.0,
+     "value": 0.3,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "xyce_ic_warns",
+   "tool": "xyce",
+   "deck": "icbad.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Initial conditions specified at nodes not present in circuit",
+     "Ignoring nodes:",
+     "NOSUCH"
+    ]
+   }
+  },
+  {
+   "name": "xyce_nodeset_warns",
+   "tool": "xyce",
+   "deck": "nsbad.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Initial conditions specified at nodes not present in circuit",
+     "Ignoring nodes:",
+     "NOSUCH"
+    ]
+   }
+  }
+ ]
+}

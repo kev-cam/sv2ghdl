@@ -1,0 +1,38 @@
+{
+ "row": "E2",
+ "experiment": "VACASK: parameters rval=1k plus var rval=3k",
+ "result": "the parameters entry wins (b stays 0.5), so a variable cannot override a parameter",
+ "rules": [
+  "\u00a75.2 variables: a swept parameter is hooked as `parameters p=vamos_v_p` (a var cannot override a parameters entry)"
+ ],
+ "runs": [
+  {
+   "name": "var_does_not_override",
+   "tool": "vacask",
+   "deck": "e1a2.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op0.raw",
+     "col": "b",
+     "value": 0.5
+    },
+    {
+     "raw": "op0.raw",
+     "col": "c",
+     "value": 0.5
+    },
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "value": 0.5
+    },
+    {
+     "raw": "op1.raw",
+     "col": "c",
+     "value": 0.5
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+* noise with data table
+V1 in 0 DC 1 AC 1
+R1 in out 1k
+R2 out 0 1k
+.data vamos_f1
++ hertz
++ 1000
++ 3000
++ 5000
+.enddata
+.NOISE V(out) V1 DATA=vamos_f1
+.PRINT NOISE FILE=nzdata.prn ONOISE INOISE
+.end

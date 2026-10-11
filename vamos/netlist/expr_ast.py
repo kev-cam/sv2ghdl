@@ -39,7 +39,7 @@ class Unary:
 
 @dataclass(frozen=True)
 class Binary:
-    op: str              # + - * / ^ ** == != < <= > >= && || & |
+    op: str              # + - * / ^ ** == != < <= > >= && || & | << >> ~^
     left: "Expr"
     right: "Expr"
 

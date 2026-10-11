@@ -1,0 +1,82 @@
+{
+ "row": "E72",
+ "experiment": "Xyce interrupted (sp3/ENG/r_xsig.sh)",
+ "result": "a long .TRAN killed after 4 s: rc 130 (SIGINT), 143 (SIGTERM); long.raw has a blank No. Points, and rawfile.read gives the rows written so far (190,464 up to t = 19.05 ms in the design session; SIGTERM: 198,656); the standard .prn holds its partial table (165,441 lines)",
+ "rules": [
+  "\u00a72.7 status 3: an interrupted Xyce run is converted from its FORMAT=RAW print file, which rawfile.read accepts after a signal; its noise .prn is \u00a714 q.26"
+ ],
+ "runs": [
+  {
+   "name": "sigint_raw",
+   "tool": "xyce",
+   "deck": "long.cir",
+   "signal": {
+    "after": 4,
+    "name": "INT",
+    "grace": 20
+   },
+   "status": "INT",
+   "checks": [
+    {
+     "raw": "long.raw",
+     "declared": null,
+     "min_points": 1000,
+     "max_last_time": 2.0
+    }
+   ]
+  },
+  {
+   "name": "sigterm_raw",
+   "tool": "xyce",
+   "deck": "long.cir",
+   "signal": {
+    "after": 4,
+    "name": "TERM",
+    "grace": 20
+   },
+   "status": "TERM",
+   "checks": [
+    {
+     "raw": "long.raw",
+     "declared": null,
+     "min_points": 1000,
+     "max_last_time": 2.0
+    }
+   ]
+  },
+  {
+   "name": "sigint_prn",
+   "tool": "xyce",
+   "deck": "longp.cir",
+   "signal": {
+    "after": 4,
+    "name": "INT",
+    "grace": 20
+   },
+   "status": "INT",
+   "checks": [
+    {
+     "prn": "longp.prn",
+     "min_rows": 1000
+    }
+   ]
+  },
+  {
+   "name": "sigterm_prn",
+   "tool": "xyce",
+   "deck": "longp.cir",
+   "signal": {
+    "after": 4,
+    "name": "TERM",
+    "grace": 20
+   },
+   "status": "TERM",
+   "checks": [
+    {
+     "prn": "longp.prn",
+     "min_rows": 1000
+    }
+   ]
+  }
+ ]
+}

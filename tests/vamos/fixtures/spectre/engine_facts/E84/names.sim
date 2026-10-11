@@ -1,0 +1,61 @@
+Exp OUT names
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+load "inductor.osdi"
+load "spice/diode.osdi"
+model vamos_resistor resistor
+model vamos_capacitor capacitor
+model vamos_inductor inductor
+model vamos_vsource vsource
+model vamos_vcvs vcvs
+model m_dd sp_diode is=1e-14 rs=10
+subckt sub1 (p q)
+  vx (p Mid) vamos_vsource dc=0
+  r3 (Mid pup2) vamos_resistor r=1k
+  r4 (pup2 q) vamos_resistor r=2k
+ends
+v1 (vin 0) vamos_vsource dc=1 mag=1
+r1 (vin out) vamos_resistor r=1k
+r2 (out 0) vamos_resistor r=1k
+ra (vin A) vamos_resistor r=1k
+rb (A 0) vamos_resistor r=3k
+rc (vin a) vamos_resistor r=3k
+rd (a 0) vamos_resistor r=1k
+rn (vin 'net4<0>') vamos_resistor r=1k
+rn2 ('net4<0>' 0) vamos_resistor r=1k
+I2 (out top2) sub1
+rl (top2 0) vamos_resistor r=10k
+l1 (vin li) vamos_inductor l=1u
+rli (li 0) vamos_resistor r=1k
+d1 (vin dn) m_dd
+rdn (dn 0) vamos_resistor r=1k
+e1 (eo 0 out 0) vamos_vcvs gain=2
+reo (eo 0) vamos_resistor r=1k
+IPRB (out ip) vamos_vsource dc=0
+rip (ip 0) vamos_resistor r=1e6
+c1 (out 0) vamos_capacitor c=1n
+control
+  options rawfile="ascii"
+  save default
+  analysis op1 op
+  analysis ac1 ac from=1 to=10 mode="dec" points=1
+  analysis tr1 tran step=1e-6 stop=2e-6
+  clear saves
+  save v('I2:Mid') i('I2:vx') p(r1, i) v(A) v(a) v('net4<0>') i(IPRB) i(e1)
+  analysis op2 op
+  clear saves
+  save default
+  analysis nz1 noise out="out" in="v1" from=1 to=10 mode="dec" points=1
+  clear saves
+  save full
+  analysis nz2 noise out="out" in="v1" from=1 to=10 mode="dec" points=1
+  clear saves
+  save nc(r1) nc('I2:r3')
+  analysis nz3 noise out="out" in="v1" from=1 to=10 mode="dec" points=1
+  clear saves
+  analysis xf1 acxf out="out" from=1 to=10 mode="dec" points=1
+  clear saves
+  save full
+  analysis op3 op
+endc

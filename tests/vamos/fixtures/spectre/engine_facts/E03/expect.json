@@ -1,0 +1,50 @@
+{
+ "row": "E3",
+ "experiment": "VACASK: parameters rval=vamos_v_rval rdep=rval*2, sweeping vamos_v_rval",
+ "result": "dependents follow (c 0.5 -> 0.25), and var restores it",
+ "rules": [
+  "\u00a75.2 the vamos_v_ hook: dependents of a swept parameter follow it",
+  "\u00a75.2 Restore"
+ ],
+ "runs": [
+  {
+   "name": "dependents_follow",
+   "tool": "vacask",
+   "deck": "e1a3.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op0.raw",
+     "col": "c",
+     "value": 0.5
+    },
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "values": [
+      0.5,
+      0.25
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "c",
+     "values": [
+      0.5,
+      0.25
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "col": "b",
+     "value": 0.5
+    },
+    {
+     "raw": "op2.raw",
+     "col": "c",
+     "value": 0.5
+    }
+   ]
+  }
+ ]
+}

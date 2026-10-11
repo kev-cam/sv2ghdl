@@ -1,0 +1,15 @@
+pulse edges zero
+ground 0
+load "resistor.osdi"
+model vs vsource
+model r resistor
+parameters tf=vamos_v_tf
+v1 (a 0) vs type="pulse" val0=0 val1=1 delay=100n rise=1n fall=tf width=100n
+r1 (a 0) r r=1k
+control
+  options rawfile="ascii"
+  var vamos_v_tf=0
+  analysis tr1 tran stop=400n step=1n
+  alter instance("v1") rise=0
+  analysis tr2 tran stop=400n step=1n
+endc

@@ -1,0 +1,5 @@
+SpectreNetlistSource 50-75
+  AHDLInclude 50-75
+    Keyword 50-62
+    StringLiteral 63-74
+    Notation 74-75

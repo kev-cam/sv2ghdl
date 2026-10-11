@@ -1,0 +1,14 @@
+// Sky130 CMOS Inverter - Transient Simulation
+include "../skywater-pdk-libs-sky130_fd_pr/combined_models/sky130.lib.spice" section=tt
+
+parameters wp=1u wn=0.65u lmin=0.15u
+
+Xp (out in vdd vdd) sky130_fd_pr__pfet_01v8 l=lmin w=wp
+Xn (out in 0 0) sky130_fd_pr__nfet_01v8 l=lmin w=wn
+
+Vdd (vdd 0) vsource dc=1.8
+Vin (in 0) vsource type=pulse val0=0 val1=1.8 delay=0 rise=100p fall=100p width=5n period=10n
+
+tran1 tran stop=20n step=100p
+
+save Vin:p Xp:d Xn:d

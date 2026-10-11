@@ -1,0 +1,4 @@
+// Transfer-function and pole-zero analyses with hierarchical output nodes
+xf1 ( I3.op3 I3.on3 ) xf start=1k stop=10G dec=20 annotate=status
+mypz3 (n1 n2) pz iprobe=I1 param=temp start=25 stop=100 step=25
+myPZ1 pz

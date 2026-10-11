@@ -1,0 +1,3 @@
+// nodeset: solution estimates as name=value parameters
+nodeset Voff=0
+nodeset n1=0.5 n2=1.0

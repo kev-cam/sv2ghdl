@@ -1,0 +1,7 @@
+* long tran for the interrupt test
+V1 1 0 SIN(0 1 1k)
+R1 1 2 1k
+C1 2 0 1u
+.TRAN 1n 10 0 1n
+.PRINT TRAN FORMAT=RAW FILE=tr1.raw V(2)
+.END

@@ -1,0 +1,95 @@
+{
+ "row": "E37",
+ "experiment": "VACASK: a dc source with val0=0 val1=2 width=1u delay=10n; alter instance(...) type=\"pulse\" alone; then with the fields printed but no fall",
+ "result": "alone: VACASK's defaults, a 0->1 V step at about 1 ns that stays high for the whole 3 us; with the fields: 2 V, still 2 V at 1.5 us (fall=0 is \"no fall\"); both exit 0",
+ "rules": [
+  "\u00a75.3 source states: a source printed type=\"dc\" carries every waveform field, because an alter type=\"pulse\" alone runs VACASK's defaults (val1 1 V, rise 1 ns, fall 0 = no fall, width 0)",
+  "\u00a73.8.1 fall=0 means no fall on VACASK (the edge policy)"
+ ],
+ "runs": [
+  {
+   "name": "alter_pulse_defaults",
+   "tool": "vacask",
+   "deck": "alt1.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "in",
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "in",
+     "at": 0.0,
+     "value": 0.0,
+     "abs": 1e-06
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "in",
+     "at": 5e-09,
+     "value": 1.0,
+     "rel": 0.001
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "in",
+     "at": 1.5e-06,
+     "value": 1.0,
+     "rel": 1e-06
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "in",
+     "at": 2.9e-06,
+     "value": 1.0,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "alter_pulse_with_fields",
+   "tool": "vacask",
+   "deck": "alt2.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "in",
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "tr2.raw",
+     "col": "in",
+     "at": 5e-09,
+     "value": 0.0,
+     "abs": 1e-06
+    },
+    {
+     "raw": "tr2.raw",
+     "col": "in",
+     "at": 2e-08,
+     "value": 2.0,
+     "rel": 0.001
+    },
+    {
+     "raw": "tr2.raw",
+     "col": "in",
+     "at": 1.5e-06,
+     "value": 2.0,
+     "rel": 1e-06
+    },
+    {
+     "raw": "tr2.raw",
+     "col": "in",
+     "at": 2.9e-06,
+     "value": 2.0,
+     "rel": 1e-06
+    }
+   ]
+  }
+ ]
+}

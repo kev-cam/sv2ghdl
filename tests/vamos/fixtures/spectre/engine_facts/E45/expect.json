@@ -1,0 +1,58 @@
+{
+ "row": "E45",
+ "experiment": "pow(0,0) on the engines (the engine half of E45; the expr half is an observation of today's code)",
+ "result": "Xyce pow(0,0) = 1e50, VACASK refuses it (\"Zero raised to negative or zero power.\", rc 1); the guard (y==0 ? 1 : pow(x,y)) gives 1 on both engines",
+ "rules": [
+  "\u00a73.5 x**y / pow(x,y) print as (y==0 ? 1 : pow(x,y)) on both engines, because Xyce's pow(0,0) is 1e50 and VACASK refuses it"
+ ],
+ "runs": [
+  {
+   "name": "vacask_refuses_pow00",
+   "tool": "vacask",
+   "deck": "pow00.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Zero raised to negative or zero power."
+    ]
+   },
+   "files": {
+    "absent": [
+     "op1.raw"
+    ]
+   }
+  },
+  {
+   "name": "vacask_guarded",
+   "tool": "vacask",
+   "deck": "pow00_guard.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "n1",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "name": "xyce_pow00_is_1e50",
+   "tool": "xyce",
+   "deck": "pow00.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "pow00.raw",
+     "col": "V(N1)",
+     "value": 1e+50,
+     "rel": 1e-06
+    },
+    {
+     "raw": "pow00.raw",
+     "col": "V(N2)",
+     "value": 1.0
+    }
+   ]
+  }
+ ]
+}

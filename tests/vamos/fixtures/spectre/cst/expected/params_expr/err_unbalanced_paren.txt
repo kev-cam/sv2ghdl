@@ -1,0 +1,27 @@
+SpectreNetlistSource 70-131
+  Simulator 70-93
+    Keyword 70-79
+    Keyword 80-84
+    Notation 84-85
+    Keyword 85-92
+    Notation 92-93
+  Parameters 93-109
+    Keyword 93-103
+    Parameter 104-108
+      Identifier 104-106
+      Notation 106-107
+      NumberLiteral 107-108
+    Notation 108-109
+  Incomplete 109-131
+    Keyword 109-119
+    Incomplete 120-131
+      Incomplete 120-131
+        Identifier 120-123
+        Notation 123-124
+        Incomplete 124-131
+          Notation 124-125
+          BinaryExpression 125-130
+            NumberLiteral 125-126
+            Operator 127-128
+            NumberLiteral 129-130
+          Error 130-131

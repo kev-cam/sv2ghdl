@@ -1,0 +1,20 @@
+top-level parameter default taken from a circuit variable, swept through the variable
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+parameters rval=vamos_v_rval rdep=rval*2
+v1 (a 0) vsource dc=1
+r1 (a b) resistor r=rval
+r2 (b 0) resistor r=1k
+r3 (a c) resistor r=rdep
+r4 (c 0) resistor r=2k
+control
+  options rawfile="ascii"
+  var vamos_v_rval=1k
+  analysis op0 op
+  sweep s1 variable="vamos_v_rval" values=[1k, 3k]
+    analysis op1 op
+  var vamos_v_rval=1k
+  analysis op2 op
+endc

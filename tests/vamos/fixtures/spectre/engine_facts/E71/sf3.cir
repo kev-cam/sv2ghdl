@@ -1,0 +1,7 @@
+* .STEP of V1:V1 (a device parameter of the source) with .TRAN; and the pulse V1 field
+V1 a 0 DC 0.3 PULSE(0.3 1.8 1u 1n 1n 1u)
+R1 a 0 1k
+.STEP V1:V1 LIST 0.2 0.4
+.TRAN 10n 3u
+.PRINT TRAN FORMAT=RAW FILE=sf3.raw V(A)
+.end

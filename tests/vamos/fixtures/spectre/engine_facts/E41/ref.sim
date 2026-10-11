@@ -1,0 +1,16 @@
+reference: the bin-2 card at w=20u
+ground 0
+load "spice/mos1.osdi"
+model vamos_vsource vsource
+model m_nch_2 sp_mos1 type=1 vto=1.0 kp=1e-4
+model m_nch_1 sp_mos1 type=1 vto=0.5 kp=1e-4
+vd (d 0) vamos_vsource dc=2
+vg (g 0) vamos_vsource dc=2
+m1 (d g 0 0) m_nch_2 w=20e-6 l=1e-6
+m2 (d2 g 0 0) m_nch_1 w=20e-6 l=1e-6
+vd2 (d2 0) vamos_vsource dc=2
+control
+  options rawfile="ascii"
+  save i(vd) i(vd2)
+  analysis op1 op
+endc

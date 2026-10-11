@@ -1,0 +1,14 @@
+pulse with a huge width and no dc value: op value, and tran
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource type="pulse" val0=1 val1=2 delay=1u rise=1n fall=1n width=1e30
+r1 (a 0) resistor r=1k
+v2 (b 0) vsource type="pulse" val0=1 val1=2 delay=1u rise=1n fall=1n width=1e30 dc=1
+r2 (b 0) resistor r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+  analysis tr1 tran stop=3u maxstep=0.1u
+endc

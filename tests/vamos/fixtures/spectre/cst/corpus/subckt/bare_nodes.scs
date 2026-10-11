@@ -1,0 +1,5 @@
+// subckt with bare (no-paren) node list
+subckt cell o g1 g2
+    r1 (o g1) resistor r=4k
+    c1 (g2 0) capacitor c=3p
+ends

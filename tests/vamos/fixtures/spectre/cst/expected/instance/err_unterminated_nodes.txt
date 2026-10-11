@@ -1,0 +1,11 @@
+SpectreNetlistSource 64-76
+  Incomplete 64-76
+    Identifier 64-66
+    Notation 67-68
+    SNode 68-70
+      Identifier 68-70
+    SNode 71-73
+      Identifier 71-73
+    SNode 74-75
+      NumberLiteral 74-75
+    Error 75-76

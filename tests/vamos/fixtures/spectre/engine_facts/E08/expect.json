@@ -1,0 +1,69 @@
+{
+ "row": "E8",
+ "experiment": "VACASK: noise and acxf of a 1 kOhm/1 kOhm divider",
+ "result": "onoise 8.288e-18 V^2/Hz (= 4kT*500 Ohm at 27 C), gain 0.25 (power), n(r1) and n(r1,thermal) with save full; acxf tf(v1) 0.5, zin(v1) 2 kOhm",
+ "rules": [
+  "\u00a77.1 noise -> analysis noise out= in=; xf -> acxf",
+  "\u00a78.4 noise outputs (onoise, gain, n())"
+ ],
+ "runs": [
+  {
+   "name": "noise_acxf",
+   "tool": "vacask",
+   "deck": "e1i.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "n1.raw",
+     "names": [
+      "frequency",
+      "onoise",
+      "gain",
+      "n(r2)",
+      "n(r1)"
+     ]
+    },
+    {
+     "raw": "n1.raw",
+     "col": "onoise",
+     "value": 8.28804e-18,
+     "rel": 0.0001
+    },
+    {
+     "raw": "n1.raw",
+     "col": "gain",
+     "value": 0.25
+    },
+    {
+     "raw": "n2.raw",
+     "names_include": [
+      "n(r1)",
+      "n(r1,thermal)",
+      "n(r2)",
+      "n(r2,thermal)"
+     ]
+    },
+    {
+     "raw": "xf1.raw",
+     "col": "tf(v1)",
+     "value": 0.5
+    },
+    {
+     "raw": "xf1.raw",
+     "col": "zin(v1)",
+     "value": 2000.0
+    },
+    {
+     "raw": "xf2.raw",
+     "col": "tf(v1)",
+     "value": 0.5
+    },
+    {
+     "raw": "xf2.raw",
+     "col": "zin(v1)",
+     "value": 2000.0
+    }
+   ]
+  }
+ ]
+}

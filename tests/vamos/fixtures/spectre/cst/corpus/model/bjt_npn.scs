@@ -1,0 +1,2 @@
+// simple npn bjt model card with scaled-unit numeric values
+model npn bjt type=npn bf=80 rb=100 vaf=50 cjs=2pf tf=0.3ns tr=6ns cje=3pf cjc=2pf

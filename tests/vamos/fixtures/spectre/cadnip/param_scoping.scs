@@ -1,0 +1,16 @@
+parameter scoping: instance overrides of subckt defaults, override expressions read top-level parameters
+simulator lang=spectre
+parameters vin=3 rbase=1k gain=2
+subckt divider (p n)
+parameters rtop=1k rbot=2k
+  rt (p mid) resistor r=rtop
+  rb (mid n) resistor r=rbot
+ends divider
+v1 (in 0) vsource dc=vin
+x1 (in 0) divider
+x2 (in 0) divider rtop=2k
+x3 (in 0) divider rbot=rbase*0.5
+x4 (in 0) divider rtop=rbase*gain rbot=rbase*gain
+i1 (0 isrc) isource dc=1m
+r1 (isrc 0) resistor r=rbase*(gain+1)
+dcop dc

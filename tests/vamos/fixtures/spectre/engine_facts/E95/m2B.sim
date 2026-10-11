@@ -1,0 +1,12 @@
+mos2 card B
+load "spice/mos2.osdi"
+model vs vsource
+model nch sp_mos2 type=1 vto=0.7 kp=1e-4 tox=1e-7 phi=0.7   nsub=1.13e16 gamma=0
+vd (d 0) vs dc=3
+vg (g 0) vs dc=2
+m1 (d g 0 0) nch w=10u l=2u
+control
+  options rawfile="ascii"
+  sweep s instance="vd" parameter="dc" values=[1.5, 3, 5]
+    analysis op2B op
+endc

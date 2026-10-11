@@ -1,0 +1,20 @@
+SpectreNetlistSource 0-51
+  Parameters 0-51
+    Keyword 0-10
+    Parameter 11-19
+      Identifier 11-13
+      Notation 13-14
+      NumberLiteral 14-19
+    Parameter 20-30
+      Identifier 20-22
+      Notation 22-23
+      NumberLiteral 23-30
+    Parameter 31-40
+      Identifier 31-33
+      Notation 33-34
+      NumberLiteral 34-40
+    Parameter 41-50
+      Identifier 41-43
+      Notation 43-44
+      NumberLiteral 44-50
+    Notation 50-51

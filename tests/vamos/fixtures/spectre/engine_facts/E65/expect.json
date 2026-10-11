@@ -1,0 +1,38 @@
+{
+ "row": "E65",
+ "experiment": "a nested subckt reading its enclosing subckt's rr (sp3/ENG/r_new.sh N5)",
+ "result": "VACASK: \"Variable or constant 'rr' not defined.\"; Xyce: V(OUT) = 0.5, rr = 1k inherited from the X line",
+ "rules": [
+  "\u00a73.7 a nested subckt's reads of its enclosing subckt's parameters: Xyce passes them, VACASK does not, so vamos rewrites them explicitly (the enclosing parameter becomes a parameter of the nested definition)"
+ ],
+ "runs": [
+  {
+   "name": "vacask_no_inheritance",
+   "tool": "vacask",
+   "deck": "nest.sim",
+   "output": {
+    "contains": [
+     "Variable or constant 'rr' not defined."
+    ]
+   },
+   "files": {
+    "absent": [
+     "op1.raw"
+    ]
+   }
+  },
+  {
+   "name": "xyce_inherits",
+   "tool": "xyce",
+   "deck": "nest.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nest.raw",
+     "col": "V(OUT)",
+     "value": 0.5
+    }
+   ]
+  }
+ ]
+}

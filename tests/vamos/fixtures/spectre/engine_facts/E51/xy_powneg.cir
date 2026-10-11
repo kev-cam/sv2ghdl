@@ -1,0 +1,7 @@
+* pow(-8, 1/3) on Xyce
+.param xm8=-8 y13={1.0/3}
+v1 n1 0 dc {(y13==0.0 ? 1.0 : pow(xm8, y13))}
+r1 n1 0 1k
+.op
+.print dc format=raw file=xy_powneg.raw v(n1)
+.end

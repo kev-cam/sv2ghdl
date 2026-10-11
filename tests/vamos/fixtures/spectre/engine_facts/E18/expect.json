@@ -1,0 +1,110 @@
+{
+ "row": "E18",
+ "experiment": "Xyce: an RC divider with .IC V(out)=0.2 under .OP, .DC, .AC through a diode and .NOISE; .IC with .NODESET",
+ "result": ".IC pins every DC solve: .OP 0.2 (correct 0.5), .DC 0.2 / 0.2 / 0.2 (correct 0 / 0.5 / 1.0), AC 0.49999 (0.47804 without), ONOISE 1.66e-17 (5.76e-19); with .NODESET: \"Cannot set both .IC and .NODESET simultaneously.\"",
+ "rules": [
+  "\u00a77.2 ic statements: .IC only in a tran deck, because Xyce applies .IC to every DC solve",
+  "\u00a77.2 nodeset: a tran deck with .IC drops its .NODESET with a note"
+ ],
+ "runs": [
+  {
+   "name": "ic_pins_op",
+   "tool": "xyce",
+   "deck": "icop.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "icop.raw",
+     "col": "V(OUT)",
+     "value": 0.2
+    }
+   ]
+  },
+  {
+   "name": "ic_pins_dc",
+   "tool": "xyce",
+   "deck": "icdc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "icdc.raw",
+     "col": "V(OUT)",
+     "values": [
+      0.2,
+      0.2,
+      0.2
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ic_pins_ac_bias",
+   "tool": "xyce",
+   "deck": "icac.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "icac.raw",
+     "col": "VR(OUT)",
+     "value": 0.499995,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "ac_without_ic",
+   "tool": "xyce",
+   "deck": "icac_noic.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "icac_noic.raw",
+     "col": "VR(OUT)",
+     "value": 0.478044,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "ic_pins_noise_bias",
+   "tool": "xyce",
+   "deck": "icnz.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "icnz.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 1.65750787e-17,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "noise_without_ic",
+   "tool": "xyce",
+   "deck": "icnz0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "icnz0.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 5.7598506e-19,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "ic_and_nodeset",
+   "tool": "xyce",
+   "deck": "icns.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Cannot set both .IC and .NODESET simultaneously."
+    ]
+   }
+  }
+ ]
+}

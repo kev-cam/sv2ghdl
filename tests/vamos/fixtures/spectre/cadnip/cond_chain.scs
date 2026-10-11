@@ -1,0 +1,25 @@
+structural conditionals: if / else if / else on subckt parameters, a compound condition
+simulator lang=spectre
+parameters sel=1
+subckt rsel (a b)
+parameters code=0 big=0
+if (code == 0) {
+  r (a b) resistor r=1k
+} else if (code == 1 && big == 0) {
+  r (a b) resistor r=2k
+} else if (code == 1 && big == 1) {
+  r (a b) resistor r=20k
+} else {
+  r (a b) resistor r=4k
+}
+ends rsel
+v1 (in 0) vsource dc=1
+x0 (in n0) rsel code=0
+r0 (n0 0) resistor r=1k
+x1 (in n1) rsel code=1
+r1 (n1 0) resistor r=1k
+x2 (in n2) rsel code=1 big=1
+r2 (n2 0) resistor r=1k
+x3 (in n3) rsel code=sel+1
+r3 (n3 0) resistor r=1k
+dcop dc

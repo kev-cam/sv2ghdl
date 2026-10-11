@@ -1,0 +1,8 @@
+* mos1 card C
+.model nch nmos level=1 vto=0.7 kp=1e-4 tox=1e-7 phi=0.7 lambda=0.02  nsub=1.13e16 gamma=0 mjsw=0.3333333333333333
+VD d 0 3
+VG g 0 2
+M1 d g 0 0 nch w=10u l=2u
+.DC VD LIST 1.5 3 5
+.print dc format=raw file=x1C.raw i(vd)
+.end

@@ -1,0 +1,3 @@
+// save: keyword save-signal modifiers currents/static
+save Q4:currents
+save Q4:static

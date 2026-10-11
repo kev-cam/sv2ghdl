@@ -1,0 +1,8 @@
+* mos3 badmos3=0
+.model nch nmos level=3 vto=0.7 kp=1e-4 kappa=0.2 nsub=1e16 tox=2e-8 badmos3=0
+VD d 0 3
+VG g 0 2
+M1 d g 0 0 nch w=3u l=3u
+.DC VD LIST 1.5 3 5
+.print dc format=raw file=x0.raw i(vd)
+.end

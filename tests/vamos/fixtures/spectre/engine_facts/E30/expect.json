@@ -1,0 +1,98 @@
+{
+ "row": "E30",
+ "experiment": "Xyce .OPTIONS TIMEINT METHOD=",
+ "result": "TRAP and GEAR accepted, and GEAR with MAXORD=1 or 3; BE, EULER, BDF: \"Unsupported time integration method\"; 1: \"Invalid integration method 1 specified\", abort",
+ "rules": [
+  "\u00a75.4 the integration method is the one tolerance setting passed to Xyce: .OPTIONS TIMEINT METHOD=TRAP|GEAR [MAXORD=n]"
+ ],
+ "runs": [
+  {
+   "name": "trap",
+   "tool": "xyce",
+   "deck": "meth_trap.cir",
+   "status": 0,
+   "files": {
+    "present": [
+     "meth_trap.raw"
+    ]
+   }
+  },
+  {
+   "name": "gear",
+   "tool": "xyce",
+   "deck": "meth_gear.cir",
+   "status": 0,
+   "files": {
+    "present": [
+     "meth_gear.raw"
+    ]
+   }
+  },
+  {
+   "name": "gear_maxord1",
+   "tool": "xyce",
+   "deck": "maxord1.cir",
+   "status": 0,
+   "files": {
+    "present": [
+     "maxord1.raw"
+    ]
+   }
+  },
+  {
+   "name": "gear_maxord3",
+   "tool": "xyce",
+   "deck": "maxord3.cir",
+   "status": 0,
+   "files": {
+    "present": [
+     "maxord3.raw"
+    ]
+   }
+  },
+  {
+   "name": "be",
+   "tool": "xyce",
+   "deck": "meth_be.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unsupported time integration method"
+    ]
+   }
+  },
+  {
+   "name": "euler",
+   "tool": "xyce",
+   "deck": "meth_euler.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unsupported time integration method"
+    ]
+   }
+  },
+  {
+   "name": "bdf",
+   "tool": "xyce",
+   "deck": "meth_bdf.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unsupported time integration method"
+    ]
+   }
+  },
+  {
+   "name": "numeric_1",
+   "tool": "xyce",
+   "deck": "meth_1.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Invalid integration method 1 specified"
+    ]
+   }
+  }
+ ]
+}

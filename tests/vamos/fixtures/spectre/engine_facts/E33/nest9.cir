@@ -1,0 +1,11 @@
+* nested step with noise
+.param pa=1
+.param pb=10
+V1 in 0 DC 1 AC 1
+R1 in out {pa*pb}
+R2 out 0 1k
+.STEP pa LIST 1 2
+.STEP pb LIST 10 20
+.NOISE V(out) V1 DEC 1 1k 10k
+.PRINT NOISE FILE=nest9.prn ONOISE
+.end

@@ -1,0 +1,8 @@
+* level 3 with badmos3
+.model nch nmos level=3 vto=0.7 kp=1e-4 kappa=0.2 badmos3=1
+VD d 0 2
+VG g 0 2
+M1 d g 0 0 nch w=3u l=3u
+.op
+.print dc format=raw file=m3.raw i(vd)
+.end

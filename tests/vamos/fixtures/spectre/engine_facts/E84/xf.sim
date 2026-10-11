@@ -1,0 +1,14 @@
+xf isource
+ground 0
+load "resistor.osdi"
+model vamos_resistor resistor
+model vamos_vsource vsource
+model vamos_isource isource
+v1 (vin 0) vamos_vsource dc=1 mag=1
+r1 (vin out) vamos_resistor r=1k
+r2 (out 0) vamos_resistor r=1k
+i1 (0 out) vamos_isource dc=0
+control
+  options rawfile="ascii"
+  analysis xfA acxf out="out" from=1 to=10 mode="dec" points=1
+endc

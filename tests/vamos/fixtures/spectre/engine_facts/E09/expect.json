@@ -1,0 +1,66 @@
+{
+ "row": "E9",
+ "experiment": "VACASK: @if area < 2 inside a subckt, two instances; ground gnd and global 'vdd!'; nodes out<3>, 007 and 7; instance and node c10",
+ "result": "selection per instance with the same instance name in both branches; quoted names in the rawfile; 007 and 7 are distinct nodes; instance and node names coexist",
+ "rules": [
+  "\u00a73.7 structural if per instance (Cond)",
+  "\u00a74.5 VACASK quoting of names (vacask_quote)",
+  "\u00a76.4 names A/a, 007/7 through Raw.exact"
+ ],
+ "runs": [
+  {
+   "name": "cond_names",
+   "tool": "vacask",
+   "deck": "e1k.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "names": [
+      "007",
+      "7",
+      "c10",
+      "in",
+      "o2",
+      "out<3>",
+      "v1:flow(br)",
+      "v7:flow(br)",
+      "vdd!",
+      "vsup:flow(br)"
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "007",
+     "value": 1.0
+    },
+    {
+     "raw": "op1.raw",
+     "col": "7",
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "op1.raw",
+     "col": "out<3>",
+     "value": 0.5
+    },
+    {
+     "raw": "op1.raw",
+     "col": "o2",
+     "value": 0.25
+    },
+    {
+     "raw": "op1.raw",
+     "col": "c10",
+     "value": 0.5
+    },
+    {
+     "raw": "op1.raw",
+     "col": "vdd!",
+     "value": 1.0
+    }
+   ]
+  }
+ ]
+}

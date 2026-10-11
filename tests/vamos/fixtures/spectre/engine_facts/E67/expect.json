@@ -1,0 +1,73 @@
+{
+ "row": "E67",
+ "experiment": "VACASK save directives per analysis type (sp3/ENG/r_save.sh S2)",
+ "result": "after save v(out) v('x1:mid') i(v1): op1 [out, x1:mid, v1:flow(br)], but ac1 [in, out, v1:flow(br), x1:mid] and nz1 every n(); save dv(out) dv('x1:mid') di(v1): ac2 [out, x1:mid, v1:flow(br)]; save n(r3) n('x1:r1'): nz2 [n(r3), n(x1:r1)]; the column names are the same in every case",
+ "rules": [
+  "\u00a75.5 per-analysis saves: a directive an analysis type does not recognise is ignored (an ac saves every node, a noise every n()), so the deck carries, per analysis type, the directives that type reads: v()/i()/p() for op, dc and tran; dv()/di() for ac; nc()/n() for noise",
+  "\u00a77.1 the saves row of the Spectre -> VACASK table [E67]"
+ ],
+ "runs": [
+  {
+   "name": "saves_per_analysis_type",
+   "tool": "vacask",
+   "deck": "s2.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "names": [
+      "out",
+      "x1:mid",
+      "v1:flow(br)"
+     ]
+    },
+    {
+     "raw": "ac1.raw",
+     "names": [
+      "frequency",
+      "in",
+      "out",
+      "v1:flow(br)",
+      "x1:mid"
+     ]
+    },
+    {
+     "raw": "nz1.raw",
+     "names_include": [
+      "n(x1:r2)",
+      "n(x1:r1)",
+      "n(r3)"
+     ]
+    },
+    {
+     "raw": "tr1.raw",
+     "names": [
+      "time",
+      "out",
+      "x1:mid",
+      "v1:flow(br)"
+     ]
+    },
+    {
+     "raw": "ac2.raw",
+     "names": [
+      "frequency",
+      "out",
+      "x1:mid",
+      "v1:flow(br)"
+     ]
+    },
+    {
+     "raw": "nz2.raw",
+     "names": [
+      "frequency",
+      "onoise",
+      "gain",
+      "n(r3)",
+      "n(x1:r1)"
+     ]
+    }
+   ]
+  }
+ ]
+}

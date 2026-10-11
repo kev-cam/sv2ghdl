@@ -1,0 +1,6 @@
+* dc sweep of v1 dc
+V1 a 0 DC 0.9 PULSE(0 1.8 1u 1n 1n 1u)
+R1 a 0 1k
+.DC V1 0.1 0.2 0.1
+.PRINT DC FORMAT=RAW FILE=dc.raw V(A)
+.end

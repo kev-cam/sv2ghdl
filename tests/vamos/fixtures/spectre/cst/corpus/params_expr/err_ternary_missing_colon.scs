@@ -1,0 +1,4 @@
+// malformed ternary: the ':' between if-case and else-case is missing
+simulator lang=spectre
+parameters a=1 b=2 c=3
+parameters bad=a ? b c

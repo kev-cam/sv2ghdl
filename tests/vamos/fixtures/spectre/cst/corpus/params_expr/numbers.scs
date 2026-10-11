@@ -1,0 +1,5 @@
+// numeric literals: scale factors, units, scientific notation
+simulator lang=spectre
+parameters cval=23pf freq=0.3MHz delay=6.3ns
+parameters small=1e-3 big=2E+5 frac=.3
+parameters res=6_Ohms plain=42 ratio=1.5k

@@ -1,0 +1,20 @@
+alter a source type between analyses; per-analysis options; restore
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+model resistor resistor
+model capacitor capacitor
+model vsource vsource
+v1 (a 0) vsource type="dc" dc=0 val0=0 val1=2 width=1u delay=10n
+r1 (a b) resistor r=1k
+c1 (b 0) capacitor c=1n
+control
+  options rawfile="ascii"
+  analysis op1 op
+  alter instance("v1") type="pulse"
+  options reltol=1e-4 tran_method="gear2"
+  analysis tr1 tran stop=3u maxstep=20n
+  alter instance("v1") type="dc"
+  options reltol=1e-3 tran_method="trap"
+  analysis op2 op
+endc

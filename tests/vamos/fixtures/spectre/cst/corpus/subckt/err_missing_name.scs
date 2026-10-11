@@ -1,0 +1,4 @@
+// ERROR: subckt keyword is followed directly by a node list, no subcircuit name
+subckt (a b)
+    r1 (a b) resistor r=1k
+ends

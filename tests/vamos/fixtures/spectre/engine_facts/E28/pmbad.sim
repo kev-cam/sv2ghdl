@@ -1,0 +1,14 @@
+p() of a missing output variable
+ground 0
+load "spice/mos1.osdi"
+model vamos_vsource vsource
+model m_nch sp_mos1 type=1 vto=0.7 kp=1e-4
+vd (d 0) vamos_vsource dc=2
+vg (g 0) vamos_vsource dc=2
+m1 (d g 0 0) m_nch w=3e-6 l=3e-6
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  save p(m1, id)
+  analysis op1 op
+endc

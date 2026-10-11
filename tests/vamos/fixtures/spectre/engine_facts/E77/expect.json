@@ -1,0 +1,71 @@
+{
+ "row": "E77",
+ "experiment": "VACASK NOT_GIVEN under a sweep and an alter (sp3/ENG/r_ng.sh)",
+ "result": "a sweep of r over 1000/4000 gives -1e-3/-2.5e-4 and restores r = 2w; a sweep of w is followed; alter r=5000 gives -2e-4, then back",
+ "rules": [
+  "\u00a74.5 item 4 the NOT_GIVEN scheme: a dependent subckt parameter becomes overridable (parameters r=NOT_GIVEN, r__v=(r==NOT_GIVEN ? <default> : r)), so sub=X param=p sweeps and alters reach it and VACASK restores it after the sweep"
+ ],
+ "runs": [
+  {
+   "name": "not_given_sweep_alter_restore",
+   "tool": "vacask",
+   "deck": "ng.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op0.raw",
+     "col": "v1:flow(br)",
+     "value": -0.0005
+    },
+    {
+     "raw": "op1.raw",
+     "col": "s1",
+     "values": [
+      1000.0,
+      4000.0
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "v1:flow(br)",
+     "values": [
+      -0.001,
+      -0.00025
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "col": "v1:flow(br)",
+     "value": -0.0005
+    },
+    {
+     "raw": "op3.raw",
+     "col": "s2",
+     "values": [
+      500.0,
+      3000.0
+     ]
+    },
+    {
+     "raw": "op3.raw",
+     "col": "v1:flow(br)",
+     "values": [
+      -0.001,
+      -0.0001666667
+     ],
+     "rel": 1e-05
+    },
+    {
+     "raw": "op4.raw",
+     "col": "v1:flow(br)",
+     "value": -0.0002
+    },
+    {
+     "raw": "op5.raw",
+     "col": "v1:flow(br)",
+     "value": -0.0005
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,5 @@
+// Basic instance statements: name (nodes) master param=value
+R1 (b1 0) resistor r=10k
+R2 (b2 0) resistor r=10k
+Load (out o) resistor r=50
+C1 (cc out) capacitor c=1pf

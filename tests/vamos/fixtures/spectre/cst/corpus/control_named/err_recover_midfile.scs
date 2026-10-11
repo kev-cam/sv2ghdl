@@ -1,0 +1,7 @@
+// ERROR (mid-file recovery): the middle line 'bogus junk here' is an unknown
+// named statement (no keyword, no parens) -> Incomplete/UnknownStatement.
+// The valid instances before and after it must still parse, exercising the
+// parser's recovery back to statement boundaries.
+V1 (1 0) vsource dc=1
+bogus junk here
+R1 (1 0) resistor r=1k

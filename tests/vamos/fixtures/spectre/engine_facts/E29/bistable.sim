@@ -1,0 +1,26 @@
+bistable schmitt
+ground 0
+load "resistor.osdi"
+load "spice/diode.osdi"
+model vs vsource
+model r resistor
+model e vcvs
+model dm sp_diode level=1 is=1e-14
+parameters vin=vamos_v_vin
+v1 (in 0) vs dc=vin
+e1 (x 0 p in) e gain=1000
+r1 (x out) r r=1k
+d1 (out c1) dm
+vc1 (c1 0) vs dc=1
+d2 (c2 out) dm
+vc2 (c2 0) vs dc=-1
+r2 (out p) r r=1k
+r3 (p 0) r r=1k
+control
+  options rawfile="ascii"
+  var vamos_v_vin=0
+  sweep s1 variable="vamos_v_vin" values=[-1, 0]
+    analysis c1 op
+  sweep s2 variable="vamos_v_vin" values=[-1, 0] continuation=0
+    analysis c0 op
+endc

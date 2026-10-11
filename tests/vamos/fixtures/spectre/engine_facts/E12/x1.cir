@@ -1,0 +1,9 @@
+* step + ac with -r raw output
+.param rval=1k
+V1 in 0 DC 1 AC 1
+R1 in out {rval}
+C1 out 0 1u
+.step rval list 1k 2k
+.ac dec 2 1 1k
+.print ac v(out)
+.end

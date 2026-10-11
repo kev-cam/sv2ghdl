@@ -1,0 +1,482 @@
+HEADER
+"PSFversion" "1.00"
+"Log Generator" "drlLog rev. 1.0"
+"Log Time Stamp" "Tue Apr 15 17:51:25 2025"
+"psfversion" "1.4.0"
+"simulator" "spectre"
+"version" "23.1.0.242.isr1"
+"date" "5:51:25 PM, Tue Apr 15, 2025"
+"design" "#RC Low-Pass Filter"
+"signalNameType" "spectre"
+"simMode" "Spectre"
+"measdgt" 0
+"ingold" 2
+"sst2usecolon" 0
+TYPE
+"analysisInst" STRUCT(
+"analysisType" STRING *
+"dataFile" STRING *
+"format" STRING *
+"parent" STRING *
+"sweepVariable" ARRAY ( * ) STRING *
+"description" STRING *
+)
+VALUE
+"myinfo_Oppoint-info" "analysisInst" (
+"info"
+"myinfo_Oppoint.info"
+"PSF"
+""
+()
+"Circuit Information"
+) PROP(
+"data_type" "struct"
+)
+
+"myinfo_Models-info" "analysisInst" (
+"info"
+"myinfo_Models.info"
+"PSF"
+""
+()
+"Circuit Information"
+) PROP(
+"data_type" "struct"
+)
+
+"myinfo_all-info" "analysisInst" (
+"info"
+"myinfo_all.info"
+"PSF"
+""
+()
+"Circuit Information"
+) PROP(
+"data_type" "struct"
+)
+
+"myop-dc" "analysisInst" (
+"dc"
+"myop.dc"
+"PSF"
+""
+()
+"DC Analysis `myop'"
+) PROP(
+"data_type" "scalar"
+)
+
+"mydc-dc" "analysisInst" (
+"dc"
+"mydc.dc"
+"PSF"
+""
+("dc")
+"DC Analysis `mydc': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+)
+
+"myac-ac" "analysisInst" (
+"ac"
+"myac.ac"
+"PSF"
+""
+("freq")
+"AC Analysis `myac': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+)
+
+"mytran-tran" "analysisInst" (
+"tran"
+"mytran.tran.tran"
+"PSF"
+""
+("time")
+"Transient Analysis `mytran': time = (0 s -> 500 ms)"
+) PROP(
+"data_type" "swept_scalar"
+)
+
+"mysweep_dc1-sweep" "analysisInst" (
+"sweep"
+"mysweep_dc1.sweep"
+"PSF"
+""
+("R1:r")
+"Sweep parent"
+) PROP(
+"sweep_tree_type" "sweepNode"
+)
+
+"mysweep_ac1-sweep" "analysisInst" (
+"sweep"
+"mysweep_ac1.sweep"
+"PSF"
+""
+("R1:r")
+"Sweep parent"
+) PROP(
+"sweep_tree_type" "sweepNode"
+)
+
+"mysweep_ac2-sweep" "analysisInst" (
+"sweep"
+"mysweep_ac2.sweep"
+"PSF"
+""
+("R1:r")
+"Sweep parent"
+) PROP(
+"sweep_tree_type" "sweepNode"
+)
+
+"mysweep-000_dc1-dc" "analysisInst" (
+"dc"
+"mysweep-000_dc1.dc"
+"PSF"
+"mysweep_dc1-sweep"
+("dc")
+"DC Analysis `mysweep-000_dc1': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 1000.00
+)
+
+"mysweep-000_ac1-ac" "analysisInst" (
+"ac"
+"mysweep-000_ac1.ac"
+"PSF"
+"mysweep_ac1-sweep"
+("freq")
+"AC Analysis `mysweep-000_ac1': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 1000.00
+)
+
+"mysweep-000_mynestedsweep_ac2-sweep" "analysisInst" (
+"sweep"
+"mysweep-000_mynestedsweep_ac2.sweep"
+"PSF"
+"mysweep_ac2-sweep"
+("C1:c")
+"Sweep parent"
+) PROP(
+"sweep_tree_type" "sweepNode"
+"R1:r" 1000.00
+)
+
+"mysweep-000_mynestedsweep-000_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-000_mynestedsweep-000_ac2.ac"
+"PSF"
+"mysweep-000_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-000_mynestedsweep-000_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 1.00000e-06
+)
+
+"mysweep-000_mynestedsweep-001_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-000_mynestedsweep-001_ac2.ac"
+"PSF"
+"mysweep-000_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-000_mynestedsweep-001_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 2.00000e-06
+)
+
+"mysweep-000_mynestedsweep-002_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-000_mynestedsweep-002_ac2.ac"
+"PSF"
+"mysweep-000_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-000_mynestedsweep-002_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 3.00000e-06
+)
+
+"mysweep-001_dc1-dc" "analysisInst" (
+"dc"
+"mysweep-001_dc1.dc"
+"PSF"
+"mysweep_dc1-sweep"
+("dc")
+"DC Analysis `mysweep-001_dc1': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 2000.00
+)
+
+"mysweep-001_ac1-ac" "analysisInst" (
+"ac"
+"mysweep-001_ac1.ac"
+"PSF"
+"mysweep_ac1-sweep"
+("freq")
+"AC Analysis `mysweep-001_ac1': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 2000.00
+)
+
+"mysweep-001_mynestedsweep_ac2-sweep" "analysisInst" (
+"sweep"
+"mysweep-001_mynestedsweep_ac2.sweep"
+"PSF"
+"mysweep_ac2-sweep"
+("C1:c")
+"Sweep parent"
+) PROP(
+"sweep_tree_type" "sweepNode"
+"R1:r" 2000.00
+)
+
+"mysweep-001_mynestedsweep-000_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-001_mynestedsweep-000_ac2.ac"
+"PSF"
+"mysweep-001_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-001_mynestedsweep-000_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 1.00000e-06
+)
+
+"mysweep-001_mynestedsweep-001_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-001_mynestedsweep-001_ac2.ac"
+"PSF"
+"mysweep-001_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-001_mynestedsweep-001_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 2.00000e-06
+)
+
+"mysweep-001_mynestedsweep-002_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-001_mynestedsweep-002_ac2.ac"
+"PSF"
+"mysweep-001_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-001_mynestedsweep-002_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 3.00000e-06
+)
+
+"mysweep-002_dc1-dc" "analysisInst" (
+"dc"
+"mysweep-002_dc1.dc"
+"PSF"
+"mysweep_dc1-sweep"
+("dc")
+"DC Analysis `mysweep-002_dc1': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 3000.00
+)
+
+"mysweep-002_ac1-ac" "analysisInst" (
+"ac"
+"mysweep-002_ac1.ac"
+"PSF"
+"mysweep_ac1-sweep"
+("freq")
+"AC Analysis `mysweep-002_ac1': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"R1:r" 3000.00
+)
+
+"mysweep-002_mynestedsweep_ac2-sweep" "analysisInst" (
+"sweep"
+"mysweep-002_mynestedsweep_ac2.sweep"
+"PSF"
+"mysweep_ac2-sweep"
+("C1:c")
+"Sweep parent"
+) PROP(
+"sweep_tree_type" "sweepNode"
+"R1:r" 3000.00
+)
+
+"mysweep-002_mynestedsweep-000_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-002_mynestedsweep-000_ac2.ac"
+"PSF"
+"mysweep-002_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-002_mynestedsweep-000_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 1.00000e-06
+)
+
+"mysweep-002_mynestedsweep-001_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-002_mynestedsweep-001_ac2.ac"
+"PSF"
+"mysweep-002_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-002_mynestedsweep-001_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 2.00000e-06
+)
+
+"mysweep-002_mynestedsweep-002_ac2-ac" "analysisInst" (
+"ac"
+"mysweep-002_mynestedsweep-002_ac2.ac"
+"PSF"
+"mysweep-002_mynestedsweep_ac2-sweep"
+("freq")
+"AC Analysis `mysweep-002_mynestedsweep-002_ac2': freq = (1 Hz -> 1 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"C1:c" 3.00000e-06
+)
+
+"dc2-dc" "analysisInst" (
+"dc"
+"dc2.dc"
+"PSF"
+""
+("dc")
+"DC Analysis `dc2': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+)
+
+"tran1-tran" "analysisInst" (
+"tran"
+"tran1.tran.tran"
+"PSF"
+""
+("time")
+"Transient Analysis `tran1': time = (0 s -> 5 ms)"
+) PROP(
+"data_type" "swept_scalar"
+)
+
+"mymonte_dc2-montecarlo" "analysisInst" (
+"montecarlo"
+"mymonte_dc2.montecarlo"
+"PSF"
+""
+("iteration")
+"Monte Carlo parent"
+)
+"mymonte_tran1-montecarlo" "analysisInst" (
+"montecarlo"
+"mymonte_tran1.montecarlo"
+"PSF"
+""
+("iteration")
+"Monte Carlo parent"
+)
+"mymonte-001_dc2-dc" "analysisInst" (
+"dc"
+"mymonte-001_dc2.dc"
+"PSF"
+"mymonte_dc2-montecarlo"
+("dc")
+"DC Analysis `mymonte-001_dc2': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"iteration" 1.00000
+)
+
+"mymonte-001_tran1-tran" "analysisInst" (
+"tran"
+"mymonte-001_tran1.tran.tran"
+"PSF"
+"mymonte_tran1-montecarlo"
+("time")
+"Transient Analysis `mymonte-001_tran1': time = (0 s -> 5 ms)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"iteration" 1.00000
+)
+
+"mymonte-002_dc2-dc" "analysisInst" (
+"dc"
+"mymonte-002_dc2.dc"
+"PSF"
+"mymonte_dc2-montecarlo"
+("dc")
+"DC Analysis `mymonte-002_dc2': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"iteration" 2.00000
+)
+
+"mymonte-002_tran1-tran" "analysisInst" (
+"tran"
+"mymonte-002_tran1.tran.tran"
+"PSF"
+"mymonte_tran1-montecarlo"
+("time")
+"Transient Analysis `mymonte-002_tran1': time = (0 s -> 5 ms)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"iteration" 2.00000
+)
+
+"mymonte-003_dc2-dc" "analysisInst" (
+"dc"
+"mymonte-003_dc2.dc"
+"PSF"
+"mymonte_dc2-montecarlo"
+("dc")
+"DC Analysis `mymonte-003_dc2': Vin:dc = (0 V -> 2 V)"
+) PROP(
+"data_type" "scalar"
+"sweep_tree_type" "leafNode"
+"iteration" 3.00000
+)
+
+"mymonte-003_tran1-tran" "analysisInst" (
+"tran"
+"mymonte-003_tran1.tran.tran"
+"PSF"
+"mymonte_tran1-montecarlo"
+("time")
+"Transient Analysis `mymonte-003_tran1': time = (0 s -> 5 ms)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"iteration" 3.00000
+)
+
+END

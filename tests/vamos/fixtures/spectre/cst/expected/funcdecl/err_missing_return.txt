@@ -1,0 +1,14 @@
+SpectreNetlistSource 51-82
+  Incomplete 51-77
+    Keyword 51-55
+    Identifier 56-59
+    Notation 59-60
+    FunctionArgs 61-67
+      FunctionDeclArg 61-67
+        Keyword 61-65
+        Identifier 66-67
+    Notation 68-69
+    Notation 70-71
+    Notation 71-72
+    Error 76-77
+  Error 81-82

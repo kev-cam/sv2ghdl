@@ -1,0 +1,14 @@
+dec placement
+ground 0
+load "resistor.osdi"
+model vs vsource
+model r resistor
+v1 (in 0) vs dc=1 mag=1
+r1 (in 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis ac1 ac from=2 to=500 mode="dec" points=10
+  analysis ac2 ac from=1 to=1000 mode="lin" points=4
+  sweep s1 instance="v1" parameter="dc" from=2 to=500 mode="dec" points=10
+    analysis dc1 op
+endc

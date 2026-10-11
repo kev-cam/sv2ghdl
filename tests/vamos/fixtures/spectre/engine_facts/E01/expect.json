@@ -1,0 +1,54 @@
+{
+ "row": "E1",
+ "experiment": "VACASK: top-level r=rval with var rval=1k, then sweep variable=\"rval\" values=[1k,3k], then an op",
+ "result": "the sweep gives b = 0.5 and 0.25; the op after it gives 0.5, so the variable was restored",
+ "rules": [
+  "\u00a75.2 Restore (VACASK restores a swept variable after the sweep; pinned here)",
+  "\u00a77.1 sweep of a hooked variable"
+ ],
+ "runs": [
+  {
+   "name": "sweep_restore",
+   "tool": "vacask",
+   "deck": "e1a.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op0.raw",
+     "col": "b",
+     "value": 0.5
+    },
+    {
+     "raw": "op1.raw",
+     "names": [
+      "s1",
+      "a",
+      "b",
+      "v1:flow(br)"
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "s1",
+     "values": [
+      1000.0,
+      3000.0
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "values": [
+      0.5,
+      0.25
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "col": "b",
+     "value": 0.5
+    }
+   ]
+  }
+ ]
+}

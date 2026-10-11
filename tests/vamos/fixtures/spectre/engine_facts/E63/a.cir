@@ -1,0 +1,8 @@
+* model-card parameter on a PyMS Y device
+.hdl "va/myres.va"
+v1 a 0 1
+.model rm myres r=2k
+ymyres x1 a 0 rm
+.op
+.print dc i(v1)
+.end

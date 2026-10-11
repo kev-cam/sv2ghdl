@@ -1,0 +1,6 @@
+* hypot on Xyce
+v1 n1 0 dc {hypot(3, 4)}
+r1 n1 0 1k
+.op
+.print dc format=raw file=xy_hypot.raw v(n1)
+.end

@@ -1,0 +1,21 @@
+zero valued elements
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+load "inductor.osdi"
+model vs vsource
+model r resistor
+model c capacitor
+model l inductor
+v1 (in 0) vs dc=1 mag=1
+r0 (in a) r r=0
+r1 (a b) r r=1k
+c0 (b 0) c c=0
+l0 (b d) l l=0
+r2 (d 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+  analysis ac1 ac values=[1k]
+  analysis tr1 tran stop=1u step=10n
+endc

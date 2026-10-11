@@ -1,0 +1,115 @@
+{
+ "row": "E96",
+ "experiment": "PyMS on both Xyce launchers, plain and under env_for (sp3/FIX/v1.sh FID-11; sp3/FID/w/e2_engines.sh)",
+ "result": "all four runs print \"Netlist warning: .HDL: compiled and registered dres from dres.va\" and give I(V1) = -1.000000001e-3 for .model dresm dres r=2k (the card ignored, the module's default 1k, as in E63); ldd: /usr/local/bin/Xyce loads /usr/local/bin/../lib/libxyce.so plain and /usr/local/src/xyce-build/src/libxyce.so under env_for; /usr/local/src/xyce-build/src/Xyce loads the build library either way",
+ "rules": [
+  "\u00a711 Gates needs_pyms: every Xyce here registers .hdl modules through PyMS and, under env_for, loads the same library, so no binary has to be selected",
+  "\u00a74.5 item 13 PyMS ignores a Y device's card parameters (the module default runs)"
+ ],
+ "runs": [
+  {
+   "name": "main_plain_env",
+   "tool": "xyce",
+   "deck": "hdl.cir",
+   "plain_env": true,
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "output": {
+    "contains": [
+     "Netlist warning: .HDL: compiled and registered dres from dres.va"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "hdl.raw",
+     "col": "I(V1)",
+     "value": -0.001000000001,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "main_env_for",
+   "tool": "xyce",
+   "deck": "hdl.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "output": {
+    "contains": [
+     "Netlist warning: .HDL: compiled and registered dres from dres.va"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "hdl.raw",
+     "col": "I(V1)",
+     "value": -0.001000000001,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "second_plain_env",
+   "tool": "xyce",
+   "deck": "hdl.cir",
+   "launcher": "second",
+   "plain_env": true,
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "output": {
+    "contains": [
+     "Netlist warning: .HDL: compiled and registered dres from dres.va"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "hdl.raw",
+     "col": "I(V1)",
+     "value": -0.001000000001,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "second_env_for",
+   "tool": "xyce",
+   "deck": "hdl.cir",
+   "launcher": "second",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "output": {
+    "contains": [
+     "Netlist warning: .HDL: compiled and registered dres from dres.va"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "hdl.raw",
+     "col": "I(V1)",
+     "value": -0.001000000001,
+     "rel": 1e-06
+    }
+   ]
+  }
+ ]
+}

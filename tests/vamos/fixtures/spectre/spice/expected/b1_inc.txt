@@ -1,0 +1,22 @@
+SPICENetlistSource 0-48
+  Title 0-4
+    Notation 0-3
+    Notation 3-4
+  IncludeStatement 4-22
+    Notation 4-5
+    Keyword 5-12
+    StringLiteral 13-21
+    Notation 21-22
+  HDLStatement 22-34
+    Notation 22-23
+    Keyword 23-26
+    StringLiteral 27-33
+    Notation 33-34
+  WidthStatement 34-48
+    Notation 34-35
+    Keyword 35-40
+    Parameter 41-47
+      Identifier 41-44
+      Notation 44-45
+      NumberLiteral 45-47
+    Notation 47-48

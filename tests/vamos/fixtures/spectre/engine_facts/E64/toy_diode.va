@@ -1,0 +1,28 @@
+`include "disciplines.vams"
+`include "constants.vams"
+// vamos-authored, in the pattern of the ADMS example toys/diode.va: the same attributes, parameters and equations
+`define CONSTroot2 1.41421356237309504880
+(*xyceModelGroup="Diode", xyceSpiceDeviceName="D", xyceLevelNumber="1002001"*)
+module diode_simple(a,c);
+  inout a,c;
+  electrical a,c;
+  electrical ci;
+  (*desc="Saturation current"*) parameter real Is = 1e-5 from [0:1];
+  (*desc="Parallel capacitance"*) parameter real Cp = 1e-12 from [0:1];
+  (*desc="Series resistance"*) parameter real Rs = 1 from (0:inf);
+  (*desc="Temperature", type="instance"*) parameter real Temp = 300 from (0:inf);
+  real Vd, Id, Qp, vcrit;
+  analog begin
+    vcrit = $vt*ln($vt/(`CONSTroot2*Is));
+    Vd = $limit(V(ci,a),"pnjlim",$vt,vcrit);
+    Id = Is*(limexp(Vd/26e-3)-1);
+    Qp = Cp*Vd;
+    I(a,ci) <+ Id;
+    I(a,ci) <+ ddt(Qp);
+    if (Rs>0) begin
+       I(ci,c) <+ V(ci,c)/Rs;
+    end else begin
+       V(ci,c) <+ 0.0;
+    end
+  end
+endmodule

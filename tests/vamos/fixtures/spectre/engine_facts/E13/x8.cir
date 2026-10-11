@@ -1,0 +1,9 @@
+* dc sweep of temperature; ac over an explicit frequency table; instance param step
+V1 in 0 DC 1 AC 1
+R1 in out 1k
+C1 out 0 1u
+D1 out 0 dmod
+.model dmod d is=1e-14
+.dc temp 0 50 25
+.print dc format=raw file=x8a.raw v(out) i(v1)
+.end

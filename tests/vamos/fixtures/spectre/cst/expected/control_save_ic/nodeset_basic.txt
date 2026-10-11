@@ -1,0 +1,19 @@
+SpectreNetlistSource 56-93
+  NodeSet 56-71
+    Keyword 56-63
+    Parameter 64-70
+      Identifier 64-68
+      Notation 68-69
+      NumberLiteral 69-70
+    Notation 70-71
+  NodeSet 71-93
+    Keyword 71-78
+    Parameter 79-85
+      Identifier 79-81
+      Notation 81-82
+      NumberLiteral 82-85
+    Parameter 86-92
+      Identifier 86-88
+      Notation 88-89
+      NumberLiteral 89-92
+    Notation 92-93

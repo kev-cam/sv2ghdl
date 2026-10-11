@@ -1,0 +1,970 @@
+HEADER
+"PSFversion" "1.00"
+"simulator" "spectre"
+"version" "23.1.0.242.isr1"
+"date" "5:46:18 PM, Tue Apr 15, 2025"
+"design" "#RC Low-Pass Filter"
+"analysis type" "info"
+"analysis name" "myinfo_all"
+"analysis description" "Circuit Information"
+"xVecSorted" "unknown"
+"tolerance.relative" 1.000000000000000e-03
+"ReferenceTemperature.Value" 2.700000000000000e+01
+"ReferenceTemperature.Units" "C"
+TYPE
+"capacitor" STRUCT(
+"c" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Default capacitance"
+)
+"trise" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Default `trise' value for instance"
+)
+"tnom" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Parameter measurement temperature. The default value is set using the options statement"
+)
+"w" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Default capacitor width"
+)
+"l" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Default capacitor length"
+)
+"etch" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Narrowing due to side etching"
+)
+"cj" FLOAT DOUBLE PROP(
+"units" "F/m^2"
+"description" "Bottom capacitance density"
+)
+"cjsw" FLOAT DOUBLE PROP(
+"units" "F/m"
+"description" "Sidewall capacitance"
+)
+"scalec" FLOAT DOUBLE PROP(
+"description" "Capacitance scaling factor"
+)
+"rforce" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Resistance used when forcing initial conditions"
+)
+"di" FLOAT DOUBLE PROP(
+"description" "Relative dielectric constant"
+)
+"thick" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Dielectric thickness"
+)
+"min" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Minimum capacitance"
+)
+"max" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Maximum capacitance"
+)
+"tc1" FLOAT DOUBLE PROP(
+"units" "1/C"
+"description" "Linear temperature coefficient"
+)
+"tc2" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Quadratic temperature coefficient"
+)
+"shrink" FLOAT DOUBLE PROP(
+"description" "Linear shrink parameter"
+)
+"shrink2" FLOAT DOUBLE PROP(
+"description" "Area shrink parameter"
+)
+"bv_max" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Maximum allowed voltage across two terminals"
+)
+"bv_min" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Minimum allowed voltage across two terminals"
+)
+"symmetric" INT BYTE PROP(
+"description" "Use symmetric resistor model"
+)
+) PROP(
+"key" "model"
+)
+"capacitor~instparams" STRUCT(
+"c" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Capacitance"
+)
+"c0" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "0th order value of polynomial capacitor"
+)
+"w" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Capacitor width"
+)
+"l" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Capacitor length"
+)
+"m" FLOAT DOUBLE PROP(
+"description" "Multiplicity factor"
+)
+"scale" FLOAT DOUBLE PROP(
+"description" "Scale factor"
+)
+"trise" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Temperature rise from ambient"
+)
+"tempeff" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Effective temperature for a single device"
+)
+"meff" FLOAT DOUBLE PROP(
+"description" "Effective multiplicity factor (m-factor)"
+)
+"tc1" FLOAT DOUBLE PROP(
+"units" "1/C"
+"description" "Linear temperature coefficient"
+)
+"tc2" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Quadratic temperature coefficient"
+)
+"ic" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Initial condition(alias=lv2)"
+)
+"area" FLOAT DOUBLE PROP(
+"units" "m^2"
+"description" "Capacitor area"
+)
+"perim" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Capacitor perimeter"
+)
+"bv_max" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Maximum allowed voltage cross two terminals"
+)
+"leff" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Effective capacitor length"
+)
+"weff" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Effective capacitor width"
+)
+"ceff" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Effective capacitance(alias=lv1)"
+)
+"scalec" FLOAT DOUBLE PROP(
+"description" "Capacitance scaling factor"
+)
+"bv_min" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Minimum allowed voltage cross two terminals"
+)
+"symmetric" INT BYTE PROP(
+"description" "Use symmetric capacitor model"
+)
+) PROP(
+"key" "inst"
+)
+"resistor" STRUCT(
+"r" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Default resistance"
+)
+"rsh" FLOAT DOUBLE PROP(
+"units" "Ohm/sqr"
+"description" "Sheet resistance"
+)
+"thresh" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Resistances smaller than thresh will use the resistance form, as opposed to the standard conductance form"
+)
+"rthresh" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Alias of thresh"
+)
+"rac" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Default AC resistance"
+)
+"l" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Default resistor length"
+)
+"w" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Default resistor width"
+)
+"etch" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Width narrowing due to etching per side"
+)
+"etchl" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Length narrowing due to etching per side"
+)
+"scaler" FLOAT DOUBLE PROP(
+"description" "Resistance scaling factor"
+)
+"tc1" FLOAT DOUBLE PROP(
+"units" "1/C"
+"description" "Linear temperature coefficient"
+)
+"tc2" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Quadratic temperature coefficient"
+)
+"tnom" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Parameters measurement temperature. Default set by `options'"
+)
+"trise" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Default temperature rise from ambient"
+)
+"kf" FLOAT DOUBLE PROP(
+"description" "Flicker (1/f) noise coefficient"
+)
+"af" FLOAT DOUBLE PROP(
+"description" "Flicker (1/f) noise exponent"
+)
+"wdexp" FLOAT DOUBLE PROP(
+"description" "Flicker (1/f) noise W exponent"
+)
+"ldexp" FLOAT DOUBLE PROP(
+"description" "Flicker (1/f) noise L exponent"
+)
+"weexp" FLOAT DOUBLE PROP(
+"description" "Flicker (1/f) noise W effective exponent"
+)
+"wf" FLOAT DOUBLE PROP(
+"description" "Alias of flicker (1/f) noise W effective exponent, default value=1 when spice compatible"
+)
+"leexp" FLOAT DOUBLE PROP(
+"description" "Flicker (1/f) noise L effective exponent"
+)
+"lf" FLOAT DOUBLE PROP(
+"description" "Alias of flicker (1/f) noise L effective exponent, default value=1 when spice compatible"
+)
+"fexp" FLOAT DOUBLE PROP(
+"description" "Flicker (1/f) noise frequency exponent"
+)
+"mr" FLOAT DOUBLE PROP(
+"description" "Resistor mismatch dependence"
+)
+"mrl" FLOAT DOUBLE PROP(
+"units" "m^mrlp"
+"description" "Resistor mismatch length dependence"
+)
+"mrlp" FLOAT DOUBLE PROP(
+"description" "Resistor mismatch length power dependence"
+)
+"mrw" FLOAT DOUBLE PROP(
+"units" "m^mrwp"
+"description" "Resistor mismatch width dependence"
+)
+"mrwp" FLOAT DOUBLE PROP(
+"description" "Resistor mismatch width power dependence"
+)
+"mrlw1" FLOAT DOUBLE PROP(
+"units" "m^(2*mrlw1p)"
+"description" "Resistor mismatch area 1 dependence"
+)
+"mrlw1p" FLOAT DOUBLE PROP(
+"description" "Resistor mismatch area 1 power dependence"
+)
+"mrlw2" FLOAT DOUBLE PROP(
+"units" "m^(2*mrlw2p)"
+"description" "Resistor mismatch area 2 dependence"
+)
+"mrlw2p" FLOAT DOUBLE PROP(
+"description" "Resistor mismatch area 2 power dependence"
+)
+"c" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Default capacitance"
+)
+"cj" FLOAT DOUBLE PROP(
+"units" "F/m^2"
+"description" "Bottomwall capacitance"
+)
+"cjsw" FLOAT DOUBLE PROP(
+"units" "F/m"
+"description" "Sidewall fringing capacitance"
+)
+"thick" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Dielectric thickness"
+)
+"di" FLOAT DOUBLE PROP(
+"description" "Relative dielectric constant"
+)
+"cratio" FLOAT DOUBLE PROP(
+"description" "Cratio"
+)
+"tc1c" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Linear temperature coefficient of capacitor"
+)
+"tc2c" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Quadratic temperature coefficient of capacitor"
+)
+"shrink" FLOAT DOUBLE PROP(
+"description" "Shrink Factor"
+)
+"scalec" FLOAT DOUBLE PROP(
+"description" "Capacitance scaling factor"
+)
+"dtemp" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Alias of default temperature rise from ambient"
+)
+"cap" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Alias of default capacitance"
+)
+"dw" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Alias of width narrowing due to etching per side"
+)
+"dlr" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Alias of length narrowing due to etching per side"
+)
+"cox" FLOAT DOUBLE PROP(
+"units" "F/m^2"
+"description" "Alias of bottomwall capacitance"
+)
+"capsw" FLOAT DOUBLE PROP(
+"units" "F/m"
+"description" "Alias of sidewall fringing capacitance"
+)
+"res" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Alias of default resistance"
+)
+"ef" FLOAT DOUBLE PROP(
+"description" "Alias of flicker (1/f) noise frequency exponent"
+)
+"bv_max" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Maximum allowed voltage across two terminals"
+)
+"nonlinform" INT BYTE PROP(
+"description" "The form of non-linear resistance"
+)
+"symmetric" INT BYTE PROP(
+"description" "Use symmetric resistor model"
+)
+) PROP(
+"key" "model"
+)
+"resistor~instparams" STRUCT(
+"r" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Resistance"
+)
+"l" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "The length of the resistor"
+)
+"w" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "The width of the resistor"
+)
+"leff" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Effective resistor length"
+)
+"weff" FLOAT DOUBLE PROP(
+"units" "m"
+"description" "Effective resistor width"
+)
+"reff" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Effective resistance"
+)
+"m" FLOAT DOUBLE PROP(
+"description" "Multiplicity factor"
+)
+"scale" FLOAT DOUBLE PROP(
+"description" "Scale factor"
+)
+"tc1" FLOAT DOUBLE PROP(
+"units" "1/C"
+"description" "Linear temperature coefficient(alias=lv3,tc1r)"
+)
+"tc1r" FLOAT DOUBLE PROP(
+"units" "1/C"
+"description" "Alias for tc1"
+)
+"tc2" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Quadratic temperature coefficient(alias=lv4,tc2r)"
+)
+"tc2r" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Alias for tc2"
+)
+"trise" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Temperature rise from ambient"
+)
+"bv_max" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Maximum allowed voltage across two terminals"
+)
+"c" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Capacitance"
+)
+"tc1c" FLOAT DOUBLE PROP(
+"units" "1/C"
+"description" "Linear temperature coefficient of capacitor"
+)
+"tc2c" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Quadratic temperature coefficient of capacitor"
+)
+"ceff" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Effective capacitance"
+)
+"rac" FLOAT DOUBLE PROP(
+"units" "Ohm"
+"description" "Default AC resistance, (alias=ac)"
+)
+"scaler" FLOAT DOUBLE PROP(
+"description" "Resistance scaling factor"
+)
+"scalec" FLOAT DOUBLE PROP(
+"description" "Capacitance scaling factor"
+)
+"dtemp" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Alias of Temperature rise from ambient"
+)
+"tempeff" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Effective temperature for a single device"
+)
+"meff" FLOAT DOUBLE PROP(
+"description" "Effective multiplicity factor (m-factor)"
+)
+"cap" FLOAT DOUBLE PROP(
+"units" "F"
+"description" "Alias of capacitance"
+)
+"lvl" INT LONG PROP(
+"description" "The metal layer of the resistor"
+)
+"resform" INT BYTE PROP(
+"description" "Use the resistance form for this instance.  Default is `yes' if `r < thresh'"
+)
+"isnoisy" INT BYTE PROP(
+"description" "Determines if the device should generate noise"
+)
+) PROP(
+"key" "inst"
+)
+"vsource~instparams" STRUCT(
+"dc" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "DC value"
+)
+"delay" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Waveform delay time"
+)
+"val0" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Zero value used in pulse and exponential waveforms"
+)
+"val1" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "One value used in pulse and exponential waveforms"
+)
+"period" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Period of waveform. When type=prbs, period defines the bit duration"
+)
+"rise" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Rise time for pulse waveform (time for transition from `val0' to `val1'). If the rise parameter is not specified, the rise time is the same as fall time. If fall time is also not specified, the rise time is 1/100 of the waveform period. If the waveform is not periodic, the rise time is 1/100 of the simulation interval. If type=prbs, the rise time is 1/10 of the bit duration"
+)
+"fall" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Fall time for pulse waveform (time for transition from `val1' to `val0'). If the fall parameter is not specified, the fall time is the same as rise time. If the rise time is also not specified, the fall time is 1/100 of the waveform period. If the waveform is not periodic, the fall time is 1/100 of the simulation interval; if type=prbs, the fall time is 1/10 of the bit duration"
+)
+"width" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Pulse width (duration of `val1')"
+)
+"offset" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "DC offset for the PWL waveform"
+)
+"scale" FLOAT DOUBLE PROP(
+"description" "Scale factor for the PWL waveform"
+)
+"stretch" FLOAT DOUBLE PROP(
+"description" "Scale factor for time given for the PWL waveform"
+)
+"rms" FLOAT DOUBLE PROP(
+"description" "Desired rms (root of mean square) value of the PWL waveform"
+)
+"rolloff" FLOAT DOUBLE PROP(
+"description" "Desired rolloff factor for the raised cosine filter. The default value is 0.2. This parameter is valid only when 'pwlfilter' is set to nrc"
+)
+"pwlbandwidth" FLOAT DOUBLE PROP(
+"description" "Bandwidth of the pwl input signal. This parameter is used when 'pwlfilter' is set to nrc"
+)
+"pwlperiod" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Period of the periodic PWL waveform"
+)
+"pwlperiodstart" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Period start time of the periodic PWL waveform"
+)
+"pwlperiodstop" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Period stop time of the periodic PWL waveform"
+)
+"pwlperiodstopvalue" FLOAT DOUBLE PROP(
+"description" "value of the source at the time of pwlperiodstop"
+)
+"pwlperiodstopslope" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "switching time from the last PWL value to the stopvalue"
+)
+"twidth" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Transition width used when making PWL waveforms periodic"
+)
+"tdvalue" FLOAT DOUBLE PROP(
+"description" "PWL wave value before time=td."
+)
+"sinedc" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "DC level for sinusoidal waveforms"
+)
+"ampl" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Amplitude of sinusoidal waveform"
+)
+"freq" FLOAT DOUBLE PROP(
+"units" "Hz"
+"description" "Frequency of sinusoidal waveform"
+)
+"sinephase" FLOAT DOUBLE PROP(
+"units" "Deg"
+"description" "Phase of sinusoid when `t=delay'"
+)
+"ampl2" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Amplitude of second sinusoidal waveform"
+)
+"freq2" FLOAT DOUBLE PROP(
+"units" "Hz"
+"description" "Frequency of second sinusoidal waveform"
+)
+"sinephase2" FLOAT DOUBLE PROP(
+"units" "Deg"
+"description" "Phase of second sinusoid when `t=delay'"
+)
+"fmmodindex" FLOAT DOUBLE PROP(
+"description" "FM index of modulation for sinusoidal waveform"
+)
+"fmmodfreq" FLOAT DOUBLE PROP(
+"units" "Hz"
+"description" "FM modulation frequency for sinusoidal waveform"
+)
+"ammodindex" FLOAT DOUBLE PROP(
+"description" "AM index of modulation for sinusoidal waveform"
+)
+"ammodoffset" FLOAT DOUBLE PROP(
+"description" "AM offset of modulation for sinusoidal waveform"
+)
+"ammodfreq" FLOAT DOUBLE PROP(
+"units" "Hz"
+"description" "AM modulation frequency for sinusoidal waveform"
+)
+"ammodphase" FLOAT DOUBLE PROP(
+"units" "Deg"
+"description" "AM phase of modulation for sinusoidal waveform"
+)
+"damp" FLOAT DOUBLE PROP(
+"units" "1/s"
+"description" "Damping factor for sinusoidal waveform"
+)
+"td1" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Rise start time for exponential wave"
+)
+"tau1" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Rise time constant for exponential wave"
+)
+"td2" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Fall start time for exponential wave"
+)
+"tau2" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Fall time constant for exponential wave"
+)
+"expperiod" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Period of the periodic exponential waveform"
+)
+"td01" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Time delay for 0 to 1 transition"
+)
+"td10" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "Time delay for 1 to 0 transition"
+)
+"ref" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Sets the crossing reference for the control node. This parameter applies only when the Prbs source operates as a 3- or a 4- terminal device. When the voltage across terminals 3 and 4 drops below ref, the output of the source is set to 0. If terminal 4 is not specified, it is assumed to be connected to ground"
+)
+"jitter" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "The parameter jitter is obsolete. It has no effect on the output"
+)
+"rjrms" FLOAT DOUBLE PROP(
+"units" "s"
+"description" "When set for PRBS/Bit source, the source has a normally distributed random jitter whose mean is zero and standard deviation is rjrms"
+)
+"triggerthreshold" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "For PRBS, when the triggerthreshold parameter is set and the source is instantiated with optional control terminals (terminals 3 and 4; if terminal 4 is unspecified it is assumed to be connected to ground), the parameter defines the crossing threshold for the trigger event. The event causes the emission of the next PRBS pulse"
+)
+"triggerdelthresh" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "For PRBS in external triggering mode, the triggerdelthresh parameter is used with the triggerthreshold parameter to define the crossing threshold. For rising edge triggering, the actual threshold is (triggerthreshold + triggerdelthresh); for falling edge triggering, the threshold is (triggerthreshold - triggerdelthresh). The default value is zero"
+)
+"transitionreference" FLOAT DOUBLE PROP(
+"description" "Defines the voltage swing for the duration of rise and fall time as a percentage of val1 - val0. For example, transitionreference =100 means that the output voltage transitions from val0 to val1 in rise seconds. 90 means that it transitions from 0.1*(val1-val0) to 0.9*(val1-val0) in rise seconds, 80 means that it transitions from 0.2*(val1-val0) to 0.8*(val1-val0) in rise seconds, and so on. Possible values are 100, 90, 80, 70 and 60"
+)
+"freqscale" FLOAT DOUBLE PROP(
+"description" "Frequency scale factor"
+)
+"amplscale" FLOAT DOUBLE PROP(
+"description" "Amplitude scale factor"
+)
+"mag" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Small signal voltage"
+)
+"phase" FLOAT DOUBLE PROP(
+"units" "Deg"
+"description" "Small signal phase"
+)
+"xfmag" FLOAT DOUBLE PROP(
+"units" "V/V"
+"description" "Transfer function analysis magnitude"
+)
+"pacmag" FLOAT DOUBLE PROP(
+"units" "V"
+"description" "Periodic AC analysis magnitude"
+)
+"pacphase" FLOAT DOUBLE PROP(
+"units" "Deg"
+"description" "Periodic AC analysis phase"
+)
+"m" FLOAT DOUBLE PROP(
+"description" "Multiplicity factor"
+)
+"tc1" FLOAT DOUBLE PROP(
+"units" "1/C"
+"description" "First-order temperature coefficient"
+)
+"tc2" FLOAT DOUBLE PROP(
+"units" "C^-2"
+"description" "Second-order temperature coefficient"
+)
+"tnom" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Component parameter measurement temperature. Default set by options"
+)
+"trise" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Temperature rise from ambient"
+)
+"tempeff" FLOAT DOUBLE PROP(
+"units" "C"
+"description" "Effective temperature for a single device"
+)
+"rptstart" INT LONG PROP(
+"description" "The starting bit when repeating. The data repeats from the specified bit to the end of the bit string. The parameter should be an integer from 1 to the length of the bit string"
+)
+"rpttimes" INT LONG PROP(
+"description" "The repeat times. The output maintains the state of the last bit after the last repeat. If its value is negative, the string repeats forever"
+)
+"rjseed" INT LONG PROP(
+"description" "The seed for random number generator, which is used in generating random jitter for PRBS/Bit sources. The default value is 1"
+)
+"seed" INT LONG PROP(
+"description" "This parameter is obsolete, however, is retained for backward compatibility. Set registerlength=[2 ... 32] to choose a Maximum Length Sequence or define a custom PRBS by using the lfsrtaps and lfsrseed parameters"
+)
+"registerlength" INT LONG PROP(
+"description" "When set for PRBS, the registerlength parameter defines the width of the LFSR that works in the Maximum Length Sequence mode. For more information about MLS setting, see the 'PRBS Type Waveform' section"
+)
+"type" INT BYTE PROP(
+"description" "Waveform type"
+)
+"edgetype" INT BYTE PROP(
+"description" "Type of rising and falling edges; effective for pulse, pulse-like piecewise linear, bit, and prbs sources"
+)
+"pwlfilter" INT BYTE PROP(
+"description" "Add filter for pwl source, where the pwl data should be equal space sampled. Possible values are 'nrc'(normal raised cosine filter) and 'none'"
+)
+"allbrkpts" INT BYTE PROP(
+"description" "If set to yes, all the points in the PWL waveform are breakpoints. Default is yes if the number of points is less than 20"
+)
+"modulation" INT BYTE PROP(
+"description" "Type of amplitude modulation; effective for bit and prbs sources"
+)
+"noisetype" INT BYTE PROP(
+"description" "Noisetype parameter specifies the units and source of noise data. When this parameter is set to noisevoltage, the noise data represents the noise spectral density in V^2/Hz of noise measured at the output of a driven circuit. When set to ssbphasenoise, the noise data represents the single-sideband phase noise in dBc measured at the output of a free oscillator.When set to edgephasenoise, the noise data represents the single-sideband phase noise in dBc measured at the output of a driven or oscillator circuit in sampled pnoise/hbnoise jitter analysis. For noisetype=noisevoltage, the frequencies are taken as absolute. For ssbphasenoise and edgephasenoise, the frequencies are offset from the carrier.Note that Noisetype=edgephasenoise is tied to a specific sampling edge position and should be used only for simulating jitter at that given edge position.Noisetype=ssbphasenoise can be used only with pnoise, qpnoise, hbnoise and transient noise analyses, the noise source will be ignored in AC noise analyses."
+)
+"noiseinterp" INT BYTE PROP(
+"description" "Determines how the specified noise data is interpolated. This parameter only applies to noisetype=noisevoltage. When set to linear, interpolation is linear over both axes. When set to loglog, Spectre uses log interpolation over both axes"
+)
+"isnoisy" INT BYTE PROP(
+"description" "Determines whether vsource should generate noise"
+)
+) PROP(
+"key" "inst"
+)
+VALUE
+"capacitor" "capacitor" (
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+-1
+)
+"C1" "capacitor~instparams" (
+1.000000000000000e-06
+1.000000000000000e+00
+nan
+nan
+1.000000000000000e+00
+1.000000000000000e+00
+nan
+2.700000000000000e+01
+1.000000000000000e+00
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+1.000000000000000e-06
+nan
+nan
+0
+) PROP(
+"model" "capacitor"
+)
+"resistor" "resistor" (
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+-1
+-1
+)
+"R1" "resistor~instparams" (
+1.000000000000000e+03
+nan
+nan
+nan
+nan
+1.000000000000000e+03
+1.000000000000000e+00
+1.000000000000000e+00
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+2.700000000000000e+01
+1.000000000000000e+00
+nan
+0
+0
+1
+) PROP(
+"model" "resistor"
+)
+"Vin" "vsource~instparams" (
+1.000000000000000e+00
+0.000000000000000e+00
+0.000000000000000e+00
+1.000000000000000e+00
+nan
+nan
+nan
+inf
+0.000000000000000e+00
+1.000000000000000e+00
+1.000000000000000e+00
+-1.000000000000000e+00
+2.000000000000000e-01
+-1.000000000000000e+00
+nan
+nan
+nan
+nan
+nan
+nan
+nan
+1.000000000000000e+00
+1.000000000000000e+00
+1.000000000000000e+03
+nan
+1.000000000000000e+00
+0.000000000000000e+00
+nan
+0.000000000000000e+00
+0.000000000000000e+00
+0.000000000000000e+00
+nan
+0.000000000000000e+00
+0.000000000000000e+00
+0.000000000000000e+00
+0.000000000000000e+00
+nan
+nan
+nan
+nan
+0.000000000000000e+00
+0.000000000000000e+00
+nan
+nan
+nan
+nan
+nan
+nan
+0.000000000000000e+00
+0.000000000000000e+00
+1.000000000000000e+00
+0.000000000000000e+00
+1.000000000000000e+00
+0.000000000000000e+00
+0.000000000000000e+00
+1.000000000000000e+00
+0.000000000000000e+00
+0.000000000000000e+00
+nan
+0.000000000000000e+00
+2.700000000000000e+01
+1
+0
+2147483647
+2147483647
+2147483647
+3
+0
+0
+-1
+0
+0
+0
+1
+) PROP(
+"model" "vsource"
+)
+END

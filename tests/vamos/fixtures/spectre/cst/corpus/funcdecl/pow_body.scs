@@ -1,0 +1,4 @@
+// kinetic energy, mixes literals and the pow built-in
+real energy( real m, real v ) {
+    return 0.5*m*pow(v, 2);
+}

@@ -1,0 +1,233 @@
+{
+ "row": "E20",
+ "experiment": "Xyce: two and three nested .STEPs with .OP; .DC vamos_dummy LIST 0 under two .STEPs; .DC R1:R LIST, .DC DMOD:IS LIST, .STEP pa + .DC R1:R, .STEP X1:R1:R, a swept .param read by an X-line override; one .STEP with .OP",
+ "result": "the first .STEP is the innermost loop (plots (1,10), (2,10), (1,20), ...); .OP under two .STEPs: \"Netlist error: Analysis mode 4 is not available\", then a segfault (rc 139); all the others work (.DC R1:R LIST 1k 3k gives 0.4988 / 0.2500)",
+ "rules": [
+  "\u00a77.2 op under two or more .STEPs: .param vamos_op=0 + .DC vamos_op LIST 0",
+  "\u00a77.2 sweep blocks: .STEP lines innermost first (Xyce's first .STEP is the fastest loop)",
+  "\u00a77.2 dc dev=/mod=/sub= -> .DC R1:R / .DC M:X / a swept .param read by an X-line override"
+ ],
+ "runs": [
+  {
+   "name": "step_order",
+   "tool": "xyce",
+   "deck": "nest.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nest.raw",
+     "plots": 6
+    },
+    {
+     "raw": "nest.raw",
+     "plot": 0,
+     "plotname_contains": [
+      "PA value = 1",
+      "PB value = 10"
+     ]
+    },
+    {
+     "raw": "nest.raw",
+     "plot": 1,
+     "plotname_contains": [
+      "PA value = 2",
+      "PB value = 10"
+     ]
+    },
+    {
+     "raw": "nest.raw",
+     "plot": 2,
+     "plotname_contains": [
+      "PA value = 1",
+      "PB value = 20"
+     ]
+    },
+    {
+     "raw": "nest.raw",
+     "plot": 5,
+     "plotname_contains": [
+      "PA value = 2",
+      "PB value = 30"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "op_under_two_steps",
+   "tool": "xyce",
+   "deck": "nest2.cir",
+   "status": "SEGV",
+   "output": {
+    "contains": [
+     "Analysis mode 4 is not available"
+    ]
+   }
+  },
+  {
+   "name": "dummy_dc_under_two_steps",
+   "tool": "xyce",
+   "deck": "nest6.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nest6.raw",
+     "plots": 6
+    },
+    {
+     "raw": "nest6.raw",
+     "col": "I(V1)",
+     "value": -0.1,
+     "plot": 0
+    },
+    {
+     "raw": "nest6.raw",
+     "col": "I(V1)",
+     "value": -0.05,
+     "plot": 1
+    },
+    {
+     "raw": "nest6.raw",
+     "col": "I(V1)",
+     "value": -0.05,
+     "plot": 2
+    },
+    {
+     "raw": "nest6.raw",
+     "col": "I(V1)",
+     "value": -0.025,
+     "plot": 3
+    },
+    {
+     "raw": "nest6.raw",
+     "col": "I(V1)",
+     "value": -0.0333333,
+     "rel": 1e-05,
+     "plot": 4
+    },
+    {
+     "raw": "nest6.raw",
+     "col": "I(V1)",
+     "value": -0.0166667,
+     "rel": 1e-05,
+     "plot": 5
+    }
+   ]
+  },
+  {
+   "name": "dc_device_param",
+   "tool": "xyce",
+   "deck": "dcdev.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dcdev.raw",
+     "col": "V(OUT)",
+     "values": [
+      0.498812,
+      0.25
+     ],
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "dc_model_param",
+   "tool": "xyce",
+   "deck": "dcmod.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dcmod.raw",
+     "col": "V(OUT)",
+     "values": [
+      0.498812,
+      0.379976
+     ],
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "step_plus_dc_device",
+   "tool": "xyce",
+   "deck": "nest7.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nest7.raw",
+     "plots": 2
+    },
+    {
+     "raw": "nest7.raw",
+     "col": "V(OUT)",
+     "values": [
+      0.5,
+      0.25
+     ],
+     "plot": 0
+    },
+    {
+     "raw": "nest7.raw",
+     "col": "V(OUT)",
+     "values": [
+      1.0,
+      0.5
+     ],
+     "plot": 1
+    }
+   ]
+  },
+  {
+   "name": "step_hierarchical",
+   "tool": "xyce",
+   "deck": "sh.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "sh.raw",
+     "plots": 2,
+     "plot": 0,
+     "plotname_contains": [
+      "X1:R1:R value = 1000"
+     ]
+    },
+    {
+     "raw": "sh.raw",
+     "col": "V(OUT)",
+     "value": 0.5,
+     "plot": 0
+    },
+    {
+     "raw": "sh.raw",
+     "col": "V(OUT)",
+     "value": 0.25,
+     "plot": 1
+    }
+   ]
+  },
+  {
+   "name": "one_step_with_op_x_override",
+   "tool": "xyce",
+   "deck": "stp.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "stp.raw",
+     "plots": 2
+    },
+    {
+     "raw": "stp.raw",
+     "col": "V(OUT)",
+     "value": 0.5,
+     "plot": 0
+    },
+    {
+     "raw": "stp.raw",
+     "col": "V(OUT)",
+     "value": 0.25,
+     "plot": 1
+    }
+   ]
+  }
+ ]
+}

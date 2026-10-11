@@ -1,0 +1,9 @@
+* dc sweep of a source, and of temperature via .step
+V1 in 0 DC 1
+R1 in out 1k
+D1 out 0 dmod
+.model dmod d is=1e-14
+.dc V1 0 2 0.5
+.step temp list 0 50
+.print dc v(out) i(v1)
+.end

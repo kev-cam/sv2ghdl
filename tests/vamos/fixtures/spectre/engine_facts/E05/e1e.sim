@@ -1,0 +1,20 @@
+swept ac and tran: raw layout
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+model resistor resistor
+model capacitor capacitor
+model vsource vsource
+v1 (a 0) vsource type="pulse" val0=0 val1=1 rise=1u fall=1u width=1 period=0 mag=1
+r1 (a b) resistor r=1k
+c1 (b 0) capacitor c=1u
+control
+  options rawfile="ascii"
+  sweep s1 instance="r1" parameter="r" values=[1k, 1k, 2k]
+    analysis ac1 ac from=1 to=1k mode="dec" points=2
+  sweep s2 instance="r1" parameter="r" values=[1k, 2k]
+    analysis tr1 tran stop=2m step=10u maxstep=100u
+  sweep s3 instance="r1" parameter="r" values=[1k, 2k]
+  sweep s4 instance="c1" parameter="c" values=[1u, 2u, 3u]
+    analysis op1 op
+endc

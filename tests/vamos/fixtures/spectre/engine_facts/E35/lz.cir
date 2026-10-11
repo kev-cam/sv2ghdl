@@ -1,0 +1,11 @@
+* leading zeros in node names
+V1 7 0 1
+R1 7 0 1k
+V2 007 0 2
+R2 007 0 1k
+V3 5 00 3
+R3 5 0 1k
+R4 00 0 1k
+.OP
+.PRINT DC FORMAT=RAW FILE=lz.raw V(7) V(007) V(5) V(00) I(V1) I(V2)
+.end

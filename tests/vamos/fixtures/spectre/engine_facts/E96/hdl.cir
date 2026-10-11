@@ -1,0 +1,8 @@
+* hdl test
+.hdl "dres.va"
+V1 a 0 1
+YDRES x1 a 0 dresm
+.model dresm dres r=2k
+.OP
+.PRINT DC FORMAT=RAW FILE=hdl.raw I(V1)
+.end

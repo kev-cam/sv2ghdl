@@ -1,0 +1,15 @@
+* Xyce pow() with a negative base and a non-integer exponent
+.param xm8=-8 y13={1.0/3} yh=0.5 xm2=-2
+v1 n1 0 dc {y13}
+r1 n1 0 1k
+v2 n2 0 dc {pow(xm8, y13)}
+r2 n2 0 1k
+v3 n3 0 dc {pow(xm8, yh)}
+r3 n3 0 1k
+v4 n4 0 dc {pow(xm2, 1.5)}
+r4 n4 0 1k
+v5 n5 0 dc {pow(-8, 0.25)}
+r5 n5 0 1k
+.op
+.print dc format=raw file=xy_powneg2.raw v(n1) v(n2) v(n3) v(n4) v(n5)
+.end

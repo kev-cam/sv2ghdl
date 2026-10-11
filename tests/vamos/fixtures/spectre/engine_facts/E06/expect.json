@@ -1,0 +1,59 @@
+{
+ "row": "E6",
+ "experiment": "VACASK: a failing op (two parallel sources), default policy",
+ "result": "`Analysis 'bad1' aborted.`, exit 0, later analyses run; inside a sweep, `Sweep aborted @ 2/3 (2).` and, under strictoutput=2, no rawfile for that analysis",
+ "rules": [
+  "\u00a77.1 Failures: VACASK exits 0 under `abort except analysis` and prints `Analysis 'x' aborted.`; `Sweep aborted @ k/n (v).`; under strictoutput=2 no rawfile is left (vamos sets strictoutput=0)"
+ ],
+ "runs": [
+  {
+   "name": "failing_op",
+   "tool": "vacask",
+   "deck": "e1g.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Analysis 'bad1' aborted.",
+     "Running analysis 'good1'.",
+     "Sweep aborted @ 1/2 (1).",
+     "Running analysis 'good2'."
+    ]
+   },
+   "files": {
+    "present": [],
+    "absent": [
+     "bad1.raw",
+     "good1.raw",
+     "bad2.raw",
+     "good2.raw"
+    ]
+   }
+  },
+  {
+   "name": "failing_sweep_point",
+   "tool": "vacask",
+   "deck": "e1g2.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Sweep aborted @ 2/3 (2)."
+    ]
+   },
+   "files": {
+    "present": [
+     "after.raw"
+    ],
+    "absent": [
+     "sw.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "after.raw",
+     "col": "a",
+     "value": 1.0
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,12 @@
+mos3 badmos3=1
+load "spice/mos3.osdi"
+model vs vsource
+model nch sp_mos3 type=1 vto=0.7 kp=1e-4 kappa=0.2 nsub=1e16 tox=2e-8 badmos3=1
+vd (d 0) vs dc=3
+vg (g 0) vs dc=2
+m1 (d g 0 0) nch w=3u l=3u
+control
+  options rawfile="ascii"
+  sweep s instance="vd" parameter="dc" values=[1.5, 3, 5]
+    analysis op1 op
+endc

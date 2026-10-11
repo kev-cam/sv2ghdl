@@ -36,16 +36,13 @@ class AmsError(BackendError):
 
 
 def choose_engine(opts: dict, cfg: Optional[AmsConfig]) -> str:
-    """--vamos-analog > VAMOS_ANALOG > choose vacask|xyce > vacask."""
-    for src, val in (("--vamos-analog", opts.get("analog")),
-                     ("VAMOS_ANALOG", os.environ.get("VAMOS_ANALOG"))):
-        if val and val is not True:
-            if val.lower() not in ENGINES:
-                raise AmsError("%s=%s: the analog engine must be vacask or xyce" % (src, val))
-            return val.lower()
-    if cfg is not None and cfg.choose is not None and cfg.choose.engine.lower() in ENGINES:
-        return cfg.choose.engine.lower()
-    return "vacask"
+    """--vamos-analog > VAMOS_ANALOG > choose vacask|xyce > vacask (engines.choose_engine,
+    whose ValueError is an AmsError here)."""
+    configured = cfg.choose.engine if cfg is not None and cfg.choose is not None else None
+    try:
+        return engines.choose_engine(opts, configured)
+    except ValueError as e:
+        raise AmsError(str(e))
 
 
 def _control_paths(job: Job) -> List[str]:
@@ -65,13 +62,7 @@ def compile_tools(job: Job, opts: dict) -> List[Tuple[str, str]]:
         engine = choose_engine(opts, cfg)
     except AmsError:
         engine = "vacask"
-    if engine == "vacask":
-        out = [("VACASK", engines.vacask_bin())]
-        ov = engines.openvaf()
-        if ov:
-            out.append(("OpenVAF-r", ov))
-        return out
-    return [("Xyce", engines.xyce_bin() or "Xyce")]
+    return engines.tool_rows(engine, engines.xyce_bin() or "Xyce")
 
 
 class _Printer:

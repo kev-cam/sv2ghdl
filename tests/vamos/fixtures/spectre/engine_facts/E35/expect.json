@@ -1,0 +1,89 @@
+{
+ "row": "E35",
+ "experiment": "VACASK nodes 007, 7, 00; Xyce the same",
+ "result": "bare 007 is a parse error; quoted '007' (2.0 V) and 7 (1.0 V) are distinct, and '00' (-1.5 V) is not ground; Xyce keeps them distinct unquoted",
+ "rules": [
+  "\u00a74.5 vacask_quote('007') and the Xyce quoting of such names; \u00a73.3 007 != 7 in both modes"
+ ],
+ "runs": [
+  {
+   "name": "vacask_bare_007",
+   "tool": "vacask",
+   "deck": "lz.sim",
+   "status": 1,
+   "files": {
+    "absent": [
+     "op1.raw"
+    ]
+   }
+  },
+  {
+   "name": "vacask_quoted",
+   "tool": "vacask",
+   "deck": "lzq.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "names": [
+      "00",
+      "007",
+      "5",
+      "7",
+      "v1:flow(br)",
+      "v2:flow(br)",
+      "v3:flow(br)"
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "007",
+     "value": 2.0
+    },
+    {
+     "raw": "op1.raw",
+     "col": "7",
+     "value": 1.0
+    },
+    {
+     "raw": "op1.raw",
+     "col": "00",
+     "value": -1.5
+    },
+    {
+     "raw": "op1.raw",
+     "col": "5",
+     "value": 1.5
+    }
+   ]
+  },
+  {
+   "name": "xyce_unquoted",
+   "tool": "xyce",
+   "deck": "lz.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "lz.raw",
+     "col": "V(7)",
+     "value": 1.0
+    },
+    {
+     "raw": "lz.raw",
+     "col": "V(007)",
+     "value": 2.0
+    },
+    {
+     "raw": "lz.raw",
+     "col": "V(00)",
+     "value": -1.5
+    },
+    {
+     "raw": "lz.raw",
+     "col": "V(5)",
+     "value": 1.5
+    }
+   ]
+  }
+ ]
+}

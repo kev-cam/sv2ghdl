@@ -1,0 +1,5 @@
+// subckt with parenthesised node list and instance statements
+subckt twisted (p1 n1 p2 n2)
+    odd (p1 n1 p2 n2) tline z0=50 vel=1 len=0
+    even (e1 0 e2 0) tline z0=50 vel=1 len=0
+ends twisted

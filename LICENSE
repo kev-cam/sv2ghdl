@@ -32,6 +32,18 @@ EXCEPTION: third-party test fixtures
   fw/native_tohost.c, tb/tb_hazard3.v, and the firmware images and golden
   outputs in variants/ (tests/hazard3_mandelbrot/README.md and
   variants/README name the upstream file each one comes from).
+  Under tests/vamos/fixtures/spectre (whose README names the origin, commit
+  and licence of every file), the NetlistParse.rs Spectre and SPICE corpus
+  files and their expected CST dumps in cst/ and spice/ are MIT, Copyright
+  (c) JuliaHub, Inc. and other contributors, with the licence text in
+  LICENSES/MIT.txt; the psf-parser Python package vendored in
+  tests/vamos/third_party/psf_parser and its real Spectre PSF files in
+  psf/real/psf-parser are MIT, Copyright (c) 2025 Toon Bettens, with the
+  licence text in tests/vamos/third_party/psf_parser/LICENSE; the psf_utils
+  PSF samples in psf/real/psf_utils (Ken Kundert) and the Xyce_Regression
+  XDM decks in xdm/ (Copyright 2019 National Technology & Engineering
+  Solutions of Sandia, LLC (NTESS)) are GPL-3.0-or-later like this
+  repository.
 
 Earlier releases: revisions published before this file was added were
 distributed under "GPL v2+" (see README). Anyone who received those revisions

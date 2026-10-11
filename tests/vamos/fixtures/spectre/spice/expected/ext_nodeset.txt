@@ -1,0 +1,20 @@
+SPICENetlistSource 0-33
+  Title 0-4
+    Notation 0-3
+    Notation 3-4
+  NodeSetStatement 4-33
+    Notation 4-5
+    Identifier 5-12
+    NodeSetEntry 13-21
+      Identifier 13-14
+      NodeName 15-16
+        NumberLiteral 15-16
+      Notation 17-18
+      NumberLiteral 18-21
+    NodeSetEntry 22-32
+      Identifier 22-23
+      NodeName 24-27
+        Identifier 24-27
+      Notation 28-29
+      NumberLiteral 29-32
+    Notation 32-33

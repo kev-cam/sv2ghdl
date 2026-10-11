@@ -1,0 +1,9 @@
+SpectreNetlistSource 73-164
+  Include 73-136
+    Keyword 73-80
+    StringLiteral 81-100
+    Notation 135-136
+  Include 136-164
+    Keyword 136-143
+    StringLiteral 144-163
+    Notation 163-164

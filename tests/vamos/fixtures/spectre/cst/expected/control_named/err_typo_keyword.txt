@@ -1,0 +1,4 @@
+SpectreNetlistSource 194-205
+  Incomplete 194-205
+    Identifier 194-199
+    Error 200-205

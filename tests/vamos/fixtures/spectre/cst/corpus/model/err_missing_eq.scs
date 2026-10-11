@@ -1,0 +1,2 @@
+// ERROR: model parameter is missing the '=' between the name and its value
+model RMOD resistor tc1 5

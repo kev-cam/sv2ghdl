@@ -17,7 +17,7 @@ Model dispatch (§4.3.6)
         The row for a card; TableError naming the level when there is none (MOS
         6/9/10/13/50, Q != 1, D 2/6, J != 1, ...: no faithful target on either
         engine, so both emitters refuse the same cards).
-    model_params(model, engine, binned=False, options=None) -> (List[(name, Expr)], List[Note])
+    model_params(model, engine, binned=False, options=None, dialect="hspice") -> (List[(name, Expr)], List[Note])
         The card's parameters as an engine gets them: level removed (the emitter
         prints the level its rule asks for), the HSPICE-only geometry keys of
         STRIP_KEYS removed with a warning each (a BSIM3 acm=10, the targets' own
@@ -70,6 +70,12 @@ Model dispatch (§4.3.6)
     STRING_PARAMS[module] -> names of string-typed module parameters (printed
         "quoted" by the VACASK emitter).
     STRIP_KEYS             HSPICE-only geometry keys stripped from cards (warning).
+    Spectre masters (docs/VAMOS_SPECTRE_DESIGN.md §3.9, §4.4, §10; phase 0)
+        ParamRule, MasterRow   the row types; SPECTRE_MASTERS[master] -> MasterRow, the
+        data (every ref5 card and instance parameter of every master with its disposition);
+        model_params(dialect="spectre") applies it (S3).
+        bin_bounds_spectre, bin_guard_spectre, select_bin_spectre: bin_rule="spectre"
+        (exact bounds, group order, total w); phase-0 signatures, S1 implements them.
 
 Instance rules
     SCALE_POWERS[element] -> {parameter: power of .option scale}   (§4.3.5)
@@ -187,6 +193,11 @@ Shared walk
         instances.  The emitters print only these: a library defines far more
         than a deck uses (sky130), HSPICE never instantiates the rest, and a
         construct no target honours must not fail a deck that never uses it.
+    PathEnv, path_envs(nl, values=None, strict=False, dialect="hspice") -> Iterator[PathEnv]
+        Every instance path (docs/VAMOS_SPECTRE_DESIGN.md §4.4), the top level
+        first, depth first in body order, with its subckt, Scope, parameter
+        values (xyce._Deck.child_env's rule) and instances (each Cond resolved
+        on the path).  path_counts(nl) -> {subckt name: paths that reach it}.
 
 Errors are TableError (a ValueError) naming the construct; the emitters turn
 them into notes with the element's origin.
@@ -197,12 +208,13 @@ from __future__ import annotations
 import copy
 import math
 import os
-from dataclasses import dataclass
-from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
+from collections import abc
+from dataclasses import dataclass, field, replace
+from typing import Dict, FrozenSet, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from vamos.netlist import expr as X
 from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary
-from vamos.netlist.ir import Instance, Model, Netlist, Param, Source, Subckt
+from vamos.netlist.ir import Cond, Instance, Model, Netlist, Param, ParamTest, Source, Subckt
 from vamos.notes import Note, note, warning
 
 ENGINES = ("vacask", "xyce")
@@ -340,13 +352,21 @@ def _version_note(model: Model, row: Target, engine: str, value: Expr) -> Option
 
 
 def model_params(model: Model, engine: str, binned: bool = False,
-                 options: Optional[Mapping[str, Expr]] = None
-                 ) -> Tuple[List[Tuple[str, Expr]], List[Note]]:
+                 options: Optional[Mapping[str, Expr]] = None,
+                 dialect: str = "hspice") -> Tuple[List[Tuple[str, Expr]], List[Note]]:
     """The card's parameters for one engine, and the notes the changes need (see the module docstring).
 
     options is Netlist.options: .option spice and .option dcap select HSPICE's model defaults
     (hspice_card); None means neither is given.
+    dialect is Netlist.dialect (VAMOS_SPECTRE_DESIGN.md §4.4): "hspice" is this path; "spectre"
+    (S3) takes the Spectre path (Model.prim, SPECTRE_MASTERS, no hspice_card, no STRIP_KEYS
+    strip) and raises NotImplementedError until then; any other name is a ValueError.
     """
+    if dialect not in ("hspice", "spectre"):
+        raise ValueError("dialect must be 'hspice' or 'spectre', not %r" % (dialect,))
+    if dialect == "spectre":
+        raise NotImplementedError("model_params(dialect='spectre') is not implemented yet "
+                                  "(VAMOS_SPECTRE_DESIGN.md §3.9, §4.4: phase 1, S3)")
     _engine(engine)
     row = target(model)
     out: List[Tuple[str, Expr]] = []
@@ -396,6 +416,1853 @@ def model_params(model: Model, engine: str, binned: bool = False,
         if row.polarity and pol is not None:
             out.insert(0, ("type", Num(pol)))
     return out, notes
+
+
+# -- Spectre masters (VAMOS_SPECTRE_DESIGN.md §3.9, §4.4, §10; phase 0: the row types and the data) ----
+#
+# SPECTRE_MASTERS lists, per Spectre master, every ref5 card parameter with one disposition
+# (ParamRule) and every instance parameter the same way.  model_params(dialect="spectre") (S3)
+# applies the card rules; plan.build (S2) decides every rule whose message depends on the run
+# (ParamRule.warn) and refuses a sweep or alter of a parameter whose rule folds or strips it (§5.2);
+# spectre.py (S1) builds models from it.
+
+@dataclass(frozen=True)
+class ParamRule:
+    """One disposition of one parameter of a master (§3.9).  Several rules may share a name; the
+    first whose `when` and `match` hold applies.  Examples:
+        ParamRule("capmod", "strip", match=("absent", "bsim"), warn="analyses=ac,noise,xf,tran")
+        ParamRule("capmod", "strip", match=("meyer",)); ParamRule("capmod", "error", match=("none", "yang"))
+        ParamRule("hcomp", "error", match=("nonzero",))
+        ParamRule("eg", "default", "1.124481", "absent:eg", warn="temp!=tnom")
+        ParamRule("nsub", "default", "1.13e16", "absent:nsub"); ParamRule("phi", "default", "0.7", "absent:phi,absent:nsub")
+        ParamRule("badmos3", "default", "1", "absent:badmos3", warn="card")
+    """
+    name: str                                     # the parameter, lower case
+    action: str                                   # fold | pass | rename | default | strip | error
+    value: str = ""                               # rename target, or the default written ("=fc" copies fc)
+    when: str = ""                                # "" | "absent:<p>" | "given:<p>"; several joined by "," (all hold),
+                                                  # read on the card as written
+    match: Tuple[str, ...] = ()                   # the rule applies only to these values of the parameter: an
+                                                  # enumeration value, "absent", "0" or "nonzero", or a Spectre
+                                                  # number ("1", "0.5", "1/3", "7.02e-4"), compared numerically;
+                                                  # () = any value
+    warn: str = ""                                # a warning besides the action: "card" (model_params, per card) |
+                                                  # "analyses=ac,noise,xf,tran" | "analyses=noise" | "temp!=tnom"
+                                                  # (plan.build, per run)
+    cite: str = ""                                # "ref5 p.410"
+
+
+@dataclass(frozen=True)
+class MasterRow:
+    """One Spectre master: the IR element kind, the card kind by polarity, the DISPATCH level, the
+    terminal names, the default geometry, and the card and instance parameter rules (§3.9, §10)."""
+    master: str                                   # resistor capacitor inductor vsource ... diode bjt jfet mos1 ... bsim4
+    element: str                                  # IR element kind: r c l v i e g h f k d q j m
+    level: Optional[int] = None                   # the tables.DISPATCH level
+    polarity_key: str = ""                        # "type" for mos*/bsim*/bjt/jfet
+    kinds: Tuple[Tuple[str, str], ...] = ()       # polarity value -> IR card kind, first = default
+    terminals: Tuple[str, ...] = ()
+    geometry: Tuple[Tuple[str, float], ...] = ()  # default instance w/l; default lmin lmax wmin wmax
+    params: Tuple[ParamRule, ...] = ()            # card parameters
+    instance: Tuple[ParamRule, ...] = ()          # instance parameters: dev= renames (§5.2), the SPICE-appended
+                                                  # check (§4.3), folded inputs (§3.8)
+
+
+# SPECTRE_MASTERS data (phase 0, S0C).  Built from ref5's component chapters against the targets' parameter
+# tables (/usr/local/src/VACASK/devices/spice/*.va, VACASK docs/dev-builtin-*.md; Xyce N_DEV_*.C load*Parameters);
+# every ref5 instance and model parameter of every v1 master has a row, every ref5 default was compared with
+# both targets' effective defaults (the comparison tables: scratchpad sp0/S0C/comparison.md).  Conventions:
+#   - cite "ref5 p.N" is the parameter's page; the text after ";" names the target source lines or the rule's
+#     reason.  "fails loudly" = the engine rejects the parameter (VACASK at elaboration, Xyce via the output scan);
+#   - the first rule whose `when` and `match` hold applies (§10); a rule reaches an absent parameter only through
+#     match=("absent",) or a when= on it (default rows, absence warnings);
+#   - match tokens: "absent", "nonzero", an enumeration value, or a Spectre number/expression ("0", "1",
+#     "1/3", "7.02e-4") compared numerically;
+#   - a default row is written under the name it is printed with (nbv for Spectre's nz; the targets' badmos3);
+#     its value is Spectre syntax ("1/3"), "=p" copies parameter p;
+#   - strip always carries a note (§3.9), the warning named by warn= where there is one; fold = consumed into the
+#     IR by spectre.py (polarity -> Model.kind, level -> Model.level, geometry and instance defaults -> instances);
+#   - an instance rule's when= is read on the instance after the card's folded defaults were applied (§3.9 default
+#     MOS geometry); the sources' rules transcribe §3.8.1, which spectre.resolve_source implements, so their
+#     run-dependent errors (xfmag, noisefile) are pass rows whose cite names the condition.
+SPECTRE_MASTERS: Dict[str, MasterRow] = {
+    # -- resistor [M ref5 pp.629-632] ------------------------------------------------
+    "resistor": MasterRow(
+        "resistor", "r", None, "",
+        kinds=(('', 'r'),),
+        terminals=('1', '2'),
+        geometry=(),
+        params=(
+            ParamRule("r", "fold", cite="ref5 p.630; §3.8: the instance's r, else the card's, else rsh*(l-2*etchl)/(w-2*etch); spectre.py folds it"),
+            ParamRule("rsh", "fold", cite="ref5 p.630; §3.8 fold"),
+            ParamRule("l", "fold", cite="ref5 p.630; §3.8 fold; card default l=inf"),
+            ParamRule("w", "fold", cite="ref5 p.630; §3.8 fold; card default w=1e-6"),
+            ParamRule("etch", "fold", cite="ref5 p.630; §3.8 fold"),
+            ParamRule("etchl", "fold", cite="ref5 p.630; §3.8 fold"),
+            ParamRule("thresh", "strip", cite="ref5 p.630; formulation threshold only; r=0 prints as a short (§3.8, §4.5 item 10)"),
+            ParamRule("scaler", "strip", match=("1",), cite="ref5 p.630; resistance scaling factor: no target"),
+            ParamRule("scaler", "error", cite="ref5 p.630; resistance scaling factor: no target"),
+            ParamRule("tc1", "pass", cite="ref5 p.630; sp_resistor tc1 (instance alias, resistor.va:92; a model statement may give it) / model_tc1; Xyce model TC1 (N_DEV_Resistor.C:241)"),
+            ParamRule("tc2", "pass", cite="ref5 p.630; resistor.va:93, 108; N_DEV_Resistor.C:244"),
+            ParamRule("tnom", "pass", cite="ref5 p.630; 'set by options' = the targets' 0 (resistor.va:116; N_DEV_Resistor.C:263)"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.631; card default temperature rise: no target; §3.8 trise != 0 -> error"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.631; card default temperature rise: no target; §3.8 trise != 0 -> error"),
+            ParamRule("coeffs", "error", cite="ref5 p.631; nonlinear coeffs= on R: error in v1 (§0)"),
+            ParamRule("nonlinform", "strip", cite="ref5 p.631; meaningful only with coeffs (an error)"),
+            ParamRule("symmetric", "strip", cite="ref5 p.631; meaningful only with coeffs (an error)"),
+            ParamRule("kf", "pass", warn="analyses=noise", cite="ref5 p.631; sp_resistor kf (resistor.va:114); Xyce's resistor has no noise parameters (fails loudly); Spectre's W*L normalization of the flicker term is not documented in ref5, VACASK divides by W^wf*L^lf (resistor.va:255)"),
+            ParamRule("af", "default", "2", "absent:af,given:kf", cite="ref5 p.631; §3.9 table: ref5 af=2, sp_resistor af=1 (resistor.va:115)"),
+            ParamRule("af", "pass", cite="ref5 p.631; resistor.va:115"),
+            ParamRule("wdexp", "rename", "wf", cite="ref5 p.631; flicker W exponent on the drawn W: sp_resistor wf acts on W-2*narrow (resistor.va:255); narrow is 0 after the fold"),
+            ParamRule("ldexp", "rename", "lf", cite="ref5 p.631; flicker L exponent: sp_resistor lf (resistor.va:255)"),
+            ParamRule("weexp", "strip", match=("0",), cite="ref5 p.631; effective-width exponent: no target (sp_resistor has one exponent per dimension)"),
+            ParamRule("weexp", "strip", warn="analyses=noise", cite="ref5 p.631; effective-width exponent: no target (sp_resistor has one exponent per dimension)"),
+            ParamRule("leexp", "strip", match=("0",), cite="ref5 p.631; effective-length exponent: no target"),
+            ParamRule("leexp", "strip", warn="analyses=noise", cite="ref5 p.631; effective-length exponent: no target"),
+            ParamRule("fexp", "rename", "ef", cite="ref5 p.631; flicker frequency exponent: sp_resistor ef (resistor.va:122, 322)"),
+            *[ParamRule(n, "strip", cite="ref5 p.631; DC-mismatch parameters: only dcmatch reads them (not in v1)")
+              for n in "mr mrl mrlp mrw mrwp".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.632; DC-mismatch parameters: only dcmatch reads them (not in v1)")
+              for n in "mrlw1 mrlw1p mrlw2 mrlw2p".split()],
+            ParamRule("c", "strip", match=("0",), cite="ref5 p.632; wire RC model: §3.8 c= -> error"),
+            ParamRule("c", "error", match=("nonzero",), cite="ref5 p.632; wire RC model: §3.8 c= -> error"),
+            ParamRule("cj", "strip", match=("0",), cite="ref5 p.632; wire RC capacitance: no target"),
+            ParamRule("cj", "error", match=("nonzero",), cite="ref5 p.632; wire RC capacitance: no target"),
+            ParamRule("cjsw", "strip", match=("0",), cite="ref5 p.632; wire RC"),
+            ParamRule("cjsw", "error", match=("nonzero",), cite="ref5 p.632; wire RC"),
+            ParamRule("thick", "strip", match=("0",), cite="ref5 p.632; wire RC dielectric"),
+            ParamRule("thick", "error", match=("nonzero",), cite="ref5 p.632; wire RC dielectric"),
+            ParamRule("di", "strip", match=("0",), cite="ref5 p.632; wire RC dielectric"),
+            ParamRule("di", "error", match=("nonzero",), cite="ref5 p.632; wire RC dielectric"),
+            ParamRule("cratio", "strip", cite="ref5 p.632; wire RC only (c, cj, cjsw are errors when nonzero)"),
+            ParamRule("tc1c", "strip", cite="ref5 p.632; wire RC only"),
+            ParamRule("tc2c", "strip", cite="ref5 p.632; wire RC only"),
+            ParamRule("shrink", "strip", match=("1",), cite="ref5 p.632; w/l shrink: no target"),
+            ParamRule("shrink", "error", cite="ref5 p.632; w/l shrink: no target"),
+            ParamRule("scalec", "strip", match=("1",), cite="ref5 p.632; wire RC only"),
+            ParamRule("scalec", "error", cite="ref5 p.632; wire RC only"),
+        ),
+        instance=(
+            ParamRule("r", "pass", cite="ref5 p.629; the instance value (Instance.value); sp_resistor r (resistor.va:86), Xyce R (N_DEV_Resistor.C:169)"),
+            ParamRule("l", "pass", cite="ref5 p.629; §3.8: l w -> sp_resistor (resistor.va:89-90; noise area); Instance.folded records them when they fed r"),
+            ParamRule("w", "pass", cite="ref5 p.629; §3.8; resistor.va:90"),
+            ParamRule("m", "pass", cite="ref5 p.629; multiplier (existing MULT rules)"),
+            ParamRule("scale", "fold", cite="ref5 p.629; §3.8: applied to w and l by spectre.py, never printed [E23]"),
+            ParamRule("resform", "strip", cite="ref5 p.629; formulation choice; r=0 prints as a short (§3.8)"),
+            ParamRule("tc1", "pass", cite="ref5 p.629; resistor.va:92; N_DEV_Resistor.C:194"),
+            ParamRule("tc2", "pass", cite="ref5 p.629; resistor.va:93; N_DEV_Resistor.C:198"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.629; §3.8: trise != 0 -> error"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.629; §3.8: trise != 0 -> error"),
+            ParamRule("isnoisy", "pass", cite="ref5 p.629; §4.5 item 7: VACASK noisy=0, Xyce the G form"),
+            ParamRule("c", "error", cite="ref5 p.629; §3.8: c= (wire RC) -> error"),
+            ParamRule("tc1c", "strip", cite="ref5 p.629; wire RC only (c is an error)"),
+            ParamRule("tc2c", "strip", cite="ref5 p.629; wire RC only"),
+        ),
+    ),
+    # -- capacitor [M ref5 pp.283-285] -----------------------------------------------
+    "capacitor": MasterRow(
+        "capacitor", "c", None, "",
+        kinds=(('', 'c'),),
+        terminals=('1', '2'),
+        geometry=(),
+        params=(
+            ParamRule("c", "fold", cite="ref5 p.284; §3.8: the instance's c, else the card's, else cj*Area_eff+cjsw*Perim_eff; spectre.py folds it"),
+            ParamRule("tc1", "pass", cite="ref5 p.284; sp_capacitor tc1 (capacitor.va:67; instance alias usable in a model statement); Xyce model TC1 (N_DEV_Capacitor.C:163)"),
+            ParamRule("tc2", "pass", cite="ref5 p.284; capacitor.va:68; N_DEV_Capacitor.C:165"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.284; card default temperature rise: no target; §3.8 trise != 0 -> error"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.284; card default temperature rise: no target; §3.8 trise != 0 -> error"),
+            ParamRule("tnom", "pass", cite="ref5 p.284; 'set by options' = the targets' 0 (capacitor.va:87; N_DEV_Capacitor.C:167)"),
+            ParamRule("w", "fold", cite="ref5 p.284; §3.8 fold"),
+            ParamRule("l", "fold", cite="ref5 p.284; §3.8 fold"),
+            ParamRule("etch", "fold", cite="ref5 p.284; §3.8 fold"),
+            ParamRule("cj", "fold", cite="ref5 p.284; §3.8 fold"),
+            ParamRule("cjsw", "fold", cite="ref5 p.285; §3.8 fold"),
+            ParamRule("scalec", "strip", match=("1",), cite="ref5 p.285; §3.8: scalec != 1 -> error"),
+            ParamRule("scalec", "error", cite="ref5 p.285; §3.8: scalec != 1 -> error"),
+            ParamRule("coeffs", "error", cite="ref5 p.285; nonlinear coeffs= on C: error in v1 (§0)"),
+            ParamRule("rforce", "strip", cite="ref5 p.285; resistance used when forcing initial conditions: a numerical aid of Spectre's ic mechanism"),
+        ),
+        instance=(
+            ParamRule("c", "pass", cite="ref5 p.283; the instance value; sp_capacitor c (capacitor.va:62), Xyce C (N_DEV_Capacitor.C:77)"),
+            ParamRule("w", "fold", cite="ref5 p.283; §3.8: feeds the computed c (Instance.folded)"),
+            ParamRule("l", "fold", cite="ref5 p.283; §3.8 fold"),
+            ParamRule("m", "pass", cite="ref5 p.283; multiplier"),
+            ParamRule("scale", "fold", cite="ref5 p.283; p.283: scales w and l (as the resistor's); never printed"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.284; §3.8: trise != 0 -> error"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.284; §3.8: trise != 0 -> error"),
+            ParamRule("tc1", "pass", cite="ref5 p.284; capacitor.va:67; N_DEV_Capacitor.C:113"),
+            ParamRule("tc2", "pass", cite="ref5 p.284; capacitor.va:68; N_DEV_Capacitor.C:117"),
+            ParamRule("ic", "pass", cite="ref5 p.284; §0: device ic= on C is an error unless every tran uses ic=dc or ic=node; plan.build decides"),
+            ParamRule("area", "fold", cite="ref5 p.284; §3.8: feeds the computed c (Instance.folded)"),
+            ParamRule("perim", "fold", cite="ref5 p.284; §3.8 fold"),
+        ),
+    ),
+    # -- inductor [M ref5 pp.373-374] ------------------------------------------------
+    "inductor": MasterRow(
+        "inductor", "l", None, "",
+        kinds=(('', 'l'),),
+        terminals=('1', '2'),
+        geometry=(),
+        params=(
+            ParamRule("l", "fold", cite="ref5 p.373; §3.8: the instance's l, else the card's l, else 0; spectre.py folds it"),
+            ParamRule("r", "strip", match=("0",), cite="ref5 p.373; §0: a series r= on an inductor -> error (v1)"),
+            ParamRule("r", "error", match=("nonzero",), cite="ref5 p.373; §0: a series r= on an inductor -> error (v1)"),
+            ParamRule("tc1", "pass", cite="ref5 p.373; sp_inductor tc1 (inductor.va:68; instance alias usable in a model statement); Xyce model TC1 (N_DEV_Inductor.C:127)"),
+            ParamRule("tc2", "pass", cite="ref5 p.373; inductor.va:69; N_DEV_Inductor.C:132"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.373; card default temperature rise: no target (the R/C reading of §3.8)"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.373; card default temperature rise: no target (the R/C reading of §3.8)"),
+            ParamRule("tnom", "pass", cite="ref5 p.373; 'set by options': sp_inductor tnom=0 (inductor.va:77); Xyce's inductor model TNOM default is 27 (N_DEV_Inductor.C:122), which matters only with tc1/tc2 and a tnom option other than 27"),
+            ParamRule("rforce", "strip", cite="ref5 p.373; a numerical aid of Spectre's nodeset/ic forcing"),
+            ParamRule("coeffs", "error", cite="ref5 p.374; nonlinear coeffs= on L: error in v1 (§0)"),
+            ParamRule("scalei", "strip", match=("1",), cite="ref5 p.374; inductance scaling factor: no target"),
+            ParamRule("scalei", "error", cite="ref5 p.374; inductance scaling factor: no target"),
+            ParamRule("kf", "strip", cite="ref5 p.374; flicker noise of the series resistance, which is an error when nonzero"),
+            ParamRule("af", "strip", cite="ref5 p.374; as kf"),
+        ),
+        instance=(
+            ParamRule("l", "pass", cite="ref5 p.373; the instance value; sp_inductor l (inductor.va:65), Xyce L (N_DEV_Inductor.C:66)"),
+            ParamRule("r", "strip", match=("0",), cite="ref5 p.373; §3.8: r= -> error (v1)"),
+            ParamRule("r", "error", match=("nonzero",), cite="ref5 p.373; §3.8: r= -> error (v1)"),
+            ParamRule("m", "pass", cite="ref5 p.373; multiplier"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.373; the R/C reading of §3.8: trise != 0 -> error"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.373; the R/C reading of §3.8: trise != 0 -> error"),
+            ParamRule("ic", "pass", cite="ref5 p.373; §0: device ic= on L is an error unless every tran uses ic=dc or ic=node; plan.build decides"),
+            ParamRule("isnoisy", "strip", cite="ref5 p.373; noise of the series resistance, which is an error when nonzero"),
+        ),
+    ),
+    # -- vsource [M ref5 pp.683-686] -------------------------------------------------
+    "vsource": MasterRow(
+        "vsource", "v", None, "",
+        kinds=(),
+        terminals=('p', 'n'),
+        geometry=(),
+        params=(),
+        instance=(
+            ParamRule("dc", "pass", cite="ref5 p.683; §3.8.1 Source.dc"),
+            ParamRule("type", "pass", cite="ref5 p.683; §3.8.1: dc pulse pwl sine exp -> Source.wave"),
+            ParamRule("fundname", "pass", cite="ref5 p.683; §3.8.1: silent (only pac/pdisto/envlp read it)"),
+            ParamRule("delay", "pass", cite="ref5 p.683; §3.8.1 td"),
+            ParamRule("val0", "pass", cite="ref5 p.683; §3.8.1 pulse/exp v1"),
+            ParamRule("val1", "pass", cite="ref5 p.683; §3.8.1 v2"),
+            ParamRule("period", "pass", cite="ref5 p.683; §3.8.1: default inf -> no per"),
+            ParamRule("rise", "pass", cite="ref5 p.683; §3.8.1: absent or 0 -> transres, with a warning when a tran runs"),
+            ParamRule("fall", "pass", cite="ref5 p.683; §3.8.1: as rise"),
+            ParamRule("width", "pass", cite="ref5 p.683; §3.8.1: default inf -> pw=1e30"),
+            ParamRule("file", "pass", cite="ref5 p.684; §3.8.1: two-column file, cwd then -I"),
+            ParamRule("wave", "pass", cite="ref5 p.684; §3.8.1 pwl points"),
+            ParamRule("offset", "pass", cite="ref5 p.684; §3.8.1 pwl v*scale+offset"),
+            ParamRule("scale", "pass", cite="ref5 p.684; §3.8.1 pwl"),
+            ParamRule("stretch", "pass", cite="ref5 p.684; §3.8.1 pwl t*stretch"),
+            ParamRule("allbrkpts", "pass", cite="ref5 p.684; §3.8.1: ignored"),
+            ParamRule("pwlperiod", "error", cite="ref5 p.684; §0, §3.8.1: periodic PWL -> error"),
+            ParamRule("twidth", "error", cite="ref5 p.684; §0, §3.8.1: periodic PWL -> error"),
+            ParamRule("sinedc", "pass", cite="ref5 p.684; §3.8.1: defaults to dc"),
+            ParamRule("ampl", "pass", cite="ref5 p.684; §3.8.1 va"),
+            ParamRule("freq", "pass", cite="ref5 p.684; §3.8.1: 0 gives a constant"),
+            ParamRule("sinephase", "pass", cite="ref5 p.684; §3.8.1 phase"),
+            ParamRule("ampl2", "error", cite="ref5 p.684; §0, §3.8.1: second sinusoid -> error"),
+            ParamRule("freq2", "error", cite="ref5 p.684; §0, §3.8.1"),
+            ParamRule("sinephase2", "error", cite="ref5 p.684; §0, §3.8.1"),
+            ParamRule("fundname2", "pass", cite="ref5 p.684; §3.8.1: silent (second fundamental name; freq2 is an error)"),
+            ParamRule("fmmodindex", "error", cite="ref5 p.684; §0, §3.8.1: FM modulation -> error"),
+            ParamRule("fmmodfreq", "error", cite="ref5 p.685; §0, §3.8.1"),
+            ParamRule("ammodindex", "error", cite="ref5 p.685; §0, §3.8.1: AM modulation -> error"),
+            ParamRule("ammodfreq", "error", cite="ref5 p.685; §0, §3.8.1"),
+            ParamRule("ammodphase", "error", cite="ref5 p.685; §0, §3.8.1"),
+            ParamRule("damp", "pass", cite="ref5 p.685; §3.8.1 theta"),
+            ParamRule("td1", "pass", cite="ref5 p.685; §3.8.1: td1' = delay+td1"),
+            ParamRule("tau1", "pass", cite="ref5 p.685; §3.8.1: missing -> error"),
+            ParamRule("td2", "pass", cite="ref5 p.685; §3.8.1"),
+            ParamRule("tau2", "pass", cite="ref5 p.685; §3.8.1"),
+            ParamRule("noisefile", "pass", cite="ref5 p.685; §3.8.1: error while a noise analysis runs, else silent (run-dependent: resolve_source/plan.build)"),
+            ParamRule("noisevec", "pass", cite="ref5 p.685; §3.8.1: as noisefile"),
+            ParamRule("mag", "pass", cite="ref5 p.685; §3.8.1 Source.ac"),
+            ParamRule("phase", "pass", cite="ref5 p.685; §3.8.1 Source.ac"),
+            ParamRule("xfmag", "pass", match=("1",), cite="ref5 p.685; §3.8.1: 1 is the neutral value"),
+            ParamRule("xfmag", "pass", cite="ref5 p.685; §3.8.1: != 1 while an xf runs -> error (run-dependent: resolve_source/plan.build)"),
+            ParamRule("pacmag", "pass", cite="ref5 p.685; §3.8.1: silent (pac only)"),
+            ParamRule("pacphase", "pass", cite="ref5 p.685; §3.8.1: silent"),
+            ParamRule("m", "pass", cite="ref5 p.686; multiplier (existing rules)"),
+            ParamRule("tc1", "pass", match=("0",), cite="ref5 p.686; §3.8.1: 0 is the neutral value"),
+            ParamRule("tc1", "error", match=("nonzero",), cite="ref5 p.686; §3.8.1: tc1 != 0 -> error"),
+            ParamRule("tc2", "pass", match=("0",), cite="ref5 p.686; §3.8.1"),
+            ParamRule("tc2", "error", match=("nonzero",), cite="ref5 p.686; §3.8.1: tc2 != 0 -> error"),
+            ParamRule("tnom", "strip", cite="ref5 p.686; the reference temperature of tc1/tc2, which are errors when nonzero"),
+        ),
+    ),
+    # -- isource [M ref5 pp.380-383] -------------------------------------------------
+    "isource": MasterRow(
+        "isource", "i", None, "",
+        kinds=(),
+        terminals=('sink', 'src'),
+        geometry=(),
+        params=(),
+        instance=(
+            ParamRule("dc", "pass", cite="ref5 p.380; §3.8.1 Source.dc"),
+            ParamRule("type", "pass", cite="ref5 p.380; §3.8.1: dc pulse pwl sine exp -> Source.wave"),
+            ParamRule("fundname", "pass", cite="ref5 p.380; §3.8.1: silent (only pac/pdisto/envlp read it)"),
+            ParamRule("delay", "pass", cite="ref5 p.381; §3.8.1 td"),
+            ParamRule("val0", "pass", cite="ref5 p.381; §3.8.1 pulse/exp v1"),
+            ParamRule("val1", "pass", cite="ref5 p.381; §3.8.1 v2"),
+            ParamRule("period", "pass", cite="ref5 p.381; §3.8.1: default inf -> no per"),
+            ParamRule("rise", "pass", cite="ref5 p.381; §3.8.1: absent or 0 -> transres, with a warning when a tran runs"),
+            ParamRule("fall", "pass", cite="ref5 p.381; §3.8.1: as rise"),
+            ParamRule("width", "pass", cite="ref5 p.381; §3.8.1: default inf -> pw=1e30"),
+            ParamRule("file", "pass", cite="ref5 p.381; §3.8.1: two-column file, cwd then -I"),
+            ParamRule("wave", "pass", cite="ref5 p.381; §3.8.1 pwl points"),
+            ParamRule("offset", "pass", cite="ref5 p.381; §3.8.1 pwl v*scale+offset"),
+            ParamRule("scale", "pass", cite="ref5 p.381; §3.8.1 pwl"),
+            ParamRule("stretch", "pass", cite="ref5 p.381; §3.8.1 pwl t*stretch"),
+            ParamRule("allbrkpts", "pass", cite="ref5 p.381; §3.8.1: ignored"),
+            ParamRule("pwlperiod", "error", cite="ref5 p.381; §0, §3.8.1: periodic PWL -> error"),
+            ParamRule("twidth", "error", cite="ref5 p.381; §0, §3.8.1: periodic PWL -> error"),
+            ParamRule("sinedc", "pass", cite="ref5 p.381; §3.8.1: defaults to dc"),
+            ParamRule("ampl", "pass", cite="ref5 p.382; §3.8.1 va"),
+            ParamRule("freq", "pass", cite="ref5 p.382; §3.8.1: 0 gives a constant"),
+            ParamRule("sinephase", "pass", cite="ref5 p.382; §3.8.1 phase"),
+            ParamRule("ampl2", "error", cite="ref5 p.382; §0, §3.8.1: second sinusoid -> error"),
+            ParamRule("freq2", "error", cite="ref5 p.382; §0, §3.8.1"),
+            ParamRule("sinephase2", "error", cite="ref5 p.382; §0, §3.8.1"),
+            ParamRule("fundname2", "pass", cite="ref5 p.382; §3.8.1: silent (second fundamental name; freq2 is an error)"),
+            ParamRule("fmmodindex", "error", cite="ref5 p.382; §0, §3.8.1: FM modulation -> error"),
+            ParamRule("fmmodfreq", "error", cite="ref5 p.382; §0, §3.8.1"),
+            ParamRule("ammodindex", "error", cite="ref5 p.382; §0, §3.8.1: AM modulation -> error"),
+            ParamRule("ammodfreq", "error", cite="ref5 p.382; §0, §3.8.1"),
+            ParamRule("ammodphase", "error", cite="ref5 p.382; §0, §3.8.1"),
+            ParamRule("damp", "pass", cite="ref5 p.382; §3.8.1 theta"),
+            ParamRule("td1", "pass", cite="ref5 p.382; §3.8.1: td1' = delay+td1"),
+            ParamRule("tau1", "pass", cite="ref5 p.382; §3.8.1: missing -> error"),
+            ParamRule("td2", "pass", cite="ref5 p.382; §3.8.1"),
+            ParamRule("tau2", "pass", cite="ref5 p.382; §3.8.1"),
+            ParamRule("noisefile", "pass", cite="ref5 p.382; §3.8.1: error while a noise analysis runs, else silent (run-dependent: resolve_source/plan.build)"),
+            ParamRule("noisevec", "pass", cite="ref5 p.383; §3.8.1: as noisefile"),
+            ParamRule("mag", "pass", cite="ref5 p.383; §3.8.1 Source.ac"),
+            ParamRule("phase", "pass", cite="ref5 p.383; §3.8.1 Source.ac"),
+            ParamRule("xfmag", "pass", match=("1",), cite="ref5 p.383; §3.8.1: 1 is the neutral value"),
+            ParamRule("xfmag", "pass", cite="ref5 p.383; §3.8.1: != 1 while an xf runs -> error (run-dependent: resolve_source/plan.build)"),
+            ParamRule("pacmag", "pass", cite="ref5 p.383; §3.8.1: silent (pac only)"),
+            ParamRule("pacphase", "pass", cite="ref5 p.383; §3.8.1: silent"),
+            ParamRule("m", "pass", cite="ref5 p.383; multiplier (existing rules)"),
+            ParamRule("tc1", "pass", match=("0",), cite="ref5 p.383; §3.8.1: 0 is the neutral value"),
+            ParamRule("tc1", "error", match=("nonzero",), cite="ref5 p.383; §3.8.1: tc1 != 0 -> error"),
+            ParamRule("tc2", "pass", match=("0",), cite="ref5 p.383; §3.8.1"),
+            ParamRule("tc2", "error", match=("nonzero",), cite="ref5 p.383; §3.8.1: tc2 != 0 -> error"),
+            ParamRule("tnom", "strip", cite="ref5 p.383; the reference temperature of tc1/tc2, which are errors when nonzero"),
+        ),
+    ),
+    # -- iprobe ------------------------------------------------------------------------------
+    "iprobe": MasterRow(
+        "iprobe", "v", None, "",
+        kinds=(),
+        terminals=('in', 'out'),
+        geometry=(),
+        params=(),
+        instance=(),
+    ),
+    # -- vcvs [M ref5 pp.681-681] ----------------------------------------------------
+    "vcvs": MasterRow(
+        "vcvs", "e", None, "",
+        kinds=(),
+        terminals=('p', 'n', 'ps', 'ns'),
+        geometry=(),
+        params=(),
+        instance=(
+            ParamRule("m", "pass", cite="ref5 p.681; multiplier"),
+            ParamRule("type", "fold", match=("vcvs",), cite="ref5 p.681; the linear vcvs is the IR kind"),
+            ParamRule("type", "error", cite="ref5 p.681; logic (and/nand/or/nor) and vcr/vccap forms: not in v1"),
+            ParamRule("delta", "strip", match=("0",), cite="ref5 p.681; smoothing of the logic forms"),
+            ParamRule("delta", "error", match=("nonzero",), cite="ref5 p.681; smoothing of the logic forms"),
+            ParamRule("gain", "pass", cite="ref5 p.681; VACASK vcvs gain (dev-builtin-vcvs.md); Xyce E gain (N_DEV_Vcvs.C:63)"),
+            ParamRule("min", "error", cite="ref5 p.681; output clamping: no target"),
+            ParamRule("max", "error", cite="ref5 p.681; output clamping: no target"),
+            ParamRule("abs", "strip", match=("off",), cite="ref5 p.681; off is the linear source"),
+            ParamRule("abs", "error", cite="ref5 p.681; absolute output: no target"),
+            ParamRule("file", "error", cite="ref5 p.681; PWL transfer function: not in v1"),
+            ParamRule("pwl", "error", cite="ref5 p.681; PWL transfer function: not in v1"),
+            ParamRule("scale", "strip", match=("1",), cite="ref5 p.681; PWL output scale (pwl is an error)"),
+            ParamRule("scale", "error", cite="ref5 p.681; PWL output scale (pwl is an error)"),
+            ParamRule("stretch", "strip", match=("1",), cite="ref5 p.681; PWL controlling-value scale (pwl is an error)"),
+            ParamRule("stretch", "error", cite="ref5 p.681; PWL controlling-value scale (pwl is an error)"),
+            ParamRule("tc1", "strip", match=("0",), cite="ref5 p.681; gain temperature coefficient: no target"),
+            ParamRule("tc1", "error", match=("nonzero",), cite="ref5 p.681; gain temperature coefficient: no target"),
+        ),
+    ),
+    # -- vccs [M ref5 pp.679-679] ----------------------------------------------------
+    "vccs": MasterRow(
+        "vccs", "g", None, "",
+        kinds=(),
+        terminals=('sink', 'src', 'ps', 'ns'),
+        geometry=(),
+        params=(),
+        instance=(
+            ParamRule("m", "pass", cite="ref5 p.679; multiplier"),
+            ParamRule("type", "fold", match=("vccs",), cite="ref5 p.679; the linear vccs is the IR kind"),
+            ParamRule("type", "error", cite="ref5 p.679; logic (and/nand/or/nor) and vcr/vccap forms: not in v1"),
+            ParamRule("delta", "strip", match=("0",), cite="ref5 p.679; smoothing of the logic forms"),
+            ParamRule("delta", "error", match=("nonzero",), cite="ref5 p.679; smoothing of the logic forms"),
+            ParamRule("gm", "pass", cite="ref5 p.679; VACASK vccs gain (dev-builtin-vccs.md); Xyce G transconductance (N_DEV_VCCS.C:63)"),
+            ParamRule("min", "error", cite="ref5 p.679; output clamping: no target"),
+            ParamRule("max", "error", cite="ref5 p.679; output clamping: no target"),
+            ParamRule("abs", "strip", match=("off",), cite="ref5 p.679; off is the linear source"),
+            ParamRule("abs", "error", cite="ref5 p.679; absolute output: no target"),
+            ParamRule("file", "error", cite="ref5 p.679; PWL transfer function: not in v1"),
+            ParamRule("pwl", "error", cite="ref5 p.679; PWL transfer function: not in v1"),
+            ParamRule("scale", "strip", match=("1",), cite="ref5 p.679; PWL output scale (pwl is an error)"),
+            ParamRule("scale", "error", cite="ref5 p.679; PWL output scale (pwl is an error)"),
+            ParamRule("stretch", "strip", match=("1",), cite="ref5 p.679; PWL controlling-value scale (pwl is an error)"),
+            ParamRule("stretch", "error", cite="ref5 p.679; PWL controlling-value scale (pwl is an error)"),
+            ParamRule("tc1", "strip", match=("0",), cite="ref5 p.679; gain temperature coefficient: no target"),
+            ParamRule("tc1", "error", match=("nonzero",), cite="ref5 p.679; gain temperature coefficient: no target"),
+            ParamRule("tc2", "strip", match=("0",), cite="ref5 p.679; gain temperature coefficient: no target"),
+            ParamRule("tc2", "error", match=("nonzero",), cite="ref5 p.679; gain temperature coefficient: no target"),
+        ),
+    ),
+    # -- ccvs [M ref5 pp.289-289] ----------------------------------------------------
+    "ccvs": MasterRow(
+        "ccvs", "h", None, "",
+        kinds=(),
+        terminals=('p', 'n'),
+        geometry=(),
+        params=(),
+        instance=(
+            ParamRule("m", "pass", cite="ref5 p.289; multiplier"),
+            ParamRule("probe", "pass", cite="ref5 p.289; §3.8: a vsource or iprobe; VACASK ctlinst (dev-builtin-ccvs.md), Xyce the controlling source"),
+            ParamRule("port", "strip", match=("0",), cite="ref5 p.289; the probe's port index: a vsource/iprobe has one port"),
+            ParamRule("port", "error", cite="ref5 p.289; the probe's port index: a vsource/iprobe has one port"),
+            ParamRule("probes", "error", cite="ref5 p.289; multi-input controlled source: no target"),
+            ParamRule("ports", "error", cite="ref5 p.289; multi-input"),
+            ParamRule("type", "fold", match=("ccvs",), cite="ref5 p.289; the linear ccvs is the IR kind"),
+            ParamRule("type", "error", cite="ref5 p.289; logic (and/nand/or/nor) and vcr/vccap forms: not in v1"),
+            ParamRule("delta", "strip", match=("0",), cite="ref5 p.289; smoothing of the logic forms"),
+            ParamRule("delta", "error", match=("nonzero",), cite="ref5 p.289; smoothing of the logic forms"),
+            ParamRule("rm", "pass", cite="ref5 p.289; VACASK ccvs gain (dev-builtin-ccvs.md); Xyce H"),
+            ParamRule("min", "error", cite="ref5 p.289; output clamping: no target"),
+            ParamRule("max", "error", cite="ref5 p.289; output clamping: no target"),
+            ParamRule("abs", "strip", match=("off",), cite="ref5 p.289; off is the linear source"),
+            ParamRule("abs", "error", cite="ref5 p.289; absolute output: no target"),
+            ParamRule("file", "error", cite="ref5 p.289; PWL transfer function: not in v1"),
+            ParamRule("pwl", "error", cite="ref5 p.289; PWL transfer function: not in v1"),
+            ParamRule("scale", "strip", match=("1",), cite="ref5 p.289; PWL output scale (pwl is an error)"),
+            ParamRule("scale", "error", cite="ref5 p.289; PWL output scale (pwl is an error)"),
+        ),
+    ),
+    # -- cccs [M ref5 pp.286-287] ----------------------------------------------------
+    "cccs": MasterRow(
+        "cccs", "f", None, "",
+        kinds=(),
+        terminals=('sink', 'src'),
+        geometry=(),
+        params=(),
+        instance=(
+            ParamRule("m", "pass", cite="ref5 p.286; multiplier"),
+            ParamRule("probe", "pass", cite="ref5 p.286; §3.8: a vsource or iprobe; VACASK ctlinst (dev-builtin-cccs.md), Xyce the controlling source"),
+            ParamRule("port", "strip", match=("0",), cite="ref5 p.286; the probe's port index: a vsource/iprobe has one port"),
+            ParamRule("port", "error", cite="ref5 p.286; the probe's port index: a vsource/iprobe has one port"),
+            ParamRule("probes", "error", cite="ref5 p.286; multi-input controlled source: no target"),
+            ParamRule("ports", "error", cite="ref5 p.286; multi-input"),
+            ParamRule("type", "fold", match=("cccs",), cite="ref5 p.286; the linear cccs is the IR kind"),
+            ParamRule("type", "error", cite="ref5 p.286; logic (and/nand/or/nor) and vcr/vccap forms: not in v1"),
+            ParamRule("delta", "strip", match=("0",), cite="ref5 p.287; smoothing of the logic forms"),
+            ParamRule("delta", "error", match=("nonzero",), cite="ref5 p.287; smoothing of the logic forms"),
+            ParamRule("gain", "pass", cite="ref5 p.287; VACASK cccs gain (dev-builtin-cccs.md); Xyce F"),
+            ParamRule("min", "error", cite="ref5 p.287; output clamping: no target"),
+            ParamRule("max", "error", cite="ref5 p.287; output clamping: no target"),
+            ParamRule("abs", "strip", match=("off",), cite="ref5 p.287; off is the linear source"),
+            ParamRule("abs", "error", cite="ref5 p.287; absolute output: no target"),
+            ParamRule("file", "error", cite="ref5 p.287; PWL transfer function: not in v1"),
+            ParamRule("pwl", "error", cite="ref5 p.287; PWL transfer function: not in v1"),
+            ParamRule("scale", "strip", match=("1",), cite="ref5 p.287; PWL output scale (pwl is an error)"),
+            ParamRule("scale", "error", cite="ref5 p.287; PWL output scale (pwl is an error)"),
+            ParamRule("stretch", "strip", match=("1",), cite="ref5 p.287; PWL controlling-value scale (pwl is an error)"),
+            ParamRule("stretch", "error", cite="ref5 p.287; PWL controlling-value scale (pwl is an error)"),
+            ParamRule("tc1", "strip", match=("0",), cite="ref5 p.287; gain temperature coefficient: no target"),
+            ParamRule("tc1", "error", match=("nonzero",), cite="ref5 p.287; gain temperature coefficient: no target"),
+            ParamRule("tc2", "strip", match=("0",), cite="ref5 p.287; gain temperature coefficient: no target"),
+            ParamRule("tc2", "error", match=("nonzero",), cite="ref5 p.287; gain temperature coefficient: no target"),
+        ),
+    ),
+    # -- mutual_inductor [M ref5 pp.577-577] -----------------------------------------
+    "mutual_inductor": MasterRow(
+        "mutual_inductor", "k", None, "",
+        kinds=(),
+        terminals=(),
+        geometry=(),
+        params=(),
+        instance=(
+            ParamRule("coupling", "pass", cite="ref5 p.577; VACASK mutual k (dev-builtin-mutual.md); Xyce K coupling (N_DEV_MutIndLin.C:149)"),
+            ParamRule("ind1", "pass", cite="ref5 p.577; VACASK ind1; Xyce the coupled inductor names"),
+            ParamRule("ind2", "pass", cite="ref5 p.577; as ind1"),
+        ),
+    ),
+    # -- diode [M ref5 pp.302-308] ---------------------------------------------------
+    "diode": MasterRow(
+        "diode", "d", 1, "",
+        kinds=(('', 'd'),),
+        terminals=('a', 'c'),
+        geometry=(),
+        params=(
+            ParamRule("level", "fold", match=("1",), cite="ref5 p.303; §3.9: level 1 (junction) is the DISPATCH level"),
+            ParamRule("level", "error", cite="ref5 p.303; §3.9: Spectre's diode levels 2 (Fowler-Nordheim) and 3 are errors"),
+            ParamRule("hcomp", "strip", match=("0",), cite="ref5 p.303; §3.9: 0 selects Spectre's junction equations"),
+            ParamRule("hcomp", "error", match=("nonzero",), cite="ref5 p.303; §3.9: hcomp != 0 -> error in v1"),
+            ParamRule("dcap", "strip", cite="ref5 p.303; §3.9: Spectre's dcap acts only with level 3 and hcomp=1 (both errors); never HSPICE's DCAP"),
+            ParamRule("etch", "strip", match=("0",), cite="ref5 p.304; ref5 documents no level-1 use of the drawn geometry"),
+            ParamRule("etch", "strip", warn="card", cite="ref5 p.304; see 0"),
+            ParamRule("etchl", "strip", warn="card", cite="ref5 p.304; as etch (default etchl=etch)"),
+            ParamRule("shrink", "strip", match=("1",), cite="ref5 p.304; level 3 only"),
+            ParamRule("shrink", "strip", warn="card", cite="ref5 p.304; level 3 only"),
+            ParamRule("l", "strip", match=("1e-6",), cite="ref5 p.304; default drawn length: ref5 documents no level-1 use; sp_diode would compute area and pj from w and l (diode.va:657-659)"),
+            ParamRule("l", "strip", warn="card", cite="ref5 p.304; see 1e-6"),
+            ParamRule("w", "strip", match=("1e-6",), cite="ref5 p.304; as l"),
+            ParamRule("w", "strip", warn="card", cite="ref5 p.304; as l"),
+            ParamRule("js", "pass", cite="ref5 p.304; sp_diode is (alias js, diode.va:111); Xyce JS (N_DEV_Diode.C:108)"),
+            ParamRule("jsw", "pass", cite="ref5 p.304; diode.va:112; N_DEV_Diode.C:115"),
+            ParamRule("n", "pass", cite="ref5 p.304; diode.va:121; N_DEV_Diode.C:131"),
+            ParamRule("ns", "pass", cite="ref5 p.304; diode.va:122; N_DEV_Diode.C:138"),
+            ParamRule("ik", "rename", "ikf", cite="ref5 p.304; sp_diode ikf (alias ik, diode.va:141); Xyce IKF (N_DEV_Diode.C:160); inf = the targets' 0 (off)"),
+            ParamRule("ikp", "default", "=ik", "absent:ikp,given:ik,given:jsw", cite="ref5 p.304; ref5 ikp=ik: sp_diode ikp=0 is off (diode.va:143); Xyce has no IKP: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("ikp", "pass", cite="ref5 p.304; diode.va:143; Xyce has no IKP: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("ikr", "pass", cite="ref5 p.304; diode.va:142; Xyce has no IKR: the output scan of the deck fails loudly (§7.2); inf = 0 (off)"),
+            ParamRule("area", "strip", match=("1",), cite="ref5 p.304; model default area factor 1 = the instance default of both targets (diode.va:146; N_DEV_Diode.C:67)"),
+            ParamRule("area", "rename", "model_area", cite="ref5 p.304; sp_diode model_area (diode.va:146); Xyce has no model-level AREA (fails loudly)"),
+            ParamRule("perim", "strip", match=("0",), cite="ref5 p.304; model default perimeter factor 0 = the targets' instance default"),
+            ParamRule("perim", "rename", "model_pj", cite="ref5 p.304; sp_diode model_pj (diode.va:147); Xyce has none"),
+            ParamRule("allow_scaling", "strip", cite="ref5 p.304; the instance scale is an error when != 1"),
+            ParamRule("tt", "pass", cite="ref5 p.304; diode.va:123; N_DEV_Diode.C:167"),
+            ParamRule("cd", "strip", match=("0",), cite="ref5 p.304; linear capacitance *area: no target"),
+            ParamRule("cd", "error", match=("nonzero",), cite="ref5 p.304; linear capacitance *area: no target"),
+            ParamRule("cjo", "pass", cite="ref5 p.305; diode.va:126; N_DEV_Diode.C:174"),
+            ParamRule("vj", "pass", cite="ref5 p.305; diode.va:129; N_DEV_Diode.C:199; equal defaults (1) are not written"),
+            ParamRule("pb", "rename", "vj", cite="ref5 p.305; alias of vj: sp_diode pb (diode.va:130), Xyce has only VJ"),
+            ParamRule("m", "pass", cite="ref5 p.305; grading coefficient: diode.va:131 (alias mj); N_DEV_Diode.C:206"),
+            ParamRule("cjsw", "pass", cite="ref5 p.305; diode.va:136 (alias of cjp); N_DEV_Diode.C:212"),
+            ParamRule("vjsw", "pass", cite="ref5 p.305; diode.va:138 (alias of php); N_DEV_Diode.C:235"),
+            ParamRule("mjsw", "pass", cite="ref5 p.305; 0.33 on both targets (diode.va:139; N_DEV_Diode.C:242): not written (§3.9)"),
+            ParamRule("fc", "pass", cite="ref5 p.305; 0.5 on both targets (diode.va:167; N_DEV_Diode.C:299): not written (§3.9)"),
+            ParamRule("fcs", "default", "=fc", "absent:fcs,given:fc", cite="ref5 p.305; §3.9 table: ref5 fcs=fc; the targets' fcs=0.5 (diode.va:168; N_DEV_Diode.C:305)"),
+            ParamRule("fcs", "pass", cite="ref5 p.305; diode.va:168; N_DEV_Diode.C:305"),
+            *[ParamRule(n, "strip", cite="ref5 p.305; level 3 only (metal/poly capacitances); level 3 is an error")
+              for n in "lm lp wm wp xm xp xoi xom xw".split()],
+            ParamRule("bv", "pass", cite="ref5 p.305; inf = no breakdown = sp_diode bv=0 (diode.va:169), Xyce BV=1e99 (N_DEV_Diode.C:311)"),
+            ParamRule("vb", "rename", "bv", cite="ref5 p.306; alias of bv (diode.va:170; N_DEV_Diode.C:320)"),
+            ParamRule("ibv", "pass", cite="ref5 p.306; diode.va:173; N_DEV_Diode.C:328"),
+            ParamRule("nbv", "default", "1", "absent:nz,given:n", cite="ref5 nz=1 (p.306); the targets default nbv to n (diode.va:602; N_DEV_Diode.C:1631)"),
+            ParamRule("nz", "rename", "nbv", cite="ref5 p.306; sp_diode nbv (alias nz, diode.va:145); Xyce NBV (N_DEV_Diode.C:335)"),
+            ParamRule("bvj", "strip", cite="ref5 p.306; breakdown warning threshold"),
+            ParamRule("rs", "pass", cite="ref5 p.306; diode.va:116; N_DEV_Diode.C:123"),
+            ParamRule("rsw", "pass", cite="ref5 p.306; diode.va:117; Xyce has no RSW: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("gleak", "strip", match=("0",), cite="ref5 p.306; junction leakage conductance: no target"),
+            ParamRule("gleak", "error", match=("nonzero",), cite="ref5 p.306; junction leakage conductance: no target"),
+            ParamRule("gleaksw", "strip", match=("0",), cite="ref5 p.306; no target"),
+            ParamRule("gleaksw", "error", match=("nonzero",), cite="ref5 p.306; no target"),
+            ParamRule("minr", "strip", cite="ref5 p.306; minimum series resistance: a Spectre numerical floor"),
+            ParamRule("tlev", "pass", cite="ref5 p.306; sp_diode tlev (diode.va:148, HSPICE's TLEV); Xyce has no TLEV: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("tlevc", "pass", cite="ref5 p.306; diode.va:149; Xyce has no TLEVC: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("eg", "default", "1.124481", "absent:eg", warn="temp!=tnom", cite="ref5 p.306; §3.9 table: ref5 eg at 27 C; the targets 1.11 (diode.va:605-611; N_DEV_Diode.C:248) [E34]"),
+            ParamRule("eg", "pass", cite="ref5 p.306; diode.va:150; N_DEV_Diode.C:248"),
+            ParamRule("gap1", "pass", cite="ref5 p.306; diode.va:151; Xyce has no GAP1: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("gap2", "pass", cite="ref5 p.306; diode.va:152; Xyce has no GAP2: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("xti", "pass", cite="ref5 p.306; diode.va:153; N_DEV_Diode.C:255"),
+            ParamRule("tbv1", "pass", cite="ref5 p.306; sp_diode tcv (alias tbv1, diode.va:176); Xyce TBV1 (N_DEV_Diode.C:268)"),
+            ParamRule("tbv2", "pass", cite="ref5 p.306; Xyce TBV2 (N_DEV_Diode.C:273); sp_diode has no tbv2: VACASK fails loudly at elaboration"),
+            ParamRule("tnom", "pass", cite="ref5 p.306; diode.va:114; N_DEV_Diode.C:354"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.306; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.306; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("trs", "pass", cite="ref5 p.307; diode.va:118; N_DEV_Diode.C:285"),
+            ParamRule("trs2", "pass", cite="ref5 p.307; diode.va:120; N_DEV_Diode.C:292"),
+            ParamRule("tgs", "strip", cite="ref5 p.307; temperature coefficient of gleak, which is an error when nonzero"),
+            ParamRule("tgs2", "strip", cite="ref5 p.307; as tgs"),
+            ParamRule("cta", "pass", cite="ref5 p.307; diode.va:154; Xyce has no CTA: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("ctp", "pass", cite="ref5 p.307; diode.va:156; Xyce has no CTP: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("pta", "rename", "tpb", cite="ref5 p.307; junction potential temperature coefficient: sp_diode tpb (diode.va:157, HSPICE's TPB); Xyce has none"),
+            ParamRule("ptp", "rename", "tphp", cite="ref5 p.307; sidewall potential temperature coefficient: sp_diode tphp (diode.va:159); Xyce has none"),
+            *[ParamRule(n, "strip", cite="ref5 p.307; explosion/limit currents and a convergence aid")
+              for n in "jmelt jmax dskip".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.307; Fowler-Nordheim parameters (level 2, an error); nr must not reach the targets' NR")
+              for n in "if ir ecrf ecrr nf nr tox".split()],
+            ParamRule("kf", "pass", cite="ref5 p.308; diode.va:165; N_DEV_Diode.C:360"),
+            ParamRule("af", "pass", cite="ref5 p.308; diode.va:166; N_DEV_Diode.C:366"),
+        ),
+        instance=(
+            ParamRule("area", "pass", cite="ref5 p.302; diode.va:98; N_DEV_Diode.C:67"),
+            ParamRule("perim", "rename", "pj", cite="ref5 p.302; sp_diode pj (alias perim, diode.va:100); Xyce PJ (N_DEV_Diode.C:71)"),
+            ParamRule("l", "strip", warn="card", cite="ref5 p.302; ref5 documents no level-1 use of the drawn l/w; sp_diode would compute area and pj from them (diode.va:657-659)"),
+            ParamRule("w", "strip", warn="card", cite="ref5 p.302; as l"),
+            ParamRule("m", "pass", cite="ref5 p.303; multiplier"),
+            ParamRule("scale", "strip", match=("1",), cite="ref5 p.303; geometry scale: no target (allow_scaling)"),
+            ParamRule("scale", "error", cite="ref5 p.303; geometry scale: no target (allow_scaling)"),
+            ParamRule("region", "strip", cite="ref5 p.303; an initial operating-region hint"),
+            ParamRule("trise", "rename", "dtemp", cite="ref5 p.303; temperature rise from ambient: sp_diode dtemp (diode.va:97), Xyce DTEMP (N_DEV_Diode.C:92)"),
+            *[ParamRule(n, "strip", cite="ref5 p.303; level 3 only")
+              for n in "lm lp wm wp".split()],
+        ),
+    ),
+    # -- bjt [M ref5 pp.50-58] -----------------------------------------------------
+    "bjt": MasterRow(
+        "bjt", "q", 1, "type",
+        kinds=(('npn', 'npn'), ('pnp', 'pnp')),
+        terminals=('c', 'b', 'e', 's'),
+        geometry=(),
+        params=(
+            ParamRule("type", "fold", match=("npn", "pnp",), cite="ref5 p.51; §3.9: polarity -> Model.kind npn/pnp"),
+            ParamRule("type", "error", cite="ref5 p.51; unknown polarity"),
+            ParamRule("struct", "strip", "", "given:cjs", match=("absent",), warn="card", cite="ref5 p.51; ref5 p.51: pnp defaults to lateral; both targets simulate a vertical substrate junction (sp_bjt subs=1, bjt.va:90)"),
+            ParamRule("struct", "strip", "", "given:iss", match=("absent",), warn="card", cite="ref5 p.51; as above"),
+            ParamRule("struct", "strip", match=("absent", "vertical",), cite="ref5 p.51; vertical is the targets' structure"),
+            ParamRule("struct", "error", match=("lateral",), cite="ref5 p.51; lateral: sp_bjt subs=-1 could, Xyce cannot; error in v1"),
+            ParamRule("is", "pass", cite="ref5 p.51; bjt.va:93; N_DEV_BJT.C:127"),
+            ParamRule("ise", "pass", cite="ref5 p.51; bjt.va:102; N_DEV_BJT.C:215"),
+            ParamRule("isc", "pass", cite="ref5 p.51; bjt.va:110; N_DEV_BJT.C:331"),
+            ParamRule("iss", "pass", cite="ref5 p.51; bjt.va:148; Xyce has no ISS: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("c2", "pass", cite="ref5 p.51; bjt.va:103 (alias of ise); N_DEV_BJT.C:731"),
+            ParamRule("c4", "pass", cite="ref5 p.51; bjt.va:111; N_DEV_BJT.C:739"),
+            ParamRule("cbo", "strip", match=("0",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("cbo", "error", match=("nonzero",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("gbo", "strip", match=("0",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("gbo", "error", match=("nonzero",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("vbo", "strip", match=("0",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("vbo", "error", match=("nonzero",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("tcbo", "strip", match=("0",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("tcbo", "error", match=("nonzero",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("tgbo", "strip", match=("0",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("tgbo", "error", match=("nonzero",), cite="ref5 p.51; B-C leakage model: no target"),
+            ParamRule("nf", "pass", cite="ref5 p.52; bjt.va:97; N_DEV_BJT.C:154"),
+            ParamRule("nr", "pass", cite="ref5 p.52; bjt.va:106; N_DEV_BJT.C:267"),
+            ParamRule("ne", "pass", cite="ref5 p.52; bjt.va:104; N_DEV_BJT.C:234"),
+            ParamRule("nc", "pass", cite="ref5 p.52; bjt.va:112; N_DEV_BJT.C:348"),
+            ParamRule("ns", "pass", cite="ref5 p.52; bjt.va:149; Xyce has no NS: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("bf", "pass", cite="ref5 p.52; bjt.va:96; N_DEV_BJT.C:135"),
+            ParamRule("br", "pass", cite="ref5 p.52; bjt.va:105; N_DEV_BJT.C:251"),
+            ParamRule("ikf", "pass", cite="ref5 p.52; inf = the targets' 0 (off): bjt.va:100; N_DEV_BJT.C:190"),
+            ParamRule("ikr", "pass", cite="ref5 p.52; bjt.va:109; N_DEV_BJT.C:312"),
+            ParamRule("vaf", "pass", cite="ref5 p.52; inf = the targets' 0 (off): bjt.va:98; N_DEV_BJT.C:182"),
+            ParamRule("var", "pass", cite="ref5 p.52; bjt.va:107; N_DEV_BJT.C:276"),
+            ParamRule("ke", "strip", match=("0",), cite="ref5 p.52; space-charge integral multiplier: no target"),
+            ParamRule("ke", "error", match=("nonzero",), cite="ref5 p.52; space-charge integral multiplier: no target"),
+            ParamRule("kc", "strip", match=("0",), cite="ref5 p.52; no target"),
+            ParamRule("kc", "error", match=("nonzero",), cite="ref5 p.52; no target"),
+            ParamRule("rb", "pass", cite="ref5 p.52; bjt.va:113; N_DEV_BJT.C:355"),
+            ParamRule("rbm", "pass", cite="ref5 p.52; rbm=rb when absent on both targets (bjt.va:807; SPICE3): bjt.va:115; N_DEV_BJT.C:390"),
+            ParamRule("irb", "pass", cite="ref5 p.52; inf = 0 (off): bjt.va:114; N_DEV_BJT.C:364"),
+            ParamRule("rbmod", "strip", match=("spice",), cite="ref5 p.53; spice is the targets' nonlinear base resistance"),
+            ParamRule("rbmod", "error", cite="ref5 p.53; Spectre's own rb model: no target"),
+            ParamRule("rc", "pass", cite="ref5 p.53; bjt.va:117; N_DEV_BJT.C:406"),
+            ParamRule("rcv", "strip", match=("0",), cite="ref5 p.53; variable collector resistance (quasi-saturation): no target with these parameters"),
+            ParamRule("rcv", "error", match=("nonzero",), cite="ref5 p.53; variable collector resistance (quasi-saturation): no target with these parameters"),
+            ParamRule("rcm", "strip", match=("0",), cite="ref5 p.53; as rcv"),
+            ParamRule("rcm", "error", match=("nonzero",), cite="ref5 p.53; as rcv"),
+            *[ParamRule(n, "strip", cite="ref5 p.53; act only with rcv, which is an error when nonzero")
+              for n in "dope cex cco".split()],
+            ParamRule("re", "pass", cite="ref5 p.53; bjt.va:116; N_DEV_BJT.C:398"),
+            ParamRule("minr", "strip", cite="ref5 p.53; minimum parasitic resistance: a Spectre numerical floor"),
+            ParamRule("cje", "pass", cite="ref5 p.53; bjt.va:118; N_DEV_BJT.C:414"),
+            ParamRule("vje", "pass", cite="ref5 p.53; bjt.va:119; N_DEV_BJT.C:424"),
+            ParamRule("mje", "default", "1/3", "absent:mje", cite="ref5 p.53; ref5 mje=1/3 (p.53); the targets 0.33 (bjt.va:121; N_DEV_BJT.C:443)"),
+            ParamRule("mje", "pass", cite="ref5 p.53; bjt.va:121; N_DEV_BJT.C:443"),
+            ParamRule("cjc", "pass", cite="ref5 p.53; bjt.va:128; N_DEV_BJT.C:508"),
+            ParamRule("vjc", "pass", cite="ref5 p.53; bjt.va:129; N_DEV_BJT.C:518"),
+            ParamRule("mjc", "default", "1/3", "absent:mjc", cite="ref5 p.53; ref5 mjc=1/3 (p.53); the targets 0.33 (bjt.va:131; N_DEV_BJT.C:537)"),
+            ParamRule("mjc", "pass", cite="ref5 p.53; bjt.va:131; N_DEV_BJT.C:537"),
+            ParamRule("xcjc", "pass", cite="ref5 p.53; bjt.va:133; N_DEV_BJT.C:555"),
+            ParamRule("xcjc2", "strip", match=("1",), cite="ref5 p.53; second B-C partition: no target"),
+            ParamRule("xcjc2", "error", cite="ref5 p.53; second B-C partition: no target"),
+            ParamRule("cjs", "pass", cite="ref5 p.53; bjt.va:135; N_DEV_BJT.C:580"),
+            ParamRule("vjs", "pass", cite="ref5 p.53; bjt.va:138; N_DEV_BJT.C:608"),
+            ParamRule("mjs", "pass", cite="ref5 p.54; 0 on both targets (bjt.va:140; N_DEV_BJT.C:635): not written"),
+            ParamRule("fc", "default", "0.5", "absent:fc", cite="ref5 p.54; §3.9 table: ref5 fc=0.5 (p.54); sp_bjt fc=0 (bjt.va:145), Xyce 0.5 (N_DEV_BJT.C:723)"),
+            ParamRule("fc", "pass", cite="ref5 p.54; bjt.va:145; N_DEV_BJT.C:723"),
+            ParamRule("cbcp", "strip", match=("0",), cite="ref5 p.54; parasitic capacitances: no target"),
+            ParamRule("cbcp", "error", match=("nonzero",), cite="ref5 p.54; parasitic capacitances: no target"),
+            ParamRule("cbep", "strip", match=("0",), cite="ref5 p.54; parasitic capacitances: no target"),
+            ParamRule("cbep", "error", match=("nonzero",), cite="ref5 p.54; parasitic capacitances: no target"),
+            ParamRule("ccsp", "strip", match=("0",), cite="ref5 p.54; parasitic capacitances: no target"),
+            ParamRule("ccsp", "error", match=("nonzero",), cite="ref5 p.54; parasitic capacitances: no target"),
+            ParamRule("tf", "pass", cite="ref5 p.54; bjt.va:123; N_DEV_BJT.C:460"),
+            ParamRule("td", "strip", match=("0",), cite="ref5 p.54; intrinsic base delay: no target"),
+            ParamRule("td", "error", match=("nonzero",), cite="ref5 p.54; intrinsic base delay: no target"),
+            ParamRule("xtf", "pass", cite="ref5 p.54; bjt.va:124; N_DEV_BJT.C:467"),
+            ParamRule("vtf", "pass", cite="ref5 p.54; inf = 0 (off): bjt.va:125; N_DEV_BJT.C:474"),
+            ParamRule("itf", "pass", cite="ref5 p.54; bjt.va:126; N_DEV_BJT.C:484"),
+            ParamRule("tr", "pass", cite="ref5 p.54; bjt.va:134; N_DEV_BJT.C:571"),
+            ParamRule("ptf", "pass", cite="ref5 p.54; bjt.va:127; N_DEV_BJT.C:501"),
+            ParamRule("tnom", "pass", cite="ref5 p.54; bjt.va:91; N_DEV_BJT.C:120"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.54; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.54; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("eg", "pass", cite="ref5 p.54; bjt.va:143; N_DEV_BJT.C:687 (1.11 on all three)"),
+            ParamRule("xtb", "pass", cite="ref5 p.54; bjt.va:142; N_DEV_BJT.C:661"),
+            ParamRule("xti", "pass", cite="ref5 p.54; bjt.va:144; N_DEV_BJT.C:696"),
+            ParamRule("trb1", "pass", cite="ref5 p.54; sp_bjt (bjt.va:174-184); Xyce has none (fails loudly)"),
+            ParamRule("trb2", "pass", cite="ref5 p.54; sp_bjt (bjt.va:174-184); Xyce has none (fails loudly)"),
+            *[ParamRule(n, "pass", cite="ref5 p.55; sp_bjt (bjt.va:174-184); Xyce has none (fails loudly)")
+              for n in "trm1 trm2 trc1 trc2 tre1 tre2".split()],
+            ParamRule("tlev", "pass", cite="ref5 p.55; bjt.va:154; Xyce has no TLEV: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("tlevc", "pass", cite="ref5 p.55; bjt.va:155; Xyce has no TLEVC: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("gap1", "strip", match=("7.02e-4",), cite="ref5 p.55; band-gap temperature law: no target parameter"),
+            ParamRule("gap1", "error", cite="ref5 p.55; band-gap temperature law: no target parameter"),
+            ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.55; as gap1"),
+            ParamRule("gap2", "error", cite="ref5 p.55; as gap1"),
+            *[ParamRule(n, "pass", cite="ref5 p.55; sp_bjt temperature coefficients (bjt.va:156-218); Xyce has none (fails loudly)")
+              for n in "tikf1 tikf2 tikr1 tikr2 tirb1 tirb2 tis1 tis2 tise1 tise2 tisc1 tisc2".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.56; sp_bjt temperature coefficients (bjt.va:156-218); Xyce has none (fails loudly)")
+              for n in "tiss1 tiss2 tbf1 tbf2 tbr1 tbr2 tvaf1 tvaf2 tvar1 tvar2 titf1 titf2 ttf1 ttf2 ttr1 ttr2 tnf1 tnf2 tnr1 tnr2 tne1 tne2".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.57; sp_bjt temperature coefficients (bjt.va:156-218); Xyce has none (fails loudly)")
+              for n in "tnc1 tnc2 tns1 tns2 tmje1 tmje2 tmjc1 tmjc2 tmjs1 tmjs2 cte ctc cts tvje tvjc tvjs".split()],
+            ParamRule("tvtf1", "strip", match=("0",), cite="ref5 p.57; no target"),
+            ParamRule("tvtf1", "error", match=("nonzero",), cite="ref5 p.57; no target"),
+            ParamRule("tvtf2", "strip", match=("0",), cite="ref5 p.57; no target"),
+            ParamRule("tvtf2", "error", match=("nonzero",), cite="ref5 p.57; no target"),
+            ParamRule("txtf1", "strip", match=("0",), cite="ref5 p.57; no target"),
+            ParamRule("txtf1", "error", match=("nonzero",), cite="ref5 p.57; no target"),
+            ParamRule("txtf2", "strip", match=("0",), cite="ref5 p.57; no target"),
+            ParamRule("txtf2", "error", match=("nonzero",), cite="ref5 p.57; no target"),
+            *[ParamRule(n, "strip", cite="ref5 p.58; convergence aids and operating-region warnings")
+              for n in "dskip imelt bvbe bvbc bvce bvsub vbefwd vbcfwd vsubfwd imax imax1 alarm".split()],
+            ParamRule("kf", "pass", cite="ref5 p.58; bjt.va:146; N_DEV_BJT.C:713"),
+            ParamRule("af", "pass", cite="ref5 p.58; bjt.va:147; N_DEV_BJT.C:718"),
+            ParamRule("kb", "strip", match=("0",), cite="ref5 p.58; burst noise: no target"),
+            ParamRule("kb", "strip", warn="analyses=noise", cite="ref5 p.58; burst noise: no target"),
+            ParamRule("bnoisefc", "strip", cite="ref5 p.58; burst noise corner (kb is stripped)"),
+            ParamRule("rbnoi", "strip", warn="analyses=noise", cite="ref5 p.58; effective base noise resistance: the targets use rb"),
+        ),
+        instance=(
+            ParamRule("area", "pass", cite="ref5 p.50; bjt.va:82; N_DEV_BJT.C:70"),
+            ParamRule("areab", "pass", "", "given:area", match=("absent",), warn="card", cite="ref5 p.50; ref5 areab=1 (p.50) while the targets default it to area (bjt.va:83: 0 = area)"),
+            ParamRule("areab", "pass", cite="ref5 p.50; bjt.va:83; Xyce has no AREAB: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("areac", "pass", "", "given:area", match=("absent",), warn="card", cite="ref5 p.50; ref5 areac=1 (p.50) while the targets default it to area (bjt.va:84)"),
+            ParamRule("areac", "pass", cite="ref5 p.50; bjt.va:84; Xyce has no AREAC: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("m", "pass", cite="ref5 p.50; multiplier"),
+            ParamRule("trise", "rename", "dtemp", cite="ref5 p.50; sp_bjt dtemp (bjt.va:86); Xyce DTEMP (N_DEV_BJT.C:97)"),
+            ParamRule("region", "strip", cite="ref5 p.50; an initial operating-region hint"),
+        ),
+    ),
+    # -- jfet [M ref5 pp.385-389] ----------------------------------------------------
+    "jfet": MasterRow(
+        "jfet", "j", 1, "type",
+        kinds=(('n', 'njf'), ('p', 'pjf')),
+        terminals=('d', 'g', 's', 'b'),
+        geometry=(),
+        params=(
+            ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.386; §3.9: polarity -> Model.kind njf/pjf"),
+            ParamRule("type", "error", cite="ref5 p.386; unknown polarity"),
+            ParamRule("level", "fold", match=("1",), cite="ref5 p.386; level 1 is the DISPATCH level (sp_jfet1, Xyce JFET)"),
+            ParamRule("level", "error", cite="ref5 p.386; other jfet levels: not in v1"),
+            ParamRule("vto", "pass", cite="ref5 p.386; jfet1.va:97 (alias of vt0, -2); N_DEV_JFET.C:148"),
+            ParamRule("beta", "pass", cite="ref5 p.386; jfet1.va:98; N_DEV_JFET.C:90"),
+            ParamRule("lambda", "pass", cite="ref5 p.386; jfet1.va:99; N_DEV_JFET.C:121"),
+            ParamRule("lambda1", "strip", match=("0",), cite="ref5 p.386; gate dependence of lambda: no target"),
+            ParamRule("lambda1", "error", match=("nonzero",), cite="ref5 p.386; gate dependence of lambda: no target"),
+            ParamRule("np", "strip", match=("2",), cite="ref5 p.386; power-law exponent: 2 is the square law of the targets"),
+            ParamRule("np", "error", cite="ref5 p.386; power-law exponent: 2 is the square law of the targets"),
+            ParamRule("alpha", "strip", match=("2",), cite="ref5 p.386; triode-saturation transition shaping: no target"),
+            ParamRule("alpha", "error", cite="ref5 p.386; triode-saturation transition shaping: no target"),
+            ParamRule("io", "strip", match=("0",), cite="ref5 p.386; subthreshold current: no target"),
+            ParamRule("io", "error", match=("nonzero",), cite="ref5 p.386; subthreshold current: no target"),
+            ParamRule("ns", "strip", cite="ref5 p.386; subthreshold swing (io is stripped when 0, an error otherwise)"),
+            ParamRule("ai", "strip", match=("0",), cite="ref5 p.386; impact ionization: no target"),
+            ParamRule("ai", "error", match=("nonzero",), cite="ref5 p.386; impact ionization: no target"),
+            ParamRule("bi", "strip", match=("0",), cite="ref5 p.386; impact ionization"),
+            ParamRule("bi", "error", match=("nonzero",), cite="ref5 p.386; impact ionization"),
+            *[ParamRule(n, "strip", cite="ref5 p.387; four-terminal threshold model; the fourth terminal is an error in v1 (§3.8)")
+              for n in "vtop vtos vtoe vtoc".split()],
+            ParamRule("rd", "pass", cite="ref5 p.387; jfet1.va:100; N_DEV_JFET.C:131"),
+            ParamRule("rs", "pass", cite="ref5 p.387; jfet1.va:101; N_DEV_JFET.C:137"),
+            ParamRule("rg", "strip", match=("0",), cite="ref5 p.387; gate resistance: no target"),
+            ParamRule("rg", "error", match=("nonzero",), cite="ref5 p.387; gate resistance: no target"),
+            ParamRule("rb", "strip", match=("0",), cite="ref5 p.387; back-gate resistance: no target"),
+            ParamRule("rb", "error", match=("nonzero",), cite="ref5 p.387; back-gate resistance: no target"),
+            ParamRule("minr", "strip", cite="ref5 p.387; a Spectre numerical floor"),
+            ParamRule("is", "pass", cite="ref5 p.387; jfet1.va:105; N_DEV_JFET.C:112"),
+            ParamRule("n", "pass", cite="ref5 p.387; jfet1.va:106; Xyce has no N: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("imelt", "strip", cite="ref5 p.387; explosion current and convergence aid"),
+            ParamRule("dskip", "strip", cite="ref5 p.387; explosion current and convergence aid"),
+            ParamRule("tt", "strip", match=("0",), cite="ref5 p.387; transit time: neither JFET level-1 target has it"),
+            ParamRule("tt", "error", match=("nonzero",), cite="ref5 p.387; transit time: neither JFET level-1 target has it"),
+            ParamRule("cgs", "pass", cite="ref5 p.387; jfet1.va:102; N_DEV_JFET.C:95"),
+            ParamRule("cgd", "pass", cite="ref5 p.387; jfet1.va:103; N_DEV_JFET.C:101"),
+            ParamRule("mj", "strip", match=("1/2",), cite="ref5 p.388; grading coefficient: the targets' junctions use 1/2"),
+            ParamRule("mj", "error", cite="ref5 p.388; grading coefficient: the targets' junctions use 1/2"),
+            ParamRule("pb", "pass", cite="ref5 p.388; jfet1.va:104; N_DEV_JFET.C:126"),
+            ParamRule("fc", "pass", cite="ref5 p.388; jfet1.va:107; N_DEV_JFET.C:107"),
+            *[ParamRule(n, "strip", cite="ref5 p.388; four-terminal junction; the fourth terminal is an error in v1")
+              for n in "isb nb cgbs cgbd mjb pbb".split()],
+            ParamRule("tnom", "pass", cite="ref5 p.388; jfet1.va:109; N_DEV_JFET.C:143"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.388; card default temperature rise: no target"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.388; card default temperature rise: no target"),
+            ParamRule("xti", "pass", cite="ref5 p.388; jfet1.va:114; Xyce has no XTI: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("tlev", "strip", match=("0",), cite="ref5 p.388; temperature equation selector: no target"),
+            ParamRule("tlev", "error", match=("nonzero",), cite="ref5 p.388; temperature equation selector: no target"),
+            ParamRule("tlevc", "strip", match=("0",), cite="ref5 p.388; no target"),
+            ParamRule("tlevc", "error", match=("nonzero",), cite="ref5 p.388; no target"),
+            ParamRule("eg", "strip", match=("absent",), warn="temp!=tnom", cite="ref5 p.388; ref5 eg=1.12452 (p.388); sp_jfet1 eg=1.11 (jfet1.va:115), Xyce's JFET has no EG: an approximation at T != tnom"),
+            ParamRule("eg", "pass", cite="ref5 p.388; jfet1.va:115; Xyce has no EG: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("gap1", "strip", match=("7.02e-4",), cite="ref5 p.388; band-gap law: no target"),
+            ParamRule("gap1", "error", cite="ref5 p.388; band-gap law: no target"),
+            ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.388; as gap1"),
+            ParamRule("gap2", "error", cite="ref5 p.388; as gap1"),
+            ParamRule("tcv", "pass", cite="ref5 p.388; jfet1.va:110; Xyce has no TCV: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("bto", "strip", match=("0",), cite="ref5 p.388; beta/lambda temperature laws: no target"),
+            ParamRule("bto", "error", match=("nonzero",), cite="ref5 p.388; beta/lambda temperature laws: no target"),
+            ParamRule("bte", "strip", match=("0",), cite="ref5 p.389; beta/lambda temperature laws: no target"),
+            ParamRule("bte", "error", match=("nonzero",), cite="ref5 p.389; beta/lambda temperature laws: no target"),
+            ParamRule("lto", "strip", match=("0",), cite="ref5 p.389; beta/lambda temperature laws: no target"),
+            ParamRule("lto", "error", match=("nonzero",), cite="ref5 p.389; beta/lambda temperature laws: no target"),
+            ParamRule("lte", "strip", match=("0",), cite="ref5 p.389; beta/lambda temperature laws: no target"),
+            ParamRule("lte", "error", match=("nonzero",), cite="ref5 p.389; beta/lambda temperature laws: no target"),
+            ParamRule("tc1", "strip", match=("0",), cite="ref5 p.389; parasitic resistance tempco: no target"),
+            ParamRule("tc1", "error", match=("nonzero",), cite="ref5 p.389; parasitic resistance tempco: no target"),
+            ParamRule("tc2", "strip", match=("0",), cite="ref5 p.389; as tc1"),
+            ParamRule("tc2", "error", match=("nonzero",), cite="ref5 p.389; as tc1"),
+            *[ParamRule(n, "strip", cite="ref5 p.389; operating-region warnings")
+              for n in "alarm imax bvj".split()],
+            ParamRule("kf", "default", "0", "absent:kf", cite="ref5 p.389; ref5 kf=0 (p.389), sp_jfet1 0 (jfet1.va:116); Xyce's JFET defaults KF to 0.05 (N_DEV_JFET.C:117)"),
+            ParamRule("kf", "pass", cite="ref5 p.389; jfet1.va:116; N_DEV_JFET.C:117"),
+            ParamRule("af", "pass", cite="ref5 p.389; jfet1.va:117; N_DEV_JFET.C:81"),
+            ParamRule("kfd", "strip", match=("0",), cite="ref5 p.389; gate-diode flicker noise: no target"),
+            ParamRule("kfd", "strip", warn="analyses=noise", cite="ref5 p.389; gate-diode flicker noise: no target"),
+            ParamRule("afg", "strip", cite="ref5 p.389; exponent of kfd"),
+        ),
+        instance=(
+            ParamRule("area", "pass", cite="ref5 p.385; jfet1.va:90; N_DEV_JFET.C:68"),
+            ParamRule("m", "pass", cite="ref5 p.385; multiplier"),
+            ParamRule("region", "strip", cite="ref5 p.386; an initial operating-region hint"),
+        ),
+    ),
+    # -- mos1 [M ref5 pp.409-419] ----------------------------------------------------
+    "mos1": MasterRow(
+        "mos1", "m", 1, "type",
+        kinds=(('n', 'nmos'), ('p', 'pmos')),
+        terminals=('d', 'g', 's', 'b'),
+        geometry=(('w', 3e-06), ('l', 3e-06), ('lmin', 0.0), ('lmax', 1.0), ('wmin', 0.0), ('wmax', 1.0)),
+        params=(
+            ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.410; §3.9: polarity -> Model.kind nmos/pmos"),
+            ParamRule("type", "error", cite="ref5 p.410; unknown polarity"),
+            ParamRule("vto", "default", "0", "absent:vto,absent:nsub", cite="ref5 p.410; §3.9 nsub row: pins what the targets would derive from the written nsub"),
+            ParamRule("vto", "pass", "", "absent:vto,given:nsub", match=("absent",), warn="card", cite="ref5 p.410; §3.9: the targets derive vto from the given nsub (SPICE3)"),
+            ParamRule("vto", "pass", cite="ref5 p.410; mos1.va vto; N_DEV_MOSFET1.C VTO"),
+            ParamRule("kp", "pass", cite="ref5 p.410; ref5 2.0718e-5 = uo*cox at tox=1e-7, which the targets derive when kp is absent (mos1.va; N_DEV_MOSFET1.C)"),
+            ParamRule("lambda", "pass", cite="ref5 p.410; mos1.va lambda; N_DEV_MOSFET1.C LAMBDA"),
+            ParamRule("phi", "default", "0.7", "absent:phi,absent:nsub", cite="ref5 p.410; §3.9 nsub row: ref5 phi=0.7; the targets 0.6 (mos1.va; N_DEV_MOSFET1.C)"),
+            ParamRule("phi", "pass", "", "absent:phi,given:nsub", match=("absent",), warn="card", cite="ref5 p.410; §3.9: the targets derive phi from the given nsub (SPICE3)"),
+            ParamRule("phi", "pass", cite="ref5 p.410; mos1.va phi"),
+            ParamRule("gamma", "default", "0", "absent:gamma,absent:nsub", cite="ref5 p.410; §3.9 nsub row: pins what the targets would derive from the written nsub"),
+            ParamRule("gamma", "pass", "", "absent:gamma,given:nsub", match=("absent",), warn="card", cite="ref5 p.410; §3.9: the targets derive gamma from the given nsub (SPICE3)"),
+            ParamRule("gamma", "pass", cite="ref5 p.410; mos1.va gamma"),
+            ParamRule("uo", "pass", cite="ref5 p.410; mos1.va u0 (alias uo); N_DEV_MOSFET1.C UO"),
+            ParamRule("vmax", "error", cite="ref5 p.410; velocity saturation in Spectre's mos1: no target (SPICE3 level 1 has none)"),
+            ParamRule("theta", "strip", match=("0",), cite="ref5 p.410; mobility modulation in Spectre's mos1: no target"),
+            ParamRule("theta", "error", match=("nonzero",), cite="ref5 p.410; mobility modulation in Spectre's mos1: no target"),
+            ParamRule("nsub", "default", "1.13e16", "absent:nsub", cite="ref5 p.410; §3.9 table: ref5 nsub=1.13e16; the targets 0 = not given (mos1.va; N_DEV_MOSFET1.C) [E95]"),
+            ParamRule("nsub", "pass", cite="ref5 p.410; mos1.va nsub; N_DEV_MOSFET1.C NSUB"),
+            ParamRule("nss", "pass", cite="ref5 p.410; mos1.va nss; N_DEV_MOSFET1.C NSS"),
+            ParamRule("nfs", "strip", match=("0",), cite="ref5 p.410; fast surface states in Spectre's mos1: no level-1 target"),
+            ParamRule("nfs", "error", match=("nonzero",), cite="ref5 p.410; fast surface states in Spectre's mos1: no level-1 target"),
+            ParamRule("tpg", "default", "1", "absent:tpg", cite="ref5 p.411; ref5 tpg=+1 (SPICE3's default, mos1.va tpg=1); Xyce's MOSFET1 defaults TPG to 0 (N_DEV_MOSFET1.C)"),
+            ParamRule("tpg", "pass", cite="ref5 p.411; mos1.va tpg; N_DEV_MOSFET1.C TPG"),
+            ParamRule("ld", "pass", cite="ref5 p.411; mos1.va ld; N_DEV_MOSFET1.C LD"),
+            ParamRule("wd", "strip", match=("0",), cite="ref5 p.411; width/length adjustments: no target at this level"),
+            ParamRule("wd", "error", match=("nonzero",), cite="ref5 p.411; width/length adjustments: no target at this level"),
+            ParamRule("xw", "strip", match=("0",), cite="ref5 p.411; width/length adjustments: no target at this level"),
+            ParamRule("xw", "error", match=("nonzero",), cite="ref5 p.411; width/length adjustments: no target at this level"),
+            ParamRule("xl", "strip", match=("0",), cite="ref5 p.411; width/length adjustments: no target at this level"),
+            ParamRule("xl", "error", match=("nonzero",), cite="ref5 p.411; width/length adjustments: no target at this level"),
+            ParamRule("tox", "default", "1e-7", "absent:tox", cite="ref5 p.411; §3.9 table: ref5 tox=1e-7; sp_mos1 has no tox unless given (mos1.va:741-747), Xyce's TOX is 1e-7"),
+            ParamRule("tox", "pass", cite="ref5 p.411; mos1.va tox; N_DEV_MOSFET1.C TOX"),
+            ParamRule("ai0", "strip", match=("0",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("ai0", "error", match=("nonzero",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("lai0", "strip", match=("0",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("lai0", "error", match=("nonzero",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("wai0", "strip", match=("0",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("wai0", "error", match=("nonzero",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("bi0", "strip", match=("0",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("bi0", "error", match=("nonzero",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("lbi0", "strip", match=("0",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("lbi0", "error", match=("nonzero",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("wbi0", "strip", match=("0",), cite="ref5 p.411; impact ionization: no target"),
+            ParamRule("wbi0", "error", match=("nonzero",), cite="ref5 p.411; impact ionization: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.411; mos1.va; N_DEV_MOSFET1.C")
+              for n in "cgso cgdo cgbo".split()],
+            ParamRule("meto", "strip", match=("0",), cite="ref5 p.411; metal overlap in the fringing capacitance: no target"),
+            ParamRule("meto", "error", match=("nonzero",), cite="ref5 p.411; metal overlap in the fringing capacitance: no target"),
+            ParamRule("capmod", "strip", match=("absent", "bsim",), warn="analyses=ac,noise,xf,tran", cite="ref5 p.411; §3.9: Spectre's default charge model is bsim; both targets have only Meyer's charge"),
+            ParamRule("capmod", "strip", match=("meyer",), cite="ref5 p.411; §3.9: meyer is the targets' charge model [I, §14 q.45]"),
+            ParamRule("capmod", "error", match=("none", "yang",), cite="ref5 p.411; §3.9: none and yang -> error"),
+            ParamRule("xpart", "strip", cite="ref5 p.412; charge partition of the bsim charge model (capmod)"),
+            ParamRule("xqc", "strip", cite="ref5 p.412; as xpart"),
+            ParamRule("rs", "pass", cite="ref5 p.412; mos1.va rs; N_DEV_MOSFET1.C RS"),
+            ParamRule("rd", "pass", cite="ref5 p.412; mos1.va rd; N_DEV_MOSFET1.C RD"),
+            ParamRule("rss", "strip", match=("0",), cite="ref5 p.412; scalable source resistance: no target"),
+            ParamRule("rss", "error", match=("nonzero",), cite="ref5 p.412; scalable source resistance: no target"),
+            ParamRule("rdd", "strip", match=("0",), cite="ref5 p.412; scalable drain resistance: no target"),
+            ParamRule("rdd", "error", match=("nonzero",), cite="ref5 p.412; scalable drain resistance: no target"),
+            ParamRule("rsh", "pass", cite="ref5 p.412; mos1.va rsh; N_DEV_MOSFET1.C RSH"),
+            ParamRule("rsc", "strip", match=("0",), cite="ref5 p.412; contact resistance: no target"),
+            ParamRule("rsc", "error", match=("nonzero",), cite="ref5 p.412; contact resistance: no target"),
+            ParamRule("rdc", "strip", match=("0",), cite="ref5 p.412; contact resistance: no target"),
+            ParamRule("rdc", "error", match=("nonzero",), cite="ref5 p.412; contact resistance: no target"),
+            ParamRule("minr", "strip", cite="ref5 p.412; a Spectre numerical floor"),
+            ParamRule("ldif", "strip", match=("0",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("ldif", "error", match=("nonzero",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("hdif", "strip", match=("0",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("hdif", "error", match=("nonzero",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcs", "strip", match=("0",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcs", "error", match=("nonzero",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcd", "strip", match=("0",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcd", "error", match=("nonzero",), cite="ref5 p.412; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("sc", "error", cite="ref5 p.412; contact spacing: no target"),
+            ParamRule("js", "pass", cite="ref5 p.412; mos1.va js (A/m2); N_DEV_MOSFET1.C JS"),
+            ParamRule("is", "pass", cite="ref5 p.412; mos1.va is; N_DEV_MOSFET1.C IS"),
+            ParamRule("n", "strip", match=("1",), cite="ref5 p.412; junction emission coefficient: the targets' SPICE3 junctions use 1"),
+            ParamRule("n", "error", cite="ref5 p.412; junction emission coefficient: the targets' SPICE3 junctions use 1"),
+            *[ParamRule(n, "strip", cite="ref5 p.413; convergence aid and explosion currents")
+              for n in "dskip imelt jmelt".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.413; mos1.va; N_DEV_MOSFET1.C")
+              for n in "cbs cbd cj mj pb fc cjsw".split()],
+            ParamRule("mjsw", "default", "1/3", "absent:mjsw", cite="ref5 p.413; §3.9 table: ref5 mjsw=1/3; the targets 0.5 (sp_mos1, MOSFET1/2) or 0.33 (sp_mos2/3, MOSFET3) [E95]"),
+            ParamRule("mjsw", "pass", cite="ref5 p.413; mos1.va mjsw; N_DEV_MOSFET1.C MJSW"),
+            ParamRule("pbsw", "strip", warn="card", cite="ref5 p.413; sidewall potential: the targets use pb for the sidewall"),
+            ParamRule("fcsw", "strip", warn="card", cite="ref5 p.413; sidewall forward-bias threshold: the targets use fc for the sidewall"),
+            *[ParamRule(n, "strip", cite="ref5 p.413; operating-region warnings")
+              for n in "alarm imax jmax".split()],
+            ParamRule("bvj", "strip", cite="ref5 p.414; operating-region warnings"),
+            ParamRule("vbox", "strip", cite="ref5 p.414; operating-region warnings"),
+            ParamRule("tnom", "pass", cite="ref5 p.414; mos1.va tnom; N_DEV_MOSFET1.C TNOM"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.414; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.414; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("uto", "strip", match=("0",), cite="ref5 p.414; mobility temperature offset: no target"),
+            ParamRule("uto", "error", match=("nonzero",), cite="ref5 p.414; mobility temperature offset: no target"),
+            ParamRule("ute", "strip", match=("-1.5",), cite="ref5 p.414; mobility temperature exponent: SPICE3's fixed -1.5"),
+            ParamRule("ute", "error", cite="ref5 p.414; mobility temperature exponent: SPICE3's fixed -1.5"),
+            ParamRule("tlev", "strip", match=("0",), cite="ref5 p.414; temperature equation selector: no target"),
+            ParamRule("tlev", "error", match=("nonzero",), cite="ref5 p.414; temperature equation selector: no target"),
+            ParamRule("tlevc", "strip", match=("0",), cite="ref5 p.414; no target"),
+            ParamRule("tlevc", "error", match=("nonzero",), cite="ref5 p.414; no target"),
+            ParamRule("eg", "strip", match=("absent", "nonzero",), warn="temp!=tnom", cite="ref5 p.414; ref5 eg=1.12452; SPICE3's mos1-3 compute Eg(T) themselves (1.1151 V at 27 C): an approximation at T != tnom"),
+            ParamRule("gap1", "strip", match=("7.02e-4",), cite="ref5 p.414; band-gap law: no target parameter"),
+            ParamRule("gap1", "error", cite="ref5 p.414; band-gap law: no target parameter"),
+            ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.414; as gap1"),
+            ParamRule("gap2", "error", cite="ref5 p.414; as gap1"),
+            ParamRule("f1ex", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("f1ex", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("lamex", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("lamex", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("trs", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("trs", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("trd", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("trd", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("ptc", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("ptc", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("tcv", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("tcv", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("pta", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("pta", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("ptp", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("ptp", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("cta", "strip", match=("0",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("cta", "error", match=("nonzero",), cite="ref5 p.414; temperature coefficients: no target at this level"),
+            ParamRule("ctp", "strip", match=("0",), cite="ref5 p.415; temperature coefficients: no target at this level"),
+            ParamRule("ctp", "error", match=("nonzero",), cite="ref5 p.415; temperature coefficients: no target at this level"),
+            ParamRule("xti", "strip", match=("absent", "nonzero",), warn="temp!=tnom", cite="ref5 p.414; ref5 xti=3; SPICE3's mos1-3 junction saturation current has no xti term: an approximation at T != tnom"),
+            ParamRule("w", "fold", cite="ref5 p.415; §3.9 default MOS geometry: folded into instances; a mod= sweep of it is refused"),
+            ParamRule("l", "fold", cite="ref5 p.415; §3.9 default MOS geometry"),
+            ParamRule("as", "fold", cite="ref5 p.415; ref5 'Default instance parameters': folded into instances as w/l (§3.9)"),
+            ParamRule("ad", "fold", cite="ref5 p.415; as as"),
+            ParamRule("ps", "fold", cite="ref5 p.415; as as"),
+            ParamRule("pd", "fold", cite="ref5 p.415; as as"),
+            ParamRule("nrd", "fold", cite="ref5 p.415; ref5 default 0: folded into instances; the targets' instance default is 1 (see the instance rules)"),
+            ParamRule("nrs", "fold", cite="ref5 p.415; as nrd"),
+            ParamRule("ldd", "strip", match=("0",), cite="ref5 p.415; default drain diffusion length: no target"),
+            ParamRule("ldd", "error", match=("nonzero",), cite="ref5 p.415; default drain diffusion length: no target"),
+            ParamRule("lds", "strip", match=("0",), cite="ref5 p.415; no target"),
+            ParamRule("lds", "error", match=("nonzero",), cite="ref5 p.415; no target"),
+            ParamRule("noisemod", "strip", match=("1",), cite="ref5 p.415; noise model selector: the targets' SPICE2 flicker noise (nlev)"),
+            ParamRule("noisemod", "error", cite="ref5 p.415; noise model selector: the targets' SPICE2 flicker noise (nlev)"),
+            ParamRule("kf", "pass", warn="analyses=noise", cite="ref5 p.415; mos1.va kf; N_DEV_MOSFET1.C KF; Spectre normalizes its flicker noise by wnoi (ref5), the targets do not"),
+            ParamRule("af", "pass", cite="ref5 p.415; mos1.va af; N_DEV_MOSFET1.C AF"),
+            ParamRule("ef", "strip", match=("1",), cite="ref5 p.415; flicker frequency exponent: no target"),
+            ParamRule("ef", "strip", warn="analyses=noise", cite="ref5 p.415; flicker frequency exponent: no target"),
+            ParamRule("wnoi", "strip", match=("1e-5",), cite="ref5 p.415; noise reference width: no target"),
+            ParamRule("wnoi", "strip", warn="analyses=noise", cite="ref5 p.415; noise reference width: no target"),
+            ParamRule("wmax", "pass", cite="ref5 p.415; model-group bounds (bin_bounds_spectre, §4.4)"),
+            ParamRule("wmin", "pass", cite="ref5 p.415; model-group bounds (bin_bounds_spectre, §4.4)"),
+            ParamRule("lmax", "pass", cite="ref5 p.416; model-group bounds (bin_bounds_spectre, §4.4)"),
+            ParamRule("lmin", "pass", cite="ref5 p.416; model-group bounds (bin_bounds_spectre, §4.4)"),
+            ParamRule("degramod", "strip", cite="ref5 p.416; degradation model selector (degradation=yes is an error)"),
+            ParamRule("degradation", "strip", match=("no",), cite="ref5 p.416; no hot-electron degradation"),
+            ParamRule("degradation", "error", match=("yes",), cite="ref5 p.416; hot-electron degradation: not in v1"),
+            *[ParamRule(n, "strip", cite="ref5 p.416; degradation coefficients (degradation=yes is an error)")
+              for n in "dvthc dvthe duoc duoe crivth criuo crigm criids wnom lnom vbsn vdsni vgsni vdsng vgsng".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.417; Spectre stress parameters (degradation=yes is an error)")
+              for n in "esat esatg vpg vpb subc1 subc2 sube strc stre".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.417; BERT stress parameters (degradation=yes is an error)")
+              for n in "h0 hgd m0 mgd ecrit0 lecrit0 wecrit0 ecritg lecritg wecritg ecritb".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.418; BERT stress parameters (degradation=yes is an error)")
+              for n in "lecritb wecritb lc0 llc0 wlc0 lc1 llc1 wlc1 lc2 llc2 wlc2 lc3 llc3 wlc3 lc4 llc4 wlc4 lc5 llc5 wlc5 lc6 llc6".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.419; BERT stress parameters (degradation=yes is an error)")
+              for n in "wlc6 lc7 llc7 wlc7".split()],
+        ),
+        instance=(
+            ParamRule("w", "default", "3e-6", "absent:w", cite="ref5 p.409; §3.9 default MOS geometry (ref5 'Default channel width')"),
+            ParamRule("w", "pass", cite="ref5 p.409; mos1.va w; N_DEV_MOSFET1.C W"),
+            ParamRule("l", "default", "3e-6", "absent:l", cite="ref5 p.409; §3.9 default MOS geometry"),
+            ParamRule("l", "pass", cite="ref5 p.409; mos1.va l; N_DEV_MOSFET1.C L"),
+            *[ParamRule(n, "pass", cite="ref5 p.409; mos1.va; N_DEV_MOSFET1.C")
+              for n in "as ad ps pd".split()],
+            ParamRule("nrd", "default", "0", "absent:nrd", cite="ref5 p.409; ref5 card default nrd=0; the targets' instance default is 1 (mos1.va nrd; N_DEV_MOSFET1.C NRD)"),
+            ParamRule("nrd", "pass", cite="ref5 p.409; mos1.va nrd; N_DEV_MOSFET1.C NRD"),
+            ParamRule("nrs", "default", "0", "absent:nrs", cite="ref5 p.409; as nrd"),
+            ParamRule("nrs", "pass", cite="ref5 p.409; mos1.va nrs; N_DEV_MOSFET1.C NRS"),
+            ParamRule("ld", "strip", match=("0",), cite="ref5 p.409; drain diffusion length (instance): no target"),
+            ParamRule("ld", "error", match=("nonzero",), cite="ref5 p.409; drain diffusion length (instance): no target"),
+            ParamRule("ls", "strip", match=("0",), cite="ref5 p.409; no target"),
+            ParamRule("ls", "error", match=("nonzero",), cite="ref5 p.409; no target"),
+            ParamRule("m", "pass", cite="ref5 p.409; multiplier"),
+            ParamRule("region", "strip", cite="ref5 p.409; an initial operating-region hint"),
+            ParamRule("trise", "rename", "dtemp", cite="ref5 p.409; sp_mos1 dtemp; Xyce DTEMP"),
+            ParamRule("degradation", "strip", match=("no",), cite="ref5 p.410"),
+            ParamRule("degradation", "error", match=("yes",), cite="ref5 p.410; hot-electron degradation: not in v1"),
+        ),
+    ),
+    # -- mos2 [M ref5 pp.487-498] ----------------------------------------------------
+    "mos2": MasterRow(
+        "mos2", "m", 2, "type",
+        kinds=(('n', 'nmos'), ('p', 'pmos')),
+        terminals=('d', 'g', 's', 'b'),
+        geometry=(('w', 3e-06), ('l', 3e-06), ('lmin', 0.0), ('lmax', 1.0), ('wmin', 0.0), ('wmax', 1.0)),
+        params=(
+            ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.488; §3.9: polarity -> Model.kind nmos/pmos"),
+            ParamRule("type", "error", cite="ref5 p.488; unknown polarity"),
+            ParamRule("vto", "default", "0", "absent:vto,absent:nsub", cite="ref5 p.488; §3.9 nsub row: pins what the targets would derive from the written nsub"),
+            ParamRule("vto", "pass", "", "absent:vto,given:nsub", match=("absent",), warn="card", cite="ref5 p.488; §3.9: the targets derive vto from the given nsub (SPICE3)"),
+            ParamRule("vto", "pass", cite="ref5 p.488; mos2.va vto; N_DEV_MOSFET2.C VTO"),
+            ParamRule("kp", "pass", cite="ref5 p.488; ref5 2.0718e-5 = uo*cox at tox=1e-7, which the targets derive when kp is absent (mos2.va; N_DEV_MOSFET2.C)"),
+            ParamRule("lambda", "pass", cite="ref5 p.488; mos2.va lambda; N_DEV_MOSFET2.C LAMBDA"),
+            ParamRule("phi", "default", "0.7", "absent:phi,absent:nsub", cite="ref5 p.488; §3.9 nsub row: ref5 phi=0.7; the targets 0.6 (mos2.va; N_DEV_MOSFET2.C)"),
+            ParamRule("phi", "pass", "", "absent:phi,given:nsub", match=("absent",), warn="card", cite="ref5 p.488; §3.9: the targets derive phi from the given nsub (SPICE3)"),
+            ParamRule("phi", "pass", cite="ref5 p.488; mos2.va phi"),
+            ParamRule("gamma", "default", "0", "absent:gamma,absent:nsub", cite="ref5 p.488; §3.9 nsub row: pins what the targets would derive from the written nsub"),
+            ParamRule("gamma", "pass", "", "absent:gamma,given:nsub", match=("absent",), warn="card", cite="ref5 p.488; §3.9: the targets derive gamma from the given nsub (SPICE3)"),
+            ParamRule("gamma", "pass", cite="ref5 p.488; mos2.va gamma"),
+            ParamRule("uo", "pass", cite="ref5 p.488; mos2.va u0 (alias uo); N_DEV_MOSFET2.C UO"),
+            ParamRule("vmax", "pass", cite="ref5 p.489; inf = the targets' 0 (off): mos2.va vmax; N_DEV_MOSFET2.C VMAX"),
+            ParamRule("nsub", "default", "1.13e16", "absent:nsub", cite="ref5 p.489; §3.9 table: ref5 nsub=1.13e16; the targets 0 = not given (mos2.va; N_DEV_MOSFET2.C) [E95]"),
+            ParamRule("nsub", "pass", cite="ref5 p.489; mos2.va nsub; N_DEV_MOSFET2.C NSUB"),
+            ParamRule("nss", "pass", cite="ref5 p.489; mos2.va nss; N_DEV_MOSFET2.C NSS"),
+            ParamRule("nfs", "pass", cite="ref5 p.489; mos2.va nfs; N_DEV_MOSFET2.C NFS"),
+            ParamRule("tpg", "default", "1", "absent:tpg", cite="ref5 p.489; ref5 tpg=+1 (SPICE3's default, mos2.va tpg=1); Xyce's MOSFET2 defaults TPG to 0 (N_DEV_MOSFET2.C)"),
+            ParamRule("tpg", "pass", cite="ref5 p.489; mos2.va tpg; N_DEV_MOSFET2.C TPG"),
+            ParamRule("ld", "pass", cite="ref5 p.489; mos2.va ld; N_DEV_MOSFET2.C LD"),
+            ParamRule("wd", "strip", match=("0",), cite="ref5 p.489; width/length adjustments: no target at this level"),
+            ParamRule("wd", "error", match=("nonzero",), cite="ref5 p.489; width/length adjustments: no target at this level"),
+            ParamRule("xw", "strip", match=("0",), cite="ref5 p.489; width/length adjustments: no target at this level"),
+            ParamRule("xw", "error", match=("nonzero",), cite="ref5 p.489; width/length adjustments: no target at this level"),
+            ParamRule("xl", "strip", match=("0",), cite="ref5 p.489; width/length adjustments: no target at this level"),
+            ParamRule("xl", "error", match=("nonzero",), cite="ref5 p.489; width/length adjustments: no target at this level"),
+            ParamRule("tox", "pass", cite="ref5 p.489; mos2.va tox; N_DEV_MOSFET2.C TOX"),
+            ParamRule("ai0", "strip", match=("0",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("ai0", "error", match=("nonzero",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("lai0", "strip", match=("0",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("lai0", "error", match=("nonzero",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("wai0", "strip", match=("0",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("wai0", "error", match=("nonzero",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("bi0", "strip", match=("0",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("bi0", "error", match=("nonzero",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("lbi0", "strip", match=("0",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("lbi0", "error", match=("nonzero",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("wbi0", "strip", match=("0",), cite="ref5 p.490; impact ionization: no target"),
+            ParamRule("wbi0", "error", match=("nonzero",), cite="ref5 p.490; impact ionization: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.490; mos2.va; N_DEV_MOSFET2.C")
+              for n in "cgso cgdo cgbo".split()],
+            ParamRule("meto", "strip", match=("0",), cite="ref5 p.490; metal overlap in the fringing capacitance: no target"),
+            ParamRule("meto", "error", match=("nonzero",), cite="ref5 p.490; metal overlap in the fringing capacitance: no target"),
+            ParamRule("capmod", "strip", match=("absent", "bsim",), warn="analyses=ac,noise,xf,tran", cite="ref5 p.490; §3.9: Spectre's default charge model is bsim; both targets have only Meyer's charge"),
+            ParamRule("capmod", "strip", match=("meyer",), cite="ref5 p.490; §3.9: meyer is the targets' charge model [I, §14 q.45]"),
+            ParamRule("capmod", "error", match=("none", "yang",), cite="ref5 p.490; §3.9: none and yang -> error"),
+            ParamRule("xpart", "strip", cite="ref5 p.490; charge partition of the bsim charge model (capmod)"),
+            ParamRule("xqc", "strip", cite="ref5 p.490; as xpart"),
+            ParamRule("rs", "pass", cite="ref5 p.490; mos2.va rs; N_DEV_MOSFET2.C RS"),
+            ParamRule("rd", "pass", cite="ref5 p.490; mos2.va rd; N_DEV_MOSFET2.C RD"),
+            ParamRule("rss", "strip", match=("0",), cite="ref5 p.491; scalable source resistance: no target"),
+            ParamRule("rss", "error", match=("nonzero",), cite="ref5 p.491; scalable source resistance: no target"),
+            ParamRule("rdd", "strip", match=("0",), cite="ref5 p.491; scalable drain resistance: no target"),
+            ParamRule("rdd", "error", match=("nonzero",), cite="ref5 p.491; scalable drain resistance: no target"),
+            ParamRule("rsh", "pass", cite="ref5 p.491; mos2.va rsh; N_DEV_MOSFET2.C RSH"),
+            ParamRule("rsc", "strip", match=("0",), cite="ref5 p.491; contact resistance: no target"),
+            ParamRule("rsc", "error", match=("nonzero",), cite="ref5 p.491; contact resistance: no target"),
+            ParamRule("rdc", "strip", match=("0",), cite="ref5 p.491; contact resistance: no target"),
+            ParamRule("rdc", "error", match=("nonzero",), cite="ref5 p.491; contact resistance: no target"),
+            ParamRule("minr", "strip", cite="ref5 p.491; a Spectre numerical floor"),
+            ParamRule("ldif", "strip", match=("0",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("ldif", "error", match=("nonzero",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("hdif", "strip", match=("0",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("hdif", "error", match=("nonzero",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcs", "strip", match=("0",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcs", "error", match=("nonzero",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcd", "strip", match=("0",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcd", "error", match=("nonzero",), cite="ref5 p.491; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("sc", "error", cite="ref5 p.491; contact spacing: no target"),
+            ParamRule("js", "pass", cite="ref5 p.491; mos2.va js (A/m2); N_DEV_MOSFET2.C JS"),
+            ParamRule("is", "pass", cite="ref5 p.491; mos2.va is; N_DEV_MOSFET2.C IS"),
+            ParamRule("n", "strip", match=("1",), cite="ref5 p.491; junction emission coefficient: the targets' SPICE3 junctions use 1"),
+            ParamRule("n", "error", cite="ref5 p.491; junction emission coefficient: the targets' SPICE3 junctions use 1"),
+            *[ParamRule(n, "strip", cite="ref5 p.491; convergence aid and explosion currents")
+              for n in "dskip imelt jmelt".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.492; mos2.va; N_DEV_MOSFET2.C")
+              for n in "cbs cbd cj mj pb fc cjsw".split()],
+            ParamRule("mjsw", "default", "1/3", "absent:mjsw", cite="ref5 p.492; §3.9 table: ref5 mjsw=1/3; the targets 0.5 (sp_mos1, MOSFET1/2) or 0.33 (sp_mos2/3, MOSFET3) [E95]"),
+            ParamRule("mjsw", "pass", cite="ref5 p.492; mos2.va mjsw; N_DEV_MOSFET2.C MJSW"),
+            ParamRule("pbsw", "strip", warn="card", cite="ref5 p.492; sidewall potential: the targets use pb for the sidewall"),
+            ParamRule("fcsw", "strip", warn="card", cite="ref5 p.492; sidewall forward-bias threshold: the targets use fc for the sidewall"),
+            *[ParamRule(n, "strip", cite="ref5 p.492; operating-region warnings")
+              for n in "alarm imax jmax bvj vbox".split()],
+            ParamRule("tnom", "pass", cite="ref5 p.492; mos2.va tnom; N_DEV_MOSFET2.C TNOM"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.492; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.492; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("uto", "strip", match=("0",), cite="ref5 p.493; mobility temperature offset: no target"),
+            ParamRule("uto", "error", match=("nonzero",), cite="ref5 p.493; mobility temperature offset: no target"),
+            ParamRule("ute", "strip", match=("-1.5",), cite="ref5 p.493; mobility temperature exponent: SPICE3's fixed -1.5"),
+            ParamRule("ute", "error", cite="ref5 p.493; mobility temperature exponent: SPICE3's fixed -1.5"),
+            ParamRule("tlev", "strip", match=("0",), cite="ref5 p.493; temperature equation selector: no target"),
+            ParamRule("tlev", "error", match=("nonzero",), cite="ref5 p.493; temperature equation selector: no target"),
+            ParamRule("tlevc", "strip", match=("0",), cite="ref5 p.493; no target"),
+            ParamRule("tlevc", "error", match=("nonzero",), cite="ref5 p.493; no target"),
+            ParamRule("eg", "strip", match=("absent", "nonzero",), warn="temp!=tnom", cite="ref5 p.493; ref5 eg=1.12452; SPICE3's mos1-3 compute Eg(T) themselves (1.1151 V at 27 C): an approximation at T != tnom"),
+            ParamRule("gap1", "strip", match=("7.02e-4",), cite="ref5 p.493; band-gap law: no target parameter"),
+            ParamRule("gap1", "error", cite="ref5 p.493; band-gap law: no target parameter"),
+            ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.493; as gap1"),
+            ParamRule("gap2", "error", cite="ref5 p.493; as gap1"),
+            ParamRule("f1ex", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("f1ex", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("lamex", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("lamex", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("trs", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("trs", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("trd", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("trd", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("ptc", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("ptc", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("tcv", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("tcv", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("pta", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("pta", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("ptp", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("ptp", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("cta", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("cta", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("ctp", "strip", match=("0",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("ctp", "error", match=("nonzero",), cite="ref5 p.493; temperature coefficients: no target at this level"),
+            ParamRule("xti", "strip", match=("absent", "nonzero",), warn="temp!=tnom", cite="ref5 p.493; ref5 xti=3; SPICE3's mos1-3 junction saturation current has no xti term: an approximation at T != tnom"),
+            ParamRule("w", "fold", cite="ref5 p.493; §3.9 default MOS geometry: folded into instances; a mod= sweep of it is refused"),
+            ParamRule("l", "fold", cite="ref5 p.493; §3.9 default MOS geometry"),
+            ParamRule("as", "fold", cite="ref5 p.494; ref5 'Default instance parameters': folded into instances as w/l (§3.9)"),
+            ParamRule("ad", "fold", cite="ref5 p.494; as as"),
+            ParamRule("ps", "fold", cite="ref5 p.494; as as"),
+            ParamRule("pd", "fold", cite="ref5 p.494; as as"),
+            ParamRule("nrd", "fold", cite="ref5 p.494; ref5 default 0: folded into instances; the targets' instance default is 1 (see the instance rules)"),
+            ParamRule("nrs", "fold", cite="ref5 p.494; as nrd"),
+            ParamRule("ldd", "strip", match=("0",), cite="ref5 p.494; default drain diffusion length: no target"),
+            ParamRule("ldd", "error", match=("nonzero",), cite="ref5 p.494; default drain diffusion length: no target"),
+            ParamRule("lds", "strip", match=("0",), cite="ref5 p.494; no target"),
+            ParamRule("lds", "error", match=("nonzero",), cite="ref5 p.494; no target"),
+            ParamRule("noisemod", "strip", match=("1",), cite="ref5 p.494; noise model selector: the targets' SPICE2 flicker noise (nlev)"),
+            ParamRule("noisemod", "error", cite="ref5 p.494; noise model selector: the targets' SPICE2 flicker noise (nlev)"),
+            ParamRule("kf", "pass", warn="analyses=noise", cite="ref5 p.494; mos2.va kf; N_DEV_MOSFET2.C KF; Spectre normalizes its flicker noise by wnoi (ref5), the targets do not"),
+            ParamRule("af", "pass", cite="ref5 p.494; mos2.va af; N_DEV_MOSFET2.C AF"),
+            ParamRule("ef", "strip", match=("1",), cite="ref5 p.494; flicker frequency exponent: no target"),
+            ParamRule("ef", "strip", warn="analyses=noise", cite="ref5 p.494; flicker frequency exponent: no target"),
+            ParamRule("wnoi", "strip", match=("1e-5",), cite="ref5 p.494; noise reference width: no target"),
+            ParamRule("wnoi", "strip", warn="analyses=noise", cite="ref5 p.494; noise reference width: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.494; model-group bounds (bin_bounds_spectre, §4.4)")
+              for n in "wmax wmin lmax lmin".split()],
+            ParamRule("degramod", "strip", cite="ref5 p.495; degradation model selector (degradation=yes is an error)"),
+            ParamRule("degradation", "strip", match=("no",), cite="ref5 p.495; no hot-electron degradation"),
+            ParamRule("degradation", "error", match=("yes",), cite="ref5 p.495; hot-electron degradation: not in v1"),
+            *[ParamRule(n, "strip", cite="ref5 p.495; degradation coefficients (degradation=yes is an error)")
+              for n in "dvthc dvthe duoc duoe crivth criuo crigm criids wnom lnom vbsn vdsni vgsni vdsng vgsng".split()],
+            ParamRule("esat", "strip", cite="ref5 p.495; Spectre stress parameters (degradation=yes is an error)"),
+            *[ParamRule(n, "strip", cite="ref5 p.496; Spectre stress parameters (degradation=yes is an error)")
+              for n in "esatg vpg vpb subc1 subc2 sube strc stre".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.496; BERT stress parameters (degradation=yes is an error)")
+              for n in "h0 hgd m0 mgd ecrit0 lecrit0 wecrit0 ecritg lecritg wecritg ecritb lecritb".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.497; BERT stress parameters (degradation=yes is an error)")
+              for n in "wecritb lc0 llc0 wlc0 lc1 llc1 wlc1 lc2 llc2 wlc2 lc3 llc3 wlc3 lc4 llc4 wlc4 lc5 llc5 wlc5 lc6 llc6 wlc6".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.498; BERT stress parameters (degradation=yes is an error)")
+              for n in "lc7 llc7 wlc7".split()],
+            ParamRule("ucrit", "pass", cite="ref5 p.489; ref5 0 vs the targets' 1e4 (mos2.va:147; N_DEV_MOSFET2.C:329): acts only with uexp != 0, and Spectre's reading of ucrit=0 is undocumented; not written"),
+            ParamRule("uexp", "pass", cite="ref5 p.489; mos2.va:146; N_DEV_MOSFET2.C:324"),
+            ParamRule("utra", "strip", match=("0",), cite="ref5 p.489; SPICE2's transverse-field mobility term: no target"),
+            ParamRule("utra", "error", match=("nonzero",), cite="ref5 p.489; SPICE2's transverse-field mobility term: no target"),
+            ParamRule("neff", "pass", cite="ref5 p.489; mos2.va:150; N_DEV_MOSFET2.C:344"),
+            ParamRule("delta", "pass", cite="ref5 p.489; mos2.va:145; N_DEV_MOSFET2.C:319"),
+            ParamRule("smooth", "strip", cite="ref5 p.489; Spectre's drain-current smoothing: no target"),
+            ParamRule("xj", "pass", cite="ref5 p.489; mos2.va:149; N_DEV_MOSFET2.C:339"),
+        ),
+        instance=(
+            ParamRule("w", "default", "3e-6", "absent:w", cite="ref5 p.487; §3.9 default MOS geometry (ref5 'Default channel width')"),
+            ParamRule("w", "pass", cite="ref5 p.487; mos2.va w; N_DEV_MOSFET2.C W"),
+            ParamRule("l", "default", "3e-6", "absent:l", cite="ref5 p.487; §3.9 default MOS geometry"),
+            ParamRule("l", "pass", cite="ref5 p.487; mos2.va l; N_DEV_MOSFET2.C L"),
+            *[ParamRule(n, "pass", cite="ref5 p.487; mos2.va; N_DEV_MOSFET2.C")
+              for n in "as ad ps pd".split()],
+            ParamRule("nrd", "default", "0", "absent:nrd", cite="ref5 p.487; ref5 card default nrd=0; the targets' instance default is 1 (mos2.va nrd; N_DEV_MOSFET2.C NRD)"),
+            ParamRule("nrd", "pass", cite="ref5 p.487; mos2.va nrd; N_DEV_MOSFET2.C NRD"),
+            ParamRule("nrs", "default", "0", "absent:nrs", cite="ref5 p.487; as nrd"),
+            ParamRule("nrs", "pass", cite="ref5 p.487; mos2.va nrs; N_DEV_MOSFET2.C NRS"),
+            ParamRule("ld", "strip", match=("0",), cite="ref5 p.488; drain diffusion length (instance): no target"),
+            ParamRule("ld", "error", match=("nonzero",), cite="ref5 p.488; drain diffusion length (instance): no target"),
+            ParamRule("ls", "strip", match=("0",), cite="ref5 p.488; no target"),
+            ParamRule("ls", "error", match=("nonzero",), cite="ref5 p.488; no target"),
+            ParamRule("m", "pass", cite="ref5 p.488; multiplier"),
+            ParamRule("region", "strip", cite="ref5 p.488; an initial operating-region hint"),
+            ParamRule("trise", "rename", "dtemp", cite="ref5 p.488; sp_mos2 dtemp; Xyce DTEMP"),
+            ParamRule("degradation", "strip", match=("no",), cite="ref5 p.488"),
+            ParamRule("degradation", "error", match=("yes",), cite="ref5 p.488; hot-electron degradation: not in v1"),
+        ),
+    ),
+    # -- mos3 [M ref5 pp.504-514] ----------------------------------------------------
+    "mos3": MasterRow(
+        "mos3", "m", 3, "type",
+        kinds=(('n', 'nmos'), ('p', 'pmos')),
+        terminals=('d', 'g', 's', 'b'),
+        geometry=(('w', 3e-06), ('l', 3e-06), ('lmin', 0.0), ('lmax', 1.0), ('wmin', 0.0), ('wmax', 1.0)),
+        params=(
+            ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.505; §3.9: polarity -> Model.kind nmos/pmos"),
+            ParamRule("type", "error", cite="ref5 p.505; unknown polarity"),
+            ParamRule("vto", "default", "0", "absent:vto,absent:nsub", cite="ref5 p.505; §3.9 nsub row: pins what the targets would derive from the written nsub"),
+            ParamRule("vto", "pass", "", "absent:vto,given:nsub", match=("absent",), warn="card", cite="ref5 p.505; §3.9: the targets derive vto from the given nsub (SPICE3)"),
+            ParamRule("vto", "pass", cite="ref5 p.505; mos3.va vto; N_DEV_MOSFET3.C VTO"),
+            ParamRule("kp", "pass", cite="ref5 p.505; ref5 2.0718e-5 = uo*cox at tox=1e-7, which the targets derive when kp is absent (mos3.va; N_DEV_MOSFET3.C)"),
+            ParamRule("phi", "default", "0.7", "absent:phi,absent:nsub", cite="ref5 p.505; §3.9 nsub row: ref5 phi=0.7; the targets 0.6 (mos3.va; N_DEV_MOSFET3.C)"),
+            ParamRule("phi", "pass", "", "absent:phi,given:nsub", match=("absent",), warn="card", cite="ref5 p.505; §3.9: the targets derive phi from the given nsub (SPICE3)"),
+            ParamRule("phi", "pass", cite="ref5 p.505; mos3.va phi"),
+            ParamRule("gamma", "default", "0", "absent:gamma,absent:nsub", cite="ref5 p.505; §3.9 nsub row: pins what the targets would derive from the written nsub"),
+            ParamRule("gamma", "pass", "", "absent:gamma,given:nsub", match=("absent",), warn="card", cite="ref5 p.505; §3.9: the targets derive gamma from the given nsub (SPICE3)"),
+            ParamRule("gamma", "pass", cite="ref5 p.505; mos3.va gamma"),
+            ParamRule("uo", "pass", cite="ref5 p.505; mos3.va u0 (alias uo); N_DEV_MOSFET3.C UO"),
+            ParamRule("vmax", "pass", cite="ref5 p.505; inf = the targets' 0 (off): mos3.va vmax; N_DEV_MOSFET3.C VMAX"),
+            ParamRule("theta", "pass", cite="ref5 p.505; mos3.va theta; N_DEV_MOSFET3.C THETA"),
+            ParamRule("nsub", "default", "1.13e16", "absent:nsub", cite="ref5 p.505; §3.9 table: ref5 nsub=1.13e16; the targets 0 = not given (mos3.va; N_DEV_MOSFET3.C) [E95]"),
+            ParamRule("nsub", "pass", cite="ref5 p.505; mos3.va nsub; N_DEV_MOSFET3.C NSUB"),
+            ParamRule("nss", "pass", cite="ref5 p.505; mos3.va nss; N_DEV_MOSFET3.C NSS"),
+            ParamRule("nfs", "pass", cite="ref5 p.506; mos3.va nfs; N_DEV_MOSFET3.C NFS"),
+            ParamRule("tpg", "pass", cite="ref5 p.506; mos3.va tpg; N_DEV_MOSFET3.C TPG"),
+            ParamRule("ld", "pass", cite="ref5 p.506; mos3.va ld; N_DEV_MOSFET3.C LD"),
+            *[ParamRule(n, "pass", cite="ref5 p.506; sp_mos3 (mos3.va:141-143); Xyce's MOSFET3 has none (fails loudly)")
+              for n in "wd xw xl".split()],
+            ParamRule("tox", "pass", cite="ref5 p.506; mos3.va tox; N_DEV_MOSFET3.C TOX"),
+            ParamRule("ai0", "strip", match=("0",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("ai0", "error", match=("nonzero",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("lai0", "strip", match=("0",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("lai0", "error", match=("nonzero",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("wai0", "strip", match=("0",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("wai0", "error", match=("nonzero",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("bi0", "strip", match=("0",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("bi0", "error", match=("nonzero",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("lbi0", "strip", match=("0",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("lbi0", "error", match=("nonzero",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("wbi0", "strip", match=("0",), cite="ref5 p.506; impact ionization: no target"),
+            ParamRule("wbi0", "error", match=("nonzero",), cite="ref5 p.506; impact ionization: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.506; mos3.va; N_DEV_MOSFET3.C")
+              for n in "cgso cgdo cgbo".split()],
+            ParamRule("meto", "strip", match=("0",), cite="ref5 p.506; metal overlap in the fringing capacitance: no target"),
+            ParamRule("meto", "error", match=("nonzero",), cite="ref5 p.506; metal overlap in the fringing capacitance: no target"),
+            ParamRule("capmod", "strip", match=("absent", "bsim",), warn="analyses=ac,noise,xf,tran", cite="ref5 p.507; §3.9: Spectre's default charge model is bsim; both targets have only Meyer's charge"),
+            ParamRule("capmod", "strip", match=("meyer",), cite="ref5 p.507; §3.9: meyer is the targets' charge model [I, §14 q.45]"),
+            ParamRule("capmod", "error", match=("none", "yang",), cite="ref5 p.507; §3.9: none and yang -> error"),
+            ParamRule("xpart", "strip", cite="ref5 p.507; charge partition of the bsim charge model (capmod)"),
+            ParamRule("xqc", "strip", cite="ref5 p.507; as xpart"),
+            ParamRule("rs", "pass", cite="ref5 p.507; mos3.va rs; N_DEV_MOSFET3.C RS"),
+            ParamRule("rd", "pass", cite="ref5 p.507; mos3.va rd; N_DEV_MOSFET3.C RD"),
+            ParamRule("rss", "strip", match=("0",), cite="ref5 p.507; scalable source resistance: no target"),
+            ParamRule("rss", "error", match=("nonzero",), cite="ref5 p.507; scalable source resistance: no target"),
+            ParamRule("rdd", "strip", match=("0",), cite="ref5 p.507; scalable drain resistance: no target"),
+            ParamRule("rdd", "error", match=("nonzero",), cite="ref5 p.507; scalable drain resistance: no target"),
+            ParamRule("rsh", "pass", cite="ref5 p.507; mos3.va rsh; N_DEV_MOSFET3.C RSH"),
+            ParamRule("rsc", "strip", match=("0",), cite="ref5 p.507; contact resistance: no target"),
+            ParamRule("rsc", "error", match=("nonzero",), cite="ref5 p.507; contact resistance: no target"),
+            ParamRule("rdc", "strip", match=("0",), cite="ref5 p.507; contact resistance: no target"),
+            ParamRule("rdc", "error", match=("nonzero",), cite="ref5 p.507; contact resistance: no target"),
+            ParamRule("minr", "strip", cite="ref5 p.507; a Spectre numerical floor"),
+            ParamRule("ldif", "strip", match=("0",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("ldif", "error", match=("nonzero",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("hdif", "strip", match=("0",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("hdif", "error", match=("nonzero",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcs", "strip", match=("0",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcs", "error", match=("nonzero",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcd", "strip", match=("0",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("lgcd", "error", match=("nonzero",), cite="ref5 p.507; diffusion geometry for the parasitic resistances: no target"),
+            ParamRule("sc", "error", cite="ref5 p.507; contact spacing: no target"),
+            ParamRule("js", "pass", cite="ref5 p.508; mos3.va js (A/m2); N_DEV_MOSFET3.C JS"),
+            ParamRule("is", "pass", cite="ref5 p.508; mos3.va is; N_DEV_MOSFET3.C IS"),
+            ParamRule("n", "strip", match=("1",), cite="ref5 p.508; junction emission coefficient: the targets' SPICE3 junctions use 1"),
+            ParamRule("n", "error", cite="ref5 p.508; junction emission coefficient: the targets' SPICE3 junctions use 1"),
+            *[ParamRule(n, "strip", cite="ref5 p.508; convergence aid and explosion currents")
+              for n in "dskip imelt jmelt".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.508; mos3.va; N_DEV_MOSFET3.C")
+              for n in "cbs cbd cj mj pb fc cjsw".split()],
+            ParamRule("mjsw", "default", "1/3", "absent:mjsw", cite="ref5 p.508; §3.9 table: ref5 mjsw=1/3; the targets 0.5 (sp_mos1, MOSFET1/2) or 0.33 (sp_mos2/3, MOSFET3) [E95]"),
+            ParamRule("mjsw", "pass", cite="ref5 p.508; mos3.va mjsw; N_DEV_MOSFET3.C MJSW"),
+            ParamRule("pbsw", "strip", warn="card", cite="ref5 p.508; sidewall potential: the targets use pb for the sidewall"),
+            ParamRule("fcsw", "strip", warn="card", cite="ref5 p.508; sidewall forward-bias threshold: the targets use fc for the sidewall"),
+            *[ParamRule(n, "strip", cite="ref5 p.509; operating-region warnings")
+              for n in "alarm imax jmax bvj vbox".split()],
+            ParamRule("tnom", "pass", cite="ref5 p.509; mos3.va tnom; N_DEV_MOSFET3.C TNOM"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.509; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.509; card default temperature rise: no target (the instance trise maps to dtemp)"),
+            ParamRule("uto", "strip", match=("0",), cite="ref5 p.509; mobility temperature offset: no target"),
+            ParamRule("uto", "error", match=("nonzero",), cite="ref5 p.509; mobility temperature offset: no target"),
+            ParamRule("ute", "strip", match=("-1.5",), cite="ref5 p.509; mobility temperature exponent: SPICE3's fixed -1.5"),
+            ParamRule("ute", "error", cite="ref5 p.509; mobility temperature exponent: SPICE3's fixed -1.5"),
+            ParamRule("tlev", "strip", match=("0",), cite="ref5 p.509; temperature equation selector: no target"),
+            ParamRule("tlev", "error", match=("nonzero",), cite="ref5 p.509; temperature equation selector: no target"),
+            ParamRule("tlevc", "strip", match=("0",), cite="ref5 p.509; no target"),
+            ParamRule("tlevc", "error", match=("nonzero",), cite="ref5 p.509; no target"),
+            ParamRule("eg", "strip", match=("absent", "nonzero",), warn="temp!=tnom", cite="ref5 p.509; ref5 eg=1.12452; SPICE3's mos1-3 compute Eg(T) themselves (1.1151 V at 27 C): an approximation at T != tnom"),
+            ParamRule("gap1", "strip", match=("7.02e-4",), cite="ref5 p.509; band-gap law: no target parameter"),
+            ParamRule("gap1", "error", cite="ref5 p.509; band-gap law: no target parameter"),
+            ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.509; as gap1"),
+            ParamRule("gap2", "error", cite="ref5 p.509; as gap1"),
+            ParamRule("f1ex", "strip", match=("0",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("f1ex", "error", match=("nonzero",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("lamex", "strip", match=("0",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("lamex", "error", match=("nonzero",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("trs", "strip", match=("0",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("trs", "error", match=("nonzero",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("trd", "strip", match=("0",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("trd", "error", match=("nonzero",), cite="ref5 p.509; temperature coefficients: no target at this level"),
+            ParamRule("ptc", "strip", match=("0",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("ptc", "error", match=("nonzero",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("tcv", "strip", match=("0",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("tcv", "error", match=("nonzero",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("pta", "strip", match=("0",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("pta", "error", match=("nonzero",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("ptp", "strip", match=("0",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("ptp", "error", match=("nonzero",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("cta", "strip", match=("0",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("cta", "error", match=("nonzero",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("ctp", "strip", match=("0",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("ctp", "error", match=("nonzero",), cite="ref5 p.510; temperature coefficients: no target at this level"),
+            ParamRule("xti", "strip", match=("absent", "nonzero",), warn="temp!=tnom", cite="ref5 p.510; ref5 xti=3; SPICE3's mos1-3 junction saturation current has no xti term: an approximation at T != tnom"),
+            ParamRule("w", "fold", cite="ref5 p.510; §3.9 default MOS geometry: folded into instances; a mod= sweep of it is refused"),
+            ParamRule("l", "fold", cite="ref5 p.510; §3.9 default MOS geometry"),
+            ParamRule("as", "fold", cite="ref5 p.510; ref5 'Default instance parameters': folded into instances as w/l (§3.9)"),
+            ParamRule("ad", "fold", cite="ref5 p.510; as as"),
+            ParamRule("ps", "fold", cite="ref5 p.510; as as"),
+            ParamRule("pd", "fold", cite="ref5 p.510; as as"),
+            ParamRule("nrd", "fold", cite="ref5 p.510; ref5 default 0: folded into instances; the targets' instance default is 1 (see the instance rules)"),
+            ParamRule("nrs", "fold", cite="ref5 p.510; as nrd"),
+            ParamRule("ldd", "strip", match=("0",), cite="ref5 p.510; default drain diffusion length: no target"),
+            ParamRule("ldd", "error", match=("nonzero",), cite="ref5 p.510; default drain diffusion length: no target"),
+            ParamRule("lds", "strip", match=("0",), cite="ref5 p.510; no target"),
+            ParamRule("lds", "error", match=("nonzero",), cite="ref5 p.510; no target"),
+            ParamRule("noisemod", "strip", match=("1",), cite="ref5 p.510; noise model selector: the targets' SPICE2 flicker noise (nlev)"),
+            ParamRule("noisemod", "error", cite="ref5 p.510; noise model selector: the targets' SPICE2 flicker noise (nlev)"),
+            ParamRule("kf", "pass", warn="analyses=noise", cite="ref5 p.510; mos3.va kf; N_DEV_MOSFET3.C KF; Spectre normalizes its flicker noise by wnoi (ref5), the targets do not"),
+            ParamRule("af", "pass", cite="ref5 p.511; mos3.va af; N_DEV_MOSFET3.C AF"),
+            ParamRule("ef", "strip", match=("1",), cite="ref5 p.511; flicker frequency exponent: no target"),
+            ParamRule("ef", "strip", warn="analyses=noise", cite="ref5 p.511; flicker frequency exponent: no target"),
+            ParamRule("wnoi", "strip", match=("1e-5",), cite="ref5 p.511; noise reference width: no target"),
+            ParamRule("wnoi", "strip", warn="analyses=noise", cite="ref5 p.511; noise reference width: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.511; model-group bounds (bin_bounds_spectre, §4.4)")
+              for n in "wmax wmin lmax lmin".split()],
+            ParamRule("degramod", "strip", cite="ref5 p.511; degradation model selector (degradation=yes is an error)"),
+            ParamRule("degradation", "strip", match=("no",), cite="ref5 p.511; no hot-electron degradation"),
+            ParamRule("degradation", "error", match=("yes",), cite="ref5 p.511; hot-electron degradation: not in v1"),
+            *[ParamRule(n, "strip", cite="ref5 p.511; degradation coefficients (degradation=yes is an error)")
+              for n in "dvthc dvthe duoc duoe crivth criuo crigm criids wnom".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.512; degradation coefficients (degradation=yes is an error)")
+              for n in "lnom vbsn vdsni vgsni vdsng vgsng".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.512; Spectre stress parameters (degradation=yes is an error)")
+              for n in "esat esatg vpg vpb subc1 subc2 sube strc stre".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.512; BERT stress parameters (degradation=yes is an error)")
+              for n in "h0 hgd m0 mgd".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.513; BERT stress parameters (degradation=yes is an error)")
+              for n in "ecrit0 lecrit0 wecrit0 ecritg lecritg wecritg ecritb lecritb wecritb lc0 llc0 wlc0 lc1 llc1 wlc1 lc2 llc2 wlc2 lc3 llc3 wlc3 lc4".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.514; BERT stress parameters (degradation=yes is an error)")
+              for n in "llc4 wlc4 lc5 llc5 wlc5 lc6 llc6 wlc6 lc7 llc7 wlc7".split()],
+            ParamRule("eta", "pass", cite="ref5 p.505; mos3.va:155; N_DEV_MOSFET3.C:319"),
+            ParamRule("kappa", "pass", cite="ref5 p.505; mos3.va:158; N_DEV_MOSFET3.C:344"),
+            ParamRule("delta", "pass", cite="ref5 p.505; mos3.va:156; N_DEV_MOSFET3.C:324"),
+            ParamRule("xj", "pass", cite="ref5 p.506; mos3.va:153; N_DEV_MOSFET3.C:354"),
+            ParamRule("badmos3", "default", "1", "absent:badmos3", warn="card", cite="§3.9 table: SPICE2's channel-length modulation, on which the engines agree (mos3.va:159, N_DEV_MOSFET3.C:349) [E69; §14 q.31]"),
+        ),
+        instance=(
+            ParamRule("w", "default", "3e-6", "absent:w", cite="ref5 p.504; §3.9 default MOS geometry (ref5 'Default channel width')"),
+            ParamRule("w", "pass", cite="ref5 p.504; mos3.va w; N_DEV_MOSFET3.C W"),
+            ParamRule("l", "default", "3e-6", "absent:l", cite="ref5 p.504; §3.9 default MOS geometry"),
+            ParamRule("l", "pass", cite="ref5 p.504; mos3.va l; N_DEV_MOSFET3.C L"),
+            *[ParamRule(n, "pass", cite="ref5 p.504; mos3.va; N_DEV_MOSFET3.C")
+              for n in "as ad ps pd".split()],
+            ParamRule("nrd", "default", "0", "absent:nrd", cite="ref5 p.504; ref5 card default nrd=0; the targets' instance default is 1 (mos3.va nrd; N_DEV_MOSFET3.C NRD)"),
+            ParamRule("nrd", "pass", cite="ref5 p.504; mos3.va nrd; N_DEV_MOSFET3.C NRD"),
+            ParamRule("nrs", "default", "0", "absent:nrs", cite="ref5 p.504; as nrd"),
+            ParamRule("nrs", "pass", cite="ref5 p.504; mos3.va nrs; N_DEV_MOSFET3.C NRS"),
+            ParamRule("ld", "strip", match=("0",), cite="ref5 p.504; drain diffusion length (instance): no target"),
+            ParamRule("ld", "error", match=("nonzero",), cite="ref5 p.504; drain diffusion length (instance): no target"),
+            ParamRule("ls", "strip", match=("0",), cite="ref5 p.504; no target"),
+            ParamRule("ls", "error", match=("nonzero",), cite="ref5 p.504; no target"),
+            ParamRule("m", "pass", cite="ref5 p.504; multiplier"),
+            ParamRule("region", "strip", cite="ref5 p.504; an initial operating-region hint"),
+            ParamRule("trise", "rename", "dtemp", cite="ref5 p.504; sp_mos3 dtemp; Xyce DTEMP"),
+            ParamRule("degradation", "strip", match=("no",), cite="ref5 p.504"),
+            ParamRule("degradation", "error", match=("yes",), cite="ref5 p.504; hot-electron degradation: not in v1"),
+        ),
+    ),
+    # -- bsim3v3 [M ref5 pp.187-202] -------------------------------------------------
+    "bsim3v3": MasterRow(
+        "bsim3v3", "m", 49, "type",
+        kinds=(('n', 'nmos'), ('p', 'pmos')),
+        terminals=('d', 'g', 's', 'b'),
+        geometry=(('w', 5e-06), ('l', 5e-06), ('lmin', 0.0), ('lmax', 1.0), ('wmin', 0.0), ('wmax', 1.0)),
+        params=(
+            ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.188; §3.9: polarity -> Model.kind"),
+            ParamRule("type", "error", cite="ref5 p.188; unknown polarity"),
+            ParamRule("vtho", "rename", "vth0", cite="ref5 p.188; Spectre's spelling; sp_bsim3v3 vth0 (alias vtho, bsim3v3.va:190), Xyce VTH0 (N_DEV_MOSFET_B3.C:528)"),
+            ParamRule("vfb", "pass", cite="ref5 p.188; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            *[ParamRule(n, "pass", cite="ref5 p.189; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
+              for n in "k1 k2 k3 k3b w0 nlx gamma1 gamma2 vbx vbm dvt0 dvt1 dvt2 dvt0w dvt1w dvt2w a0 b0 b1 a1 a2 ags".split()],
+            ParamRule("keta", "pass", cite="ref5 p.190; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("vfbflag", "strip", match=("0",), cite="ref5 p.190; Spectre's vfb selector: no target"),
+            ParamRule("vfbflag", "error", match=("nonzero",), cite="ref5 p.190; Spectre's vfb selector: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.190; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
+              for n in "nsub nch ngate xj lint wint ll lln lw lwn lwl wl wln ww wwn wwl dwg dwb".split()],
+            ParamRule("tox", "pass", cite="ref5 p.191; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("dtoxcv", "strip", match=("0",), cite="ref5 p.191; delta oxide thickness for CV: no target (BSIM3v3.2's dtoxcv is not in VACASK's 3.3 or Xyce's 3.2.2 tables)"),
+            ParamRule("dtoxcv", "error", match=("nonzero",), cite="ref5 p.191; delta oxide thickness for CV: no target (BSIM3v3.2's dtoxcv is not in VACASK's 3.3 or Xyce's 3.2.2 tables)"),
+            *[ParamRule(n, "pass", cite="ref5 p.191; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
+              for n in "toxm xt rdsw prwb prwg wr binunit".split()],
+            ParamRule("binflag", "strip", match=("0",), cite="ref5 p.191; HSPICE-style binning factor: no target"),
+            ParamRule("binflag", "error", match=("nonzero",), cite="ref5 p.191; HSPICE-style binning factor: no target"),
+            ParamRule("lref", "strip", match=("1e20",), cite="ref5 p.191; HSPICE-style binning reference: no target"),
+            ParamRule("lref", "error", cite="ref5 p.191; HSPICE-style binning reference: no target"),
+            ParamRule("wref", "strip", match=("1e20",), cite="ref5 p.191; as lref"),
+            ParamRule("wref", "error", cite="ref5 p.191; as lref"),
+            *[ParamRule(n, "pass", cite="ref5 p.191; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); u0 defaults 670 (n) / 250 (p) on the targets, ref5 lists 670")
+              for n in "mobmod u0 vsat ua ub uc".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.192; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
+              for n in "drout pclm pdiblc1 pdiblc2 pdiblcb pscbe1 pscbe2 pvag delta cdsc cdscb cdscd nfactor cit voff dsub eta0 etab".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.193; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
+              for n in "alpha0 alpha1 beta0 rsh".split()],
+            ParamRule("rs", "pass", cite="ref5 p.193; sp_bsim3v3 ACM resistances (bsim3v3.va:287-288); Xyce's BSIM3 has none (fails loudly)"),
+            ParamRule("rd", "pass", cite="ref5 p.193; sp_bsim3v3 ACM resistances (bsim3v3.va:287-288); Xyce's BSIM3 has none (fails loudly)"),
+            ParamRule("lgcs", "strip", match=("0",), cite="ref5 p.193; contact geometry: no target"),
+            ParamRule("lgcs", "error", match=("nonzero",), cite="ref5 p.193; contact geometry: no target"),
+            ParamRule("lgcd", "strip", match=("0",), cite="ref5 p.193; no target"),
+            ParamRule("lgcd", "error", match=("nonzero",), cite="ref5 p.193; no target"),
+            ParamRule("rsc", "pass", cite="ref5 p.193; sp_bsim3v3 ACM contact resistances (bsim3v3.va:289-290); Xyce has none (fails loudly)"),
+            ParamRule("rdc", "pass", cite="ref5 p.193; sp_bsim3v3 ACM contact resistances (bsim3v3.va:289-290); Xyce has none (fails loudly)"),
+            ParamRule("rss", "strip", match=("0",), cite="ref5 p.193; scalable source resistance: no target"),
+            ParamRule("rss", "error", match=("nonzero",), cite="ref5 p.193; scalable source resistance: no target"),
+            ParamRule("rdd", "strip", match=("0",), cite="ref5 p.193; no target"),
+            ParamRule("rdd", "error", match=("nonzero",), cite="ref5 p.193; no target"),
+            ParamRule("sc", "error", cite="ref5 p.193; contact spacing: no target"),
+            ParamRule("ldif", "pass", cite="ref5 p.193; sp_bsim3v3 ACM geometry (bsim3v3.va:284-285); Xyce has none (fails loudly)"),
+            ParamRule("hdif", "pass", cite="ref5 p.193; sp_bsim3v3 ACM geometry (bsim3v3.va:284-285); Xyce has none (fails loudly)"),
+            ParamRule("minr", "strip", cite="ref5 p.193; a Spectre numerical floor"),
+            ParamRule("js", "pass", cite="ref5 p.193; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); ref5 gives no default, the targets 1e-4 A/m2 (bsim3v3.va:221; N_DEV_MOSFET_B3.C:2694)"),
+            ParamRule("jsw", "pass", cite="ref5 p.193; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("is", "error", cite="ref5 p.194; Spectre's absolute junction current (used when js is absent): no BSIM3 target parameter"),
+            ParamRule("n", "rename", "nj", cite="ref5 p.194; junction emission coefficient: BSIM3's nj (bsim3v3.va:224; N_DEV_MOSFET_B3.C:2771)"),
+            *[ParamRule(n, "strip", cite="ref5 p.194; convergence aid and explosion currents")
+              for n in "dskip imelt jmelt".split()],
+            ParamRule("ijth", "pass", cite="ref5 p.194; ref5: alias to imelt; BSIM3v3.2's diode limiting current (bsim3v3.va:295; N_DEV_MOSFET_B3.C:753)"),
+            ParamRule("vnds", "strip", match=("-1",), cite="ref5 p.194; Spectre's reverse diode transition: no target"),
+            ParamRule("vnds", "error", cite="ref5 p.194; Spectre's reverse diode transition: no target"),
+            ParamRule("nds", "strip", match=("1",), cite="ref5 p.194; as vnds"),
+            ParamRule("nds", "error", cite="ref5 p.194; as vnds"),
+            ParamRule("tt", "strip", match=("0",), cite="ref5 p.194; junction transit time: no BSIM3 target parameter"),
+            ParamRule("tt", "error", match=("nonzero",), cite="ref5 p.194; junction transit time: no BSIM3 target parameter"),
+            *[ParamRule(n, "pass", cite="ref5 p.194; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); absent cgso/cgdo/cgbo are derived from dlc/dwc*cox on both (ref5's 'cgbo=2' is that derivation)")
+              for n in "cgso cgdo cgbo".split()],
+            ParamRule("meto", "strip", match=("0",), cite="ref5 p.194; metal overlap: no target"),
+            ParamRule("meto", "error", match=("nonzero",), cite="ref5 p.194; metal overlap: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.194; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
+              for n in "cgsl cgdl ckappa".split()],
+            ParamRule("cbs", "strip", match=("0",), cite="ref5 p.195; absolute junction capacitance: no BSIM3 target parameter"),
+            ParamRule("cbs", "error", match=("nonzero",), cite="ref5 p.195; absolute junction capacitance: no BSIM3 target parameter"),
+            ParamRule("cbd", "strip", match=("0",), cite="ref5 p.195; as cbs"),
+            ParamRule("cbd", "error", match=("nonzero",), cite="ref5 p.195; as cbs"),
+            *[ParamRule(n, "pass", cite="ref5 p.195; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); cj=5e-4 equal (§3.9: not written)")
+              for n in "cj mj pb".split()],
+            ParamRule("fc", "strip", match=("0.5",), cite="ref5 p.195; BSIM3's junction capacitance has no forward-bias threshold parameter on either target"),
+            ParamRule("fc", "strip", warn="card", cite="ref5 p.195; as above"),
+            *[ParamRule(n, "pass", cite="ref5 p.195; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); cjsw=5e-10 equal (§3.9: not written)")
+              for n in "cjsw mjsw pbsw cjswg mjswg pbswg".split()],
+            ParamRule("fcsw", "strip", match=("0.5",), cite="ref5 p.195; as fc"),
+            ParamRule("fcsw", "strip", warn="card", cite="ref5 p.195; as fc"),
+            ParamRule("capmod", "default", "2", "absent:capmod", cite="ref5 p.195; §3.9 table: ref5 capmod=2 (p.195); sp_bsim3v3 capmod=3 (bsim3v3.va:140), Xyce CAPMOD=3 (N_DEV_MOSFET_B3.C:3021)"),
+            ParamRule("capmod", "pass", cite="ref5 p.195; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("nqsmod", "pass", cite="ref5 p.195; bsim3v3.va:143; Xyce's BSIM3 has NQSMOD on the instance only (N_DEV_MOSFET_B3.C:212): a card nqsmod fails loudly there"),
+            *[ParamRule(n, "pass", cite="ref5 p.195; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); xpart=0 equal (§3.9: not written)")
+              for n in "dwc dlc clc cle".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.196; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); xpart=0 equal (§3.9: not written)")
+              for n in "cf elm vfbcv acde moin noff voffcv xpart llc lwc lwlc wlc wwc wwlc".split()],
+            ParamRule("wmlt", "pass", cite="ref5 p.196; sp_bsim3v3 wmlt (bsim3v3.va:291); Xyce has no WMLT: the output scan of the deck fails loudly (§7.2)"),
+            ParamRule("lmlt", "strip", match=("1",), cite="ref5 p.196; length shrink factor: no target"),
+            ParamRule("lmlt", "error", cite="ref5 p.196; length shrink factor: no target"),
+            ParamRule("w", "fold", cite="ref5 p.196; §3.9 default MOS geometry (5e-6): folded into instances"),
+            ParamRule("l", "fold", cite="ref5 p.196; §3.9 default MOS geometry"),
+            ParamRule("as", "fold", cite="ref5 p.196; ref5 'Default for instance parameters': folded into instances as w/l (§3.9)"),
+            ParamRule("ad", "fold", cite="ref5 p.196; as as"),
+            ParamRule("ps", "fold", cite="ref5 p.197; as as"),
+            ParamRule("pd", "fold", cite="ref5 p.197; as as"),
+            ParamRule("nrd", "fold", cite="ref5 p.197; ref5 default 0: folded into instances (the instance rules write 0 where neither gives it)"),
+            ParamRule("nrs", "fold", cite="ref5 p.197; as nrd"),
+            ParamRule("version", "pass", cite="ref5 p.197; existing version handling (tables.model_params): VACASK removes it with a note (sp_bsim3v3 is 3.3.0), Xyce keeps it (its default is 3.2.2); ref5's default 3.1 is not written"),
+            ParamRule("paramchk", "strip", cite="ref5 p.197; parameter checking messages only"),
+            ParamRule("fullreinit", "strip", cite="ref5 p.197; re-initialization selector: no effect on results"),
+            ParamRule("level", "fold", match=("11", "49", "53",), cite="ref5 p.197; §3.9: Spectre's bsim3v3 selectors 11, 49 and 53 all dispatch to DISPATCH level 49"),
+            ParamRule("level", "error", cite="ref5 p.197; unknown bsim3v3 level"),
+            ParamRule("acm", "pass", cite="ref5 p.197; §4.4: Spectre's acm is a bsim3v3 parameter (never STRIP_KEYS); sp_bsim3v3 acm (bsim3v3.va:145), Xyce has none (fails loudly)"),
+            ParamRule("geo", "pass", cite="ref5 p.197; sp_bsim3v3 geo (instance parameter, bsim3v3.va:135; a model statement may give it); Xyce has none"),
+            ParamRule("calcacm", "pass", cite="ref5 p.197; sp_bsim3v3 calcacm (bsim3v3.va:146); Xyce has none"),
+            ParamRule("tnom", "pass", cite="ref5 p.197; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.197; card default temperature rise: no target"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.197; card default temperature rise: no target"),
+            ParamRule("tlev", "strip", match=("0",), cite="ref5 p.197; temperature equation selector: no BSIM3 target parameter"),
+            ParamRule("tlev", "error", match=("nonzero",), cite="ref5 p.197; temperature equation selector: no BSIM3 target parameter"),
+            ParamRule("tlevc", "strip", match=("0",), cite="ref5 p.197; no target"),
+            ParamRule("tlevc", "error", match=("nonzero",), cite="ref5 p.197; no target"),
+            ParamRule("eg", "strip", match=("1.12452",), cite="ref5 p.197; band gap: BSIM3 computes Eg(T) itself on both targets"),
+            ParamRule("eg", "error", cite="ref5 p.197; band gap: BSIM3 computes Eg(T) itself on both targets"),
+            ParamRule("gap1", "strip", match=("7.02e-4",), cite="ref5 p.197; as eg"),
+            ParamRule("gap1", "error", cite="ref5 p.197; as eg"),
+            ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.197; as eg"),
+            ParamRule("gap2", "error", cite="ref5 p.197; as eg"),
+            ParamRule("diomod", "strip", match=("1",), cite="ref5 p.197; junction model selector: the targets have BSIM3v3's junction model only"),
+            ParamRule("diomod", "error", cite="ref5 p.197; junction model selector: the targets have BSIM3v3's junction model only"),
+            *[ParamRule(n, "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
+              for n in "kt1 kt1l kt2 at ua1 ub1 uc1 prt".split()],
+            ParamRule("trs", "strip", match=("0",), cite="ref5 p.198; source resistance tempco: no target"),
+            ParamRule("trs", "error", match=("nonzero",), cite="ref5 p.198; source resistance tempco: no target"),
+            ParamRule("trd", "strip", match=("0",), cite="ref5 p.198; no target"),
+            ParamRule("trd", "error", match=("nonzero",), cite="ref5 p.198; no target"),
+            ParamRule("ute", "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("xti", "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("pta", "rename", "tpb", cite="ref5 p.198; junction potential tempco: BSIM3's tpb (bsim3v3.va:236; N_DEV_MOSFET_B3.C:887)"),
+            ParamRule("tpb", "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("ptp", "rename", "tpbsw", cite="ref5 p.198; sidewall potential tempco: BSIM3's tpbsw (bsim3v3.va:238)"),
+            ParamRule("tpbsw", "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("tpbswg", "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("cta", "rename", "tcj", cite="ref5 p.198; junction capacitance tempco: BSIM3's tcj (bsim3v3.va:237; N_DEV_MOSFET_B3.C:866)"),
+            ParamRule("tcj", "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("ctp", "rename", "tcjsw", cite="ref5 p.198; sidewall capacitance tempco: BSIM3's tcjsw (bsim3v3.va:239)"),
+            ParamRule("tcjsw", "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("tcjswg", "pass", cite="ref5 p.199; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            *[ParamRule(n, "pass", cite="ref5 p.199; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included); noia/noib/noic default by polarity on both")
+              for n in "noimod kf af ef noia noib noic".split()],
+            ParamRule("noid", "strip", match=("2e14",), cite="ref5 p.199; Spectre's subthreshold flicker transition coefficient: no target"),
+            ParamRule("noid", "strip", warn="analyses=noise", cite="ref5 p.199; Spectre's subthreshold flicker transition coefficient: no target"),
+            ParamRule("wnoi", "strip", match=("1e-5",), cite="ref5 p.199; noise reference width: no target"),
+            ParamRule("wnoi", "strip", warn="analyses=noise", cite="ref5 p.199; noise reference width: no target"),
+            ParamRule("em", "pass", cite="ref5 p.199; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
+            ParamRule("flkmod", "strip", match=("0",), cite="ref5 p.199; Spectre's gm-based flicker model: no target"),
+            ParamRule("flkmod", "strip", warn="analyses=noise", cite="ref5 p.199; Spectre's gm-based flicker model: no target"),
+            ParamRule("gamma", "strip", match=("2/3",), cite="ref5 p.199; thermal noise coefficient: BSIM3's noimod fixes it"),
+            ParamRule("gamma", "strip", warn="analyses=noise", cite="ref5 p.199; thermal noise coefficient: BSIM3's noimod fixes it"),
+            ParamRule("nlev", "strip", match=("2",), cite="ref5 p.199; SPICE2-style noise selector of Spectre's level-49 compatibility: no target"),
+            ParamRule("nlev", "strip", warn="analyses=noise", cite="ref5 p.199; SPICE2-style noise selector of Spectre's level-49 compatibility: no target"),
+            ParamRule("bforward", "strip", match=("0",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("bforward", "error", match=("nonzero",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("breverse", "strip", match=("0",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("breverse", "error", match=("nonzero",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("cforward", "strip", match=("0",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("cforward", "error", match=("nonzero",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("creverse", "strip", match=("0",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("creverse", "error", match=("nonzero",), cite="ref5 p.199; Spectre gate leakage: no target"),
+            ParamRule("tcc", "strip", match=("0",), cite="ref5 p.200; Spectre gate leakage: no target"),
+            ParamRule("tcc", "error", match=("nonzero",), cite="ref5 p.200; Spectre gate leakage: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.200; model-group bounds (bin_bounds_spectre, §4.4)")
+              for n in "wmax wmin lmax lmin".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.200; operating-region warnings")
+              for n in "alarm imax jmax bvj vbox warn apwarn".split()],
+            ParamRule("xl", "pass", cite="ref5 p.200; sp_bsim3v3 xl/xw (bsim3v3.va:258-259); Xyce's BSIM3 has none (fails loudly)"),
+            ParamRule("xw", "pass", cite="ref5 p.200; sp_bsim3v3 xl/xw (bsim3v3.va:258-259); Xyce's BSIM3 has none (fails loudly)"),
+            *[ParamRule(n, "strip", cite="ref5 p.201; DC-mismatch parameters (dcmatch is not in v1)")
+              for n in "mvtwl mvtwl2 mvt0 mbewl mbe0".split()],
+            ParamRule("mos_method", "strip", cite="ref5 p.201; table-model selector"),
+            ParamRule("sa0", "strip", cite="ref5 p.201; LOD reference distances (ku0/kvsat/kvth0 are errors when nonzero)"),
+            ParamRule("sb0", "strip", cite="ref5 p.201; LOD reference distances (ku0/kvsat/kvth0 are errors when nonzero)"),
+            ParamRule("wlod", "strip", match=("0",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wlod", "error", match=("nonzero",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("ku0", "strip", match=("0",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("ku0", "error", match=("nonzero",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("kvsat", "strip", match=("0",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("kvsat", "error", match=("nonzero",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("kvth0", "strip", match=("0",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("kvth0", "error", match=("nonzero",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("tku0", "strip", match=("0",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("tku0", "error", match=("nonzero",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("llodku0", "strip", match=("0",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("llodku0", "error", match=("nonzero",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wlodku0", "strip", match=("0",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wlodku0", "error", match=("nonzero",), cite="ref5 p.201; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("llodvth", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("llodvth", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wlodvth", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wlodvth", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lku0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lku0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wku0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wku0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("pku0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("pku0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lkvth0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lkvth0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wkvth0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("wkvth0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("pkvth0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("pkvth0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("stk2", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("stk2", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lodk2", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lodk2", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("steta0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("steta0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lodeta0", "strip", match=("0",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+            ParamRule("lodeta0", "error", match=("nonzero",), cite="ref5 p.202; Spectre's LOD stress model in bsim3v3: no target (BSIM3 has no LOD)"),
+        ),
+        instance=(
+            ParamRule("w", "default", "5e-6", "absent:w", cite="ref5 p.187; §3.9 default MOS geometry (ref5 p.196)"),
+            ParamRule("w", "pass", cite="ref5 p.187; bsim3v3.va:126; N_DEV_MOSFET_B3.C:129"),
+            ParamRule("l", "default", "5e-6", "absent:l", cite="ref5 p.187; §3.9 default MOS geometry"),
+            ParamRule("l", "pass", cite="ref5 p.187; bsim3v3.va:125; N_DEV_MOSFET_B3.C:120"),
+            *[ParamRule(n, "pass", cite="ref5 p.187; bsim3v3.va:127-130; N_DEV_MOSFET_B3.C:138-176")
+              for n in "as ad ps pd".split()],
+            ParamRule("nrd", "default", "0", "absent:nrd", cite="ref5 p.187; ref5 card default nrd=0; sp_bsim3v3 nrd=0 (bsim3v3.va:131), Xyce NRD=1 (N_DEV_MOSFET_B3.C:154)"),
+            ParamRule("nrd", "pass", cite="ref5 p.187; bsim3v3.va:131; N_DEV_MOSFET_B3.C:154"),
+            ParamRule("nrs", "default", "0", "absent:nrs", cite="ref5 p.187; as nrd"),
+            ParamRule("nrs", "pass", cite="ref5 p.187; bsim3v3.va:132; N_DEV_MOSFET_B3.C:161"),
+            ParamRule("m", "pass", cite="ref5 p.187; multiplier"),
+            ParamRule("region", "strip", cite="ref5 p.187; an initial operating-region hint"),
+            ParamRule("nqsmod", "rename", "instance_nqsmod", cite="ref5 p.187; VACASK's spelling (bsim3v3.va:133); Xyce's is NQSMOD (N_DEV_MOSFET_B3.C:212): S3's Xyce path drops the prefix"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.187; sp_bsim3v3 has no instance temperature parameter (bsim3v3.va:125-137); Xyce's DTEMP alone would differ between the engines"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.187; sp_bsim3v3 has no instance temperature parameter (bsim3v3.va:125-137); Xyce's DTEMP alone would differ between the engines"),
+            ParamRule("aforward", "strip", match=("0",), cite="ref5 p.188; Spectre gate leakage: no target"),
+            ParamRule("aforward", "error", match=("nonzero",), cite="ref5 p.188; Spectre gate leakage: no target"),
+            ParamRule("areverse", "strip", match=("0",), cite="ref5 p.188; no target"),
+            ParamRule("areverse", "error", match=("nonzero",), cite="ref5 p.188; no target"),
+            ParamRule("delvto", "pass", cite="ref5 p.188; bsim3v3.va:136; Xyce's BSIM3 instance has no DELVTO (fails loudly)"),
+            ParamRule("mulmu0", "rename", "mulu0", cite="ref5 p.188; sp_bsim3v3 mulu0 (bsim3v3.va:137); Xyce's BSIM3 has none (fails loudly)"),
+            ParamRule("delk1", "strip", match=("0",), cite="ref5 p.188; k1 shift: no target"),
+            ParamRule("delk1", "error", match=("nonzero",), cite="ref5 p.188; k1 shift: no target"),
+            ParamRule("delnfct", "strip", match=("0",), cite="ref5 p.188; nfactor shift: no target"),
+            ParamRule("delnfct", "error", match=("nonzero",), cite="ref5 p.188; nfactor shift: no target"),
+            ParamRule("geo", "pass", cite="ref5 p.188; sp_bsim3v3 geo (bsim3v3.va:135); Xyce has none (fails loudly)"),
+            ParamRule("rdc", "strip", match=("0",), cite="ref5 p.188; instance contact resistance: sp_bsim3v3 has it on the model only"),
+            ParamRule("rdc", "error", match=("nonzero",), cite="ref5 p.188; instance contact resistance: sp_bsim3v3 has it on the model only"),
+            ParamRule("rsc", "strip", match=("0",), cite="ref5 p.188; as rdc"),
+            ParamRule("rsc", "error", match=("nonzero",), cite="ref5 p.188; as rdc"),
+            ParamRule("sa", "strip", match=("0",), cite="ref5 p.188; LOD distance: no target in bsim3v3"),
+            ParamRule("sa", "error", match=("nonzero",), cite="ref5 p.188; LOD distance: no target in bsim3v3"),
+            ParamRule("sb", "strip", match=("0",), cite="ref5 p.188; as sa"),
+            ParamRule("sb", "error", match=("nonzero",), cite="ref5 p.188; as sa"),
+        ),
+    ),
+    # -- bsim4 [M ref5 pp.209-229] ---------------------------------------------------
+    "bsim4": MasterRow(
+        "bsim4", "m", 54, "type",
+        kinds=(('n', 'nmos'), ('p', 'pmos')),
+        terminals=('d', 'g', 's', 'b'),
+        geometry=(('w', 5e-06), ('l', 5e-06), ('lmin', 0.0), ('lmax', 1.0), ('wmin', 0.0), ('wmax', 1.0)),
+        params=(
+            ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.211; §3.9: polarity -> Model.kind"),
+            ParamRule("type", "error", cite="ref5 p.211; unknown polarity"),
+            ParamRule("vtho", "rename", "vth0", cite="ref5 p.211; Spectre's spelling; sp_bsim4v8 vth0 (alias vtho, bsim4v8.va:235), Xyce VTH0 (N_DEV_MOSFET_B4.C:703)"),
+            *[ParamRule(n, "pass", cite="ref5 p.211; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "vfb phin k1".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.212; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "k2 k3 k3b w0 lpe0 lpeb gamma1 gamma2 vbx vbm dvt0 dvt1 dvt2 dvtp0 dvtp1 dvt0w dvt1w dvt2w a0 b0 b1".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.213; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "a1 a2 ags keta epsrox toxe toxp dtox ndep nsd nsub ngate xj lint wint ll lln lw lwn lwl".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.214; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "wl wln ww wwn wwl dwg dwb toxm xt binunit".split()],
+            ParamRule("rdsmod", "default", "1", "absent:rdsmod", cite="ref5 p.214; ref5 rdsmod=1 (p.214); BSIM4's own default is 0 on both targets (bsim4v8.va:146; N_DEV_MOSFET_B4.C:4735)"),
+            *[ParamRule(n, "pass", cite="ref5 p.214; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "rdsmod rdsw rdswmin rdw rdwmin rsw rswmin prwb prwg".split()],
+            ParamRule("wr", "pass", cite="ref5 p.215; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            *[ParamRule(n, "pass", cite="ref5 p.215; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included); u0 and eu default by polarity on both")
+              for n in "mobmod u0 vsat ua ub uc eu".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.215; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "drout fprout pclm pdiblc1 pdiblc2 pdiblcb pscbe1 pscbe2".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.216; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "pvag delta pdits pditsl pditsd cdsc cdscb cdscd nfactor cit voff voffl minv dsub eta0 etab alpha0 alpha1 beta0".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.217; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "rgatemod rsh rshg dmcg dmci dmdg dmcgt dwj xgw xgl ngcon".split()],
+            ParamRule("nf", "fold", cite="ref5 p.217; ref5 model default for the instance nf: folded into instances as w/l (§3.9)"),
+            ParamRule("min", "fold", cite="ref5 p.217; ref5 model default for the instance min: folded into instances"),
+            *[ParamRule(n, "pass", cite="ref5 p.217; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included); rgeomod: Xyce only (sp_bsim4v8 has none)")
+              for n in "permod geomod rgeomod xw xl".split()],
+            ParamRule("minr", "strip", cite="ref5 p.217; a Spectre numerical floor"),
+            *[ParamRule(n, "pass", cite="ref5 p.218; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "agidl bgidl cgidl egidl igcmod".split()],
+            ParamRule("igbmod", "default", "1", "absent:igbmod", cite="ref5 p.218; ref5 igbmod=1 (p.218); BSIM4's own default is 0 on both targets (bsim4v8.va:159; N_DEV_MOSFET_B4.C:4808)"),
+            ParamRule("igbmod", "pass", cite="ref5 p.218; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("aigbacc", "pass", warn="card", cite="ref5 p.218; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("bigbacc", "pass", warn="card", cite="ref5 p.218; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("cigbacc", "pass", warn="card", cite="ref5 p.218; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("aigbinv", "pass", warn="card", cite="ref5 p.218; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("bigbinv", "pass", warn="card", cite="ref5 p.218; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("cigbinv", "pass", warn="card", cite="ref5 p.218; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("aigc", "pass", warn="card", cite="ref5 p.218; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("bigc", "pass", warn="card", cite="ref5 p.219; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("cigc", "pass", warn="card", cite="ref5 p.219; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("aigsd", "pass", warn="card", cite="ref5 p.219; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("bigsd", "pass", warn="card", cite="ref5 p.219; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            ParamRule("cigsd", "pass", warn="card", cite="ref5 p.219; BSIM4 changed the units of the gate-tunneling coefficients in 4.3.0; Spectre 5.0's bsim4 is 4.2.1 (ref5 p.208) and the targets run 4.8.x, so a given 4.2-unit value is read in 4.8 units: a warning per card"),
+            *[ParamRule(n, "pass", cite="ref5 p.218; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "nigbacc eigbinv nigbinv".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.219; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "dlcig nigc poxedge pigcd ntox toxref".split()],
+            ParamRule("diomod", "strip", match=("1",), cite="ref5 p.219; junction model selector: the targets have BSIM4's junction model only"),
+            ParamRule("diomod", "error", cite="ref5 p.219; junction model selector: the targets have BSIM4's junction model only"),
+            ParamRule("js", "rename", "jss", cite="ref5 p.219; Spectre's legacy name: BSIM4's jss (jsd follows it) (bsim4v8.va; N_DEV_MOSFET_B4.C)"),
+            *[ParamRule(n, "pass", cite="ref5 p.219; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "jss jsd jsws jswd jswgs".split()],
+            ParamRule("jswgd", "pass", cite="ref5 p.220; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("is", "error", cite="ref5 p.220; Spectre's absolute junction current: no BSIM4 target parameter"),
+            ParamRule("n", "rename", "njs", cite="ref5 p.220; junction emission coefficient: BSIM4's njs (njd follows it) (bsim4v8.va:289; N_DEV_MOSFET_B4.C:980)"),
+            ParamRule("njs", "pass", cite="ref5 p.220; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("njd", "pass", cite="ref5 p.220; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            *[ParamRule(n, "strip", cite="ref5 p.220; convergence aid and explosion currents")
+              for n in "dskip imelt jmelt".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.220; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "ijthsrev ijthdrev ijthsfwd ijthdfwd xjbvs xjbvd".split()],
+            ParamRule("cgso", "pass", cite="ref5 p.220; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included); absent values are derived from dlc/dwc*cox on both (ref5's 'cgbo=2' is that derivation)"),
+            ParamRule("cgdo", "pass", cite="ref5 p.220; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included); absent values are derived from dlc/dwc*cox on both (ref5's 'cgbo=2' is that derivation)"),
+            ParamRule("cgbo", "pass", cite="ref5 p.221; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included); absent values are derived from dlc/dwc*cox on both (ref5's 'cgbo=2' is that derivation)"),
+            ParamRule("meto", "strip", match=("0",), cite="ref5 p.221; metal overlap: no target"),
+            ParamRule("meto", "error", match=("nonzero",), cite="ref5 p.221; metal overlap: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.221; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "cgsl cgdl ckappas ckappad cj cjs cjd mj mjs mjd pb pbs pbd".split()],
+            ParamRule("fc", "strip", match=("0.5",), cite="ref5 p.221; BSIM4's junction capacitance has no forward-bias threshold parameter on either target"),
+            ParamRule("fc", "strip", warn="card", cite="ref5 p.221; as above"),
+            ParamRule("cjsw", "pass", cite="ref5 p.221; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            *[ParamRule(n, "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "cjsws cjswd mjsw mjsws mjswd pbsw pbsws pbswd".split()],
+            ParamRule("cjswg", "rename", "cjswgs", cite="ref5 p.222; BSIM4.0's name: 4.8 has cjswgs (cjswgd follows it) (bsim4v8.va:298; N_DEV_MOSFET_B4.C:1025)"),
+            ParamRule("cjswgs", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("cjswgd", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("mjswg", "rename", "mjswgs", cite="ref5 p.222; as cjswg"),
+            ParamRule("mjswgs", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("mjswgd", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("pbswg", "rename", "pbswgs", cite="ref5 p.222; as cjswg"),
+            ParamRule("pbswgs", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("pbswgd", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("fcsw", "strip", match=("0.5",), cite="ref5 p.222; as fc"),
+            ParamRule("fcsw", "strip", warn="card", cite="ref5 p.222; as fc"),
+            ParamRule("bvs", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("bvd", "pass", cite="ref5 p.222; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("capmod", "pass", cite="ref5 p.223; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included); ref5 2 = BSIM4's default"),
+            *[ParamRule(n, "pass", cite="ref5 p.223; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "trnqsmod acnqsmod dwc dlc clc cle cf vfbcv acde moin noff voffcv xpart llc lwc lwlc wlc wwc".split()],
+            ParamRule("wwlc", "pass", cite="ref5 p.224; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("w", "fold", cite="ref5 p.224; §3.9 default MOS geometry (5e-6): folded into instances"),
+            ParamRule("l", "fold", cite="ref5 p.224; §3.9 default MOS geometry"),
+            ParamRule("as", "fold", cite="ref5 p.224; ref5 'Default for instance parameters': folded into instances as w/l (§3.9)"),
+            ParamRule("ad", "fold", cite="ref5 p.224; as as"),
+            ParamRule("ps", "fold", cite="ref5 p.224; as as"),
+            ParamRule("pd", "fold", cite="ref5 p.224; as as"),
+            ParamRule("nrd", "fold", cite="ref5 p.224; ref5 default 0: folded into instances (the instance rules write 0 where neither gives it)"),
+            ParamRule("nrs", "fold", cite="ref5 p.224; as nrd"),
+            ParamRule("version", "pass", cite="ref5 p.224; existing version handling (bsim4_version notes); ref5's default 4.21 is not written: Xyce would then run 4.6.1 while VACASK runs 4.8.3 (§14)"),
+            ParamRule("level", "fold", match=("14",), cite="ref5 p.224; §3.9: Spectre's bsim4 level 14 dispatches to DISPATCH level 54"),
+            ParamRule("level", "error", cite="ref5 p.224; unknown bsim4 level"),
+            ParamRule("paramchk", "strip", cite="ref5 p.224; parameter checking messages only"),
+            ParamRule("fullreinit", "strip", cite="ref5 p.224; no effect on results"),
+            ParamRule("tnom", "pass", cite="ref5 p.224; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("trise", "strip", match=("0",), cite="ref5 p.224; card default temperature rise: no target"),
+            ParamRule("trise", "error", match=("nonzero",), cite="ref5 p.224; card default temperature rise: no target"),
+            ParamRule("tlev", "strip", match=("0",), cite="ref5 p.224; temperature equation selector: no BSIM4 target parameter"),
+            ParamRule("tlev", "error", match=("nonzero",), cite="ref5 p.224; temperature equation selector: no BSIM4 target parameter"),
+            ParamRule("tlevc", "strip", match=("0",), cite="ref5 p.224; no target"),
+            ParamRule("tlevc", "error", match=("nonzero",), cite="ref5 p.224; no target"),
+            ParamRule("eg", "strip", match=("1.12452",), cite="ref5 p.224; band gap: BSIM4 computes Eg(T) itself on both targets"),
+            ParamRule("eg", "error", cite="ref5 p.224; band gap: BSIM4 computes Eg(T) itself on both targets"),
+            ParamRule("gap1", "strip", match=("7.02e-4",), cite="ref5 p.224; as eg"),
+            ParamRule("gap1", "error", cite="ref5 p.224; as eg"),
+            ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.225; as eg"),
+            ParamRule("gap2", "error", cite="ref5 p.225; as eg"),
+            *[ParamRule(n, "pass", cite="ref5 p.225; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "kt1 kt1l kt2 at ua1 ub1 uc1 prt ute".split()],
+            ParamRule("xti", "rename", "xtis", cite="ref5 p.225; BSIM4's xtis (xtid follows it) (bsim4v8.va:290; N_DEV_MOSFET_B4.C:985)"),
+            ParamRule("xtis", "pass", cite="ref5 p.225; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("xtid", "pass", cite="ref5 p.225; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("pta", "rename", "tpb", cite="ref5 p.225; BSIM4's tpb (bsim4v8.va:315; N_DEV_MOSFET_B4.C:1111)"),
+            ParamRule("tpb", "pass", cite="ref5 p.225; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("ptp", "rename", "tpbsw", cite="ref5 p.225; BSIM4's tpbsw"),
+            ParamRule("tpbsw", "pass", cite="ref5 p.225; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("tpbswg", "pass", cite="ref5 p.225; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("cta", "rename", "tcj", cite="ref5 p.225; BSIM4's tcj (bsim4v8.va:316; N_DEV_MOSFET_B4.C:1116)"),
+            ParamRule("tcj", "pass", cite="ref5 p.225; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("ctp", "rename", "tcjsw", cite="ref5 p.225; BSIM4's tcjsw"),
+            *[ParamRule(n, "pass", cite="ref5 p.226; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "tcjsw tcjswg saref sbref wlod ku0 kvsat kvth0 tku0 llodku0 wlodku0 llodvth wlodvth lku0 wku0 pku0 lkvth0 wkvth0".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.227; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "pkvth0 stk2 steta0".split()],
+            ParamRule("lodk2", "pass", "", "absent:lodk2,given:ku0", match=("absent",), warn="card", cite="ref5 p.227; ref5 lodk2=0 (p.227) while BSIM4 defaults it to 1 on both targets (bsim4v8.va:992-994; N_DEV_MOSFET_B4.C:4536-4546): a warning when the LOD model is active and lodk2 is absent"),
+            ParamRule("lodk2", "pass", "", "absent:lodk2,given:kvth0", match=("absent",), warn="card", cite="ref5 p.227; as above"),
+            ParamRule("lodk2", "pass", cite="ref5 p.227; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("lodeta0", "pass", "", "absent:lodeta0,given:ku0", match=("absent",), warn="card", cite="ref5 p.227; ref5 lodeta0=0 (p.227) while BSIM4 defaults it to 1 on both targets (bsim4v8.va:992-994; N_DEV_MOSFET_B4.C:4536-4546): a warning when the LOD model is active and lodeta0 is absent"),
+            ParamRule("lodeta0", "pass", "", "absent:lodeta0,given:kvth0", match=("absent",), warn="card", cite="ref5 p.227; as above"),
+            ParamRule("lodeta0", "pass", cite="ref5 p.227; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            *[ParamRule(n, "pass", cite="ref5 p.227; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included); noia/noib/noic default by polarity on both")
+              for n in "fnoimod tnoimod kf af ef noia noib noic".split()],
+            ParamRule("wnoi", "strip", match=("1e-5",), cite="ref5 p.227; noise reference width: no target"),
+            ParamRule("wnoi", "strip", warn="analyses=noise", cite="ref5 p.227; noise reference width: no target"),
+            ParamRule("em", "pass", cite="ref5 p.227; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)"),
+            ParamRule("flkmod", "strip", warn="analyses=noise", cite="ref5 p.227; Spectre's flicker model selector: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.227; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "ntnoi tnoia tnoib".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.228; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
+              for n in "rbodymod xrcrg1 xrcrg2 rbpb rbpd rbps rbdb rbsb gbmin".split()],
+            *[ParamRule(n, "pass", cite="ref5 p.228; model-group bounds (bin_bounds_spectre, §4.4)")
+              for n in "wmax wmin lmax lmin".split()],
+            ParamRule("alarm", "strip", cite="ref5 p.228; operating-region warnings"),
+            *[ParamRule(n, "strip", cite="ref5 p.229; operating-region warnings")
+              for n in "imax jmax bvj vbox warn".split()],
+            *[ParamRule(n, "strip", cite="ref5 p.229; DC-mismatch parameters (dcmatch is not in v1)")
+              for n in "mvtwl mvtwl2 mvt0 mbewl mbe0".split()],
+            ParamRule("mos_method", "strip", cite="ref5 p.229; table-model selector"),
+        ),
+        instance=(
+            ParamRule("w", "default", "5e-6", "absent:w", cite="ref5 p.209; §3.9 default MOS geometry (ref5 p.224)"),
+            ParamRule("w", "pass", cite="ref5 p.209; bsim4v8.va:104; N_DEV_MOSFET_B4.C:114"),
+            ParamRule("l", "default", "5e-6", "absent:l", cite="ref5 p.209; §3.9 default MOS geometry"),
+            ParamRule("l", "pass", cite="ref5 p.209; bsim4v8.va:103; N_DEV_MOSFET_B4.C:108"),
+            ParamRule("as", "pass", cite="ref5 p.209; bsim4v8.va:114-117; N_DEV_MOSFET_B4.C:166-187"),
+            *[ParamRule(n, "pass", cite="ref5 p.210; bsim4v8.va:114-117; N_DEV_MOSFET_B4.C:166-187")
+              for n in "ad ps pd".split()],
+            ParamRule("nrd", "default", "0", "absent:nrd", cite="ref5 p.210; ref5 card default nrd=0; the targets' instance default is 1 (bsim4v8.va:118; N_DEV_MOSFET_B4.C:194)"),
+            ParamRule("nrd", "pass", cite="ref5 p.210; bsim4v8.va:118; N_DEV_MOSFET_B4.C:194"),
+            ParamRule("nrs", "default", "0", "absent:nrs", cite="ref5 p.210; as nrd"),
+            ParamRule("nrs", "pass", cite="ref5 p.210; bsim4v8.va:119; N_DEV_MOSFET_B4.C:200"),
+            ParamRule("m", "pass", cite="ref5 p.210; multiplier"),
+            ParamRule("region", "strip", cite="ref5 p.210; an initial operating-region hint"),
+            ParamRule("trnqsmod", "rename", "instance_trnqsmod", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is TRNQSMOD: S3's Xyce path drops the prefix"),
+            ParamRule("acnqsmod", "rename", "instance_acnqsmod", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is ACNQSMOD: S3's Xyce path drops the prefix"),
+            ParamRule("rgatemod", "rename", "instance_rgatemod", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is RGATEMOD: S3's Xyce path drops the prefix"),
+            ParamRule("rbodymod", "rename", "instance_rbodymod", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is RBODYMOD: S3's Xyce path drops the prefix"),
+            ParamRule("geomod", "rename", "instance_geomod", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is GEOMOD: S3's Xyce path drops the prefix"),
+            ParamRule("rbpb", "rename", "instance_rbpb", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is RBPB: S3's Xyce path drops the prefix"),
+            ParamRule("rbpd", "rename", "instance_rbpd", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is RBPD: S3's Xyce path drops the prefix"),
+            ParamRule("rbps", "rename", "instance_rbps", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is RBPS: S3's Xyce path drops the prefix"),
+            ParamRule("rbdb", "rename", "instance_rbdb", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is RBDB: S3's Xyce path drops the prefix"),
+            ParamRule("rbsb", "rename", "instance_rbsb", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is RBSB: S3's Xyce path drops the prefix"),
+            ParamRule("min", "rename", "instance_min", cite="ref5 p.210; VACASK's spelling (bsim4v8.va:113-137); Xyce's is MIN: S3's Xyce path drops the prefix"),
+            ParamRule("trise", "rename", "dtemp", cite="ref5 p.210; sp_bsim4v8 dtemp (bsim4v8.va:131); Xyce DTEMP (N_DEV_MOSFET_B4.C:327)"),
+            ParamRule("rgeomod", "pass", cite="ref5 p.210; Xyce RGEOMOD (N_DEV_MOSFET_B4.C:311); sp_bsim4v8 has no rgeomod (fails loudly)"),
+            ParamRule("nf", "pass", cite="ref5 p.210; bsim4v8.va:105; N_DEV_MOSFET_B4.C:120"),
+            ParamRule("delvto", "pass", cite="ref5 p.211; bsim4v8.va:125; N_DEV_MOSFET_B4.C:237"),
+            ParamRule("mulmu0", "rename", "mulu0", cite="ref5 p.211; sp_bsim4v8 mulu0 (bsim4v8.va:127); Xyce's BSIM4 instance has none (fails loudly)"),
+            ParamRule("delk1", "strip", match=("0",), cite="ref5 p.211; k1 shift: no target"),
+            ParamRule("delk1", "error", match=("nonzero",), cite="ref5 p.211; k1 shift: no target"),
+            ParamRule("delnfct", "strip", match=("0",), cite="ref5 p.211; nfactor shift: no target"),
+            ParamRule("delnfct", "error", match=("nonzero",), cite="ref5 p.211; nfactor shift: no target"),
+            *[ParamRule(n, "pass", cite="ref5 p.211; bsim4v8.va:106-108; N_DEV_MOSFET_B4.C:125-135")
+              for n in "sa sb sd".split()],
+        ),
+    ),
+}
 
 
 # HSPICE's R (wire) and C model parameters (Star-HSPICE 2001.2, 14-3..14-10) on the targets: the
@@ -1361,6 +3228,30 @@ def select_bin(bins: Sequence[Tuple[Model, Tuple[float, float, float, float]]], 
     return None
 
 
+# Spectre model groups, bin_rule="spectre" (VAMOS_SPECTRE_DESIGN.md §3.9, §4.4): exact bounds (no
+# BIN_TOL), group order, the instance's total w (also with nf > 1), and a bound the card omits taken
+# from the master's default (lmin=wmin=0, lmax=wmax=1 m).  Phase-0 signatures; S1 implements them.
+
+def bin_bounds_spectre(model: Model, values: Mapping[str, float]) -> Tuple[float, float, float, float]:
+    """(lmin, lmax, wmin, wmax) of a Spectre model-group entry, a bound the card omits filled from
+    SPECTRE_MASTERS (§4.4)."""
+    raise NotImplementedError("bin_bounds_spectre is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.4: "
+                              "phase 1, S1)")
+
+
+def bin_guard_spectre(bounds: Sequence[float], l: Expr, w: Expr, s: float) -> Expr:
+    """The selection condition of one group entry: lmin <= l*s < lmax and wmin <= w*s < wmax, exact."""
+    raise NotImplementedError("bin_guard_spectre is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.4: "
+                              "phase 1, S1)")
+
+
+def select_bin_spectre(bins: Sequence[Tuple[Model, Tuple[float, float, float, float]]], l: float,
+                       w: float, s: float) -> Optional[Model]:
+    """The first entry in group order whose exact bounds hold l*s and the total w*s; None if none."""
+    raise NotImplementedError("select_bin_spectre is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.4: "
+                              "phase 1, S1)")
+
+
 # -- sources (§4.3.8) -----------------------------------------------------------------
 
 WAVE_FIELDS: Dict[str, Tuple[str, ...]] = {
@@ -1424,15 +3315,18 @@ def wave(src: Source, name: str) -> Dict[str, Expr]:
 
 
 def scale_source(src: Source, k: Expr) -> Source:
-    """src with every value multiplied by k (dc, ac magnitude, waveform levels, PWL values)."""
+    """src with every value multiplied by k (dc, ac magnitude, waveform levels, PWL values).
+
+    Built with dataclasses.replace, so every other field of Source (Source.spectre among them,
+    VAMOS_SPECTRE_DESIGN.md §4.1) survives unchanged.
+    """
     args = dict(src.args)
     for f in _LEVEL_FIELDS.get(src.wave or "", ()):
         if f in args:
             args[f] = times(args[f], k)
-    return Source(dc=times(src.dc, k) if src.dc is not None else None,
-                  ac=(times(src.ac[0], k), src.ac[1]) if src.ac is not None else None,
-                  wave=src.wave, args=args,
-                  points=[(t, times(v, k)) for t, v in src.points], code_uri=src.code_uri)
+    return replace(src, dc=times(src.dc, k) if src.dc is not None else None,
+                   ac=(times(src.ac[0], k), src.ac[1]) if src.ac is not None else None,
+                   args=args, points=[(t, times(v, k)) for t, v in src.points])
 
 
 # -- simulator options (§4.3.5) -------------------------------------------------------
@@ -1703,3 +3597,153 @@ def reachable(nl: Netlist) -> Set[int]:
                 used.update(id(b) for b in bins)
     visit(nl.body, Scope(nl.body))
     return used
+
+
+# -- instance paths (VAMOS_SPECTRE_DESIGN.md §3.5, §4.4; phase 0, implemented) -------------------
+#
+# One walker computes the parameter values of every instance path, by the rule xyce._Deck.child_env
+# applies today: the top-level values, then the subckt's own parameters in order, an X-line override
+# evaluated where the X line is, a parameter that does not evaluate hidden (it shadows the top-level
+# value of its name).  plan.build walks it strict with dialect="spectre"; the Xyce emitter is rebuilt
+# on it (non-strict, nominal values), so the branches and bins the plan checked are the ones the deck
+# prints.
+
+class _PathValues(abc.Mapping):
+    """The parameter values on one instance path: the subckt's own over the top-level values, with
+    the names it declares but cannot evaluate hidden (no copy of the top level per path)."""
+
+    def __init__(self, top: Mapping[str, float]):
+        self.top = top
+        self.own: Dict[str, float] = {}
+        self.hidden: Set[str] = set()
+
+    def __getitem__(self, name: str) -> float:
+        if name in self.own:
+            return self.own[name]
+        if name in self.hidden:
+            raise KeyError(name)
+        return self.top[name]
+
+    def __contains__(self, name: object) -> bool:
+        return name in self.own or (name not in self.hidden and name in self.top)
+
+    def __iter__(self) -> Iterator[str]:
+        yield from self.own
+        for k in self.top:
+            if k not in self.own and k not in self.hidden:
+                yield k
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def __repr__(self) -> str:
+        return "_PathValues(%r, hidden=%r)" % (dict(self), sorted(self.hidden))
+
+
+@dataclass
+class PathEnv:
+    """One instance path (§3.5, §4.4)."""
+    path: str                                     # "" at the top level, else the X-instance path "x1.x2" (IR names)
+    subckt: Optional[Subckt]                      # None at the top level
+    scope: Scope
+    env: Mapping[str, float]                      # the parameter values on this path (child_env's rule)
+    items: List[Instance] = field(default_factory=list)   # the body's instances on this path, Cond resolved
+    hidden: Set[str] = field(default_factory=set) # parameters that did not evaluate (non-strict walks only)
+
+
+def _subckt_params(s: Subckt) -> List[Param]:
+    """A subckt's parameters, header and body (spice.parse merges them; a hand-built IR may not)."""
+    names = {p.name for p in s.params}
+    return list(s.params) + [p for p in s.body if isinstance(p, Param) and p.name not in names]
+
+
+def _path_items(items: Sequence[object], path: str, env: Mapping[str, float], dialect: str,
+                out: List[Instance]) -> None:
+    """The instances of one body on one path, each Cond resolved with the path's values (only the
+    taken branch's items are walked); a condition that is not a number on its path raises."""
+    for it in items:
+        if isinstance(it, Instance):
+            out.append(it)
+        elif isinstance(it, (Param, Model, Subckt)):
+            continue
+        elif isinstance(it, Cond):
+            taken: Optional[Sequence[object]] = None
+            for cond, branch in it.branches:
+                try:
+                    value = X.evaluate(cond, env, dialect=dialect)
+                except X.EvalError as exc:
+                    raise X.EvalError("%s: condition %s is not a number on this path: %s"
+                                      % (path or "top level", X.to_text(cond), exc))
+                if value != 0:
+                    taken = branch
+                    break
+            _path_items(it.default if taken is None else taken, path, env, dialect, out)
+        elif isinstance(it, ParamTest):
+            continue                                        # the emitters print nothing for it
+        else:
+            raise TableError("%s: item %r is not an IR item (ir.ITEM_TYPES)" % (path or "top level", it))
+
+
+def path_envs(nl: Netlist, values: Optional[Mapping[str, float]] = None, strict: bool = False,
+              dialect: str = "hspice") -> Iterator[PathEnv]:
+    """Every instance path, the top level first, depth first in body order (§4.4).
+
+    values: the top-level parameter values (Netlist.values by default; a render copy's reduced ones).
+    strict: a parameter that does not evaluate raises EvalError naming the path and the expression;
+    non-strict, it is hidden on that path, as xyce._Deck.child_env hides it today.  A subckt that
+    instantiates itself is not entered again (the emitters report it).
+    """
+    top_values: Mapping[str, float] = nl.values if values is None else values
+    top_scope = Scope(nl.body)
+    top_items: List[Instance] = []
+    _path_items(nl.body, "", top_values, dialect, top_items)
+    yield PathEnv("", None, top_scope, top_values, top_items, set())
+    yield from _child_paths(nl, top_items, top_scope, top_values, "", [], top_values, strict, dialect)
+
+
+def _child_paths(nl: Netlist, items: Sequence[Instance], scope: Scope, env: Mapping[str, float],
+                 path: str, stack: List[int], top_values: Mapping[str, float], strict: bool,
+                 dialect: str) -> Iterator[PathEnv]:
+    for it in items:
+        if it.kind != "x":
+            continue
+        found = scope.where(it.master or "")
+        if found is None or id(found[0]) in stack:          # undefined (the emitters report it) / recursion
+            continue
+        sub, where = found
+        child_path = it.name if not path else path + "." + it.name
+        child_env = _PathValues(top_values)
+        over = {k: v for k, v in it.params.items() if k != "m"}
+        for p in _subckt_params(sub):
+            e = over.get(p.name)
+            try:
+                child_env.own[p.name] = (X.evaluate(e, env, dialect=dialect) if e is not None
+                                         else X.evaluate(p.expr, child_env, dialect=dialect))
+                child_env.hidden.discard(p.name)
+            except X.EvalError as exc:
+                if strict:
+                    raise X.EvalError("%s: parameter %s=%s of subckt %s does not evaluate: %s"
+                                      % (child_path, p.name, X.to_text(e if e is not None else p.expr),
+                                         sub.name, exc))
+                child_env.own.pop(p.name, None)
+                child_env.hidden.add(p.name)
+        child_scope = Scope(sub.body, where, sub)
+        child_items: List[Instance] = []
+        _path_items(sub.body, child_path, child_env, dialect, child_items)
+        yield PathEnv(child_path, sub, child_scope, child_env, child_items, set(child_env.hidden))
+        stack.append(id(sub))
+        try:
+            yield from _child_paths(nl, child_items, child_scope, child_env, child_path, stack, top_values,
+                                    strict, dialect)
+        finally:
+            stack.pop()
+
+
+def path_counts(nl: Netlist) -> Dict[str, int]:
+    """Subckt name -> the number of instance paths that reach it (§5.3's per-path rule on Xyce);
+    every definition is listed, an unreached one with 0.  Non-strict, nominal values."""
+    out: Dict[str, int] = {s.name: 0 for s in all_subckts(nl)}
+    for pe in path_envs(nl):
+        if pe.subckt is not None:
+            out[pe.subckt.name] = out.get(pe.subckt.name, 0) + 1
+    return out

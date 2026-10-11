@@ -1,0 +1,20 @@
+* sh
+.param rval=1k
+.param rdep={rval*2}
+.param rt={1k*(1+0.01*(temp-27))}
+V1 in 0 1
+X1 in out rcsec r={rval}
+R3 in o3 {rdep}
+R4 o3 0 1k
+R5 in o5 {rt}
+R6 o5 0 1k
+R7 in o7 1k TC1=0.01
+R8 o7 0 1k
+.subckt rcsec a b params: r=1k
+R1 a b {r}
+R2 b 0 1k
+.ends
+.STEP X1:R1:R LIST 1k 3k
+.OP
+.PRINT DC FORMAT=RAW FILE=sh.raw V(OUT) V(O3)
+.end

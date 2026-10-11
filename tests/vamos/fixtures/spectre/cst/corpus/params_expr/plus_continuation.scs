@@ -1,0 +1,5 @@
+// '+' at line start continues the previous statement (folded like SPICE)
+parameters p1=1
++ p2=2 p3=3
+r1 (a b) resistor r=1k
++ w=2u l=5u

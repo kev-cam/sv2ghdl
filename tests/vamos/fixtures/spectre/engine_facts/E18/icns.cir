@@ -1,0 +1,10 @@
+* ic and nodeset
+V1 in 0 DC 1
+R1 in out 1k
+R2 out 0 1k
+C1 out 0 1u
+.IC V(out)=0.2
+.NODESET V(in)=1
+.OP
+.PRINT DC FORMAT=RAW FILE=icns.raw V(OUT)
+.end

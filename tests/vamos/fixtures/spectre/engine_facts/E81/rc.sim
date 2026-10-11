@@ -1,0 +1,17 @@
+Long tran for the interrupt test
+
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+model resistor resistor
+model capacitor capacitor
+model vsource vsource
+
+v1 (1 0) vsource dc=0 type="sine" sinedc=0.0 ampl=1 freq=1k
+r1 (1 2) resistor r=1k
+c1 (2 0) capacitor c=1u
+
+control
+  options rawfile="binary"
+  analysis tr1 tran step=1n stop=10 maxstep=1n
+endc

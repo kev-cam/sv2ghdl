@@ -1,0 +1,4 @@
+// malformed expression: missing closing ')' in a parenthesised value
+simulator lang=spectre
+parameters p1=1
+parameters bad=(1 + 2

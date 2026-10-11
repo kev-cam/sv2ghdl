@@ -1,0 +1,7 @@
+* noiseless resistor as a G element
+V1 in 0 DC 1 AC 1
+GR1 in out in out 1m
+R2 out 0 1k
+.NOISE V(out) V1 DEC 1 1k 10k
+.PRINT NOISE FILE=gres.prn ONOISE INOISE DNO(R2)
+.end

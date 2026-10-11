@@ -1,0 +1,6 @@
+`include "disciplines.vams"
+module mydio(p, n) (* xyceModelGroup="DIODE" xyceLevelNumber="2002" *);
+  inout p, n; electrical p, n;
+  parameter real r = 1k;
+  analog I(p, n) <+ V(p, n) / r;
+endmodule

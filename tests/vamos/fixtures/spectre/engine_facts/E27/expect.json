@@ -1,0 +1,62 @@
+{
+ "row": "E27",
+ "experiment": "VACASK: a sweep whose second point fails, strictoutput=0",
+ "result": "op1.raw holds the complete first group under a blank No. Points:, which rawfile.read accepts; tr1.raw holds the 71 rows of point 1; no later point runs; the target is restored",
+ "rules": [
+  "\u00a77.1 Failures: under strictoutput=0 the rawfile keeps the complete rows of points 1..k-1 under a blank No. Points:; vamos writes those leaves and marks the rest failed (status 1)"
+ ],
+ "runs": [
+  {
+   "name": "failing_sweep_point",
+   "tool": "vacask",
+   "deck": "swfail.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Analysis 'op1' aborted.",
+     "Sweep aborted @ 2/3 (1).",
+     "Analysis 'tr1' aborted."
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "declared": null,
+     "points": 1
+    },
+    {
+     "raw": "op1.raw",
+     "col": "s1",
+     "values": [
+      0.5
+     ]
+    },
+    {
+     "raw": "tr1.raw",
+     "declared": null,
+     "points": 71,
+     "restarts": 1,
+     "axis": "time"
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "s2",
+     "value": 0.5,
+     "row": -1
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "time",
+     "value": 1e-06,
+     "row": -1,
+     "rel": 1e-09
+    },
+    {
+     "raw": "op9.raw",
+     "declared": 1,
+     "points": 1
+    }
+   ]
+  }
+ ]
+}

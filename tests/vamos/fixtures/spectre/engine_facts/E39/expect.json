@@ -1,0 +1,51 @@
+{
+ "row": "E39",
+ "experiment": "VACASK: @if area < 2 in a subckt, a sweep of area over [1, 1.5] and over [1, 3]",
+ "result": "inside the branch: 0.5 / 0.4; across it VACASK re-evaluates the condition: 0.5 / 0.0909 (the 10 kOhm branch)",
+ "rules": [
+  "\u00a73.7 a sweep of a parameter that a structural if reads: VACASK keeps its @if and re-evaluates it at each point (Xyce renders the nominal branch and warns)"
+ ],
+ "runs": [
+  {
+   "name": "if_reevaluated_per_point",
+   "tool": "vacask",
+   "deck": "ifarea.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dc1.raw",
+     "col": "s1",
+     "values": [
+      1.0,
+      1.5
+     ]
+    },
+    {
+     "raw": "dc1.raw",
+     "col": "out",
+     "values": [
+      0.5,
+      0.4
+     ]
+    },
+    {
+     "raw": "dc2.raw",
+     "col": "s2",
+     "values": [
+      1.0,
+      3.0
+     ]
+    },
+    {
+     "raw": "dc2.raw",
+     "col": "out",
+     "values": [
+      0.5,
+      0.0909091
+     ],
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

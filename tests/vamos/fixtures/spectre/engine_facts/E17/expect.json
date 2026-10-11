@@ -1,0 +1,237 @@
+{
+ "row": "E17",
+ "experiment": "VACASK and Xyce: a pulse with dc=0.9 val0=0, a sine with dc=0.5, a pwl with dc=0.7, an isource pulse with dc=1m into 1 kOhm: op, a sweep of dc, AC through a diode, tran; then the pulse printed type=\"dc\" with its waveform fields and alter type=\"pulse\"/\"dc\" around the tran",
+ "result": "VACASK ignores dc unless type=\"dc\": op 0.0 / 0.0 / 0.2 / 0 V, the dc sweep a no-op, AC 0.99999 where Xyce gives 0.08511. Xyce: op 0.9 / 0.5 / 0.7, .DC 0.1 / 0.2, .TRAN starting at the t = 0 waveform value. The type=\"dc\" form: op 0.9, sweep 0.6 / 0.8, AC 0.08512; the tran starts at 0 and reaches 1.8; AC after it 0.08512 again",
+ "rules": [
+  "\u00a75.3 source states: a Spectre dc on a waveform source prints as type=\"dc\" on VACASK and is switched to the waveform around each tran; Xyce's DC field is its op value"
+ ],
+ "runs": [
+  {
+   "name": "vacask_dc_ignored",
+   "tool": "vacask",
+   "deck": "dcwave.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "op1.raw",
+     "col": "c",
+     "value": 0.2
+    },
+    {
+     "raw": "op1.raw",
+     "col": "d",
+     "value": 0.3
+    },
+    {
+     "raw": "dc1.raw",
+     "col": "s1",
+     "values": [
+      0.1,
+      0.2
+     ]
+    },
+    {
+     "raw": "dc1.raw",
+     "col": "a",
+     "values": [
+      0.0,
+      0.0
+     ],
+     "abs": 1e-09
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 0.0,
+     "value": 0.0,
+     "abs": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "vacask_ac_through_diode",
+   "tool": "vacask",
+   "deck": "acop.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "ac1.raw",
+     "col": "k",
+     "value": 1.0,
+     "abs": 0.0001
+    },
+    {
+     "raw": "op2.raw",
+     "col": "a",
+     "value": 0.9
+    },
+    {
+     "raw": "op2.raw",
+     "col": "j",
+     "value": 1.0
+    },
+    {
+     "raw": "ac2.raw",
+     "col": "k",
+     "value": 0.0851202,
+     "rel": 0.0001
+    },
+    {
+     "raw": "tr2.raw",
+     "col": "a",
+     "at": 0.0,
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "tr2.raw",
+     "col": "a",
+     "at": 1.5e-06,
+     "value": 1.8,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "vacask_type_dc_form",
+   "tool": "vacask",
+   "deck": "dcfirst.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.9
+    },
+    {
+     "raw": "dc1.raw",
+     "col": "a",
+     "values": [
+      0.6,
+      0.8
+     ]
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 0.0,
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 1.5e-06,
+     "value": 1.8,
+     "rel": 0.001
+    },
+    {
+     "raw": "ac1.raw",
+     "col": "k",
+     "value": 0.0851202,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "xyce_op",
+   "tool": "xyce",
+   "deck": "dcwave_op.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op.raw",
+     "col": "V(A)",
+     "value": 0.9
+    },
+    {
+     "raw": "op.raw",
+     "col": "V(B)",
+     "value": 0.5
+    },
+    {
+     "raw": "op.raw",
+     "col": "V(C)",
+     "value": 0.7
+    }
+   ]
+  },
+  {
+   "name": "xyce_dc",
+   "tool": "xyce",
+   "deck": "dcwave_dc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dc.raw",
+     "col": "V(A)",
+     "values": [
+      0.1,
+      0.2
+     ]
+    }
+   ]
+  },
+  {
+   "name": "xyce_tran_t0",
+   "tool": "xyce",
+   "deck": "dcwave_tr.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "tr.raw",
+     "col": "V(A)",
+     "at": 0.0,
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "tr.raw",
+     "col": "V(B)",
+     "at": 0.0,
+     "value": 0.0,
+     "abs": 1e-06
+    },
+    {
+     "raw": "tr.raw",
+     "col": "V(C)",
+     "at": 0.0,
+     "value": 0.2
+    },
+    {
+     "raw": "tr.raw",
+     "col": "V(A)",
+     "at": 1.5e-06,
+     "value": 1.8,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac_through_diode",
+   "tool": "xyce",
+   "deck": "acop.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "ac.raw",
+     "col": "VR(K)",
+     "value": 0.0851129,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

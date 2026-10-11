@@ -1,0 +1,6 @@
+// parenthesised subexpressions overriding operator precedence
+simulator lang=spectre
+parameters p1=1 p2=2 p3=3
+parameters a=(p1+p2)/p3 b=(p1+p2)*(p3-p1)
+parameters c=p1+p2*p3 d=((p1))
+parameters e=-(p1+p2) f=(p1<p2)&&(p2<p3)

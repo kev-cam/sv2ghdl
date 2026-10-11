@@ -1,0 +1,71 @@
+{
+ "row": "E32",
+ "experiment": "Xyce R1 ... NOISE=0; GR1 in out in out 1m in a divider",
+ "result": "\"Unrecognized parameter NOISE\"; the G element gives DC 0.5 V, and ONOISE holds only R2's 4.144e-18 V^2/Hz",
+ "rules": [
+  "\u00a74.5 isnoisy=no on Xyce prints the resistor as a G element"
+ ],
+ "runs": [
+  {
+   "name": "noise_param_unknown",
+   "tool": "xyce",
+   "deck": "rnoisy.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized parameter NOISE"
+    ]
+   }
+  },
+  {
+   "name": "g_element_op",
+   "tool": "xyce",
+   "deck": "gres_op.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "gres_op.raw",
+     "col": "V(OUT)",
+     "value": 0.5
+    },
+    {
+     "raw": "gres_op.raw",
+     "col": "I(V1)",
+     "value": -0.0005
+    }
+   ]
+  },
+  {
+   "name": "g_element_noise",
+   "tool": "xyce",
+   "deck": "gres.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "gres.prn",
+     "columns": [
+      "Index",
+      "FREQ",
+      "ONOISE",
+      "INOISE",
+      "DNO(R2)"
+     ]
+    },
+    {
+     "prn": "gres.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 4.14393873e-18,
+     "rel": 0.0001
+    },
+    {
+     "prn": "gres.prn",
+     "col": "DNO(R2)",
+     "row": 0,
+     "value": 4.14393873e-18,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

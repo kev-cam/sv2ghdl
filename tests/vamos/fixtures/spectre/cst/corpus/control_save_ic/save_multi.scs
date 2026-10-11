@@ -1,0 +1,3 @@
+// save: multiple save-signals on one statement, keyword and 'all' modifiers
+save Q3:currents M1:all
+save Q5 D9:oppoint

@@ -1,0 +1,19 @@
+SpectreNetlistSource 84-104
+  Save 84-94
+    Keyword 84-88
+    SaveSignal 89-93
+      SNode 89-91
+        Identifier 89-91
+      SaveSignalModifier 91-93
+        Notation 91-92
+        NumberLiteral 92-93
+    Notation 93-94
+  Save 94-104
+    Keyword 94-98
+    SaveSignal 99-103
+      SNode 99-101
+        Identifier 99-101
+      SaveSignalModifier 101-103
+        Notation 101-102
+        Identifier 102-103
+    Notation 103-104

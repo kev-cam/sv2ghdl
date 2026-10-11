@@ -1,0 +1,10 @@
+SPICENetlistSource 0-29
+  Title 0-4
+    Notation 0-3
+    Notation 3-4
+  LibInclude 4-29
+    Notation 4-5
+    Keyword 5-8
+    StringLiteral 9-19
+    Identifier 20-27
+    Notation 28-29

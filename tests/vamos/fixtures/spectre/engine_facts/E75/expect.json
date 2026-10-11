@@ -1,0 +1,87 @@
+{
+ "row": "E75",
+ "experiment": "openvaf-r and Verilog-A includes (sp3/ENG/r_ovaf.sh, r_inc.sh)",
+ "result": "openvaf-r 20260616 -D HALF selects r = 500 (i = -2e-3); ires.va, including ires_defs.include from its own directory and given by absolute path from another directory: -2.5e-4 A (r = 4000 from the include) on Xyce .hdl and VACASK load",
+ "rules": [
+  "\u00a72.3 -va,define maps onto openvaf-r -D MACRO[=VALUE] on VACASK",
+  "\u00a72.8/\u00a73.1 a Verilog-A compile gets no include directories: both engines' compilers resolve an `include beside the .va file, wherever the deck names it from"
+ ],
+ "runs": [
+  {
+   "name": "openvaf_D_HALF",
+   "tool": "openvaf",
+   "args": [
+    "-D",
+    "HALF",
+    "dres.va",
+    "-o",
+    "dres_half.osdi"
+   ],
+   "group": "vacask",
+   "status": 0,
+   "files": {
+    "present": [
+     "dres_half.osdi"
+    ]
+   }
+  },
+  {
+   "name": "vacask_half",
+   "tool": "vacask",
+   "deck": "d.sim",
+   "in_run": "openvaf_D_HALF",
+   "group": "vacask",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "v1:flow(br)",
+     "value": -0.002
+    }
+   ]
+  },
+  {
+   "name": "vacask_include_beside_va",
+   "tool": "vacask",
+   "deck": "inc.sim",
+   "cwd": "run",
+   "subst": [
+    "run/inc.sim"
+   ],
+   "group": "vacask",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "v1:flow(br)",
+     "value": -0.00025
+    }
+   ]
+  },
+  {
+   "name": "xyce_include_beside_va",
+   "tool": "xyce",
+   "deck": "inc.cir",
+   "cwd": "run",
+   "subst": [
+    "run/inc.cir"
+   ],
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "compiled and registered ires"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "inc.raw",
+     "col": "I(V1)",
+     "value": -0.00025
+    }
+   ]
+  }
+ ]
+}

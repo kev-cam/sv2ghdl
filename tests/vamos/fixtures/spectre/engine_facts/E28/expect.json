@@ -1,0 +1,71 @@
+{
+ "row": "E28",
+ "experiment": "VACASK under abort except analysis: save v(nosuch); a sweep of a dependent subckt default; p(m1, id) of a missing output variable",
+ "result": "\"Node 'nosuch' not found. Failed to bind analysis outputs.\" / \"Failed to bind sweep parameters.\" / \"Output variable ... not found. Failed to bind analysis outputs.\": no rawfile, no \"aborted\" line, exit 0",
+ "rules": [
+  "\u00a77.1 Failures: the bind failures print no aborted line, write no rawfile and exit 0, so a missing rawfile counts as a failed analysis (status 1)"
+ ],
+ "runs": [
+  {
+   "name": "save_unknown_node",
+   "tool": "vacask",
+   "deck": "svbad.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Node 'nosuch' not found.",
+     "Failed to bind analysis outputs."
+    ],
+    "absent": [
+     "aborted"
+    ]
+   },
+   "files": {
+    "absent": [
+     "vamos_a1.raw",
+     "vamos_a2.raw"
+    ]
+   }
+  },
+  {
+   "name": "sweep_dependent_default",
+   "tool": "vacask",
+   "deck": "swdep.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Failed to bind sweep parameters."
+    ],
+    "absent": [
+     "aborted"
+    ]
+   },
+   "files": {
+    "absent": [
+     "op1.raw"
+    ]
+   }
+  },
+  {
+   "name": "missing_output_variable",
+   "tool": "vacask",
+   "deck": "pmbad.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Output variable",
+     "not found",
+     "Failed to bind analysis outputs."
+    ],
+    "absent": [
+     "aborted"
+    ]
+   },
+   "files": {
+    "absent": [
+     "op1.raw"
+    ]
+   }
+  }
+ ]
+}

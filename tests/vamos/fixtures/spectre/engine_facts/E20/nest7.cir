@@ -1,0 +1,9 @@
+* step + dc device param
+.param pa=1
+V1 in 0 {pa}
+R1 in out 1k
+R2 out 0 1k
+.STEP pa LIST 1 2
+.DC R1:R LIST 1k 3k
+.PRINT DC FORMAT=RAW FILE=nest7.raw V(OUT)
+.end

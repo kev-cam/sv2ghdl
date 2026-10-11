@@ -1,0 +1,29 @@
+explicit saves across analysis types
+load "resistor.osdi"
+load "capacitor.osdi"
+model resistor resistor
+model capacitor capacitor
+model vsource vsource
+subckt rc (a b)
+  r1 (a mid) resistor r=500
+  r2 (mid b) resistor r=500
+  c1 (b 0) capacitor c=1u
+ends
+v1 (in 0) vsource dc=1 mag=1
+x1 (in out) rc
+r3 (out 0) resistor r=1meg
+control
+  options rawfile="ascii"
+  save v(out) v('x1:mid') i(v1)
+  analysis op1 op
+  analysis ac1 ac values=[1, 100]
+  analysis nz1 noise out="out" in="v1" values=[1, 100]
+  analysis xf1 acxf out="out" values=[1, 100]
+  analysis tr1 tran stop=1m step=10u
+  clear saves
+  save dv(out) dv('x1:mid') di(v1)
+  analysis ac2 ac values=[1, 100]
+  clear saves
+  save n(r3) n('x1:r1')
+  analysis nz2 noise out="out" in="v1" values=[1, 100]
+endc

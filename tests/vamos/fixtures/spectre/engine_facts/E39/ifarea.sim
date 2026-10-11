@@ -1,0 +1,23 @@
+structural if on a subckt parameter, swept across the condition
+ground 0
+load "resistor.osdi"
+model vs vsource
+model r resistor
+v1 (in 0) vs dc=1
+x1 (in out) sel area=1
+subckt sel (a b)
+  parameters area=1
+  @if area < 2
+    rsel (a b) r r=1k*area
+  @else
+    rsel (a b) r r=10k
+  @end
+  r2 (b 0) r r=1k
+ends
+control
+  options rawfile="ascii"
+  sweep s1 instance="x1" parameter="area" values=[1, 1.5]
+    analysis dc1 op
+  sweep s2 instance="x1" parameter="area" values=[1, 3]
+    analysis dc2 op
+endc

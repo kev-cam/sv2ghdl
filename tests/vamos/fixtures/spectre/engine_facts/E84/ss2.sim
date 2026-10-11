@@ -1,0 +1,19 @@
+strictsave 2
+ground 0
+load "resistor.osdi"
+model vamos_resistor resistor
+model vamos_vsource vsource
+v1 (vin 0) vamos_vsource dc=1 mag=1
+r1 (vin out) vamos_resistor r=1k
+r2 (out 0) vamos_resistor r=1k
+control
+  options rawfile="ascii" strictsave=2
+  save v(out) p(r1, i) v(nosuch)
+  analysis opA op
+  clear saves
+  save v(out) nc(r1)
+  analysis opB op
+  clear saves
+  save v(out) nc(r1)
+  analysis nzC noise out="out" in="v1" from=1 to=10 mode="dec" points=1
+endc

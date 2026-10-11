@@ -1,0 +1,5 @@
+// structural if with no else clause
+simulator lang=spectre
+if ( rseries == 0 ) {
+    c1 (a b) capacitor c=1n
+}

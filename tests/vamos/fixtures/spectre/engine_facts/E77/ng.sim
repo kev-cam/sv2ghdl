@@ -1,0 +1,28 @@
+NOT_GIVEN overridable dependent parameter under sweep and alter
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+subckt sub (a)
+  parameters w=1000.0
+  parameters r=-1.2345678901234568e-300
+  parameters r__v=((r==-1.2345678901234568e-300) ? (2*w) : r)
+  parameters $mfactor=1.0
+  r1 (a 0) vamos_resistor r=r__v
+ends
+v1 (a 0) vamos_vsource dc=1
+x1 (a) sub
+control
+  abort except analysis
+  options rawfile="ascii"
+  save i(v1)
+  analysis op0 op
+  sweep s1 instance="x1" parameter="r" values=[1000, 4000]
+    analysis op1 op
+  analysis op2 op
+  sweep s2 instance="x1" parameter="w" values=[500, 3000]
+    analysis op3 op
+  alter instance("x1") r=5000
+  analysis op4 op
+  alter instance("x1") r=-1.2345678901234568e-300
+  analysis op5 op
+endc

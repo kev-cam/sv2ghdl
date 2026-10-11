@@ -1,0 +1,7 @@
+* .DC of a .param that a PULSE field and the derived DC read
+.param vamos_x_v1_val0=0.3
+V1 a 0 DC {vamos_x_v1_val0} PULSE({vamos_x_v1_val0} 1.8 1u 1n 1n 1u)
+R1 a 0 1k
+.DC vamos_x_v1_val0 LIST 0.2 0.4
+.PRINT DC FORMAT=RAW FILE=sf1.raw V(A)
+.end

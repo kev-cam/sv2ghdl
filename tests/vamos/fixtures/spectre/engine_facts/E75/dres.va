@@ -1,0 +1,10 @@
+`include "disciplines.vams"
+module dres(a, b);
+  inout a, b; electrical a, b;
+`ifdef HALF
+  parameter real r = 500.0;
+`else
+  parameter real r = 1000.0;
+`endif
+  analog I(a, b) <+ V(a, b) / r;
+endmodule

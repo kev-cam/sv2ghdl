@@ -1,0 +1,30 @@
+[project]
+name = "psf-parser"
+version = "0.2.1"
+description = "A pure-python parser for Cadence's PSF format."
+authors = [
+    {name = "ToonBettens",email = "toon.bettens@outlook.com"}
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = [ "parser", "parsing", "cadence", "spectre", "psf", "psfbin", "psfascii" ]
+
+[project.urls]
+repository = "https://github.com/ToonBettens/psf-parser"
+
+[tool.poetry]
+packages = [{include = "psf_parser", from = "src"}]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "--import-mode=importlib"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

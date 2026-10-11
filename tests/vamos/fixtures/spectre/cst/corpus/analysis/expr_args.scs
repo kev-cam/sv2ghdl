@@ -1,0 +1,4 @@
+// Parameter expressions in analysis arguments (parens, arithmetic, ternary)
+time_sweep tran start=0 stop=(p1+p2)*50e-6
+XferVsTemp xf start=0 stop=50 step=1 probe=Rload freq=1kHz
+condStep tran stop=(fast==1) ? 10ns : 100ns

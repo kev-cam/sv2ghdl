@@ -1,0 +1,4 @@
+// ERROR: 'chekc' is a misspelling of the 'check' keyword, so it is not a known
+// statement keyword; with no parens after the name, parse_other falls through
+// to Incomplete/UnknownStatement.
+MyChk chekc what=inst

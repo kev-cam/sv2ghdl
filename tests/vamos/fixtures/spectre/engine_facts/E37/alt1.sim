@@ -1,0 +1,12 @@
+alter type dc to pulse, source emitted with dc only
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (in 0) vsource dc=0
+r1 (in 0) resistor r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+  alter instance("v1") type="pulse"
+  analysis tr1 tran stop=3u step=1n maxstep=10n
+endc

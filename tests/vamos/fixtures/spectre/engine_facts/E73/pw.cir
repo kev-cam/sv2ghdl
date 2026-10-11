@@ -1,0 +1,8 @@
+* pulse with PW=1e30 and no PER, as xyce.py prints a Spectre pulse without width/period
+V1 a 0 DC 0 PULSE(0 1 1u 1n 1n 1e+30)
+R1 a 0 1k
+V2 b 0 DC 0 PULSE(0 1 1u 1n 1n 1e+30)
+R2 b 0 1k
+.TRAN 10n 10u
+.PRINT TRAN FORMAT=RAW FILE=pw.raw V(A)
+.end

@@ -1,0 +1,9 @@
+SpectreNetlistSource 71-106
+  Include 71-106
+    Keyword 71-78
+    StringLiteral 79-89
+    IncludeSection 90-105
+      Keyword 90-97
+      Notation 97-98
+      Identifier 98-105
+    Notation 105-106

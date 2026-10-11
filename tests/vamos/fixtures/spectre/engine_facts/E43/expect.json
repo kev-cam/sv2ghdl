@@ -1,0 +1,40 @@
+{
+ "row": "E43",
+ "experiment": "Xyce: a diode card with an unknown parameter, plain and under .STEP DMOD:BOGUSPARAM",
+ "result": "plain: \"No model parameter BOGUSPARAM found for model DMOD\" as a warning, exit 0; under .STEP: an error, exit 1",
+ "rules": [
+  "\u00a77.2 Xyce's unknown-parameter policy: a plain run warns and exits 0, only a .STEP of it is an error, so vamos's -norun check and its own disposition rows catch what Xyce would silently ignore"
+ ],
+ "runs": [
+  {
+   "name": "unknown_param_warns",
+   "tool": "xyce",
+   "deck": "d.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "No model parameter BOGUSPARAM found for model DMOD"
+    ]
+   },
+   "files": {
+    "present": [
+     "d.raw"
+    ]
+   }
+  },
+  {
+   "name": "step_of_unknown_param_errors",
+   "tool": "xyce",
+   "deck": "s.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "DMOD:BOGUSPARAM"
+    ],
+    "regex": [
+     "Netlist error|Xyce Abort"
+    ]
+   }
+  }
+ ]
+}

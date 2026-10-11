@@ -1,0 +1,24 @@
+SpectreNetlistSource 46-96
+  FunctionDecl 46-96
+    Keyword 46-50
+    Identifier 51-60
+    Notation 60-61
+    FunctionArgs 62-68
+      FunctionDeclArg 62-68
+        Keyword 62-66
+        Identifier 67-68
+    Notation 69-70
+    Notation 71-72
+    Notation 72-73
+    Keyword 77-83
+    BinaryExpression 84-92
+      BinaryExpression 84-90
+        BuiltinConst 84-88
+        Operator 88-89
+        Identifier 89-90
+      Operator 90-91
+      Identifier 91-92
+    Notation 92-93
+    Notation 93-94
+    Notation 94-95
+    Notation 95-96

@@ -1,0 +1,10 @@
+* resistor model r on Xyce
+V1 in 0 1
+R1 in out rm
+R2 out 0 1k
+R3 in o3 rm 1k
+R4 o3 0 1k
+.model rm R R=2
+.OP
+.PRINT DC FORMAT=RAW FILE=rmod.raw V(OUT) V(O3)
+.end

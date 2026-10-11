@@ -1,0 +1,25 @@
+SpectreNetlistSource 77-137
+  Model 77-137
+    Keyword 77-82
+    Identifier 83-91
+    Identifier 92-96
+    Parameter 97-103
+      Identifier 97-101
+      Notation 101-102
+      Identifier 102-103
+    Parameter 104-136
+      Identifier 104-107
+      Notation 107-108
+      TernaryExpr 108-136
+        Parens 108-122
+          Notation 108-109
+          BinaryExpression 109-121
+            Identifier 109-113
+            Operator 114-116
+            NumberLiteral 117-121
+          Notation 121-122
+        Notation 123-124
+        NumberLiteral 125-129
+        Notation 130-131
+        NumberLiteral 132-136
+    Notation 136-137

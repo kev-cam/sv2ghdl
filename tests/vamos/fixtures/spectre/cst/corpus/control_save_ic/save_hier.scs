@@ -1,0 +1,3 @@
+// save: hierarchical (dot-separated) component paths with a modifier
+save M2.d:displacement
+save F4.S1.BJT3:oppoint

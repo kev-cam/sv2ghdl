@@ -1,0 +1,25 @@
+SpectreNetlistSource 50-127
+  Analysis 50-79
+    Identifier 50-62
+    Keyword 63-67
+    Parameter 68-78
+      Identifier 68-72
+      Notation 72-73
+      NumberLiteral 73-78
+    Notation 78-79
+  Analysis 79-127
+    Identifier 79-86
+    Keyword 87-91
+    Parameter 92-101
+      Identifier 92-96
+      Notation 96-97
+      NumberLiteral 97-101
+    Parameter 102-114
+      Identifier 102-109
+      Notation 109-110
+      NumberLiteral 110-114
+    Parameter 115-126
+      Identifier 115-121
+      Notation 121-122
+      Identifier 122-126
+    Notation 126-127

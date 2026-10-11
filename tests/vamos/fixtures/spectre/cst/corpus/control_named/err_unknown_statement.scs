@@ -1,0 +1,3 @@
+// ERROR: 'bar' is not a known statement keyword and there are no parens,
+// so parse_other falls through to Incomplete/UnknownStatement.
+foo bar baz

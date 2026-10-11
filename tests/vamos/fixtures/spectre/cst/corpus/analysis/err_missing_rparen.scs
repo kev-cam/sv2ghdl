@@ -1,0 +1,2 @@
+// ERROR: output nodelist is never closed with ')' before the analysis keyword
+badNoise (out gnd noise start=1 stop=1MHz

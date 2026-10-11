@@ -1,0 +1,6 @@
+// bit shifts and reduction exclusive-NOR / NAND operators
+simulator lang=spectre
+parameters a=12 b=3
+parameters shl=a<<b shr=a>>b
+parameters xnor1=a~^b xnor2=a^~b
+parameters rednand=a~&b

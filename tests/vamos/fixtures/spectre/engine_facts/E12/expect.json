@@ -1,0 +1,94 @@
+{
+ "row": "E12",
+ "experiment": "Xyce: .STEP + .AC with -r; .NOISE with .PRINT NOISE FORMAT=RAW",
+ "result": "one plot per step, step value in the plot name; -r writes every node, upper-cased; noise RAW is refused with a warning and a standard table FREQ ONOISE INOISE DNO(R1) DNO(R2) is written (ONOISE 8.2879e-18)",
+ "rules": [
+  "\u00a77.2 Output: each .STEP point is one plot with the step value in its plot name",
+  "\u00a77.2 noise: Xyce refuses RAW for noise and writes a standard table, read by rawfile.read_prn"
+ ],
+ "runs": [
+  {
+   "name": "step_ac_minus_r",
+   "tool": "xyce",
+   "deck": "x1.cir",
+   "args": [
+    "-r",
+    "x1.raw",
+    "{deck}"
+   ],
+   "status": 0,
+   "checks": [
+    {
+     "raw": "x1.raw",
+     "plots": 4
+    },
+    {
+     "raw": "x1.raw",
+     "plot": 0,
+     "plotname_contains": [
+      "Step 1 of 2",
+      "RVAL value = 1000"
+     ]
+    },
+    {
+     "raw": "x1.raw",
+     "plot": 1,
+     "plotname_contains": [
+      "AC Analysis"
+     ],
+     "names": [
+      "frequency",
+      "IN",
+      "OUT",
+      "V1#branch"
+     ],
+     "points": 7
+    },
+    {
+     "raw": "x1.raw",
+     "plot": 3,
+     "plotname_contains": [
+      "Step 2 of 2",
+      "RVAL value = 2000"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "noise_raw_refused",
+   "tool": "xyce",
+   "deck": "x5.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Noise output cannot be written in PROBE, RAW or Touchstone"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "n5.raw",
+     "readable": false
+    },
+    {
+     "prn": "n5.raw",
+     "columns": [
+      "Index",
+      "FREQ",
+      "ONOISE",
+      "INOISE",
+      "DNO(R1)",
+      "DNO(R2)"
+     ],
+     "rows": 2
+    },
+    {
+     "prn": "n5.raw",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.2879e-18,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

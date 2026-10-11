@@ -1,0 +1,20 @@
+dc vs waveform
+ground 0
+load "resistor.osdi"
+model vs vsource
+model r resistor
+v1 (a 0) vs type="pulse" dc=0.9 val0=0 val1=1.8 delay=1u rise=1n fall=1n width=1u
+r1 (a 0) r r=1k
+v2 (b 0) vs type="sine" dc=0.5 sinedc=0 ampl=1 freq=1k
+r2 (b 0) r r=1k
+v3 (c 0) vs type="pwl" dc=0.7 wave=[0, 0.2, 1u, 1]
+r3 (c 0) r r=1k
+v4 (d 0) vs type="pulse" val0=0.3 val1=1.8 delay=1u rise=1n fall=1n width=1u
+r4 (d 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+  analysis tr1 tran stop=2u step=10n
+  sweep s1 instance="v1" parameter="dc" values=[0.1, 0.2]
+    analysis dc1 op
+endc

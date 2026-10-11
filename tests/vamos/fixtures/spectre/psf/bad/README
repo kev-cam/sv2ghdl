@@ -1,0 +1,16 @@
+Malformed PSF ASCII files that psfcheck.py must reject (docs/VAMOS_SPECTRE_DESIGN.md §11 T0
+"psfcheck": "reject each file of psf/bad/").  Each is the valid two-point transient file of
+tests/vamos/test_spectre_psfcheck.py (the §8.3 tran header, types sweep and V, traces a and b)
+with exactly one malformation, so that only that rule fires:
+
+  ragged.tran           the last point has no value for trace b
+  no_end.tran           no END after the last point
+  swapped_values.tran   the second point lists b before a (VALUE order must be TRACE order)
+  descending_axis.tran  time goes 0 -> -1 while xVecSorted is "ascending"
+  int_for_float.tran    "time" 0: an INT token where FLOAT DOUBLE is declared
+  unescaped_quote.tran  "design" "a "quoted" title": a quote not written as \"
+  undeclared_type.tran  TRACE "b" "I" with no "I" in TYPE
+  bad_escape.tran       "design" "back\xslash": \x is no escape with or without +escchars
+
+These are vamos-authored (GPL-3.0-or-later, like the rest of the repository); they are not
+Spectre output.

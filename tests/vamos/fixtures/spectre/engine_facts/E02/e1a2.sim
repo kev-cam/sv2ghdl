@@ -1,0 +1,17 @@
+top-level parameters entry and a circuit variable of the same name
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+parameters rval=1k rdep=rval*2
+v1 (a 0) vsource dc=1
+r1 (a b) resistor r=rval
+r2 (b 0) resistor r=1k
+r3 (a c) resistor r=rdep
+r4 (c 0) resistor r=2k
+control
+  options rawfile="ascii"
+  analysis op0 op
+  var rval=3k
+  analysis op1 op
+endc

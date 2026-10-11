@@ -1,0 +1,10 @@
+* nested step order with op
+.param pa=1
+.param pb=10
+V1 in 0 {pa+pb}
+R1 in 0 1k
+.STEP pa LIST 1 2
+.STEP pb LIST 10 20 30
+.OP
+.PRINT DC FORMAT=RAW FILE=nest2.raw V(IN)
+.end

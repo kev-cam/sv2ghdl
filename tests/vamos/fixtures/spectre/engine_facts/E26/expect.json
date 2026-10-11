@@ -1,0 +1,49 @@
+{
+ "row": "E26",
+ "experiment": "Xyce .model rm R R=2 with R1 in out rm and R3 ... rm 1k; VACASK sp_resistor card r=2000",
+ "result": "Xyce gives 2 kOhm for both: the model R multiplies Xyce's 1 kOhm default and the 1k value; VACASK's card r is the instance default (2 kOhm)",
+ "rules": [
+  "\u00a73.8 R/C/L card folding: a card's r is folded into the instance, so neither engine's card semantics is relied on"
+ ],
+ "runs": [
+  {
+   "name": "xyce_model_r_multiplies",
+   "tool": "xyce",
+   "deck": "rmod.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Resistance is set to 0, setting to the default, 1000 ohms"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "rmod.raw",
+     "col": "V(OUT)",
+     "value": 0.333333,
+     "rel": 1e-05
+    },
+    {
+     "raw": "rmod.raw",
+     "col": "V(O3)",
+     "value": 0.333333,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "vacask_card_r_default",
+   "tool": "vacask",
+   "deck": "rmod.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "out",
+     "value": 0.333333,
+     "rel": 1e-05
+    }
+   ]
+  }
+ ]
+}

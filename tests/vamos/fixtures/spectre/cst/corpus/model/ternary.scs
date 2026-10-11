@@ -1,0 +1,2 @@
+// ternary operator picks the model parameter value from circuit temperature
+model fast_1x1 mos3 type=n vto=(temp >= 27_C) ? 0.90 : 0.75

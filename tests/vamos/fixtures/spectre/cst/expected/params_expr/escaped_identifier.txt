@@ -1,0 +1,10 @@
+SpectreNetlistSource 0-32
+  Model 0-32
+    Keyword 0-5
+    Identifier 6-17
+    Identifier 18-26
+    Parameter 27-31
+      Identifier 27-28
+      Notation 28-29
+      NumberLiteral 29-31
+    Notation 31-32

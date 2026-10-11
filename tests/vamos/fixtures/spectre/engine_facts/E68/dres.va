@@ -1,0 +1,6 @@
+`include "disciplines.vams"
+module dres(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = 1000.0;
+  analog I(a, b) <+ V(a, b) / r;
+endmodule

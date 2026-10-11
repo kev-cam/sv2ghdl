@@ -1,0 +1,2 @@
+// ERROR: instance statement begins with '(' — the component name is missing
+(b1 0) resistor r=1k

@@ -1,0 +1,14 @@
+bad save target
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+v1 (a 0) vamos_vsource dc=1
+r1 (a 0) vamos_resistor r=1k
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  save v(nosuch)
+  analysis vamos_a1 op
+  analysis vamos_a2 op
+endc

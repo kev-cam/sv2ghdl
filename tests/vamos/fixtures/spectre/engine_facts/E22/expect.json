@@ -1,0 +1,61 @@
+{
+ "row": "E22",
+ "experiment": "r=0 on VACASK resistor and sp_resistor; Xyce R0 in a 0",
+ "result": "resistor: \"NaN found in vector, row node 'a'\", op, ac and tran aborted; sp_resistor: \"Value is too small, set to 1.000000e-12\", source current -0.99920 mA instead of -1 mA; Xyce: V(A) = 1.0",
+ "rules": [
+  "\u00a73.8 the resistor r = 0 rule: a short on both engines (zero resistors, \u00a74.5)"
+ ],
+ "runs": [
+  {
+   "name": "vacask_resistor_r0",
+   "tool": "vacask",
+   "deck": "zero.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "NaN found in vector, row node 'a'",
+     "Analysis 'op1' aborted.",
+     "Analysis 'ac1' aborted.",
+     "Analysis 'tr1' aborted."
+    ]
+   }
+  },
+  {
+   "name": "vacask_sp_resistor_r0",
+   "tool": "vacask",
+   "deck": "zero3.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Value is too small, set to 1.000000e-12"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op3.raw",
+     "col": "v1:flow(br)",
+     "value": -0.000999201,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "xyce_r0",
+   "tool": "xyce",
+   "deck": "zero.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "zero.raw",
+     "col": "V(A)",
+     "value": 1.0
+    },
+    {
+     "raw": "zero.raw",
+     "col": "V(B)",
+     "value": 0.5
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,3 @@
+// S-parameter analysis with a ports vector of node identifiers
+Sparams sp stop=0.3MHz lin=100 ports=[Pin Pout]
+sp2 sp start=100M stop=100G dec=100

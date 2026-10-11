@@ -1,0 +1,7 @@
+// two top-level declarations; the second calls the first
+real myfunc( real a, real b ) {
+    return a+b*2+sqrt(a*sin(b));
+}
+real yourfunc( real a, real b ) {
+    return a+b*myfunc(a, b);
+}

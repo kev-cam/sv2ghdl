@@ -1,0 +1,47 @@
+{
+ "row": "E16",
+ "experiment": "VACASK: options reltol=... before a sweep, and between a sweep and its analysis",
+ "result": "before: accepted, and the sweep still binds; between: a parse error, \"expecting sweep or analysis or newline\"",
+ "rules": [
+  "\u00a77.1 a sweep statement binds to the analysis directly after it; options lines go before the sweep statements"
+ ],
+ "runs": [
+  {
+   "name": "options_before_sweep",
+   "tool": "vacask",
+   "deck": "e1s.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "good.raw",
+     "col": "b",
+     "values": [
+      0.5,
+      0.25
+     ]
+    },
+    {
+     "raw": "after.raw",
+     "col": "b",
+     "value": 0.5
+    }
+   ]
+  },
+  {
+   "name": "options_between",
+   "tool": "vacask",
+   "deck": "e16.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "expecting sweep or analysis or newline"
+    ]
+   },
+   "files": {
+    "absent": [
+     "bad.raw"
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,11 @@
+// four-way binning: two else-if clauses followed by else
+simulator lang=spectre
+if ( w < 1u ) {
+    r0 (a b) resistor r=1k
+} else if ( w < 2u ) {
+    r0 (a b) resistor r=2k
+} else if ( w < 4u ) {
+    r0 (a b) resistor r=4k
+} else {
+    r0 (a b) resistor r=8k
+}

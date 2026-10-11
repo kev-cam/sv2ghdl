@@ -1,0 +1,37 @@
+{
+ "row": "E29",
+ "experiment": "VACASK: a Schmitt trigger at vin = 0 under a sweep, continuation=1 and 0",
+ "result": "out = 1.831 V and 0 V",
+ "rules": [
+  "\u00a75.2 Continuation: the sweep statements generated for a Spectre sweep block carry continuation=0 (Spectre restarts each point, restart=yes)"
+ ],
+ "runs": [
+  {
+   "name": "continuation",
+   "tool": "vacask",
+   "deck": "bistable.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "c1.raw",
+     "col": "out",
+     "values": [
+      1.8507,
+      1.8314
+     ],
+     "rel": 0.001
+    },
+    {
+     "raw": "c0.raw",
+     "col": "out",
+     "values": [
+      1.8507,
+      0.0
+     ],
+     "rel": 0.001,
+     "abs": 1e-06
+    }
+   ]
+  }
+ ]
+}

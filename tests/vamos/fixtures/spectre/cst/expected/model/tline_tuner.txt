@@ -1,0 +1,18 @@
+SpectreNetlistSource 51-99
+  Model 51-99
+    Keyword 51-56
+    Identifier 57-62
+    Identifier 63-68
+    Parameter 69-75
+      Identifier 69-70
+      Notation 70-71
+      NumberLiteral 71-75
+    Parameter 76-89
+      Identifier 76-82
+      Notation 82-83
+      NumberLiteral 83-89
+    Parameter 90-98
+      Identifier 90-93
+      Notation 93-94
+      NumberLiteral 94-98
+    Notation 98-99

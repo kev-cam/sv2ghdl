@@ -1,0 +1,10 @@
+SpectreNetlistSource 66-83
+  Global 66-83
+    Keyword 66-72
+    SNode 73-74
+      NumberLiteral 73-74
+    SNode 75-78
+      Identifier 75-78
+    SNode 79-82
+      Identifier 79-82
+    Notation 82-83

@@ -1,0 +1,8 @@
+* inductor and iprobe currents
+V1 in 0 DC 1
+L1 in m 1u
+Vip m n 0
+R1 n 0 1k
+.OP
+.PRINT DC FORMAT=RAW FILE=lcur.raw I(L1) I(VIP) V(*)
+.end

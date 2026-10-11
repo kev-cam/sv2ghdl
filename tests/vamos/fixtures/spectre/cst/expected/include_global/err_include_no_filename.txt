@@ -1,0 +1,4 @@
+SpectreNetlistSource 60-68
+  Incomplete 60-68
+    Keyword 60-67
+    Error 67-68

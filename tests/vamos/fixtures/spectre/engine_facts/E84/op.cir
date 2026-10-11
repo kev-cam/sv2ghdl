@@ -1,0 +1,26 @@
+* Exp OUT names xyce op
+.subckt sub1 p q
+vx p Mid 0
+r3 Mid pup2 1k
+r4 pup2 q 2k
+.ends
+v1 vin 0 dc 1 ac 1
+r1 vin out 1k
+r2 out 0 1k
+rn vin net4<0> 1k
+rn2 net4<0> 0 1k
+xI2 out top2 sub1
+rl top2 0 10k
+l1 vin li 1u
+rli li 0 1k
+d1 vin dn dd
+.model dd d is=1e-14 rs=10
+rdn dn 0 1k
+e1 eo 0 out 0 2
+reo eo 0 1k
+vIPRB out ip 0
+rip ip 0 1meg
+c1 out 0 1n
+.op
+.print dc format=raw file=op.raw v(*) i(v1) i(l1) i(viprb) i(xi2:vx) i(r1) i(e1)
+.end

@@ -93,7 +93,7 @@ import os
 import re
 import subprocess
 from collections import abc
-from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from vamos.netlist import expr as X
 from vamos.netlist import tables as T
@@ -101,6 +101,10 @@ from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num
 from vamos.netlist.ir import Instance, Model, Netlist, Param, Source, Subckt
 from vamos.netlist.numbers import fmt
 from vamos.notes import ERROR, Note, NoteError, error, note
+
+if TYPE_CHECKING:                                  # the spectre run plan (VAMOS_SPECTRE_DESIGN.md §5, §6)
+    from vamos.netlist.plan import AnalysisStep, RunPlan
+    from vamos.netlist.signals import Ref, SignalMap
 
 ENGINE = "xyce"
 RAW = "vamos_tran.raw"
@@ -125,9 +129,26 @@ def emit(nl: Netlist, path: str, osdi: Sequence[str] = (), notes: Optional[List[
 
 
 def render(nl: Netlist, osdi: Sequence[str] = (), notes: Optional[List[Note]] = None,
-           op: bool = False) -> str:
-    """The Xyce deck text for nl (see the module docstring)."""
+           op: bool = False, step: Optional[AnalysisStep] = None, sigmap: Optional[SignalMap] = None,
+           names: Optional[Dict[str, Dict[Ref, str]]] = None) -> str:
+    """The Xyce deck text for nl (see the module docstring).
+
+    step, sigmap, names (VAMOS_SPECTRE_DESIGN.md §4.5 items 5-6, §7.2; S3): with an AnalysisStep
+    the deck prints that one step and a .PRINT with exactly its SignalMap entries, in order, and
+    fills names (step id -> Ref -> engine column) for every Ref it printed.  With all three None
+    the output is byte-identical to the vcs-ams deck.  Phase 0: NotImplementedError.
+    """
+    if step is not None or sigmap is not None or names is not None:
+        raise NotImplementedError("xyce.render(step=, sigmap=, names=) is not implemented yet "
+                                  "(VAMOS_SPECTRE_DESIGN.md §4.5, §7.2: phase 1, S3)")
     return _Deck(nl, osdi, op).render(notes)
+
+
+def names_for(nl: Netlist, plan: RunPlan, sigmap: SignalMap) -> Dict[str, Dict[Ref, str]]:
+    """The name map render() would fill over every step (step id -> Ref -> Xyce column), without
+    rendering (VAMOS_SPECTRE_DESIGN.md §4.5 item 6, §6.4; S3)."""
+    raise NotImplementedError("xyce.names_for is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.5: "
+                              "phase 1, S3)")
 
 
 class _Skip(Exception):
@@ -1031,6 +1052,22 @@ def smoke(nl: Netlist, dir: str, osdi: Sequence[str] = (), nvc_libdir: Optional[
         return [error(origin, "Xyce smoke check failed (exit %d): %s"
                       % (p.returncode, "\n".join(msgs) or _tail(p.stdout)))]
     return []
+
+
+def output_problems(text: str, nl: Netlist) -> List[Note]:
+    """The smoke patterns of smoke() as a public function (VAMOS_SPECTRE_DESIGN.md §4.5 item 13,
+    §7.2; S3): the errors in Xyce's output text for nl: unknown model parameters (the bounds of
+    binned cards exempt), unrecognized parameters, netlist errors."""
+    raise NotImplementedError("xyce.output_problems is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.5 "
+                              "item 13, §7.2: phase 1, S3)")
+
+
+def device_summary_problems(text: str, nl: Netlist) -> List[Note]:
+    """The Device Count Summary check (VAMOS_SPECTRE_DESIGN.md §4.5 item 13; S3): an error for a
+    built-in entry (`M level 77 (BSIM6)`) where a Netlist.va_modules module should be listed under
+    its own name (`RESISTOR (resistor)`); smoke()'s -norun step applies it."""
+    raise NotImplementedError("xyce.device_summary_problems is not implemented yet (VAMOS_SPECTRE_DESIGN.md "
+                              "§4.5 item 13: phase 1, S3)")
 
 
 _AT_LINE = re.compile(r"at or near line (\d+)\b.*no valid model card found")

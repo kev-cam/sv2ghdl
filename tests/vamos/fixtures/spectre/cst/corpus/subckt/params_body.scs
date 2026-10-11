@@ -1,0 +1,6 @@
+// subckt body with a parameters declaration plus instances using those params
+subckt filter (n1 n2)
+    parameters bw=1k r0=50 fc=1e6
+    r1 (n1 n2) resistor r=r0
+    c1 (n2 0) capacitor c=1/(2*3.14159*fc*r0)
+ends filter

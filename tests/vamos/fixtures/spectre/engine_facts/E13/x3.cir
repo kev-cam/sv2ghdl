@@ -1,0 +1,11 @@
+* op with -r raw output, hierarchical names, upper-casing
+.subckt rdiv a b
+R1 a mid 500
+R2 mid b 500
+.ends
+V1 in 0 DC 1
+X1 in out rdiv
+R3 out 0 1k
+.op
+.print dc v(in) v(out) v(x1:mid) i(v1)
+.end

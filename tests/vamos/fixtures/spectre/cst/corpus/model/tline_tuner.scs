@@ -1,0 +1,2 @@
+// transmission-line model with scaled-unit values
+model tuner tline f=1MHz alphac=9.102m dcr=105m

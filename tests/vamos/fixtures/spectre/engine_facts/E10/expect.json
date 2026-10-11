@@ -1,0 +1,47 @@
+{
+ "row": "E10",
+ "experiment": "VACASK: a pulse without dc, width=1e30",
+ "result": "the op uses the t = 0 value; the huge width is accepted",
+ "rules": [
+  "\u00a73.8.1 a Spectre pulse without width/period prints width=1e30",
+  "\u00a75.3 a source without dc: the op uses the t = 0 value (derived dc)"
+ ],
+ "runs": [
+  {
+   "name": "pulse_width_1e30",
+   "tool": "vacask",
+   "deck": "e1w.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 1.0
+    },
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "value": 1.0
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 0.0,
+     "value": 1.0
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 5e-07,
+     "value": 1.0
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 3e-06,
+     "value": 2.0
+    }
+   ]
+  }
+ ]
+}

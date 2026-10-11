@@ -1,0 +1,60 @@
+{
+ "row": "E40",
+ "experiment": "VACASK: SIGINT and SIGTERM during a long tran",
+ "result": "the interrupted analysis's rawfile is left with a blank No. Points:; rawfile.fix_points plus read recover the points written so far (467,960 up to t = 46.8 ms in the design session; 1.65 M on 2026-10-04); rc 130/143",
+ "rules": [
+  "\u00a72.7 status 3: an interrupted VACASK run is converted from the rawfile it leaves, after rawfile.fix_points",
+  "\u00a77.1 Failures: VACASK leaves No. Points: blank after a signal"
+ ],
+ "runs": [
+  {
+   "name": "sigint",
+   "tool": "vacask",
+   "deck": "sig.sim",
+   "signal": {
+    "after": 3,
+    "name": "INT",
+    "grace": 20
+   },
+   "status": "INT",
+   "files": {
+    "present": [
+     "op1.raw",
+     "trlong.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "trlong.raw",
+     "fix_points": true,
+     "min_points": 1000,
+     "max_last_time": 2.0
+    }
+   ]
+  },
+  {
+   "name": "sigterm",
+   "tool": "vacask",
+   "deck": "sig.sim",
+   "signal": {
+    "after": 3,
+    "name": "TERM",
+    "grace": 20
+   },
+   "status": "TERM",
+   "files": {
+    "present": [
+     "trlong.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "trlong.raw",
+     "fix_points": true,
+     "min_points": 1000,
+     "max_last_time": 2.0
+    }
+   ]
+  }
+ ]
+}

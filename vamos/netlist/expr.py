@@ -8,7 +8,18 @@ hands expression text in, the emitters print with the two printers.
 
 API
 ---
-parse(text, case="lower") -> Expr
+Dialects (docs/VAMOS_SPECTRE_DESIGN.md §3.5, §4.2): number(), parse(), evaluate()
+and to_text() take dialect="hspice" (this module's HSPICE reader, byte for byte),
+"spectre" or "spectre-spice" (Spectre's semantics; phase 1, S1: until then they
+raise NotImplementedError); a name outside DIALECTS is a ValueError.  parse()
+also takes funcs (user functions inlined as the text is parsed, Spectre only)
+and number()/parse() a warn(severity, message) callback (Warn).  Data for the
+Spectre dialects: SPECTRE_FUNCS (name -> arity), SPECTRE_CONSTANTS (the 22
+M_*/P_* constants), EXTRA_FUNCS (cpow hypot fmod: evaluated in every dialect,
+never parsed from HSPICE text).  RESERVED gains "$tnom" (Spectre's tnom);
+VACASK_CONSTANTS gains M_DEGPERRAD.
+
+parse(text, case="lower", dialect="hspice", funcs=None, warn=None) -> Expr
     One expression.  An enclosing '...' or {...} is optional; quotes and
     braces may also group sub-expressions, exactly like parentheses.
     Numbers go through number() (numbers.parse_number's suffixes and unit
@@ -34,7 +45,7 @@ names(ast) -> Set[str]
     The parameter names referenced (dependency sorting).  Function names,
     v()/i() arguments and time/temper/hertz are excluded.
 
-evaluate(ast, scope: Mapping[str, float]) -> float
+evaluate(ast, scope: Mapping[str, float], dialect="hspice") -> float
     HSPICE's value of a constant expression (the semantics below).  Raises
     EvalError naming the construct for anything not constant (node voltages
     and currents, time, temper, hertz, unknown names or functions) and for
@@ -69,7 +80,7 @@ vacask_quote(name) -> str
     The VACASK identifier rule, shared with the emitter: a name that is not
     [A-Za-z_$][A-Za-z0-9_$]* or all digits, or is a reserved word, is
     single-quoted.
-number(s) -> float
+number(s, dialect="hspice", warn=None) -> float
     A SPICE number literal (numbers.parse_number's grammar, plus HSPICE's D
     exponent: "Exponents are designated by D or E", Star-HSPICE 2001.2 3-4, so
     "1.0D+3" == 1000.0 and "2.5d-12" == 2.5e-12; a D with no digits after it is
@@ -83,7 +94,7 @@ number(s) -> float
 Helpers: walk(ast), node_calls(ast), is_constant(ast), is_node_dependent(ast),
 fold(ast, scope=None, strict=False), transform(ast, fn), substitute(ast,
 mapping), map_nodes(ast, fn), inline(ast, funcs), hspice_power(x, y),
-to_text(ast) (HSPICE spelling, for messages), FUNCS (built-ins and arity).
+to_text(ast, dialect="hspice") (HSPICE spelling, for messages), FUNCS (built-ins and arity).
 
 HSPICE semantics (evaluate; both printers reproduce them)
 ---------------------------------------------------------
@@ -141,8 +152,24 @@ from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary, 
 from vamos.netlist.numbers import fmt, parse_number
 
 CONTEXTS = ("param", "behavioral")
-RESERVED = ("time", "temper", "hertz")          # HSPICE special variables
+# HSPICE's special variables, and "$tnom", the name the Spectre dialects give Spectre's tnom
+# (docs/VAMOS_SPECTRE_DESIGN.md §3.5, §4.2); HSPICE text can never produce a "$" name.
+RESERVED = ("time", "temper", "hertz", "$tnom")
 CASES = ("lower", "upper", "sensitive")
+# Expression dialects (VAMOS_SPECTRE_DESIGN.md §4.2): "hspice" is today's reader, byte for byte;
+# "spectre" and "spectre-spice" (§3.5) are S1's.  Any other name is a ValueError (spice.py maps
+# its own "spice" to "hspice" first).  Phase 0: the Spectre dialects raise NotImplementedError.
+DIALECTS = ("hspice", "spectre", "spectre-spice")
+Warn = Callable[[str, str], None]               # (severity, message); spectre.py adds the origin
+
+
+def _dialect(dialect: str) -> None:
+    """ValueError for a name outside DIALECTS; NotImplementedError for a Spectre dialect (phase 0)."""
+    if dialect not in DIALECTS:
+        raise ValueError("dialect must be one of %s, not %r" % (DIALECTS, dialect))
+    if dialect != "hspice":
+        raise NotImplementedError("expression dialect %r is not implemented yet (VAMOS_SPECTRE_DESIGN.md "
+                                  "§3.5, §4.2: phase 1, S1)" % (dialect,))
 
 # -- numbers --------------------------------------------------------------------
 
@@ -154,12 +181,17 @@ _SCALE_EXP = (("meg", 6), ("mil", None), ("t", 12), ("g", 9), ("x", 6), ("k", 3)
               ("u", -6), ("n", -9), ("p", -12), ("f", -15), ("a", -18))
 
 
-def number(s: str) -> float:
+def number(s: str, dialect: str = "hspice", warn: Optional[Warn] = None) -> float:
     """A SPICE number literal, correctly rounded: numbers.parse_number's grammar (suffixes,
     trailing unit letters) plus HSPICE's D exponent ("1.0D+3" is 1000.0), but a power-of-ten
     suffix scales the decimal exponent, as ngspice (and HSPICE) read it: "0.22u" is 2.2e-07
     like "2.2e-7", where parse_number multiplies two rounded values (0.22 * 1e-6 =
-    2.1999999999999998e-07), which moves bin edges.  ValueError if s is not a number."""
+    2.1999999999999998e-07), which moves bin edges.  ValueError if s is not a number.
+
+    dialect (VAMOS_SPECTRE_DESIGN.md §3.3, §4.2): "hspice" is this reader; the Spectre dialects
+    (S1) read Spectre's and SPICE mode's number tables and report through warn(severity, message).
+    """
+    _dialect(dialect)
     m = _NUMBER.match(s)
     if not m:
         return parse_number(s)                          # raises ValueError naming s
@@ -188,6 +220,34 @@ FUNCS: Dict[str, Tuple[int, Optional[int]]] = {
 _NOMINAL = ("agauss", "gauss", "aunif", "unif")
 _SAME_NAME = ("sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh",
               "acosh", "atanh", "exp", "floor")
+
+# Spectre's closed function table (VAMOS_SPECTRE_DESIGN.md §3.5; Spectre Circuit Simulator
+# Reference 19.1 pp.476-477), name -> (min, max) arity: one argument for the first group, two for
+# the second (sign(x,y) = sgn(y)*|x|, atan2(x,y) = atan(x/y)).  The Spectre dialects (S1) accept a
+# call to these names and to user functions only; FUNCS stays HSPICE's table.
+SPECTRE_FUNCS: Dict[str, Tuple[int, int]] = dict(
+    [(f, (1, 1)) for f in ("log", "ln", "log10", "exp", "sqrt", "abs", "int", "floor", "ceil", "sgn",
+                           "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh",
+                           "asinh", "acosh", "atanh")]
+    + [(f, (2, 2)) for f in ("min", "max", "pow", "fmod", "hypot", "atan2", "sign")])
+
+# Spectre's built-in mathematical and physical constants (Reference 19.1 pp.466-467, 22 names),
+# equal to VACASK's lib/context.cpp:13-35 (the old CODATA values included).  The Spectre dialects
+# (S1) fold them to Num at parse time; constants may not name parameters (ref19 p.495).
+SPECTRE_CONSTANTS: Dict[str, float] = {
+    "M_E": math.e, "M_LOG2E": 1.0 / math.log(2.0), "M_LOG10E": 1.0 / math.log(10.0),
+    "M_LN2": math.log(2.0), "M_LN10": math.log(10.0), "M_PI": math.pi, "M_TWO_PI": 2.0 * math.pi,
+    "M_PI_2": math.pi / 2.0, "M_PI_4": math.pi / 4.0, "M_1_PI": 1.0 / math.pi, "M_2_PI": 2.0 / math.pi,
+    "M_2_SQRTPI": 2.0 / math.sqrt(math.pi), "M_SQRT2": math.sqrt(2.0), "M_SQRT1_2": 1.0 / math.sqrt(2.0),
+    "M_DEGPERRAD": 180.0 / math.pi,
+    "P_Q": 1.6021918e-19, "P_C": 2.997924562e8, "P_K": 1.3806226e-23, "P_H": 6.6260755e-34,
+    "P_EPS0": 8.85418792394420013968e-12, "P_U0": 4.0e-7 * math.pi, "P_CELSIUS0": 273.15,
+}
+
+# Functions the Spectre dialects produce and the evaluator (in every dialect, S1) and the
+# printers know: cpow (C pow, what Spectre's ** and pow() mean), hypot and fmod.  Never parsed
+# from HSPICE text (the HSPICE parser rejects the calls as unknown functions, as today).
+EXTRA_FUNCS: Dict[str, Tuple[int, Optional[int]]] = {"cpow": (2, 2), "hypot": (2, 2), "fmod": (2, 2)}
 
 
 # -- errors -------------------------------------------------------------------
@@ -424,10 +484,22 @@ def _describe(t: _Tok) -> str:
     return repr(t.val)
 
 
-def parse(text: str, case: str = "lower") -> Expr:
-    """Parse one HSPICE expression (see the module docstring)."""
+def parse(text: str, case: str = "lower", dialect: str = "hspice",
+          funcs: Optional[Mapping[str, Tuple[Sequence[str], Expr]]] = None,
+          warn: Optional[Warn] = None) -> Expr:
+    """Parse one HSPICE expression (see the module docstring).
+
+    dialect (VAMOS_SPECTRE_DESIGN.md §3.5, §4.2): "hspice" is today's parser, byte for byte;
+    "spectre" and "spectre-spice" (S1) parse with Spectre's binding powers, functions and
+    constants, inline the user functions `funcs` (name -> (parameter names, body)) as the text is
+    parsed, and report through warn(severity, message).
+    """
     if case not in CASES:
         raise ValueError("case must be one of %s" % (CASES,))
+    _dialect(dialect)
+    if funcs is not None:
+        raise NotImplementedError("parse(funcs=...) is the Spectre dialects' user-function inlining "
+                                  "(VAMOS_SPECTRE_DESIGN.md §3.5: phase 1, S1); the HSPICE route uses inline()")
     return _Parser(text, case).parse()
 
 
@@ -551,8 +623,13 @@ _TPREC = {"?": 1, "||": 2, "&&": 3, "==": 4, "!=": 4, "<": 5, "<=": 5, ">": 5, "
           "+": 6, "-": 6, "*": 7, "/": 7, "**": 10}
 
 
-def to_text(ast: Expr) -> str:
-    """HSPICE spelling with the parentheses vamos's precedence needs (parse(to_text(e)) == e)."""
+def to_text(ast: Expr, dialect: str = "hspice") -> str:
+    """HSPICE spelling with the parentheses vamos's precedence needs (parse(to_text(e)) == e).
+
+    dialect (VAMOS_SPECTRE_DESIGN.md §4.2, S1): "spectre" spells cpow as ** and knows << >> & | ~^
+    at the dialect's levels, so messages quote Spectre syntax.
+    """
+    _dialect(dialect)
     return _text(ast, 0)
 
 
@@ -745,8 +822,14 @@ def _apply(f: str, a: List[float], e: Call) -> float:
     raise EvalError("unknown function %s()" % f)
 
 
-def evaluate(ast: Expr, scope: Mapping[str, float]) -> float:
-    """HSPICE's value of a constant expression; EvalError otherwise (see the module docstring)."""
+def evaluate(ast: Expr, scope: Mapping[str, float], dialect: str = "hspice") -> float:
+    """HSPICE's value of a constant expression; EvalError otherwise (see the module docstring).
+
+    dialect (VAMOS_SPECTRE_DESIGN.md §3.5, §4.2, S1): "spectre" adds Spectre's domain rules (log,
+    sqrt, exp, both operands of && and ||); EXTRA_FUNCS and the bitwise operators are evaluated
+    in every dialect.
+    """
+    _dialect(dialect)
     try:
         return _Eval(scope).ev(ast)
     except RecursionError:
@@ -818,9 +901,11 @@ def _children(e: Expr) -> Tuple[Expr, ...]:
 
 XYCE_RESERVED = frozenset(("pi", "dt", "vt", "temp", "freq", "gmin", "exp", "ctok", "constctok",
                            "poly", "time", "temper", "hertz"))
+# VACASK's built-in constants (lib/context.cpp:13-35): a parameter of such a name would shadow
+# the constant silently, so param_ident prefixes it.  The 22 names of SPECTRE_CONSTANTS.
 VACASK_CONSTANTS = frozenset(("M_E", "M_LOG2E", "M_LOG10E", "M_LN2", "M_LN10", "M_PI", "M_TWO_PI",
                               "M_PI_2", "M_PI_4", "M_1_PI", "M_2_PI", "M_2_SQRTPI", "M_SQRT2",
-                              "M_SQRT1_2", "P_Q", "P_C", "P_K", "P_H", "P_EPS0", "P_U0",
+                              "M_SQRT1_2", "M_DEGPERRAD", "P_Q", "P_C", "P_K", "P_H", "P_EPS0", "P_U0",
                               "P_CELSIUS0"))
 VACASK_RESERVED = frozenset(("include", "section", "endsection", "load", "model", "global",
                              "ground", "subckt", "ends", "parameters", "control", "endc",

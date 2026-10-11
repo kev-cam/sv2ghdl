@@ -1,0 +1,6 @@
+SpectreNetlistSource 24-35
+  Global 24-35
+    Keyword 24-30
+    SNode 31-34
+      Identifier 31-34
+    Notation 34-35

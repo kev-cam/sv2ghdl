@@ -1,0 +1,3 @@
+// Transient analysis statements (name kw params)
+stepResponse tran stop=100ns
+OscResp tran stop=80us maxstep=10ns method=trap

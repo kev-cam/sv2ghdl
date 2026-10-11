@@ -1,0 +1,14 @@
+zero sp_resistor
+ground 0
+load "resistor.osdi"
+load "spice/resistor.osdi"
+model vs vsource
+model r resistor
+model spr sp_resistor
+v1 (in 0) vs dc=1
+r0 (in a) spr r=0
+r1 (a 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis op3 op
+endc

@@ -1,0 +1,79 @@
+Real Spectre PSF ASCII output files (docs/VAMOS_SPECTRE_DESIGN.md: the [S] row of §0, §8, §11
+"psfcheck").  Every file below was written by Cadence Spectre and is copied byte for byte from a
+public repository, so that psfcheck.py (tests/vamos) is held to what Spectre writes: it must accept
+every one of them (test_spectre_psfcheck.TestRealSamples).  Licences, repository URLs and commits
+are in ../../README; the summary is in the repository's LICENSE.
+
+One line per file: path, the Spectre version from its "version" header, its "analysis type" (a
+logFile has none), and its "date" header.
+
+psf-parser (MIT), repository ToonBettens/psf-parser on GitHub, commit
+05021e6e62cdb9aebf1ee1a98609bb4b3a4f2d16: tests/data/ascii is one Spectre 23.1.0.242.isr1 run of the
+design "#RC Low-Pass Filter" (an op, a dc sweep, an ac, a tran, three info files, a sweep with a nested
+sweep, and a three-iteration Monte Carlo); tests/data/binary/logFile is that run's logFile, written in
+ASCII although the data files of that directory are psfbin (the ASCII data files above are the same
+analyses written as psfascii, so the logFile's 38 dataFile entries name exactly them; check it with
+"psfcheck.py --datadir psf-parser/tests/data/ascii psf-parser/tests/data/binary/logFile").
+
+psf-parser/tests/data/ascii/dc2.dc                                23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/myac.ac                               23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mydc.dc                               23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/myinfo_Models.info                    23.1.0.242.isr1  info        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/myinfo_Oppoint.info                   23.1.0.242.isr1  info        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/myinfo_all.info                       23.1.0.242.isr1  info        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte-001_dc2.dc                    23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte-001_tran1.tran.tran           23.1.0.242.isr1  tran        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte-002_dc2.dc                    23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte-002_tran1.tran.tran           23.1.0.242.isr1  tran        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte-003_dc2.dc                    23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte-003_tran1.tran.tran           23.1.0.242.isr1  tran        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte_dc2.montecarlo                23.1.0.242.isr1  montecarlo  5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mymonte_tran1.montecarlo              23.1.0.242.isr1  montecarlo  5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/myop.dc                               23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-000_ac1.ac                    23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-000_dc1.dc                    23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-000_mynestedsweep-000_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-000_mynestedsweep-001_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-000_mynestedsweep-002_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-000_mynestedsweep_ac2.sweep   23.1.0.242.isr1  sweep       5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-001_ac1.ac                    23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-001_dc1.dc                    23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-001_mynestedsweep-000_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-001_mynestedsweep-001_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-001_mynestedsweep-002_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-001_mynestedsweep_ac2.sweep   23.1.0.242.isr1  sweep       5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-002_ac1.ac                    23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-002_dc1.dc                    23.1.0.242.isr1  dc          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-002_mynestedsweep-000_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-002_mynestedsweep-001_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-002_mynestedsweep-002_ac2.ac  23.1.0.242.isr1  ac          5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep-002_mynestedsweep_ac2.sweep   23.1.0.242.isr1  sweep       5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep_ac1.sweep                     23.1.0.242.isr1  sweep       5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep_ac2.sweep                     23.1.0.242.isr1  sweep       5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mysweep_dc1.sweep                     23.1.0.242.isr1  sweep       5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/mytran.tran.tran                      23.1.0.242.isr1  tran        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/ascii/tran1.tran.tran                       23.1.0.242.isr1  tran        5:46:18 PM, Tue Apr 15, 2025
+psf-parser/tests/data/binary/logFile                              23.1.0.242.isr1  logFile     5:51:25 PM, Tue Apr 15, 2025
+
+psf_utils (GPL-3.0-or-later), repository KenKundert/psf_utils on GitHub, commit
+67971463a7bfdbfdb362376374b68fef379c6f9e (v1.11): the native psfascii files of its samples/ directory
+that §11 names.  joop-banaan.{dc,tran} are two Spectre 19.1.0.373.isr7 runs of a point netlist (their
+design line is the comment "// Point Netlist Generated on: ..."; both carry "rabsshort", §8.3).
+pnoise.raw is one complete Spectre 15.1.0.284.isr1 results directory (a noise and a pnoise analysis
+of two nodes, a pss, a linear and a logarithmic ac) with its logFile, the only logFile sample besides
+the 23.1 one; the pnoise and pss files are analysis kinds vamos does not write, kept because the
+logFile names them.  The other samples/ files are not copied: dan-zilla.psfascii, fracpole.ac and
+rushikesh-dhanaji-phadtare.tran are Cadence-converted GROUP layouts, fracpole.spac and fracpole.spdc
+SINGLE layouts, header.psf a header only, bus_chevrons.tran and escaped-strings.dc hand-edited
+fixtures (design §13 E86), and the rest further analysis kinds (stb, pz, dcop, info) or a netlist.
+
+psf_utils/samples/joop-banaan.dc                                  19.1.0.373.isr7  dc          1:07:28 PM, Tue Feb 2, 2021
+psf_utils/samples/joop-banaan.tran                                19.1.0.373.isr7  tran        10:57:11 PM, Fri Jan 29, 2021
+psf_utils/samples/pnoise.raw/aclin.ac                             15.1.0.284.isr1  ac          9:11:11 AM, Sat Sep 14, 2019
+psf_utils/samples/pnoise.raw/aclog.ac                             15.1.0.284.isr1  ac          9:11:11 AM, Sat Sep 14, 2019
+psf_utils/samples/pnoise.raw/logFile                              15.1.0.284.isr1  logFile     9:11:11 AM, Sat Sep 14, 2019
+psf_utils/samples/pnoise.raw/noiref.noise                         15.1.0.284.isr1  noise       9:11:11 AM, Sat Sep 14, 2019
+psf_utils/samples/pnoise.raw/noiva.noise                          15.1.0.284.isr1  noise       9:11:11 AM, Sat Sep 14, 2019
+psf_utils/samples/pnoise.raw/pnoiref.pnoise                       15.1.0.284.isr1  pnoise      9:11:11 AM, Sat Sep 14, 2019
+psf_utils/samples/pnoise.raw/pnoiva.pnoise                        15.1.0.284.isr1  pnoise      9:11:11 AM, Sat Sep 14, 2019
+psf_utils/samples/pnoise.raw/pss.td.pss                           15.1.0.284.isr1  td.pss      9:11:11 AM, Sat Sep 14, 2019

@@ -1,0 +1,111 @@
+{
+ "row": "E21",
+ "experiment": "2 Hz to 500 Hz at dec=10: VACASK mode=\"dec\", Xyce .AC DEC and .DC DEC, Xyce .NOISE ... DATA=",
+ "result": "VACASK: 25 points ending exactly at 500 (ratio 250^(1/24)); Xyce: 24 points ending at 399.05; DATA= works. Real Spectre [S]: 121 points, 4*10^(k/20) for k <= 119, then exactly 4.19e6",
+ "rules": [
+  "\u00a75.2 the dec grid: plan.build computes the points (mode=\"values\") for non-integer spans; integer spans keep mode=\"dec\"/DEC",
+  "\u00a77.2 .NOISE ... DATA= works"
+ ],
+ "runs": [
+  {
+   "name": "vacask_dec",
+   "tool": "vacask",
+   "deck": "dec.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "ac1.raw",
+     "points": 25
+    },
+    {
+     "raw": "ac1.raw",
+     "col": "frequency",
+     "value": 2.0,
+     "row": 0,
+     "rel": 1e-12
+    },
+    {
+     "raw": "ac1.raw",
+     "col": "frequency",
+     "value": 500.0,
+     "row": -1,
+     "rel": 1e-12
+    },
+    {
+     "raw": "ac2.raw",
+     "points": 5
+    },
+    {
+     "raw": "dc1.raw",
+     "points": 25
+    },
+    {
+     "raw": "dc1.raw",
+     "col": "s1",
+     "value": 500.0,
+     "row": -1,
+     "rel": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac_dec",
+   "tool": "xyce",
+   "deck": "dec.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dec.raw",
+     "points": 24
+    },
+    {
+     "raw": "dec.raw",
+     "col": "FREQUENCY",
+     "value": 399.052,
+     "row": -1,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "xyce_dc_dec",
+   "tool": "xyce",
+   "deck": "decdc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "decdc.raw",
+     "points": 24
+    },
+    {
+     "raw": "decdc.raw",
+     "col": "sweep",
+     "value": 399.052,
+     "row": -1,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "xyce_noise_data",
+   "tool": "xyce",
+   "deck": "nzdata.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nzdata.prn",
+     "col": "FREQ",
+     "column": [
+      1000.0,
+      3000.0,
+      5000.0
+     ]
+    },
+    {
+     "prn": "nzdata.prn",
+     "rows": 3
+    }
+   ]
+  }
+ ]
+}

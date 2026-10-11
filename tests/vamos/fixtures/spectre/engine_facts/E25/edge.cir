@@ -1,0 +1,6 @@
+* zero pulse edges on Xyce
+V1 a 0 PULSE(0 1 100n 0 0 100n)
+R1 a 0 1k
+.TRAN 1n 400n
+.PRINT TRAN FORMAT=RAW FILE=edge.raw V(A)
+.end

@@ -1,0 +1,6 @@
+* tran failing: 1/(time-1u)
+B1 a 0 V={1/(time-1u)}
+R1 a 0 1k
+.TRAN 10n 3u
+.PRINT TRAN FORMAT=RAW FILE=tf1.raw V(A)
+.end

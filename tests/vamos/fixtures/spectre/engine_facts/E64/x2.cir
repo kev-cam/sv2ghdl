@@ -1,0 +1,9 @@
+* vamos form, no parameters
+.hdl "toy_resistor.va"
+.model resistor__vamos resistor
+V1 a 0 1
+yresistor r1 a b resistor__vamos
+R2 b 0 1k
+.op
+.print dc format=raw file=x2.raw v(b)
+.end

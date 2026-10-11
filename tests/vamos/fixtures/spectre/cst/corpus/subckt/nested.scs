@@ -1,0 +1,7 @@
+// nested subckt definitions: inner subckt inside outer subckt body
+subckt outer (a b)
+    subckt inner (x y)
+        r1 (x y) resistor r=1k
+    ends inner
+    xi (a b) inner
+ends outer

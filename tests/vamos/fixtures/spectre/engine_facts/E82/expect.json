@@ -1,0 +1,79 @@
+{
+ "row": "E82",
+ "experiment": "GCC cpp 15.2.0 (WSL) on a Spectre netlist with -Iinc (sp3/CLI/wsl_cpp.sh, wsl_cpp.out)",
+ "result": "ISO mode: markers # 0 \"<built-in>\", # 0 \"<command-line>\", # 1 \"inc/sub.scs\" 1; an empty title line; .param rr='VDD*1k' with VDD unexpanded; stderr \"top.scs:13:42: warning: missing terminating ' character\", rc 0. -traditional-cpp keeps // opamp test bench, title line and writes nothing to stderr; VDD is not expanded there either",
+ "rules": [
+  "\u00a72.6 the C preprocessor: cpp -nostdinc -undef [-I...] on the netlist, the title taken from the unpreprocessed file (ISO mode empties a // line); the markers name included files relative to cpp's cwd; a macro inside a '...' expression is not expanded in either mode and gets a warning in ISO mode"
+ ],
+ "runs": [
+  {
+   "name": "iso_mode",
+   "tool": "cpp",
+   "deck": "top.scs",
+   "args": [
+    "-nostdinc",
+    "-undef",
+    "-Iinc",
+    "{deck}",
+    "iso.scs"
+   ],
+   "status": 0,
+   "stderr": {
+    "contains": [
+     "top.scs:13:42: warning: missing terminating ' character"
+    ]
+   },
+   "checks": [
+    {
+     "text": "iso.scs",
+     "first_unmarked": "",
+     "contains": [
+      "# 0 \"<built-in>\"",
+      "# 0 \"<command-line>\"",
+      "# 1 \"inc/sub.scs\" 1",
+      ".param rr='VDD*1k'",
+      "parameters vdd=1.8 wn=2u",
+      "R1 (vdd d) resistor r=1.8*1k",
+      "V1 (vdd 0) vsource dc=1.8",
+      "M1 (d g 0 0) nch w=2u l=0.18u"
+     ],
+     "absent": [
+      "// opamp test bench",
+      "// sub.scs line 1",
+      "// a trailing comment"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "traditional_mode",
+   "tool": "cpp",
+   "deck": "top.scs",
+   "args": [
+    "-traditional-cpp",
+    "-nostdinc",
+    "-undef",
+    "-Iinc",
+    "{deck}",
+    "trad.scs"
+   ],
+   "status": 0,
+   "stderr": {
+    "empty": true
+   },
+   "checks": [
+    {
+     "text": "trad.scs",
+     "first_unmarked": "// opamp test bench, title line",
+     "contains": [
+      "# 1 \"inc/sub.scs\" 1",
+      "// sub.scs line 1",
+      ".param rr='VDD*1k'",
+      "parameters vdd=1.8 wn=2u  // a trailing comment",
+      "R1 (vdd d) resistor r=1.8*1k"
+     ]
+    }
+   ]
+  }
+ ]
+}

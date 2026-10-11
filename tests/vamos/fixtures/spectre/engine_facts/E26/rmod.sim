@@ -1,0 +1,14 @@
+resistor model r on VACASK
+ground 0
+load "resistor.osdi"
+load "spice/resistor.osdi"
+model vs vsource
+model r resistor
+model m_rm sp_resistor r=2000
+v1 (in 0) vs dc=1
+r1 (in out) m_rm
+r2 (out 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

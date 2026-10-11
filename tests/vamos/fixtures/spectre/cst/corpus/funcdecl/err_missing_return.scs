@@ -1,0 +1,4 @@
+// ERROR: body lacks the required 'return' keyword
+real bad( real a ) {
+    a*a;
+}

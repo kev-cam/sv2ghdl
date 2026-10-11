@@ -1,0 +1,24 @@
+sweep with a failing point
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+model vs vsource
+model r resistor
+model c capacitor
+model e vcvs
+parameters g=vamos_v_g
+v1 (in 0) vs type="pulse" val0=0 val1=1 rise=1n fall=1n width=1u dc=0
+r1 (in a) r r=1k
+c1 (a 0) c c=1n
+e1 (out 0 out a) e gain=g
+r2 (out 0) r r=1k
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  var vamos_v_g=0.5
+  sweep s1 variable="vamos_v_g" values=[0.5, 1, 2]
+    analysis op1 op
+  sweep s2 variable="vamos_v_g" values=[0.5, 1, 2]
+    analysis tr1 tran stop=1u step=10n
+  analysis op9 op
+endc

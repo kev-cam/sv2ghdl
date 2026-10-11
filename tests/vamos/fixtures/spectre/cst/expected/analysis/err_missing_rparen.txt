@@ -1,0 +1,15 @@
+SpectreNetlistSource 79-109
+  Incomplete 79-109
+    Identifier 79-87
+    Notation 88-89
+    Incomplete 89-109
+      SNode 89-92
+        Identifier 89-92
+      SNode 93-96
+        Identifier 93-96
+      SNode 97-102
+        Identifier 97-102
+      SNode 103-108
+        Identifier 103-108
+      Incomplete 108-109
+        Error 108-109

@@ -1,0 +1,4 @@
+// expression body using several built-in functions
+real dist( real x, real y ) {
+    return hypot(x, y)+atan2(y, x)*max(x, y);
+}

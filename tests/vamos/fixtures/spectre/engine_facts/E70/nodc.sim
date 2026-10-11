@@ -1,0 +1,18 @@
+waveform sources without dc: op
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource type="pulse" val0=0.3 val1=1.8 delay=1u rise=1n fall=1n width=1u
+r1 (a 0) resistor r=1k
+v2 (b 0) vsource type="sine" sinedc=0.5 ampl=1 freq=1k delay=1u tdphase=90
+r2 (b 0) resistor r=1k
+v3 (c 0) vsource type="exp" val0=0.2 val1=1 delay=1u tau1=1u td2=2u tau2=1u
+r3 (c 0) resistor r=1k
+v4 (d 0) vsource type="pwl" wave=[0, 0.7, 1u, 1]
+r4 (d 0) resistor r=1k
+v5 (e 0) vsource type="pwl" wave=[1u, 0.6, 2u, 1]
+r5 (e 0) resistor r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

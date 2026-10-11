@@ -1,0 +1,12 @@
+parameter defaults: subckt defaults that read top-level parameters, instantiated without overrides
+simulator lang=spectre
+parameters vin=3 rbase=1k gain=2
+subckt divider (p n)
+parameters rtop=rbase rbot=rbase*gain
+  rt (p mid) resistor r=rtop
+  rb (mid n) resistor r=rbot
+ends divider
+v1 (in 0) vsource dc=vin
+x1 (in 0) divider
+x2 (in 0) divider
+dcop dc

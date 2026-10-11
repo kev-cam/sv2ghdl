@@ -1,0 +1,8 @@
+* ic with unknown node
+V1 in 0 DC 1
+R1 in out 1k
+C1 out 0 1n
+.IC V(nosuch)=0.2
+.TRAN 1n 10n
+.PRINT TRAN FORMAT=RAW FILE=icbad.raw V(OUT)
+.end

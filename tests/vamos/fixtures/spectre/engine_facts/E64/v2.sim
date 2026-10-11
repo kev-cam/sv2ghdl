@@ -1,0 +1,10 @@
+VA diode on VACASK, model parameters on the card
+load "toy_diode.va"
+model vamos_isource isource
+model d1__va diode_simple Is=1e-14 Rs=10
+i1 (0 a) vamos_isource dc=1m
+d1 (a 0) d1__va
+control
+  options rawfile="ascii"
+  analysis op2 op
+endc

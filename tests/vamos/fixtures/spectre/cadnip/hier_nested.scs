@@ -1,0 +1,19 @@
+hierarchy: two-level instance paths, a parameter passed down two levels, L and C at the operating point
+simulator lang=spectre
+parameters scale=1
+subckt unit (a b)
+parameters r=1k
+  ru (a b) resistor r=r
+ends unit
+subckt pair (a b)
+parameters rr=1k
+  xa (a m) unit r=rr
+  xb (m b) unit r=rr*3
+ends pair
+v1 (in 0) vsource dc=4
+x1 (in n1) pair rr=1k*scale
+x2 (n1 0) pair rr=2k
+l1 (in in2) inductor l=1u
+c1 (in2 0) capacitor c=1p
+r2 (in2 0) resistor r=1k
+dcop dc

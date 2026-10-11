@@ -1,0 +1,4 @@
+SpectreNetlistSource 79-98
+  Incomplete 79-98
+    Keyword 79-91
+    Error 92-98

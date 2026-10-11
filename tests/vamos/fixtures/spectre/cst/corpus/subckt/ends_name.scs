@@ -1,0 +1,4 @@
+// ends followed by a trailing subcircuit name
+subckt load (a b)
+    rload (a b) resistor r=10k
+ends load

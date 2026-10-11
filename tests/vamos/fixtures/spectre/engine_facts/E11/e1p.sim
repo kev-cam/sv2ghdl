@@ -1,0 +1,30 @@
+hierarchical sweep/alter targets; stored solution reuse (prevoppoint)
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+load "spice/diode.osdi"
+model resistor resistor
+model capacitor capacitor
+model vsource vsource
+model dm sp_diode is=1e-14
+subckt rdiv (a b)
+  r1 (a b) resistor r=1k
+ends
+v1 (in 0) vsource type="pulse" val0=0 val1=2 delay=0 rise=1n fall=1n width=1 mag=1
+v2 (in2 0) vsource dc=1
+x1 (in out) rdiv
+x2 (in2 out2) rdiv
+r2 (out2 0) resistor r=1k
+d1 (out 0) dm
+c1 (out 0) capacitor c=1n
+control
+  options rawfile="ascii"
+  sweep s1 instance="x2:r1" parameter="r" values=[1k, 3k]
+    analysis op1 op
+  alter instance("x2:r1") r=3k
+  analysis op2 op
+  alter instance("x2:r1") r=1k
+  analysis tr1 tran stop=20u maxstep=1u store="final"
+  analysis ac1 ac values=[1k] nodeset="final" opsolve=0
+  analysis ac2 ac values=[1k]
+endc

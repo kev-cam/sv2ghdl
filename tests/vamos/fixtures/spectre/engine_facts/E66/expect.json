@@ -1,0 +1,111 @@
+{
+ "row": "E66",
+ "experiment": "failed analyses under strictoutput=0 (sp3/ENG/r_fail.sh, r_new.sh N2)",
+ "result": "two parallel sources: \"Analysis 'op1' aborted.\" ...; op1.raw, ac1.raw, nz1.raw exist with a blank No. Points: and 0 rows, rc 0; a Verilog-A source that goes NaN at 1 us: \"Timestep too small. Transient analysis aborted.\", \"Analysis 'tr1' aborted.\", rc 0, tr1.raw with a blank No. Points: and 50 rows, the last at 1.0e-6 s of stop 3e-6 s; every completed analysis fills the field. Xyce: a tran that fails part-way exits 1 (\"Time step too small ... Exiting transient loop\", or \"Maximum number of failures ... Xyce Abort\") and leaves a header-only RAW print file",
+ "rules": [
+  "\u00a77.1 Failures: an analysis succeeded only if its rawfile exists, No. Points: is filled and equals the rows, and a tran's last time equals stop; under strictoutput=0 VACASK leaves a header-only file for a failed op/ac/noise and a truncated one-group tran, rc 0",
+  "\u00a77.2 Failures: a non-zero exit or a print file whose No. Points is blank means the analysis failed (status 1)"
+ ],
+ "runs": [
+  {
+   "name": "vacask_op_ac_noise_fail",
+   "tool": "vacask",
+   "deck": "f1.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Analysis 'op1' aborted.",
+     "Analysis 'ac1' aborted.",
+     "Analysis 'nz1' aborted."
+    ]
+   },
+   "files": {
+    "present": [
+     "op1.raw",
+     "ac1.raw",
+     "nz1.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "declared": null,
+     "points": 0
+    },
+    {
+     "raw": "ac1.raw",
+     "declared": null,
+     "points": 0
+    },
+    {
+     "raw": "nz1.raw",
+     "declared": null,
+     "points": 0
+    }
+   ]
+  },
+  {
+   "name": "vacask_tran_fails_midway",
+   "tool": "vacask",
+   "deck": "tf.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Timestep too small. Transient analysis aborted.",
+     "Analysis 'tr1' aborted."
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "declared": null,
+     "points": 50,
+     "max_last_time": 1.05e-06
+    },
+    {
+     "raw": "op1.raw",
+     "declared": 1,
+     "points": 1
+    }
+   ]
+  },
+  {
+   "name": "xyce_tran_time_step_too_small",
+   "tool": "xyce",
+   "deck": "tf1.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Time step too small",
+     "Exiting transient loop"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tf1.raw",
+     "declared": null,
+     "points": 0
+    }
+   ]
+  },
+  {
+   "name": "xyce_tran_max_failures_abort",
+   "tool": "xyce",
+   "deck": "tf2.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Maximum number of failures",
+     "Xyce Abort"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tf2.raw",
+     "declared": null,
+     "points": 0
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+* dc sweep of a model parameter
+V1 in 0 1
+R1 in out 1k
+R2 out 0 1k
+D1 out 0 DMOD
+.MODEL DMOD D IS=1e-14
+.DC DMOD:IS LIST 1e-14 1e-10
+.PRINT DC FORMAT=RAW FILE=dcmod.raw V(OUT)
+.end

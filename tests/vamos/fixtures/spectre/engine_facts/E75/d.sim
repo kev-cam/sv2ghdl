@@ -1,0 +1,10 @@
+-D check
+load "dres_half.osdi"
+model vs vsource
+model dr dres
+v1 (a 0) vs dc=1
+x1 (a 0) dr
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

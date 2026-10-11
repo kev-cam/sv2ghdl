@@ -1,0 +1,4 @@
+// four real arguments, parenthesized rational expression
+real blend( real a, real b, real c, real d ) {
+    return (a*b+c*d)/(a+b+c+d);
+}

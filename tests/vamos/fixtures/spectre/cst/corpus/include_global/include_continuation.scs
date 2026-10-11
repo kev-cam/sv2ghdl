@@ -1,0 +1,3 @@
+// backslash-escaped newline continuation between include and filename
+include \
+    "libs/spectre/models.scs"

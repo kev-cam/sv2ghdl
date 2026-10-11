@@ -1,0 +1,17 @@
+noise and acxf of a resistive divider
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (in 0) vsource dc=1 mag=1
+r1 (in out) resistor r=1k
+r2 (out 0) resistor r=1k
+control
+  options rawfile="ascii"
+  analysis n1 noise out="out" in="v1" from=1k to=10k mode="dec" points=1
+  save full
+  analysis n2 noise out=["out", "0"] in="v1" from=1k to=10k mode="dec" points=1
+  clear saves
+  analysis xf1 acxf out="out" from=1k to=10k mode="dec" points=1
+  analysis xf2 acxf out=["in", "out"] from=1k to=10k mode="dec" points=1
+endc

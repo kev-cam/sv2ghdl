@@ -1,0 +1,21 @@
+temp sweep with $temp parameter
+ground 0
+load "resistor.osdi"
+load "spice/resistor.osdi"
+model vs vsource
+model r resistor
+model spr sp_resistor
+parameters rt=1k*(1+0.01*($temp-27))
+v1 (in 0) vs dc=1
+r5 (in o5) r r=rt
+r6 (o5 0) r r=1k
+r7 (in o7) spr r=1k tc1=0.01
+r8 (o7 0) r r=1k
+r9 (in o9) spr r=1k scale=0.5
+r10 (o9 0) r r=1k
+control
+  options rawfile="ascii"
+  sweep s option="temp" values=[27, 127]
+    analysis op1 op
+  analysis op2 op
+endc

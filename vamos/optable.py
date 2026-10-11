@@ -12,6 +12,10 @@ Arity kinds:
   plus     +opt+a+b+  (value = list)            +incdir+a+b
   prefix   token starts with name; value = rest -debug_access+all, -j8
 
+Option tokens start with one of scan()'s option_chars: "-" and "+" by default,
+"-+=" for the spectre personality, whose "=log f" family is a third option
+kind (docs/VAMOS_SPECTRE_DESIGN.md §2.1).  A bare option character is positional.
+
 vamos's own options (--vamos-<key>[=<value>]) are a separate namespace that
 vamos owns: VAMOS_OPTIONS lists every one the code reads, check_vamos_opts()
 turns an unknown key or a bad value into a usage error, and
@@ -23,6 +27,7 @@ import difflib
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from vamos.job import IGNORED, INAPPLICABLE, NOTED, UNKNOWN, UNSUPPORTED, Job
+from vamos.notes import NOTE, WARNING, Note
 
 Action = Union[str, Callable]
 
@@ -79,19 +84,25 @@ def value_of(opt: Opt, tok: str):
 
 def scan(table: Table, args: List[str], job: Job,
          positional: Callable[[Job, str], None],
-         unknown: Callable[[Job, str, List[str], int], int]) -> None:
+         unknown: Callable[[Job, str, List[str], int], int],
+         option_chars: str = "-+") -> None:
     """Apply table to args.
 
     positional(job, tok) handles non-option tokens (source files).
     unknown(job, tok, args, i) handles unmatched options; returns how many
     tokens it consumed (>= 1).
+    option_chars: the characters a token must start with to be an option (the
+    spectre personality passes "-+=", docs/VAMOS_SPECTRE_DESIGN.md §2.1); a token
+    that is one bare option character stays positional.  `job` is anything with
+    optable's job protocol: note(option, disposition, note) and `unmapped`.
     """
+    chars = tuple(option_chars)
     i = 0
     while i < len(args):
         tok = args[i]
-        opt = table.match(tok) if tok[:1] in ("-", "+") else None
+        opt = table.match(tok) if tok[:1] in chars else None
         if opt is None:
-            if tok[:1] in ("-", "+") and tok not in ("-", "+"):
+            if tok[:1] in chars and tok not in chars:
                 i += unknown(job, tok, args, i)
             else:
                 positional(job, tok)
@@ -112,21 +123,34 @@ def scan(table: Table, args: List[str], job: Job,
             job.note(shown, opt.act, opt.note)
 
 
-def report_unmapped(job: Job, emit: Callable[[str], None]) -> None:
-    """One line per option that needs the user's attention."""
+def unmapped_notes(job: Job) -> List[Note]:
+    """One Note per option that needs the user's attention, in job.unmapped's order: a
+    `note` for NOTED, a `warning` for UNSUPPORTED, UNKNOWN and INAPPLICABLE, nothing for
+    IGNORED.  The message is the whole text (the origin is empty), so report_unmapped
+    prints each as "vamos: " + note.text() and a spectre log formats the same wording as
+    a Spectre message (docs/VAMOS_SPECTRE_DESIGN.md §8.7)."""
+    out: List[Note] = []
     for u in job.unmapped:
         if u.disposition == IGNORED:
             continue
         if u.disposition == NOTED:
-            emit("vamos: note: %s%s" % (u.option, ": " + u.note if u.note else ""))
+            out.append(Note(NOTE, "", "%s%s" % (u.option, ": " + u.note if u.note else "")))
         elif u.disposition == UNSUPPORTED:
-            emit("vamos: warning: %s is not supported yet%s"
-                 % (u.option, " (" + u.note + ")" if u.note else ""))
+            out.append(Note(WARNING, "", "%s is not supported yet%s"
+                            % (u.option, " (" + u.note + ")" if u.note else "")))
         elif u.disposition == UNKNOWN:
-            emit("vamos: warning: unknown option %s ignored%s"
-                 % (u.option, " (" + u.note + ")" if u.note else ""))
+            out.append(Note(WARNING, "", "unknown option %s ignored%s"
+                            % (u.option, " (" + u.note + ")" if u.note else "")))
         elif u.disposition == INAPPLICABLE:
-            emit("vamos: warning: %s has no effect%s" % (u.option, ": " + u.note if u.note else ""))
+            out.append(Note(WARNING, "", "%s has no effect%s"
+                            % (u.option, ": " + u.note if u.note else "")))
+    return out
+
+
+def report_unmapped(job: Job, emit: Callable[[str], None]) -> None:
+    """One line per option that needs the user's attention (a printer over unmapped_notes)."""
+    for n in unmapped_notes(job):
+        emit("vamos: %s" % n.text())
 
 
 def strict_failures(job: Job) -> List[str]:
@@ -146,17 +170,22 @@ def strict_message(bad: Sequence[str]) -> str:
 class VamosOpt(NamedTuple):
     key: str                     # opts key: the option name after --vamos-, '-' as '_'
     value: Optional[str]         # the value's form for the help ("<time>"); None: a flag (no value)
-    where: str                   # where it has an effect: any | ams | run | simv
+    where: str                   # where it has an effect: any | ams | run | simv | spectre
     help: Optional[str]          # one help line; None: internal, not listed
     choices: Tuple[str, ...] = ()  # the allowed values (case-insensitive); () = any non-empty value
+    also: Tuple[str, ...] = ()   # further contexts where it has an effect (("spectre",) for an
+    #                              option vcs-ams and spectre share); `where` stays a string, so
+    #                              the help and effects code and the tests reading it are unchanged
 
 
 # Every --vamos-* key the code reads (cli, the personalities, ams/flow.py, ams/deck.py,
 # backends/cosim.py).  where:
-#   any   every personality
-#   ams   an AMS compile: vcs-ams, or vcs with -ad/+ad
-#   run   a run: ./simv, or a compile with -R (the AMS run directory)
-#   simv  ./simv only
+#   any      every personality
+#   ams      an AMS compile: vcs-ams, or vcs with -ad/+ad
+#   run      a run: ./simv, or a compile with -R (the AMS run directory)
+#   simv     ./simv only
+#   spectre  the spectre personality (docs/VAMOS_SPECTRE_DESIGN.md §10); an option of another
+#            context that spectre also takes lists "spectre" in `also`
 VAMOS_OPTIONS: Tuple[VamosOpt, ...] = (
     VamosOpt("banner", "<name|path|none>", "any", "banner profile (default: the personality's)"),
     VamosOpt("strict", None, "any", "unsupported, unknown and ineffective options are errors; so is "
@@ -165,24 +194,28 @@ VAMOS_OPTIONS: Tuple[VamosOpt, ...] = (
     VamosOpt("licenses", None, "any", "print the tools vamos may run and their licences, and exit"),
     VamosOpt("version", None, "any", "print the vamos version and exit"),
     VamosOpt("analog", "vacask|xyce", "ams", "the analog engine (default vacask; also VAMOS_ANALOG)",
-             ("vacask", "xyce")),
+             ("vacask", "xyce"), ("spectre",)),
     VamosOpt("analog_stop", "<time>", "ams", "end time for a netlist with no .tran (default 3600 s)"),
     VamosOpt("analog_maxstep", "<time>", "ams", "analog maximum time step (replaces the .tran's)"),
     VamosOpt("parhier", "local|global", "ams", "local: a parameter defined at top level and in a "
              "subckt takes the inner value (default: such a collision is an error)", ("local", "global")),
     VamosOpt("no_deck_check", None, "ams", "skip the compile-time operating-point check of the deck"),
-    VamosOpt("keep", None, "run", "keep the AMS per-run directory"),
+    VamosOpt("keep", None, "run", "keep the AMS per-run directory", (), ("spectre",)),
+    VamosOpt("psf_names", "modern|legacy", "spectre", "the PSF file names: modern (Spectre 23.1: "
+             "n.tran.tran, s-00i_c.<ext> and sweep parents) or legacy (Spectre 5.x: n.tran, "
+             "s_00i_c.<ext>, no parents); default modern", ("modern", "legacy")),
     VamosOpt("daidir", "<dir>", "simv", "the compiled directory (the generated ./simv passes it)"),
     VamosOpt("append_log", None, "simv", "with -l, append to the log instead of starting it afresh"),
 )
 
 VAMOS_KEYS: Dict[str, VamosOpt] = {o.key: o for o in VAMOS_OPTIONS}
 
-# Named in docs/VAMOS_PLAN.md and docs/VAMOS_SPECTRE_DESIGN.md, not implemented.
+# Named in docs/VAMOS_PLAN.md, not implemented (psf_names left here for the spectre personality).
 PLANNED_KEYS = frozenset(("selfcheck", "env", "config", "site", "sites", "shell", "mc", "corner",
-                          "wave", "psf_names"))
+                          "wave"))
 
-_WHERE_TEXT = {"ams": "AMS compile", "run": "./simv, or a compile with -R", "simv": "./simv"}
+_WHERE_TEXT = {"ams": "AMS compile", "run": "./simv, or a compile with -R", "simv": "./simv",
+               "spectre": "spectre"}
 
 
 def vamos_option_text(key: str, val) -> str:
@@ -227,23 +260,34 @@ def vamos_option_effects(opts: Dict[str, object], personality: str, ams: bool = 
                          run: bool = False) -> List[Tuple[str, str]]:
     """(option, why) for each --vamos-* option that has no effect in this invocation.
 
-    personality: vcs (a compile; ams: an AMS compile, run: with -R), simv, or a
-    pass-through tool name.  version and licenses never get here (vamos exits first)."""
+    personality: vcs (a compile; ams: an AMS compile, run: with -R), simv, spectre, or a
+    pass-through tool name.  version and licenses never get here (vamos exits first).
+    The spectre personality records its entries as INAPPLICABLE in SpectreJob.unmapped,
+    as vcs._note_vamos_options does (docs/VAMOS_SPECTRE_DESIGN.md §10)."""
     out: List[Tuple[str, str]] = []
     for key, val in opts.items():
         spec = VAMOS_KEYS.get(key)
         if spec is None or key in ("version", "licenses"):
             continue
         text = vamos_option_text(key, val)
-        if personality not in ("vcs", "vcs-ams", "simv"):
+        if personality not in ("vcs", "vcs-ams", "simv", "spectre"):
             out.append((text, "the %s personality hands its command line to the real %s unchanged"
                         % (personality, personality)))
             continue
         why = None
-        if personality == "simv":
+        if personality == "spectre":
+            if spec.where in ("any", "spectre") or "spectre" in spec.also:
+                pass
+            elif spec.where == "ams":
+                why = "an AMS compile option: vcs-ams or vcs -ad"
+            else:                                       # run, simv
+                why = "a ./simv option"
+        elif personality == "simv":
             if spec.where == "ams":
                 why = ("a compile-time option (./simv runs the design as it was compiled; compile "
                        "again to change it)")
+            elif spec.where == "spectre":
+                why = "a spectre option"
         else:
             if spec.where == "ams" and not ams:
                 why = "not an AMS compile (no -ad, +ad or vcs-ams)"
@@ -253,6 +297,8 @@ def vamos_option_effects(opts: Dict[str, object], personality: str, ams: bool = 
                 why = "a digital run has no run directory to keep"
             elif spec.where == "simv":
                 why = "a ./simv option"
+            elif spec.where == "spectre":
+                why = "a spectre option"
         if why:
             out.append((text, why))
     return out
@@ -260,7 +306,9 @@ def vamos_option_effects(opts: Dict[str, object], personality: str, ams: bool = 
 
 def vamos_options_help(personality: str = "") -> str:
     """The --vamos-* part of a usage text: every option the code accepts (internal ones too),
-    with where it has an effect.  personality "vcs"/"vcs-ams" lists what a compile takes."""
+    with where it has an effect.  personality "vcs"/"vcs-ams" lists what a compile takes;
+    "spectre" lists the options whose where or also is any or spectre, each tagged with every
+    context it has an effect in (the other personalities' tags name `where` alone, unchanged)."""
     import textwrap
     lines = []
     for o in VAMOS_OPTIONS:
@@ -268,8 +316,14 @@ def vamos_options_help(personality: str = "") -> str:
             continue
         if personality in ("vcs", "vcs-ams") and o.where == "simv":
             continue
+        if personality == "spectre":
+            if not (o.where in ("any", "spectre") or "spectre" in o.also):
+                continue
+            contexts = [_WHERE_TEXT[w] for w in (o.where,) + o.also if w in _WHERE_TEXT]
+            where = ", ".join(contexts) or None
+        else:
+            where = _WHERE_TEXT.get(o.where)
         name = vamos_option_text(o.key, True) + ("=" + o.value if o.value else "")
-        where = _WHERE_TEXT.get(o.where)
         text = o.help + (" [%s]" % where if where else "")
         lines.append(textwrap.fill(text, width=96, initial_indent="  %-32s " % name,
                                    subsequent_indent=" " * 35, break_on_hyphens=False))

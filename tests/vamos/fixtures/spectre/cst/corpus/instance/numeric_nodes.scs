@@ -1,0 +1,5 @@
+// Numeric node names in the connection list (node names may be integers)
+R1 (1 2) resistor r=1
+R7 (4 0) resistor r=100
+C2 (2 0) capacitor c=272.7pF
+V1 (10 0) vsource dc=5

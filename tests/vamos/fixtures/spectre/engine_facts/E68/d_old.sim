@@ -1,0 +1,10 @@
+osdi from the old openvaf
+load "old.osdi"
+model vs vsource
+model dr dres
+v1 (a 0) vs dc=1
+x1 (a 0) dr r=2k
+control
+  options rawfile="ascii"
+  analysis op_old op
+endc

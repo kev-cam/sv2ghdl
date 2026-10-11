@@ -1,0 +1,4 @@
+// ERROR: parenthesised node list is never closed (missing ')') before EOL
+subckt broken (a b c
+    r1 (a b) resistor r=1k
+ends broken

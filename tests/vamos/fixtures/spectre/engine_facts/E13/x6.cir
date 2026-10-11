@@ -1,0 +1,7 @@
+* parallel sources fail
+V1 a 0 DC 1
+V2 a 0 DC 2
+R1 a 0 1k
+.op
+.print dc v(a)
+.end

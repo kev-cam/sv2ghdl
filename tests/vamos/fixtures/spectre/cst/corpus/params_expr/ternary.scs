@@ -1,0 +1,6 @@
+// conditional (ternary) operator: simple, parenthesised cond, nested
+simulator lang=spectre
+parameters p1=1 p3=3 p4=6
+parameters sel=p1 ? p4+1 : p3
+parameters guard=(p1 > 0) ? p4 : -p3
+parameters nested=p1 ? 1 : p3 ? 2 : 3

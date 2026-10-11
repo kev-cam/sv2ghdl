@@ -1,0 +1,2 @@
+// ERROR: trailing instance parameter name is not followed by '=value'
+R1 (a b) resistor r=1k foo

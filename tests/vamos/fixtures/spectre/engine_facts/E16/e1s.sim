@@ -1,0 +1,16 @@
+options placed before a sweep, and between a sweep and its analysis
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource dc=1
+r1 (a b) resistor r=1k
+r2 (b 0) resistor r=1k
+control
+  options rawfile="ascii"
+  options reltol=1e-4
+  sweep s1 instance="r1" parameter="r" values=[1k, 3k]
+    analysis good op
+  options reltol=1e-3
+  analysis after op
+endc

@@ -1,0 +1,75 @@
+{
+ "row": "E33",
+ "experiment": "Xyce .NOISE under one and two .STEPs",
+ "result": "the standard table's Index restarts at 0 every step, with no step label or separator",
+ "rules": [
+  "\u00a77.2 noise under .STEP: read_prn splits the table at each Index reset and takes the step values from the deck's .STEP order"
+ ],
+ "runs": [
+  {
+   "name": "one_step",
+   "tool": "xyce",
+   "deck": "nzstep.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nzstep.prn",
+     "rows": 4,
+     "index": [
+      0,
+      1,
+      0,
+      1
+     ]
+    },
+    {
+     "prn": "nzstep.prn",
+     "col": "ONOISE",
+     "column": [
+      8.28787747e-18,
+      8.28787747e-18,
+      1.24318162e-17,
+      1.24318162e-17
+     ],
+     "rel": 0.0001
+    },
+    {
+     "text": "nzstep.prn",
+     "absent": [
+      "Step",
+      "step"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "two_steps",
+   "tool": "xyce",
+   "deck": "nest9.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nest9.prn",
+     "rows": 8,
+     "index": [
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1
+     ]
+    },
+    {
+     "text": "nest9.prn",
+     "absent": [
+      "Step",
+      "step"
+     ]
+    }
+   ]
+  }
+ ]
+}

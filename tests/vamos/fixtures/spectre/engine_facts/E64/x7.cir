@@ -1,0 +1,8 @@
+* VA diode through D and level=1002001
+.hdl "toy_diode.va"
+.model dm d level=1002001 Is=1e-14 Rs=10
+I1 0 a 1m
+D1 a 0 dm
+.op
+.print dc format=raw file=x7.raw v(a)
+.end

@@ -1,0 +1,16 @@
+leading zeros
+ground 0
+load "resistor.osdi"
+model vs vsource
+model r resistor
+v1 (7 0) vs dc=1
+r1 (7 0) r r=1k
+v2 ('007' 0) vs dc=2
+r2 ('007' 0) r r=1k
+v3 (5 '00') vs dc=3
+r3 (5 0) r r=1k
+r4 ('00' 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

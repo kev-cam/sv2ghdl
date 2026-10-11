@@ -1,0 +1,18 @@
+SPICENetlistSource 0-42
+  Title 0-4
+    Notation 0-3
+    Notation 3-4
+  DataStatement 4-42
+    Notation 4-5
+    Keyword 5-9
+    Identifier 10-13
+    Identifier 16-17
+    Identifier 18-19
+    NumberLiteral 22-23
+    NumberLiteral 24-25
+    NumberLiteral 28-29
+    NumberLiteral 30-31
+    Notation 31-32
+    Notation 32-33
+    Keyword 33-40
+    Notation 41-42

@@ -1,0 +1,18 @@
+derived dc vs explicit dc under alter/sweep of val0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+va (a 0) vsource type="pulse" val0=0 val1=1 delay=1u rise=1n fall=1n width=1u dc=0
+ra (a 0) resistor r=1k
+vb (b 0) vsource type="pulse" val0=0 val1=1 delay=1u rise=1n fall=1n width=1u
+rb (b 0) resistor r=1k
+control
+  options rawfile="ascii"
+  alter instance("va") val0=0.7
+  alter instance("vb") val0=0.7
+  analysis op1 op
+  sweep s1 instance="vb" parameter="val0" values=[0.2, 0.4]
+  analysis op2 op
+  sweep s2 instance="va" parameter="val0" values=[0.2, 0.4]
+  analysis op3 op
+endc

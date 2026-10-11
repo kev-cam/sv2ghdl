@@ -1,0 +1,5 @@
+// backslash escapes the newline, so this model statement spans several lines
+model NPNbjt2 bjt \
+    type=npn is=3.38e-17 bf=205 nf=0.978 vaf=22 \
+    ikf=2.05e-2 ise=0 ne=1.5 br=62 nr=1 var=2.2 isc=0 \
+    nc=1.5 rb=115 re=1 rc=30.5 cje=1.08e-13 vje=0.995

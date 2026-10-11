@@ -97,7 +97,7 @@ import math
 import os
 import re
 import subprocess
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 from vamos.netlist import expr as X
 from vamos.netlist import tables as T
@@ -105,6 +105,10 @@ from vamos.netlist.expr_ast import Binary, Expr, Name, Num, Str, Ternary
 from vamos.netlist.ir import Instance, Model, Netlist, Param, Source, Subckt
 from vamos.netlist.numbers import fmt
 from vamos.notes import ERROR, Note, NoteError, error
+
+if TYPE_CHECKING:                                  # the spectre run plan (VAMOS_SPECTRE_DESIGN.md §5, §6)
+    from vamos.netlist.plan import RunPlan
+    from vamos.netlist.signals import Ref, SignalMap
 
 ENGINE = "vacask"
 SMOKE_DECK = "smoke.sim"
@@ -142,9 +146,27 @@ def emit(nl: Netlist, path: str, analysis_name: str = "vamos_tran", osdi: Sequen
 
 
 def render(nl: Netlist, analysis_name: str = "vamos_tran", osdi: Sequence[str] = (),
-           notes: Optional[List[Note]] = None, op: bool = False) -> str:
-    """The VACASK deck text for nl (see the module docstring)."""
+           notes: Optional[List[Note]] = None, op: bool = False,
+           plan: Optional[RunPlan] = None, sigmap: Optional[SignalMap] = None,
+           names: Optional[Dict[str, Dict[Ref, str]]] = None) -> str:
+    """The VACASK deck text for nl (see the module docstring).
+
+    plan, sigmap, names (VAMOS_SPECTRE_DESIGN.md §4.5 items 5-6, §7.1; S3): with a RunPlan the
+    deck prints the plan's control block in place of the single analysis, each step's saves from
+    sigmap, and fills names (step id -> Ref -> engine column) for every Ref it printed.  With all
+    three None the output is byte-identical to the vcs-ams deck.  Phase 0: NotImplementedError.
+    """
+    if plan is not None or sigmap is not None or names is not None:
+        raise NotImplementedError("vacask.render(plan=, sigmap=, names=) is not implemented yet "
+                                  "(VAMOS_SPECTRE_DESIGN.md §4.5, §7.1: phase 1, S3)")
     return _Deck(nl, analysis_name, osdi, op).render(notes)
+
+
+def names_for(nl: Netlist, plan: RunPlan, sigmap: SignalMap) -> Dict[str, Dict[Ref, str]]:
+    """The name map render() would fill (step id -> Ref -> VACASK column), without rendering
+    (VAMOS_SPECTRE_DESIGN.md §4.5 item 6, §6.4; S3)."""
+    raise NotImplementedError("vacask.names_for is not implemented yet (VAMOS_SPECTRE_DESIGN.md §4.5: "
+                              "phase 1, S3)")
 
 
 # -- the emitter ----------------------------------------------------------------------

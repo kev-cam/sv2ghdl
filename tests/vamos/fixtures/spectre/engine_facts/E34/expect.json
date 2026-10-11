@@ -1,0 +1,51 @@
+{
+ "row": "E34",
+ "experiment": "VACASK sp_diode at 1 mA with eg 1.11 and 1.124481, at 127 C and -40 C",
+ "result": "4.8 mV and 3.2 mV apart. Re-checked 2026-10-04 on the round-6 sp_diode (3becb73d): 4.82 mV and 3.23 mV",
+ "rules": [
+  "\u00a73.9 a diode card without eg: Spectre's 27 C default eg=1.124481 is written, with a warning at temp != tnom"
+ ],
+ "runs": [
+  {
+   "name": "eg_default",
+   "tool": "vacask",
+   "deck": "deg.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "s",
+     "values": [
+      27.0,
+      127.0,
+      -40.0
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.0,
+     "minus": "b",
+     "row": 0,
+     "abs": 1e-06
+    },
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.00482,
+     "minus": "b",
+     "row": 1,
+     "abs": 3e-05
+    },
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": -0.00323,
+     "minus": "b",
+     "row": 2,
+     "abs": 3e-05
+    }
+   ]
+  }
+ ]
+}

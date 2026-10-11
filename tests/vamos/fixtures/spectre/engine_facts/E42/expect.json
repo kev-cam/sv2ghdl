@@ -1,0 +1,30 @@
+{
+ "row": "E42",
+ "experiment": "VACASK sp_mos1: m1 (d g 0 0) nch w=30e-6 without l, and with l=3e-6",
+ "result": "25.35 uA (VACASK's default l = 1e-4) against 845 uA; exit 0",
+ "rules": [
+  "\u00a73.9 MOS geometry: a card without l reaches VACASK's default l = 1e-4, so vamos writes Spectre's defaults explicitly rather than relying on the engine's"
+ ],
+ "runs": [
+  {
+   "name": "default_length",
+   "tool": "vacask",
+   "deck": "defl.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "vd:flow(br)",
+     "value": -2.535e-05,
+     "rel": 0.0001
+    },
+    {
+     "raw": "op2.raw",
+     "col": "vd:flow(br)",
+     "value": -0.000845,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

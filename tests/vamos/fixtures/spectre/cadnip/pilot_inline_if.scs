@@ -1,0 +1,21 @@
+engine oracle pilot: inline subckt with a structural if, nested subckt, parameter override
+simulator lang=spectre
+parameters rload=2k
+subckt leg (a b)
+parameters r=1k
+  r1 (a m) resistor r=r
+  r2 (m b) resistor r=r
+ends leg
+inline subckt rmod (a b)
+parameters area=1
+if (area < 2) {
+  rmod (a b) resistor r=1k
+} else {
+  rmod (a b) resistor r=10k
+}
+ends rmod
+v1 (in 0) vsource dc=1
+x1 (in n1) rmod area=1
+x2 (n1 n2) rmod area=3
+x3 (n2 0) leg r=rload
+dcop dc

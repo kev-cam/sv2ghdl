@@ -1,0 +1,22 @@
+SpectreNetlistSource 81-126
+  Incomplete 81-89
+    Keyword 81-87
+    Error 88-89
+  Instance 98-121
+    Identifier 98-100
+    SNodeList 101-106
+      Notation 101-102
+      SNode 102-103
+        Identifier 102-103
+      SNode 104-105
+        Identifier 104-105
+      Notation 105-106
+    Identifier 107-115
+    Parameter 116-120
+      Identifier 116-117
+      Notation 117-118
+      NumberLiteral 118-120
+    Notation 120-121
+  Incomplete 121-126
+    Identifier 121-125
+    Error 125-126

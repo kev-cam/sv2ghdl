@@ -1,0 +1,12 @@
+VA resistor on VACASK, parameter lower-cased (r), instance-typed on the per-instance card
+load "toy_resistor.va"
+model vamos_vsource vsource
+model r1__va resistor r=3k
+model r2__va resistor r=1k
+v1 (a 0) vamos_vsource dc=1
+r1 (a b) r1__va
+r2 (b 0) r2__va
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

@@ -1,0 +1,5 @@
+// Distributed components: tline (4 nodes) and transformer (4 nodes)
+odd (p1 n1 p2 n2) tline z0=zodd vel=vodd len=len
+tf1a (p1 0 e1 c1) transformer t1=2 t2=1
+even (e1 0 e2 0) tline z0=zeven vel=veven len=len
+tf2b (n2 0 c2 0) transformer t1=2 t2=1

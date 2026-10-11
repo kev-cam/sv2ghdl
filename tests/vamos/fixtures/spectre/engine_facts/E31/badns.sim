@@ -1,0 +1,17 @@
+bad nodeset and ic
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+model vs vsource
+model r resistor
+model c capacitor
+v1 (in 0) vs dc=1
+r5 (in out) r r=1k
+c1 (out 0) c c=1n
+control
+  options rawfile="ascii"
+  analysis op1 op nodeset={"nosuch", 1}
+  analysis tr1 tran stop=1u step=1n ic={"nosuch", 1}
+  analysis tr2 tran stop=1u step=1n ic={"out", 0.3} icmode="uic"
+  analysis tr3 tran stop=1u step=1n ic={"out", 0.3}
+endc

@@ -1,0 +1,4 @@
+// environment variable inside an include filename (expanded by Spectre)
+include "$MYMODELS/nch.scs"
+// home-directory relative include
+include "~/models/pmos.scs"

@@ -1,0 +1,4 @@
+// single real argument, simple expression body
+real square( real x ) {
+    return x*x;
+}

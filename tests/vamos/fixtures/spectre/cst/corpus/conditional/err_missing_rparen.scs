@@ -1,0 +1,5 @@
+// ERROR: missing ')' closing the if condition before the '{'
+simulator lang=spectre
+if ( area < 100e-12 {
+    npn_mod (c b e s) npn10x10
+}

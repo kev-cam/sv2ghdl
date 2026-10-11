@@ -1,0 +1,2 @@
+// bsim3v3 nmos model card
+model nch bsim3v3 type=n tox=1e-9 vth0=0.5 vbox=5

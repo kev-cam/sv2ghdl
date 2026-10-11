@@ -1,0 +1,59 @@
+HEADER
+"PSFversion" "1.00"
+"simulator" "spectre"
+"version" "vamos (psf/bad fixture)"
+"date" "1:02:03 PM, Sat Oct 4, 2026"
+"design" "psf/bad fixture"
+"analysis type" "tran"
+"analysis name" "t"
+"analysis description" "Transient Analysis `t': time = (0 s -> 1 s)"
+"xVecSorted" "ascending"
+"tolerance.relative" 1.000000000000000e-03
+"start" 0.000000000000000e+00
+"outputstart" 0.000000000000000e+00
+"stop" 1.000000000000000e+00
+"step" 1.000000000000000e-03
+"istep" 1.000000000000000e-03
+"maxstep" 1.000000000000000e-02
+"ic" "all"
+"useprevic" "no"
+"skipdc" "no"
+"reltol" 1.000000000000000e-03
+"abstol(V)" 1.000000000000000e-06
+"abstol(I)" 1.000000000000000e-12
+"temp" 2.700000000000000e+01
+"tnom" 2.700000000000000e+01
+"tempeffects" "all"
+"errpreset" "moderate"
+"method" "traponly"
+"lteratio" 3.500000000000000e+00
+"relref" "sigglobal"
+"cmin" 0.000000000000000e+00
+"gmin" 1.000000000000000e-12
+TYPE
+"sweep" FLOAT DOUBLE PROP(
+"key" "sweep"
+)
+"V" FLOAT DOUBLE PROP(
+"units" "V"
+"key" "node"
+"tolerance" 1.000000000000000e-06
+)
+SWEEP
+"time" "sweep" PROP(
+"sweep_direction" 0
+"units" "s"
+"plot" 0
+"grid" 1
+)
+TRACE
+"a" "V"
+"b" "V"
+VALUE
+"time" 0.000000000000000e+00
+"a" 1.000000000000000e+00
+"b" 2.000000000000000e+00
+"time" 1.000000000000000e+00
+"b" 4.000000000000000e+00
+"a" 3.000000000000000e+00
+END

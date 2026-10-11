@@ -1,0 +1,61 @@
+{
+ "row": "E36",
+ "experiment": "inductor and iprobe currents, 1 mA into terminal 1 / in",
+ "result": "VACASK l1:flow(br), ip:flow(br); Xyce I(L1), I(VIP); all +1 mA",
+ "rules": [
+  "\u00a76.3 Currents: an inductor's or iprobe's current is positive into terminal 1 on both engines (L1:1, I1:in)",
+  "\u00a76.4 the forward name map rows for inductor and iprobe currents (l1:flow(br) / I(L1), I(VI1))"
+ ],
+ "runs": [
+  {
+   "name": "vacask_currents",
+   "tool": "vacask",
+   "deck": "lcur.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "names_include": [
+      "l1:flow(br)",
+      "ip:flow(br)"
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "l1:flow(br)",
+     "value": 0.001
+    },
+    {
+     "raw": "op1.raw",
+     "col": "ip:flow(br)",
+     "value": 0.001
+    }
+   ]
+  },
+  {
+   "name": "xyce_currents",
+   "tool": "xyce",
+   "deck": "lcur.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "lcur.raw",
+     "names_include": [
+      "I(L1)",
+      "I(VIP)"
+     ]
+    },
+    {
+     "raw": "lcur.raw",
+     "col": "I(L1)",
+     "value": 0.001
+    },
+    {
+     "raw": "lcur.raw",
+     "col": "I(VIP)",
+     "value": 0.001
+    }
+   ]
+  }
+ ]
+}

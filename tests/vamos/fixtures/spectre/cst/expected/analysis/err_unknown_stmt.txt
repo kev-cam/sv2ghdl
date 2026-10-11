@@ -1,0 +1,4 @@
+SpectreNetlistSource 148-164
+  Incomplete 148-164
+    Identifier 148-154
+    Error 155-164

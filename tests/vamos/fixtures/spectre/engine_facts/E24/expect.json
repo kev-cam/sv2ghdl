@@ -1,0 +1,47 @@
+{
+ "row": "E24",
+ "experiment": "VACASK: subckt parameter l with default 2*w: a sweep of l, alter instance(\"x1\") l=5000, a sweep of w",
+ "result": "sweep: \"Sweep 's2': parameter 'l' of instance 'x1' not found.\", analysis failed; alter: \"Parameter 'l' not found.\", rc 1; sweeping w works and l follows",
+ "rules": [
+  "\u00a74.5 item 4 the NOT_GIVEN scheme for overridable dependent subckt parameters (the fix E77 verifies)",
+  "\u00a75.2 dependents"
+ ],
+ "runs": [
+  {
+   "name": "dependent_not_a_target",
+   "tool": "vacask",
+   "deck": "subdep.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Sweep 's2': parameter 'l' of instance 'x1' not found.",
+     "Failed to bind sweep parameters.",
+     "Parameter 'l' not found."
+    ]
+   }
+  },
+  {
+   "name": "sweep_of_w_followed",
+   "tool": "vacask",
+   "deck": "subdep_w.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "out",
+     "value": 0.333333,
+     "rel": 1e-05
+    },
+    {
+     "raw": "dc1.raw",
+     "col": "out",
+     "values": [
+      0.333333,
+      0.2
+     ],
+     "rel": 1e-05
+    }
+   ]
+  }
+ ]
+}

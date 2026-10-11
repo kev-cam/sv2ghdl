@@ -1,0 +1,18 @@
+SpectreNetlistSource 79-114
+  Incomplete 79-114
+    Keyword 79-84
+    Identifier 85-89
+    Identifier 90-98
+    Incomplete 99-114
+      Incomplete 99-114
+        Identifier 99-102
+        Notation 102-103
+        Incomplete 103-114
+          BuiltinFunc 103-107
+          Notation 107-108
+          FunctionArgs 108-113
+            BinaryExpression 108-113
+              Identifier 108-110
+              Operator 110-111
+              Identifier 111-113
+          Error 113-114

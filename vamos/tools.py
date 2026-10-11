@@ -64,7 +64,10 @@ def is_vamos(path: str) -> bool:
 # PATH, and every stat there crosses the slow Windows file bridge.
 SHIM_NAMES = ("vcs", "vlogan", "vhdlan", "vcs-ams", "xrun", "irun", "ncverilog",
               "vlog", "vcom", "vsim", "vlib", "vmap", "nvc", "ghdl", "iverilog",
-              "vvp", "verilator")
+              "vvp", "verilator", "spectre")
+# Alias links of the spectre personality (VAMOS_SPECTRE_NAMES, spectre231, ...) are not
+# probed: put them in a directory that also holds a listed name, or list the directory in
+# VAMOS_REDIRECT (docs/VAMOS_SPECTRE_DESIGN.md §10).
 
 
 def _is_shim_dir(d: str, redirect: List[str]) -> bool:
@@ -183,6 +186,13 @@ def stack() -> List[str]:
 
 # The personality this process is running as (set by cli.main).
 current = "vamos"
+
+# The name vamos was invoked as (set by cli.main next to `current`): VAMOS_ARGV0 or
+# argv[0]'s basename, so `spectre231` or a VAMOS_SPECTRE_NAMES alias such as `specsim`
+# while `current` is "spectre"; under `vamos -<personality>` it is the personality's name.
+# The spectre personality's %S, <prog>_DEFAULTS and log trailer use it
+# (docs/VAMOS_SPECTRE_DESIGN.md §2.1).
+invoked = "vamos"
 
 
 def child_env(extra: Optional[Dict[str, str]] = None,

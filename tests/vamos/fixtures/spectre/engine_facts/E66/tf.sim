@@ -1,0 +1,13 @@
+tran failing at 1us
+load "nan.va"
+load "resistor.osdi"
+model resistor resistor
+model nanv nanv
+n1 (a) nanv
+r1 (a 0) resistor r=1k
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  analysis tr1 tran stop=3u step=10n
+  analysis op1 op
+endc

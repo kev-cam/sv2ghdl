@@ -1,0 +1,14 @@
+* ac over an explicit frequency table, stepping an instance parameter
+V1 in 0 DC 0 AC 1
+R1 in out 1k
+C1 out 0 1u
+.step r1:r list 1k 2k
+.ac data=freqs
+.data freqs
++ freq
++ 1
++ 7
++ 159.15
+.enddata
+.print ac format=raw file=x9a.raw v(out)
+.end

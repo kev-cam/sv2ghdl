@@ -1,0 +1,250 @@
+{
+ "row": "E81",
+ "experiment": "the engines under signals (sp3/CLI/sigdrive.py, wsl_sig.sh, wsl_sig2.sh)",
+ "result": "each engine in its own session, signalled after 3 s (VACASK) or 6 s (Xyce): SIGINT, TERM, HUP, QUIT, USR1, USR2 end it within 0.00-0.01 s (rc -2, -15, -1, -3, -10, -12); after fix_points the rawfiles hold 1,564,664-1,655,032 (VACASK) and 285,184-304,128 (Xyce) points; a VACASK started with & from a non-interactive bash (SIGINT inherited as SIG_IGN) still ran 5 min 14 s after kill -INT; under nohup, signal.getsignal(SIGHUP) is SIG_IGN (1), without it 0 (TestE81Dispositions)",
+ "rules": [
+  "\u00a72.7 signals: SIGINT, SIGTERM, SIGHUP and SIGQUIT forwarded to the engine stop it at once, leaving a readable rawfile after fix_points; SIGUSR1/2 are never forwarded because each kills both engines; a signal that was ignored at start stays ignored"
+ ],
+ "runs": [
+  {
+   "name": "vacask_INT",
+   "tool": "vacask",
+   "deck": "rc.sim",
+   "signal": {
+    "after": 3,
+    "name": "INT",
+    "grace": 20
+   },
+   "status": "INT",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "vacask_TERM",
+   "tool": "vacask",
+   "deck": "rc.sim",
+   "signal": {
+    "after": 3,
+    "name": "TERM",
+    "grace": 20
+   },
+   "status": "TERM",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "vacask_HUP",
+   "tool": "vacask",
+   "deck": "rc.sim",
+   "signal": {
+    "after": 3,
+    "name": "HUP",
+    "grace": 20
+   },
+   "status": "HUP",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "vacask_QUIT",
+   "tool": "vacask",
+   "deck": "rc.sim",
+   "signal": {
+    "after": 3,
+    "name": "QUIT",
+    "grace": 20
+   },
+   "status": "QUIT",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "vacask_USR1",
+   "tool": "vacask",
+   "deck": "rc.sim",
+   "signal": {
+    "after": 3,
+    "name": "USR1",
+    "grace": 20
+   },
+   "status": "USR1",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "vacask_USR2",
+   "tool": "vacask",
+   "deck": "rc.sim",
+   "signal": {
+    "after": 3,
+    "name": "USR2",
+    "grace": 20
+   },
+   "status": "USR2",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "xyce_INT",
+   "tool": "xyce",
+   "deck": "rc.cir",
+   "signal": {
+    "after": 6,
+    "name": "INT",
+    "grace": 20
+   },
+   "status": "INT",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "xyce_TERM",
+   "tool": "xyce",
+   "deck": "rc.cir",
+   "signal": {
+    "after": 6,
+    "name": "TERM",
+    "grace": 20
+   },
+   "status": "TERM",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "xyce_HUP",
+   "tool": "xyce",
+   "deck": "rc.cir",
+   "signal": {
+    "after": 6,
+    "name": "HUP",
+    "grace": 20
+   },
+   "status": "HUP",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "xyce_QUIT",
+   "tool": "xyce",
+   "deck": "rc.cir",
+   "signal": {
+    "after": 6,
+    "name": "QUIT",
+    "grace": 20
+   },
+   "status": "QUIT",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "xyce_USR1",
+   "tool": "xyce",
+   "deck": "rc.cir",
+   "signal": {
+    "after": 6,
+    "name": "USR1",
+    "grace": 20
+   },
+   "status": "USR1",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  },
+  {
+   "name": "xyce_USR2",
+   "tool": "xyce",
+   "deck": "rc.cir",
+   "signal": {
+    "after": 6,
+    "name": "USR2",
+    "grace": 20
+   },
+   "status": "USR2",
+   "stopped_within": 1.0,
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 100,
+     "max_last_time": 10.0
+    }
+   ]
+  }
+ ]
+}

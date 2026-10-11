@@ -1,0 +1,8 @@
+* unknown model param in a later deck
+V1 a 0 DC 1
+R1 a b 1k
+D1 b 0 dmod
+.model dmod D (is=1e-14 bogusparam=5)
+.op
+.print dc format=raw file=d.raw v(b)
+.end

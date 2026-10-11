@@ -1,0 +1,13 @@
+* RC Low-Pass Filter (vamos_a3: tran)
+.param rval=1000
+V1 in 0 DC 0 PULSE(0 1 1e-3 1e-6 1e-6 4e-3 10e-3) AC 1 0
+X1 in out rcsec r={rval}
+.subckt rcsec a b params: r=1000
+R1 a b {r}
+C1 b 0 1e-6
+.ends rcsec
+.options device temp=27 tnom=27
+.STEP rval LIST 1000 2000
+.TRAN 5e-06 0.005 0 0.0001
+.PRINT TRAN FORMAT=RAW FILE=vamos_a3.raw V(IN) V(OUT) I(V1)
+.end

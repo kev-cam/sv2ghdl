@@ -1,0 +1,118 @@
+{
+ "row": "E68",
+ "experiment": "engine builds and environment (sp3/ENG/v0.sh, v1.sh, r_bad3.sh, r_ovaf.sh)",
+ "result": "env -u LD_LIBRARY_PATH /usr/local/bin/Xyce m3.cir: \"No model parameter BADMOS3 found for model NCH of type NMOS, parameter ignored\", rc 0; with engines.env_for's LD_LIBRARY_PATH both launchers list BADMOS3. An OSDI file from /opt/openvaf-r/openvaf-r (openvaf 23.5.0): \"OSDI descriptor structure size (328) is smaller than expected (352). Failed to open OSDI file\"; engines.openvaf() gives the 20260616 openvaf-r and env_for replaces an inherited SIM_OPENVAF (TestE68Environment). The builds' versions are recorded, not asserted (the Xyce build changed after \u00a713 was written)",
+ "rules": [
+  "\u00a77.2 the smoke test that the Xyce in use knows BADMOS3: under env_for both launchers load the rebuilt libxyce.so; without it /usr/local/bin/Xyce loads a library that lacks BADMOS3",
+  "\u00a77.1 every engine run and Verilog-A compile goes through engines.*() and env_for: the OSDI files of /opt/openvaf-r/openvaf-r are refused by VACASK"
+ ],
+ "runs": [
+  {
+   "name": "badmos3_second_launcher_plain_env",
+   "tool": "xyce",
+   "deck": "m3.cir",
+   "launcher": "second",
+   "plain_env": true,
+   "status": 0,
+   "output": {
+    "contains": [
+     "No model parameter BADMOS3 found for model NCH of type NMOS"
+    ]
+   }
+  },
+  {
+   "name": "badmos3_second_launcher_env_for",
+   "tool": "xyce",
+   "deck": "m3.cir",
+   "launcher": "second",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter BADMOS3"
+    ],
+    "contains": [
+     "BADMOS3"
+    ]
+   },
+   "files": {
+    "present": [
+     "m3.raw"
+    ]
+   }
+  },
+  {
+   "name": "badmos3_main_launcher_env_for",
+   "tool": "xyce",
+   "deck": "m3.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter BADMOS3"
+    ],
+    "contains": [
+     "BADMOS3"
+    ]
+   },
+   "files": {
+    "present": [
+     "m3.raw"
+    ]
+   }
+  },
+  {
+   "name": "xyce_version",
+   "tool": "xyce",
+   "args": [
+    "-v"
+   ],
+   "record_only": true,
+   "note": "the main launcher's version, logged"
+  },
+  {
+   "name": "second_xyce_version",
+   "tool": "xyce",
+   "args": [
+    "-v"
+   ],
+   "launcher": "second",
+   "plain_env": true,
+   "record_only": true
+  },
+  {
+   "name": "old_openvaf_compiles",
+   "tool": "exe",
+   "program": "/opt/openvaf-r/openvaf-r",
+   "args": [
+    "dres.va",
+    "-o",
+    "old.osdi"
+   ],
+   "group": "vacask",
+   "status": 0,
+   "files": {
+    "present": [
+     "old.osdi"
+    ]
+   }
+  },
+  {
+   "name": "vacask_refuses_old_osdi",
+   "tool": "vacask",
+   "deck": "d_old.sim",
+   "in_run": "old_openvaf_compiles",
+   "group": "vacask",
+   "output": {
+    "contains": [
+     "OSDI descriptor structure size (328) is smaller than expected (352)",
+     "Failed to open OSDI file"
+    ]
+   },
+   "files": {
+    "absent": [
+     "op_old.raw"
+    ]
+   }
+  }
+ ],
+ "provenance": "sp3/ENG/r_bad3.sh, r_ovaf.sh, sp3/FID/w/e2_engines.sh (2026-10-04)"
+}

@@ -1,0 +1,4 @@
+// ERROR: if body block never closed with '}'
+simulator lang=spectre
+if ( x == 0 ) {
+    r1 (a b) resistor r=1k

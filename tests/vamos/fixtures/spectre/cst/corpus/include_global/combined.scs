@@ -1,0 +1,5 @@
+// combined header: globals first, then model/subckt includes and an AHDL module
+global 0 gnd vdd vss
+include "cmos.mod"
+include "opamp.ckt" section=typical
+ahdl_include "diode.va"

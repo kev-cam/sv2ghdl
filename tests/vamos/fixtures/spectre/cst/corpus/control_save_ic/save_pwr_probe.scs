@@ -1,0 +1,6 @@
+// save: pwr/probe/dynamic modifiers, a bare-colon signal, and an identifier modifier
+save :pwr
+save x1:pwr x1.x2.m1:pwr
+save M1:probe
+save L1:dynamic
+save D8:cap

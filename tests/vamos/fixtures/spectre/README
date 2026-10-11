@@ -1,0 +1,95 @@
+Fixtures for the vamos `spectre` personality (docs/VAMOS_SPECTRE_DESIGN.md §11; the tests are
+tests/vamos/test_spectre_*.py, the oracles tests/vamos/psfcheck.py and spectre_testlib.py).  This
+file names the origin, commit and licence of every third-party file in this tree, as the parent
+directory's README does for the x-heep and PTM files; the repository's LICENSE carries the summary.
+
+Layout (§11 "Layout").  A line marked * names a directory or file a later phase adds; it may not
+exist yet.
+  cadnip/          vamos-authored Spectre decks for the Cadnip engine oracle (§11 T3b): <deck>.scs; its
+                   committed CST dump <deck>.cst (the dump of the deck without its title line, as the
+                   harness feeds it, made by cst/regen.sh with spectre_dump built on NetlistParse.rs
+                   d565fd3; every dump tiles its deck with no Error node); expect.json, the operating
+                   point the Cadnip-enabled VACASK computed for every deck on 2026-10-04 (VACASK
+                   rawfile column names); and BUILD, the recipe of that VACASK build
+  cst/             the CST oracle's inputs (§11 T0 "Statements and the CST oracle")
+  cst/corpus/      NetlistParse.rs tests/corpus/spectre/<cat>/*.scs, byte for byte: 106 of its 127 files
+                   (the 21 left out are listed below)
+  cst/expected/    NetlistParse.rs tests/expected/spectre/<cat>/*.txt, byte for byte: the CST dumps of
+                   exactly the files in cst/corpus/
+  cst/regen.sh     WSL, cargo: builds spectre_dump on NetlistParse.rs at the pinned commit and dumps the
+                   vamos-authored fixtures (cadnip/*.scs with their title line stripped, lang/*.scs whole)
+  cst/DIVERGENCES, cst/GAPS *   the oracle's divergence and gap lists (phase 1)
+  engine_facts/    E<nn>/{deck, expect.json}: the engine facts of §13's T1 rows (phase 0, owner S0G),
+                   vamos-authored
+  lang/ *          vamos-authored Spectre inputs for the CST gaps and the left-out corpus files (phase 1)
+  psf/             PSF ASCII files for psfcheck.py (§11 T0 "psfcheck")
+  psf/real/        real Spectre output files from psf-parser and psf_utils; PROVENANCE there lists every
+                   file with its Spectre version, kind and date
+  psf/bad/         eight malformed PSF files psfcheck.py must reject, vamos-authored (its README lists
+                   them; tests/vamos/test_spectre_psfcheck.py regenerates them from its template)
+  psf/golden/ *    the PSF writer's goldens (phase 1)
+  spice/           the SPICE-mode acceptance corpus (§11 T0 "SPICE-mode acceptance")
+  spice/corpus/    NetlistParse.rs tests/corpus/*.sp, byte for byte (all 62)
+  spice/expected/  NetlistParse.rs tests/expected/*.txt, byte for byte (61: sky130_inverter.sp has no
+                   dump upstream)
+  xdm/             Xyce_Regression Netlists/XDM/SPECTRE/<CATEGORY>/, byte for byte: the 12 Spectre decks
+                   (*.cir.spectre), their hand-written Xyce golds (*.cir), the run scripts (*.cir.sh:
+                   they carry XDM's tolerances and the expected xdm message counts) and the auxiliary
+                   files D1N3940.scs, ipwlFile and vpwlFile; not copied: CMakeLists.txt, Manifest.txt,
+                   exclude and tags (CTest plumbing)
+  e2e/, emit/, plan/, cmc/ *   end-to-end decks, emitter and plan goldens, CMC expectations (phases 1-2)
+
+Third-party files
+-----------------
+Four projects' files are copied here, each byte for byte from the commit named (the commits are
+those of the design's §0 "Sources"), and each keeps its own licence (see the repository's LICENSE).
+
+NetlistParse.rs, https://github.com/NyanCAD/NetlistParse.rs,
+commit d565fd3e359893fbc4376bb9c7b5608ef786e6bb ("Merge pull request #5 from
+NyanCAD/fix/spice-bridge-scopes", 2026-09-14): its Spectre test corpus and the expected CST dumps the Julia reference parser produced
+for it, in cst/corpus/ and cst/expected/, and its SPICE corpus and dumps in spice/corpus/ and
+spice/expected/.  Copyright (c) JuliaHub, Inc. and other contributors; MIT License (SPDX: MIT), whose
+text is LICENSES/MIT.txt at the root of this repository (the project's LICENSE file, byte for byte).
+The files carry no licence header of their own.  Not copied, because whether to commit files that quote
+or cite a Spectre manual is the user's decision (design §11 "Licences", §14 q.41, §13 E88/E101): the
+20 corpus files whose comments cite or quote a manual, and var_reference.scs, which carries the same
+verbatim manual line; their dumps are left out with them.  They are, under tests/corpus/spectre/:
+  arrays_langswitch/  array_expressions.scs array_mixed_names.scs array_params.scs array_sweep.scs
+                      err_array_binary.scs err_array_unterminated.scs simulator_lang_spectre.scs
+                      simulator_lang_swap.scs
+  control_named/      alter.scs altergroup.scs check.scs checklimit.scs info.scs options.scs
+                      paramtest.scs set.scs shell.scs
+  funcdecl/           comment_body.scs two_args.scs
+  include_global/     include_multiple.scs
+  julia_parse_tests/  var_reference.scs
+The vamos-authored lang/ fixtures stand in for their constructs (phase 1).  No kept file mentions a
+manual (tests/vamos/test_spectre_docs.py checks this and the count).
+
+psf-parser, https://github.com/ToonBettens/psf-parser, commit 05021e6e62cdb9aebf1ee1a98609bb4b3a4f2d16
+("Testing with pytest", 2025-06-15): its real Spectre 23.1.0.242.isr1 output files tests/data/ascii/*
+(38 files) and tests/data/binary/logFile, in psf/real/psf-parser/ under the same relative paths (the
+psfbin and psfxl data files are not copied: vamos writes psfascii).  Its Python package is vendored
+as tests/vamos/third_party/psf_parser (LICENSE, README.md, pyproject.toml and src/psf_parser/**/*.py,
+byte for byte; the tests and the lock file are not) for the consumer checks of §11 (needs_psf_parser,
+Python >= 3.10).  Copyright (c) 2025 Toon Bettens; MIT License (SPDX: MIT), whose text is
+tests/vamos/third_party/psf_parser/LICENSE.
+
+psf_utils, https://github.com/KenKundert/psf_utils, commit 67971463a7bfdbfdb362376374b68fef379c6f9e
+("bump version to 1.11", 2026-09-08): the native Spectre psfascii samples samples/joop-banaan.dc,
+samples/joop-banaan.tran (19.1) and the complete results directory samples/pnoise.raw/ (15.1, eight
+files with its logFile), in psf/real/psf_utils/ under the same relative paths.  Copyright Ken Kundert;
+GNU General Public License v3 or later (SPDX: GPL-3.0-or-later, the licence its pyproject.toml declares;
+the repository ships no licence file at that commit), the licence of this repository (COPYING).  Its
+code is never vendored: the optional psf_utils consumer check reads a checkout named by VAMOS_PSF_UTILS.
+
+Xyce_Regression, https://github.com/Xyce/Xyce_Regression, commit d4685581dcd690f701bc281a82ee76bebe5da91c
+("Merge remote-tracking branch 'origin/develop'", 2026-04-27): Netlists/XDM/SPECTRE/<CATEGORY>/, the
+XDM 2.7.0 Spectre translation tests, in xdm/<CATEGORY>/ (the files listed under xdm/ above).  Copyright
+2019 National Technology & Engineering Solutions of Sandia, LLC (NTESS); GNU General Public License
+version 3 or later (SPDX: GPL-3.0-or-later), as its README.md "Copyright and license" section states,
+the licence of this repository (COPYING).  Ten of the twelve .cir.spectre decks are real ADE netlists
+("Generated for: spectre", ic-5.1.41usr5).
+
+Everything else in this tree is vamos-authored and GPL-3.0-or-later like the rest of the repository:
+cadnip/*.scs, cadnip/*.cst, cadnip/expect.json, cadnip/BUILD, cst/regen.sh, psf/bad/*, psf/real/PROVENANCE,
+engine_facts/** and this README.

@@ -1,0 +1,3 @@
+// ERROR: braceless single-statement body; this grammar requires '{'
+simulator lang=spectre
+if ( gparallel != 0 ) gp1 (a b) resistor r=1k

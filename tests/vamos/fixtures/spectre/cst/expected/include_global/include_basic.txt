@@ -1,0 +1,5 @@
+SpectreNetlistSource 50-84
+  Include 50-84
+    Keyword 50-57
+    StringLiteral 58-83
+    Notation 83-84

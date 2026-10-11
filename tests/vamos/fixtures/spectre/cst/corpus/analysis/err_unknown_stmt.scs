@@ -1,0 +1,3 @@
+// ERROR: 'transient' is not a Spectre analysis keyword (the keyword is 'tran'),
+// so this is an unknown named statement with no recognizable body
+probe1 transient stop=1u

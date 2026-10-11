@@ -1,0 +1,18 @@
+SpectreNetlistSource 71-98
+  Incomplete 71-98
+    Identifier 71-73
+    Notation 74-75
+    SNode 75-76
+      Identifier 75-76
+    SNode 77-78
+      Identifier 77-78
+    Notation 78-79
+    Identifier 80-88
+    Incomplete 89-98
+      Parameter 89-93
+        Identifier 89-90
+        Notation 90-91
+        NumberLiteral 91-93
+      Incomplete 94-98
+        Identifier 94-97
+        Error 97-98

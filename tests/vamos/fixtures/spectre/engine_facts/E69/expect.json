@@ -1,0 +1,113 @@
+{
+ "row": "E69",
+ "experiment": "mos3 channel-length modulation (sp3/ENG/r_m3.sh; vto=0.7 kp=1e-4 kappa=0.2 nsub=1e16 tox=2e-8, w=l=3u, vgs=2 V)",
+ "result": "badmos3=0: VACASK -7.973e-5 A vs Xyce -7.921e-5 A at vds = 1.5 V (0.66 %), 0.31 % at 3 V, 0.32 % at 5 V; badmos3=1: 0.003-0.004 % apart",
+ "rules": [
+  "\u00a73.9 mos3: vamos writes badmos3=1 with a warning, because with the engines' default badmos3=0 VACASK and Xyce are 0.31-0.66 % apart in saturation and 0.003 % with badmos3=1 (agreement between the engines, not with Spectre)"
+ ],
+ "runs": [
+  {
+   "name": "vacask_b0",
+   "tool": "vacask",
+   "deck": "m3_0.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op0.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op0.raw",
+     "col": "vd:flow(br)",
+     "value": -7.973e-05,
+     "row": 0,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "xyce_b0",
+   "tool": "xyce",
+   "deck": "m3_0.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x0.raw",
+     "col": "I(VD)",
+     "value": -7.921e-05,
+     "row": 0,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "vacask_b1",
+   "tool": "vacask",
+   "deck": "m3_1.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    }
+   ]
+  },
+  {
+   "name": "xyce_b1",
+   "tool": "xyce",
+   "deck": "m3_1.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   }
+  }
+ ],
+ "cross": [
+  {
+   "name": "badmos3_0_engines_apart",
+   "rel": 0.008,
+   "min_rel": 0.002,
+   "a": {
+    "run": "vacask_b0",
+    "raw": "op0.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_b0",
+    "raw": "x0.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "badmos3_1_engines_agree",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_b1",
+    "raw": "op1.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_b1",
+    "raw": "x1.raw",
+    "col": "I(VD)"
+   }
+  }
+ ]
+}

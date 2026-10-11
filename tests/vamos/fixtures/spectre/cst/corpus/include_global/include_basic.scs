@@ -1,0 +1,2 @@
+// basic include of a Spectre process corner file
+include "libs/spectre/7nm_TT.scs"

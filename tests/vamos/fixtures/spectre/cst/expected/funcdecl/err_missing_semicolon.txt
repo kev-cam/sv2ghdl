@@ -1,0 +1,19 @@
+SpectreNetlistSource 53-90
+  Incomplete 53-89
+    Keyword 53-57
+    Identifier 58-61
+    Notation 61-62
+    FunctionArgs 63-69
+      FunctionDeclArg 63-69
+        Keyword 63-67
+        Identifier 68-69
+    Notation 70-71
+    Notation 72-73
+    Notation 73-74
+    Keyword 78-84
+    BinaryExpression 85-88
+      Identifier 85-86
+      Operator 86-87
+      Identifier 87-88
+    Error 88-89
+  Error 89-90

@@ -1,0 +1,29 @@
+conditional instance selection on a subckt parameter, global/ground, names
+ground gnd
+global 'vdd!'
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+subckt sel (a b)
+  parameters area=1
+  @if area < 2
+    rsel (a b) resistor r=1k
+  @else
+    rsel (a b) resistor r=3k
+  @end
+  rpu ('vdd!' a) resistor r=1meg
+ends
+vsup ('vdd!' gnd) vsource dc=1
+v1 (in gnd) vsource dc=1
+x1 (in 'out<3>') sel area=1
+x2 (in o2) sel area=5
+r1 ('out<3>' gnd) resistor r=1k
+r2 (o2 gnd) resistor r=1k
+v7 ('007' gnd) vsource dc=1
+r7 (7 gnd) resistor r=1k
+res (in c10) resistor r=1k
+c10 (c10 gnd) resistor r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

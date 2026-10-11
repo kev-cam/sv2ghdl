@@ -38,12 +38,13 @@ import os
 import re
 import signal
 import subprocess
-import sys
-import threading
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from vamos import tools
 from vamos.job import Job
+# the interrupt machinery, the child setup and signal_name live in vamos/proc.py (moved from
+# here, docs/VAMOS_SPECTRE_DESIGN.md §2.7); signal_name stays importable from this module
+from vamos.proc import Interrupts, child_setup, signal_name  # noqa: F401
 
 NVC_SUBDIR = "nvc"
 
@@ -51,8 +52,13 @@ NVC_SUBDIR = "nvc"
 # them for the caller (vamos.ams.verilog_ports.TRANSLATOR_WARNING parses the same lines)
 _TRANSLATOR_WARNING = re.compile(r"^iverilog-sv2ghdl: Warning: ")
 
-# Seconds nvc has to end after vamos passed it an interrupt, before it is killed
+# Seconds nvc has to end after vamos passed it an interrupt, before it is killed (this
+# module's own value, passed to each proc.Interrupts stream() makes)
 INTERRUPT_GRACE = 5.0
+# The signals vamos passes on to nvc, as SIGINT, while it runs (proc.Interrupts; a SIGTSTP
+# stops nvc with vamos)
+_HANDLED = tuple(s for s in (getattr(signal, n, None) for n in ("SIGINT", "SIGTERM", "SIGHUP"))
+                 if s is not None)
 
 
 class BackendError(Exception):
@@ -255,14 +261,14 @@ class NvcBackend:
         f = OutputFilter(out, err)
         if getattr(self, "job", None) is not None:
             f.relocate = source_relocator(self.job.daidir)
-        intr = _Interrupts()
+        intr = Interrupts(_HANDLED, signal.SIGINT, grace=INTERRUPT_GRACE)
         with intr:                               # before nvc starts: no signal goes unseen
             try:
                 # stdin: nvc's process group is not the terminal's foreground group, where
                 # a read would stop it (SIGTTIN); nothing nvc runs reads stdin
                 proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                        preexec_fn=_child_setup())
+                                        preexec_fn=child_setup())
             except OSError as e:
                 raise BackendError("cannot run %s: %s" % (cmd[0], e))
             intr.attach(proc)
@@ -609,121 +615,5 @@ class Waves:
         return out
 
 
-def signal_name(signum: int) -> str:
-    try:
-        return signal.Signals(signum).name
-    except ValueError:
-        return "signal %d" % signum
-
-
-# -- nvc's lifetime --------------------------------------------------------------------
-
-class _Interrupts:
-    """While nvc runs: the first SIGINT, SIGTERM or SIGHUP vamos gets is passed to nvc
-    as SIGINT and recorded (signum); a second one, or nvc still running INTERRUPT_GRACE
-    seconds after the first (SIGALRM), kills nvc (killed).  A SIGTSTP (Ctrl-Z) stops nvc
-    with vamos, and nvc continues when vamos does (nvc is in a process group of its own,
-    _child_setup).  Handlers are installed only in the main thread, and restored
-    afterwards; a signal that is ignored stays ignored."""
-
-    def __init__(self) -> None:
-        self.proc: Optional[subprocess.Popen] = None
-        self.signum: Optional[int] = None
-        self.killed = False
-        self._saved: dict = {}
-
-    def attach(self, proc: subprocess.Popen) -> None:
-        """nvc has started; a signal that came while it started is passed on now."""
-        self.proc = proc
-        if self.signum is not None:
-            self._send(signal.SIGINT)
-            self._alarm(INTERRUPT_GRACE)
-
-    def __enter__(self) -> "_Interrupts":
-        if threading.current_thread() is not threading.main_thread():
-            return self
-        for name, handler in (("SIGINT", self._on_signal), ("SIGTERM", self._on_signal),
-                              ("SIGHUP", self._on_signal), ("SIGTSTP", self._on_stop)):
-            sig = getattr(signal, name, None)
-            # an ignored signal stays ignored (nohup, a background job without job control)
-            if sig is not None and signal.getsignal(sig) != signal.SIG_IGN:
-                self._saved[sig] = signal.signal(sig, handler)
-        if hasattr(signal, "SIGALRM") and hasattr(signal, "setitimer"):
-            self._saved[signal.SIGALRM] = signal.signal(signal.SIGALRM, self._on_alarm)
-        return self
-
-    def _alarm(self, seconds: float) -> None:
-        alarm = getattr(signal, "SIGALRM", None)
-        if alarm is not None and alarm in self._saved:
-            signal.setitimer(signal.ITIMER_REAL, seconds)
-
-    def __exit__(self, *exc) -> None:
-        self._alarm(0)
-        for sig, handler in self._saved.items():
-            signal.signal(sig, handler if handler is not None else signal.SIG_DFL)
-        self._saved = {}
-
-    def _on_signal(self, signum, frame) -> None:
-        if self.signum is None:
-            self.signum = signum
-            self._send(signal.SIGINT)
-            self._alarm(INTERRUPT_GRACE)
-        else:
-            self._kill()
-
-    def _on_alarm(self, signum, frame) -> None:
-        self._kill()
-
-    def _on_stop(self, signum, frame) -> None:
-        self._send(signal.SIGSTOP)
-        os.kill(os.getpid(), signal.SIGSTOP)        # vamos stops here ...
-        self._send(signal.SIGCONT)                  # ... and nvc goes on when it does
-
-    def _kill(self) -> None:
-        if self.proc is not None and self.proc.poll() is None:
-            self.killed = True
-            self._send(signal.SIGKILL if hasattr(signal, "SIGKILL") else signal.SIGTERM)
-
-    def _send(self, sig) -> None:
-        if self.proc is None:
-            return
-        try:
-            self.proc.send_signal(sig)
-        except OSError:
-            pass
-
-
-def _child_setup() -> Optional[Callable[[], None]]:
-    """The Popen preexec_fn for nvc.
-
-    nvc gets a process group of its own: a terminal's Ctrl-C (SIGINT to the foreground
-    process group) then reaches vamos alone, and nvc gets exactly one SIGINT, from vamos.
-    nvc takes a second SIGINT, while the first is pending, as "quit now" (jit_interrupt:
-    exit(1) with no end line); a co-simulation ends at once on a second one, with the
-    interrupted end line and exit status 130 (cosim.c cosim_ctrl_c), before the engine
-    finishes its output.  On Linux nvc also gets SIGTERM when vamos dies (prctl
-    PR_SET_PDEATHSIG)."""
-    if not hasattr(os, "setpgid"):
-        return None
-    prctl = None
-    if sys.platform.startswith("linux"):
-        try:
-            import ctypes
-            prctl = ctypes.CDLL(None, use_errno=True).prctl
-            prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong,
-                              ctypes.c_ulong]
-        except (OSError, AttributeError):
-            prctl = None
-    parent = os.getpid()
-
-    def preexec() -> None:
-        try:
-            os.setpgid(0, 0)
-        except OSError:
-            pass
-        if prctl is not None:
-            prctl(1, int(signal.SIGTERM), 0, 0, 0)      # PR_SET_PDEATHSIG
-            if os.getppid() != parent:                  # vamos died before that
-                os._exit(1)
-    return preexec
-
+# signal_name, the interrupt machinery (proc.Interrupts) and the child setup (proc.child_setup)
+# moved to vamos/proc.py; this module imports them above.

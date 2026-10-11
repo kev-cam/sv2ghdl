@@ -1,0 +1,26 @@
+SPICENetlistSource 0-75
+  Title 0-32
+    Notation 0-31
+    Notation 31-32
+  ParamStatement 32-75
+    Notation 32-33
+    Keyword 33-38
+    Parameter 39-48
+      Identifier 39-43
+      Notation 43-44
+      NumberLiteral 44-48
+    Parameter 49-57
+      Identifier 49-54
+      Notation 54-55
+      NumberLiteral 55-57
+    Parameter 58-74
+      Identifier 58-61
+      Notation 61-62
+      Prime 62-74
+        Notation 62-63
+        BinaryExpression 63-73
+          Identifier 63-67
+          Operator 67-68
+          Identifier 68-73
+        Notation 73-74
+    Notation 74-75

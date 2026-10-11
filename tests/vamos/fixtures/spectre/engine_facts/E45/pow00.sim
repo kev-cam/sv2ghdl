@@ -1,0 +1,12 @@
+pow(0,0) as a parameter on VACASK
+ground 0
+load "resistor.osdi"
+model vsrc vsource
+model res resistor
+parameters x0=0 y0=0
+v1 (n1 0) vsrc dc=pow(x0,y0)
+r1 (n1 0) res r=1k
+control
+  options rawfile="ascii"
+  analysis op1 op
+endc

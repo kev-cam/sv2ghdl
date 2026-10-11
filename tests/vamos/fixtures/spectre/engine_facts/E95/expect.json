@@ -1,0 +1,588 @@
+{
+ "row": "E95",
+ "experiment": "mos1/mos2/mos3 with and without Spectre's nsub default, both engines (sp3/FIX/v1.sh FID-01; sp3/FID/w/e1_nsub.sh): vto=0.7 kp=1e-4 tox=1e-7 phi=0.7 (mos1 lambda=0.02, mos3 badmos3=1), w=10u l=2u, vgs = 2 V, vds = 1.5, 3, 5 V",
+ "result": "without nsub: mos2 and mos3 422.50 uA at every vds on both engines (no channel-length modulation); with nsub=1.13e16 gamma=0: mos3 437.29/468.73/494.44 uA on both, mos2 511.15/533.43/567.36 uA (Xyce 511.14/533.43/567.73); mos1 435.18/447.85/464.75 uA either way; adding mjsw=1/3 changes no dc value",
+ "rules": [
+  "\u00a73.9 mos1/mos2/mos3: vamos writes nsub=1.13e16 (Spectre's documented default) with phi=0.7, gamma=0 and vto=0 where the card omits them, because the targets' nsub default is 0 and without nsub mos2/mos3 show no channel-length modulation; mjsw=1/3 changes no dc value"
+ ],
+ "runs": [
+  {
+   "name": "vacask_m1A",
+   "tool": "vacask",
+   "deck": "m1A.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1A.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op1A.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.00043518,
+      -0.00044785,
+      -0.00046475
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m1A",
+   "tool": "xyce",
+   "deck": "m1A.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x1A.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.00043518,
+      -0.00044785,
+      -0.00046475
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m1B",
+   "tool": "vacask",
+   "deck": "m1B.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1B.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op1B.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.00043518,
+      -0.00044785,
+      -0.00046475
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m1B",
+   "tool": "xyce",
+   "deck": "m1B.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x1B.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.00043518,
+      -0.00044785,
+      -0.00046475
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m1C",
+   "tool": "vacask",
+   "deck": "m1C.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1C.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op1C.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.00043518,
+      -0.00044785,
+      -0.00046475
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m1C",
+   "tool": "xyce",
+   "deck": "m1C.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x1C.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.00043518,
+      -0.00044785,
+      -0.00046475
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m2A",
+   "tool": "vacask",
+   "deck": "m2A.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op2A.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op2A.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.0004225,
+      -0.0004225,
+      -0.0004225
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m2A",
+   "tool": "xyce",
+   "deck": "m2A.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x2A.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.0004225,
+      -0.0004225,
+      -0.0004225
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m2B",
+   "tool": "vacask",
+   "deck": "m2B.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op2B.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op2B.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.00051115,
+      -0.00053343,
+      -0.00056736
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m2B",
+   "tool": "xyce",
+   "deck": "m2B.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x2B.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.00051114,
+      -0.00053343,
+      -0.00056773
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m2C",
+   "tool": "vacask",
+   "deck": "m2C.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op2C.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op2C.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.00051115,
+      -0.00053343,
+      -0.00056736
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m2C",
+   "tool": "xyce",
+   "deck": "m2C.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x2C.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.00051114,
+      -0.00053343,
+      -0.00056773
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m3A",
+   "tool": "vacask",
+   "deck": "m3A.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op3A.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op3A.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.0004225,
+      -0.0004225,
+      -0.0004225
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m3A",
+   "tool": "xyce",
+   "deck": "m3A.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x3A.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.0004225,
+      -0.0004225,
+      -0.0004225
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m3B",
+   "tool": "vacask",
+   "deck": "m3B.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op3B.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op3B.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.00043729,
+      -0.00046873,
+      -0.00049444
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m3B",
+   "tool": "xyce",
+   "deck": "m3B.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x3B.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.00043729,
+      -0.00046873,
+      -0.00049444
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_m3C",
+   "tool": "vacask",
+   "deck": "m3C.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op3C.raw",
+     "col": "s",
+     "values": [
+      1.5,
+      3.0,
+      5.0
+     ]
+    },
+    {
+     "raw": "op3C.raw",
+     "col": "vd:flow(br)",
+     "values": [
+      -0.00043729,
+      -0.00046873,
+      -0.00049444
+     ],
+     "rel": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "xyce_m3C",
+   "tool": "xyce",
+   "deck": "m3C.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x3C.raw",
+     "col": "I(VD)",
+     "values": [
+      -0.00043729,
+      -0.00046873,
+      -0.00049444
+     ],
+     "rel": 0.0003
+    }
+   ]
+  }
+ ],
+ "cross": [
+  {
+   "name": "engines_agree_m1A",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_m1A",
+    "raw": "op1A.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m1A",
+    "raw": "x1A.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m1B",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_m1B",
+    "raw": "op1B.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m1B",
+    "raw": "x1B.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m1C",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_m1C",
+    "raw": "op1C.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m1C",
+    "raw": "x1C.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m2A",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_m2A",
+    "raw": "op2A.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m2A",
+    "raw": "x2A.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m2B",
+   "rel": 0.001,
+   "a": {
+    "run": "vacask_m2B",
+    "raw": "op2B.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m2B",
+    "raw": "x2B.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m2C",
+   "rel": 0.001,
+   "a": {
+    "run": "vacask_m2C",
+    "raw": "op2C.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m2C",
+    "raw": "x2C.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m3A",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_m3A",
+    "raw": "op3A.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m3A",
+    "raw": "x3A.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m3B",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_m3B",
+    "raw": "op3B.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m3B",
+    "raw": "x3B.raw",
+    "col": "I(VD)"
+   }
+  },
+  {
+   "name": "engines_agree_m3C",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_m3C",
+    "raw": "op3C.raw",
+    "col": "vd:flow(br)"
+   },
+   "b": {
+    "run": "xyce_m3C",
+    "raw": "x3C.raw",
+    "col": "I(VD)"
+   }
+  }
+ ]
+}

@@ -1,0 +1,17 @@
+a failing analysis under the default abort policy and inside a sweep
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource dc=1
+v2 (a 0) vsource dc=vv
+r1 (a 0) resistor r=1k
+control
+  options rawfile="ascii"
+  var vv=2
+  analysis bad1 op
+  analysis good1 op
+  sweep s1 variable="vv" values=[1, 2]
+    analysis bad2 op
+  analysis good2 op
+endc

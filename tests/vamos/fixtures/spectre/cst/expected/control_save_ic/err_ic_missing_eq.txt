@@ -1,0 +1,8 @@
+SpectreNetlistSource 70-81
+  Incomplete 70-81
+    Keyword 70-72
+    Incomplete 73-81
+      Incomplete 73-81
+        SNode 73-77
+          Identifier 73-77
+        Error 78-81

@@ -1,0 +1,2 @@
+// ERROR: opening '(' of the node list is never closed with ')'
+R1 (b1 b2 0

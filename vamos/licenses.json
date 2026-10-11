@@ -7,6 +7,7 @@
   "Xyce":      {"spdx": "GPL-3.0-or-later", "url": "https://github.com/kev-cam/xyce", "upstream": "https://xyce.sandia.gov"},
   "VACASK":    {"spdx": "AGPL-3.0-only", "url": "https://github.com/kev-cam/VACASK", "upstream": "https://codeberg.org/arpadbuermen/VACASK"},
   "OpenVAF-r": {"spdx": "GPL-3.0-only", "url": "https://github.com/arpadbuermen/OpenVAF"},
+  "cpp":       {"spdx": "GPL-3.0-or-later", "url": "https://gcc.gnu.org"},
   "ghdl":      {"spdx": "GPL-2.0-or-later", "url": "https://github.com/ghdl/ghdl"},
   "verilator": {"spdx": "LGPL-3.0-only OR Artistic-2.0", "url": "https://verilator.org"},
   "yosys":     {"spdx": "ISC", "url": "https://github.com/YosysHQ/yosys"},

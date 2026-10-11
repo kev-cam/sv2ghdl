@@ -1,0 +1,7 @@
+* xyce resistor scale
+V1 in 0 1
+R9 in o9 1k SCALE=0.5
+R10 o9 0 1k
+.OP
+.PRINT DC FORMAT=RAW FILE=rscale.raw V(O9)
+.end

@@ -1,0 +1,10 @@
+* ic in a noise analysis
+V1 in 0 DC 1 AC 1
+R1 in out 1k
+C1 out 0 1u
+D1 out 0 DM
+.MODEL DM D IS=1e-14
+.IC V(out)=0.2
+.NOISE V(out) V1 LIN 1 1 1
+.PRINT NOISE FILE=icnz.prn ONOISE
+.end

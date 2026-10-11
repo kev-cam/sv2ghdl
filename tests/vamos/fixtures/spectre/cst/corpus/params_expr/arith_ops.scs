@@ -1,0 +1,7 @@
+// arithmetic operators and unary +/-, with precedence mixing
+simulator lang=spectre
+parameters p1=1 p2=2 p3=3
+parameters sum=p1+p2-p3 prod=p1*p2/p3
+parameters mixed=p1+p2*p3 modulo=p3%p2
+parameters power=p2**p3 chain=p2**p3**p1
+parameters neg=-p1 pos=+p2 combo=-p1+p2

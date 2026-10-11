@@ -1,0 +1,5 @@
+// Instances referencing a model/subcircuit master with no instance parameters
+Q1 (cc b1 e) npn
+Q2 (out b2 e) npn
+Balun (in o pout nout) transformer
+X1 (o1 g1 g2) cell

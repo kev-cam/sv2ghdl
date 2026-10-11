@@ -1,0 +1,24 @@
+sweep of a dependent subckt parameter
+ground 0
+load "resistor.osdi"
+model vs vsource
+model r resistor
+v1 (in 0) vs dc=1
+x1 (in out) sec
+subckt sec (a b)
+  parameters w=1000
+  parameters l=2*w
+  parameters $mfactor=1.0
+  r1 (a b) r r=l
+  r2 (b 0) r r=1k
+ends
+control
+  options rawfile="ascii"
+  analysis op1 op
+  sweep s1 instance="x1" parameter="w" values=[1000, 2000]
+    analysis dc1 op
+  sweep s2 instance="x1" parameter="l" values=[1000, 3000]
+    analysis dc2 op
+  alter instance("x1") l=5000
+  analysis op3 op
+endc

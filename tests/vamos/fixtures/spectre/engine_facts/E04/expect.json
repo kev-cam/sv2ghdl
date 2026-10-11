@@ -1,0 +1,87 @@
+{
+ "row": "E4",
+ "experiment": "VACASK: sweep option=\"temp\", instance=\"x1\" parameter=\"rr\" (a subckt instance), model=\"dm\" parameter=\"is\"",
+ "result": "all work; each is restored after the sweep",
+ "rules": [
+  "\u00a75.2 sweep targets: temp, a subckt-instance parameter, a model parameter",
+  "\u00a75.2 Restore (pinned here)"
+ ],
+ "runs": [
+  {
+   "name": "targets_and_restore",
+   "tool": "vacask",
+   "deck": "e1b.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "opt.raw",
+     "col": "t1",
+     "values": [
+      0.0,
+      50.0
+     ]
+    },
+    {
+     "raw": "opt.raw",
+     "col": "v2:flow(br)",
+     "values": [
+      -1.27424e-05,
+      -0.000602852
+     ],
+     "rel": 0.0001
+    },
+    {
+     "raw": "opt_after.raw",
+     "col": "v2:flow(br)",
+     "value": -0.00011872,
+     "rel": 0.0001
+    },
+    {
+     "raw": "opx.raw",
+     "col": "s2",
+     "values": [
+      1000.0,
+      3000.0
+     ]
+    },
+    {
+     "raw": "opx.raw",
+     "col": "b",
+     "values": [
+      0.5,
+      0.25
+     ]
+    },
+    {
+     "raw": "opx_after.raw",
+     "col": "b",
+     "value": 0.5
+    },
+    {
+     "raw": "opm.raw",
+     "col": "s3",
+     "values": [
+      1e-14,
+      1e-12
+     ],
+     "rel": 1e-06
+    },
+    {
+     "raw": "opm.raw",
+     "col": "v2:flow(br)",
+     "values": [
+      -0.00011872,
+      -0.011872
+     ],
+     "rel": 0.0001
+    },
+    {
+     "raw": "opm_after.raw",
+     "col": "v2:flow(br)",
+     "value": -0.00011872,
+     "rel": 0.0001
+    }
+   ]
+  }
+ ]
+}

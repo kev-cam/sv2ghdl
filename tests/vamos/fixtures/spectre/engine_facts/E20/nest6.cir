@@ -1,0 +1,11 @@
+* nested step with dummy param dc
+.param pa=1
+.param pb=10
+.param vamos_dummy=0
+V1 in 0 1
+R1 in 0 {pa*pb}
+.STEP pa LIST 1 2
+.STEP pb LIST 10 20 30
+.DC vamos_dummy LIST 0
+.PRINT DC FORMAT=RAW FILE=nest6.raw V(IN) I(V1)
+.end

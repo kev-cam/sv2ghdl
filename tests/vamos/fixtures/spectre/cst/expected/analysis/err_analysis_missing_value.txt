@@ -1,0 +1,9 @@
+SpectreNetlistSource 92-107
+  Incomplete 92-107
+    Identifier 92-95
+    Keyword 96-100
+    Incomplete 101-107
+      Incomplete 101-107
+        Identifier 101-105
+        Notation 105-106
+        Error 106-107

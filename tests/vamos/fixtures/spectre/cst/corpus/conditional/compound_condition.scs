@@ -1,0 +1,7 @@
+// Boolean-valued condition using compound comparison operators
+simulator lang=spectre
+if ( l >= 0.5u && w <= 4u ) {
+    m1 (d g s b) midmod l=l w=w
+} else {
+    m2 (d g s b) edgemod l=l w=w
+}

@@ -1,0 +1,15 @@
+SPICENetlistSource 0-20
+  Title 0-4
+    Notation 0-3
+    Notation 3-4
+  ICStatement 4-20
+    Notation 4-5
+    Keyword 5-7
+    ICEntry 8-18
+      Identifier 8-9
+      Notation 9-10
+      Identifier 10-13
+      Notation 13-14
+      Notation 14-15
+      NumberLiteral 15-18
+    Notation 19-20

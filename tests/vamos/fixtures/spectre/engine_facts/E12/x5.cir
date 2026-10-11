@@ -1,0 +1,7 @@
+* noise printed to a raw file with per-device contributions
+V1 in 0 DC 1 AC 1
+R1 in out 1k
+R2 out 0 1k
+.noise v(out) V1 dec 1 1k 10k
+.print noise format=raw file=n5.raw onoise inoise dno(r1) dno(r2)
+.end

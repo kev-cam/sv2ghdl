@@ -1,0 +1,6 @@
+`include "disciplines.vams"
+module myres(p, n);
+  inout p, n; electrical p, n;
+  parameter real r = 1k;
+  analog I(p, n) <+ V(p, n) / r;
+endmodule

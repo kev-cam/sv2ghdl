@@ -1,0 +1,10 @@
+* zero valued elements
+V1 in 0 DC 1 AC 1
+R0 in a 0
+R1 a b 1k
+C0 b 0 0
+L0 b d 0
+R2 d 0 1k
+.OP
+.PRINT DC FORMAT=RAW FILE=zero.raw V(A) V(B) V(D)
+.end

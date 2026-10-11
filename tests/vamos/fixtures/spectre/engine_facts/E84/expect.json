@@ -1,0 +1,348 @@
+{
+ "row": "E84",
+ "experiment": "VACASK and Xyce columns for Spectre-style netlists (sp3/OUT/x1-x7: names.sim, op.cir, s0-s2, p1.cir, p2.cir, xf.sim)",
+ "result": "VACASK keeps case: op2.raw has A and a, and rawfile.read(...).index('A'): \"'A' matches several variables: A, a\"; save default (bytewise sorted) writes d1:a_int, d1:implicit_equation_0, e1:flow(br), I2:vx:flow(br), IPRB:flow(br) (+4.8125e-07 into in); save full adds d1:implicit_equation_1, d1:qp_int, d1:sw_int; save default p(r1, i) gives the defaults plus r1.i = 5e-4 A into terminal 1 (measured 5.1875e-4 in this divider); noise n() in engine order, nc(r1) nc('I2:r3') exactly those with their contributions, a diode's rs id flicker rsw idsw flickersw; acxf writes tf()/zin() of IPRB, v1 and I2:vx, and tf(i1) = 500 for 1 kOhm||1 kOhm; strictsave=0: a nosuch column of zeros, rc 0; 1 and 2: \"Node 'nosuch' not found. Failed to bind analysis outputs.\", no rawfile; under 2 an nc() before an op is still ignored. Xyce: V(*) names V(XI2:MID) and no device internal; DNO(XI2:R3); I(R1) 0.0005187502 A into terminal 1, I(E1) -0.0009625; .print dc ... v(I2:MID): \"There was 1 undefined symbol in .PRINT command: node I2:MID\", rc 1; .ic v(I2:MID)=0.3: \"Ignoring nodes: I2:MID\", rc 0, V(XI2:MID) = 1.0 at t = 0",
+ "rules": [
+  "\u00a76.1 what is saved: save default on VACASK writes bytewise-sorted node and flow columns plus device internals, which vamos ignores; save full adds more",
+  "\u00a76.3/\u00a76.4 the forward name map: I2:Mid / V(XI2:MID), r1.i / I(R1) (positive into terminal 1), e1:flow(br) / I(E1), DNO(XI2:R3); nodes A and a are distinct columns on VACASK, so Raw.exact is used (index('A') is ambiguous)",
+  "\u00a77.1 noise: nc(inst) gives exactly n(inst) and its contributions; acxf writes tf()/zin() of every source; \u00a78.4 a diode's contributions rs id flicker rsw idsw flickersw",
+  "\u00a77.1 strictsave: vamos sets strictsave=2 so an unknown save fails the analysis (no rawfile) instead of a column of zeros",
+  "\u00a74.5 item 15 printed_path: Xyce needs the X-prefixed spelling in .PRINT and .IC"
+ ],
+ "runs": [
+  {
+   "name": "vacask_names",
+   "tool": "vacask",
+   "deck": "names.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "names_sorted": true,
+     "ambiguous": [
+      "A"
+     ],
+     "names_include": [
+      "A",
+      "a",
+      "d1:a_int",
+      "d1:implicit_equation_0",
+      "e1:flow(br)",
+      "I2:vx:flow(br)",
+      "IPRB:flow(br)",
+      "I2:Mid",
+      "net4<0>"
+     ],
+     "names_exclude": [
+      "d1:implicit_equation_1",
+      "d1:qp_int",
+      "d1:sw_int"
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "IPRB:flow(br)",
+     "value": 4.8125e-07,
+     "rel": 0.0001
+    },
+    {
+     "raw": "op1.raw",
+     "col": "A",
+     "value": 0.75
+    },
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.25
+    },
+    {
+     "raw": "op3.raw",
+     "names_include": [
+      "d1:implicit_equation_1",
+      "d1:qp_int",
+      "d1:sw_int"
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "names": [
+      "I2:Mid",
+      "I2:vx:flow(br)",
+      "r1.i",
+      "A",
+      "a",
+      "net4<0>",
+      "IPRB:flow(br)",
+      "e1:flow(br)"
+     ],
+     "ambiguous": [
+      "A"
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "col": "r1.i",
+     "value": 0.00051875,
+     "rel": 0.001
+    },
+    {
+     "raw": "op2.raw",
+     "col": "e1:flow(br)",
+     "value": -0.0009625,
+     "rel": 0.001
+    },
+    {
+     "raw": "op2.raw",
+     "col": "I2:Mid",
+     "value": 0.48125,
+     "rel": 0.0001
+    },
+    {
+     "raw": "nz1.raw",
+     "names_include": [
+      "n(r1)",
+      "n(I2:r3)",
+      "n(d1)",
+      "n(rip)"
+     ]
+    },
+    {
+     "raw": "nz3.raw",
+     "names": [
+      "frequency",
+      "onoise",
+      "gain",
+      "n(r1)",
+      "n(r1,thermal)",
+      "n(I2:r3)",
+      "n(I2:r3,thermal)"
+     ]
+    },
+    {
+     "raw": "nz2.raw",
+     "names_include": [
+      "n(d1)",
+      "n(d1,rs)",
+      "n(d1,id)",
+      "n(d1,flicker)",
+      "n(d1,rsw)",
+      "n(d1,idsw)",
+      "n(d1,flickersw)"
+     ]
+    },
+    {
+     "raw": "xf1.raw",
+     "names": [
+      "frequency",
+      "tf(IPRB)",
+      "zin(IPRB)",
+      "tf(v1)",
+      "zin(v1)",
+      "tf(I2:vx)",
+      "zin(I2:vx)"
+     ]
+    },
+    {
+     "raw": "xf1.raw",
+     "col": "tf(v1)",
+     "value": [
+      0.48125,
+      0.0
+     ],
+     "rel": 0.001,
+     "abs": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "vacask_xf_isource",
+   "tool": "vacask",
+   "deck": "xf.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "xfA.raw",
+     "names_include": [
+      "tf(i1)",
+      "tf(v1)"
+     ]
+    },
+    {
+     "raw": "xfA.raw",
+     "col": "tf(i1)",
+     "value": [
+      500.0,
+      0.0
+     ],
+     "rel": 0.001,
+     "abs": 0.001
+    }
+   ]
+  },
+  {
+   "name": "vacask_strictsave_0",
+   "tool": "vacask",
+   "deck": "ss0.sim",
+   "status": 0,
+   "files": {
+    "present": [
+     "opA.raw",
+     "opB.raw",
+     "nzC.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "opA.raw",
+     "names_include": [
+      "nosuch"
+     ]
+    },
+    {
+     "raw": "opA.raw",
+     "col": "nosuch",
+     "value": 0.0,
+     "abs": 1e-30
+    }
+   ]
+  },
+  {
+   "name": "vacask_strictsave_1",
+   "tool": "vacask",
+   "deck": "ss1.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Node 'nosuch' not found.",
+     "Failed to bind analysis outputs."
+    ]
+   },
+   "files": {
+    "absent": [
+     "opA.raw"
+    ]
+   }
+  },
+  {
+   "name": "vacask_strictsave_2",
+   "tool": "vacask",
+   "deck": "ss2.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Node 'nosuch' not found.",
+     "Failed to bind analysis outputs."
+    ]
+   },
+   "files": {
+    "absent": [
+     "opA.raw"
+    ],
+    "present": [
+     "opB.raw",
+     "nzC.raw"
+    ]
+   }
+  },
+  {
+   "name": "xyce_names",
+   "tool": "xyce",
+   "deck": "op.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op.raw",
+     "names_include": [
+      "V(XI2:MID)",
+      "V(NET4<0>)",
+      "V(XI2:PUP2)",
+      "I(V1)",
+      "I(L1)",
+      "I(VIPRB)",
+      "I(XI2:VX)",
+      "I(R1)",
+      "I(E1)"
+     ]
+    },
+    {
+     "raw": "op.raw",
+     "col": "I(R1)",
+     "value": 0.0005187502,
+     "rel": 1e-05
+    },
+    {
+     "raw": "op.raw",
+     "col": "I(E1)",
+     "value": -0.0009625,
+     "rel": 0.0001
+    },
+    {
+     "raw": "op.raw",
+     "col": "V(XI2:MID)",
+     "value": 0.48125,
+     "rel": 0.0001
+    }
+   ]
+  },
+  {
+   "name": "xyce_dno_hierarchical",
+   "tool": "xyce",
+   "deck": "nz.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nz.prn",
+     "columns": [
+      "Index",
+      "FREQ",
+      "ONOISE",
+      "INOISE",
+      "DNO(R1)",
+      "DNO(XI2:R3)",
+      "DNO(D1)",
+      "DNI(R1)"
+     ]
+    },
+    {
+     "prn": "nz.prn",
+     "col": "DNO(XI2:R3)",
+     "row": 0,
+     "value": 2.27157814e-20,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "xyce_print_ir_spelling_undefined",
+   "tool": "xyce",
+   "deck": "p1.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "There was 1 undefined symbol in .PRINT command: node I2:MID"
+    ]
+   }
+  },
+  {
+   "name": "xyce_ic_ir_spelling_ignored",
+   "tool": "xyce",
+   "deck": "p2.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Ignoring nodes:",
+     "I2:MID"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "p2.raw",
+     "col": "V(XI2:MID)",
+     "at": 0.0,
+     "value": 1.0,
+     "rel": 1e-06
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,18 @@
+SPICENetlistSource 0-24
+  Title 0-4
+    Notation 0-3
+    Notation 3-4
+  ParamStatement 4-24
+    Notation 4-5
+    Keyword 5-10
+    Parameter 11-23
+      Identifier 11-12
+      Notation 13-14
+      BinaryExpression 15-23
+        NumberLiteral 15-17
+        Operator 18-19
+        BinaryExpression 20-23
+          NumberLiteral 20-21
+          Operator 21-22
+          NumberLiteral 22-23
+    Notation 23-24

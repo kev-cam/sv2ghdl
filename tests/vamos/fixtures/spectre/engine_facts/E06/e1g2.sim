@@ -1,0 +1,18 @@
+one failing sweep point
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource dc=1
+r1 (a 0) resistor r=1k
+@if vv > 1.5
+  v3 (a 0) vsource dc=3
+@end
+control
+  options rawfile="ascii"
+  var vv=0
+  sweep s1 variable="vv" values=[1, 2, 1]
+    analysis sw op
+  var vv=0
+  analysis after op
+endc

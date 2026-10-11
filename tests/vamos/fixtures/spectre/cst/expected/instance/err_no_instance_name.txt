@@ -1,0 +1,2 @@
+SpectreNetlistSource 79-80
+  Error 79-80

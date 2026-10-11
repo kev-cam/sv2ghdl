@@ -1,0 +1,6 @@
+// subckt with no external node list at all, only a parameters line and body
+subckt s1
+    parameters p1=4 p3=5 p4=6
+    r1 (1 0) resistor r=p1
+    r3 (1 0) resistor r=p3
+ends

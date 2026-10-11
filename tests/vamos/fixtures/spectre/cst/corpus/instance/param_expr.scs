@@ -1,0 +1,5 @@
+// Instances whose parameter values are expressions (arithmetic, functions)
+R1 (a b) resistor r=r0*2
+R2 (b c) resistor r=(rbase+100)/2
+C1 (c 0) capacitor c=cbase*scale
+R3 (a c) resistor r=sqrt(r0*rbase)

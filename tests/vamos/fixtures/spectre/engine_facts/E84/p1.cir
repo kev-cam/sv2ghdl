@@ -1,0 +1,10 @@
+* print hierarchical node through the IR spelling
+.subckt sub1 p q
+r3 p Mid 1k
+r4 Mid q 1k
+.ends
+v1 vin 0 dc 1
+xI2 vin 0 sub1
+.op
+.print dc format=raw file=p1.raw v(I2:MID)
+.end

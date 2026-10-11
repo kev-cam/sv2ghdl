@@ -1,0 +1,7 @@
+* noise of a divider
+V1 in 0 DC 1 AC 1
+R1 in out 1k
+R2 out 0 1k
+.NOISE V(out) V1 DEC 1 1k 10k
+.PRINT NOISE FILE=nz.prn ONOISE INOISE DNO(R1) DNO(R2) DNI(R1)
+.end

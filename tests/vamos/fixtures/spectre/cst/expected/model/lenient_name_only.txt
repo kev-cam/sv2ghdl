@@ -1,0 +1,4 @@
+SpectreNetlistSource 77-89
+  Model 77-89
+    Keyword 77-82
+    Identifier 83-89

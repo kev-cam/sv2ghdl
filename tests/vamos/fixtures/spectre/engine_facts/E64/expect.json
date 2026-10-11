@@ -1,0 +1,215 @@
+{
+ "row": "E64",
+ "experiment": "Verilog-A on Xyce PyMS and VACASK (sp3/ENG/r_va.sh, r_va2.sh with the ADMS toys/resistor.va and diode.va patterns)",
+ "result": "Xyce: vamos's Y form for an xyceModelGroup module, with or without parameters: \"Unrecognized parameter A for device YRESISTOR!R1\", rc 1; .model rmod r level=6 + R1 a b rmod R=3k: V(B) = 0.25, the summary RESISTOR (resistor); .model dm d level=1002001 Is=1e-14 Rs=10 + D1 a 0 dm: rc 0, \"Numerically singular matrix found by Amesos, returning zero\", V(A) = 1.01e9; an unattributed module (default r = 2000): no parameters 0.3333, .model rc vres r=3000 still 0.3333 with no warning, yvres r1 a b vres__vamos r=3000 \"Unrecognized parameter R\"; Xyce accepts R=3k and r=3k. VACASK: model r1__va resistor R=3k: \"Parameter 'R' not found.\", rc 1; r=3k: 0.25; model d1__va diode_simple Is=1e-14 Rs=10: \"Parameter 'Is' not found.\"; an instance-typed parameter on the per-instance card works",
+ "rules": [
+  "\u00a74.5 item 13 the Xyce emitter prints an xyceModelGroup module as its letter device, where today's Y form fails outright; a module's card parameters are refused on Xyce (PyMS ignores them, or binds a built-in)",
+  "\u00a74.5 item 13 phase 2's Device Count Summary check: every module must be listed under its own name (RESISTOR (resistor)), never a built-in level",
+  "\u00a73.9 Verilog-A parameter names: OpenVAF lower-cases them, so VACASK wants r for a module declaring R; Xyce is case-insensitive; an instance-typed parameter works on VACASK's per-instance card"
+ ],
+ "runs": [
+  {
+   "name": "y_form_with_param_fails",
+   "tool": "xyce",
+   "deck": "x1.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized parameter A for device YRESISTOR!R1"
+    ]
+   }
+  },
+  {
+   "name": "y_form_vamos_fails",
+   "tool": "xyce",
+   "deck": "x2.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized parameter A for device YRESISTOR!R1"
+    ]
+   }
+  },
+  {
+   "name": "letter_device_level_card",
+   "tool": "xyce",
+   "deck": "x5.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "RESISTOR (resistor)"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x5.raw",
+     "col": "V(B)",
+     "value": 0.25
+    }
+   ]
+  },
+  {
+   "name": "letter_device_lower_case_r",
+   "tool": "xyce",
+   "deck": "xc.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "checks": [
+    {
+     "raw": "xc.raw",
+     "col": "V(B)",
+     "value": 0.25
+    }
+   ]
+  },
+  {
+   "name": "y_form_diode_fails",
+   "tool": "xyce",
+   "deck": "x6.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized parameter A for device YDIODE_SIMPLE!D1"
+    ]
+   }
+  },
+  {
+   "name": "letter_device_diode_singular",
+   "tool": "xyce",
+   "deck": "x7.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "Numerically singular matrix found by Amesos, returning zero",
+     "DIODE_SIMPLE (diode_simple)"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x7.raw",
+     "col": "V(A)",
+     "value": 1010000000.0,
+     "rel": 0.05
+    }
+   ]
+  },
+  {
+   "name": "plain_module_default",
+   "tool": "xyce",
+   "deck": "y1.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "checks": [
+    {
+     "raw": "y1.raw",
+     "col": "V(B)",
+     "value": 0.333333,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "plain_module_card_param_ignored",
+   "tool": "xyce",
+   "deck": "y2.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "absent": [
+     "Unrecognized",
+     "No model parameter",
+     "Netlist error"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "y2.raw",
+     "col": "V(B)",
+     "value": 0.333333,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "plain_module_y_line_param_refused",
+   "tool": "xyce",
+   "deck": "y3.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized parameter R"
+    ]
+   }
+  },
+  {
+   "name": "vacask_upper_case_R_not_found",
+   "tool": "vacask",
+   "deck": "v1.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Parameter 'R' not found."
+    ]
+   },
+   "files": {
+    "absent": [
+     "op1.raw"
+    ]
+   }
+  },
+  {
+   "name": "vacask_instance_typed_on_card",
+   "tool": "vacask",
+   "deck": "v1b.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "value": 0.25
+    }
+   ]
+  },
+  {
+   "name": "vacask_diode_Is_not_found",
+   "tool": "vacask",
+   "deck": "v2.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Parameter 'Is' not found."
+    ]
+   },
+   "files": {
+    "absent": [
+     "op2.raw"
+    ]
+   }
+  }
+ ],
+ "provenance": "sp3/ENG/r_va.sh, r_va2.sh (2026-10-04) on /usr/local/src/xyce/utils/ADMS/examples/toys/{resistor,diode}.va; modules rewritten here in their pattern"
+}

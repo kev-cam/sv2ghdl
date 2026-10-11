@@ -1,0 +1,8 @@
+SpectreNetlistSource 79-91
+  Incomplete 79-91
+    Keyword 79-86
+    Incomplete 87-91
+      Incomplete 87-91
+        Identifier 87-89
+        Notation 89-90
+        Error 90-91

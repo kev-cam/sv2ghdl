@@ -1,0 +1,7 @@
+`include "disciplines.vams"
+// a plain module without xyce attributes; default r = 2000
+module vres(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = 2000.0;
+  analog I(a, b) <+ V(a, b) / r;
+endmodule

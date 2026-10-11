@@ -1,0 +1,111 @@
+{
+ "row": "E5",
+ "experiment": "VACASK: swept ac, tran and nested op",
+ "result": "one plot, sweep columns first, points concatenated; equal sweep values give indistinguishable groups",
+ "rules": [
+  "\u00a77.1 Reading: a swept analysis is one plot, sweep columns first, points concatenated, no Dimensions header; the split goes by the restart of the inner axis, never by value"
+ ],
+ "runs": [
+  {
+   "name": "swept_layout",
+   "tool": "vacask",
+   "deck": "e1e.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "ac1.raw",
+     "plots": 1,
+     "names": [
+      "s1",
+      "frequency",
+      "a",
+      "b",
+      "v1:flow(br)"
+     ],
+     "points": 21,
+     "no_header": "dimensions",
+     "restarts": 3,
+     "axis": "frequency"
+    },
+    {
+     "raw": "ac1.raw",
+     "col": "s1",
+     "values": [
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      1000.0,
+      2000.0,
+      2000.0,
+      2000.0,
+      2000.0,
+      2000.0,
+      2000.0,
+      2000.0
+     ]
+    },
+    {
+     "raw": "tr1.raw",
+     "plots": 1,
+     "names": [
+      "s2",
+      "time",
+      "a",
+      "b",
+      "v1:flow(br)"
+     ],
+     "no_header": "dimensions",
+     "restarts": 2,
+     "axis": "time"
+    },
+    {
+     "raw": "op1.raw",
+     "plots": 1,
+     "names": [
+      "s3",
+      "s4",
+      "a",
+      "b",
+      "v1:flow(br)"
+     ],
+     "points": 6
+    },
+    {
+     "raw": "op1.raw",
+     "col": "s3",
+     "values": [
+      1000.0,
+      1000.0,
+      1000.0,
+      2000.0,
+      2000.0,
+      2000.0
+     ]
+    },
+    {
+     "raw": "op1.raw",
+     "col": "s4",
+     "values": [
+      1e-06,
+      2e-06,
+      3e-06,
+      1e-06,
+      2e-06,
+      3e-06
+     ],
+     "rel": 1e-06
+    }
+   ]
+  }
+ ]
+}

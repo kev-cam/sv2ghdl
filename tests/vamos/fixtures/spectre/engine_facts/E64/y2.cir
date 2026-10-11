@@ -1,0 +1,9 @@
+* plain VA module on the Y form, parameter on the card
+.hdl "vres.va"
+.model rc vres r=3000
+V1 a 0 1
+yvres r1 a b rc
+R2 b 0 1k
+.op
+.print dc format=raw file=y2.raw v(b)
+.end

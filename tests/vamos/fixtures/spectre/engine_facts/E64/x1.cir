@@ -1,0 +1,8 @@
+* Y line with an instance parameter
+.hdl "toy_resistor.va"
+V1 a 0 1
+Yresistor r1 a b R=3k
+R2 b 0 1k
+.op
+.print dc format=raw file=x1.raw v(b)
+.end

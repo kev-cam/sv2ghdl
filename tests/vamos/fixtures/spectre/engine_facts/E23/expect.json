@@ -1,0 +1,52 @@
+{
+ "row": "E23",
+ "experiment": "r=1k scale=0.5 on VACASK sp_resistor and on Xyce",
+ "result": "VACASK 500 Ohm, silently; Xyce \"Unrecognized parameter SCALE\"",
+ "rules": [
+  "\u00a73.8 the resistor instance scale rule (w and l only; vamos folds it, never prints scale=)"
+ ],
+ "runs": [
+  {
+   "name": "vacask_scale",
+   "tool": "vacask",
+   "deck": "tv.sim",
+   "status": 0,
+   "output": {
+    "absent": [
+     "scale",
+     "SCALE",
+     "Unrecognized",
+     "not found"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op2.raw",
+     "col": "o9",
+     "value": 0.666667,
+     "rel": 1e-05
+    },
+    {
+     "raw": "op1.raw",
+     "col": "o5",
+     "values": [
+      0.5,
+      0.333333
+     ],
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "xyce_scale",
+   "tool": "xyce",
+   "deck": "rscale.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized parameter SCALE"
+    ]
+   }
+  }
+ ]
+}

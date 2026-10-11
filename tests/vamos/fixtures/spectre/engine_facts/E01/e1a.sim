@@ -1,0 +1,16 @@
+var-only top-level parameter swept as a circuit variable
+ground 0
+load "resistor.osdi"
+model resistor resistor
+model vsource vsource
+v1 (a 0) vsource dc=1
+r1 (a b) resistor r=rval
+r2 (b 0) resistor r=1k
+control
+  options rawfile="ascii"
+  var rval=1k
+  analysis op0 op
+  sweep s1 variable="rval" values=[1k, 3k]
+    analysis op1 op
+  analysis op2 op
+endc

@@ -1,0 +1,77 @@
+{
+ "row": "E38",
+ "experiment": "VACASK: pulse sources with and without dc, an alter and a sweep of val0",
+ "result": "the op follows val0 in both (0.7, then 0.2 / 0.4): a derived dc follows the fields, and an explicit dc is ignored (E17)",
+ "rules": [
+  "\u00a75.3 a source whose dc is derived stays in its waveform type: VACASK's t = 0 value is Spectre's derived dc and follows alters and sweeps of the fields",
+  "\u00a73.8 Source.dc absent: the waveform's t = 0 value, kept derived"
+ ],
+ "runs": [
+  {
+   "name": "derived_dc_follows_val0",
+   "tool": "vacask",
+   "deck": "dcd.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.7
+    },
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "value": 0.7
+    },
+    {
+     "raw": "op2.raw",
+     "col": "s1",
+     "values": [
+      0.2,
+      0.4
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "col": "b",
+     "values": [
+      0.2,
+      0.4
+     ]
+    },
+    {
+     "raw": "op2.raw",
+     "col": "a",
+     "values": [
+      0.7,
+      0.7
+     ]
+    },
+    {
+     "raw": "op3.raw",
+     "col": "s2",
+     "values": [
+      0.2,
+      0.4
+     ]
+    },
+    {
+     "raw": "op3.raw",
+     "col": "a",
+     "values": [
+      0.2,
+      0.4
+     ]
+    },
+    {
+     "raw": "op3.raw",
+     "col": "b",
+     "values": [
+      0.7,
+      0.7
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+// RC test, don't edit
+simulator lang=spectre
+* it's a comment with an apostrophe
+#define RVAL 2k
+R1 (in out) resistor r=RVAL
+parameters unix=1 linux=2
+C1 (out 0) capacitor c=1u   // a 'quoted' word

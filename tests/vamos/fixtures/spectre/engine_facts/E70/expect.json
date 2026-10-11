@@ -1,0 +1,81 @@
+{
+ "row": "E70",
+ "experiment": "Xyce .OP of waveform sources printed without DC (sp3/ENG/r_xdc.sh)",
+ "result": "PULSE(0.3 ...), SIN(0.5 1 1k 1u 0 90), EXP(0.2 ...), PWL 0 0.7 ..., PWL 1u 0.6 ...: 0/0/0/0/0; the same sources on VACASK: 0.3/1.5/0.2/0.7/0.6",
+ "rules": [
+  "\u00a73.8 Source.dc absent: the waveform's t = 0 value; \u00a74.5 item 8: Xyce's operating point for a waveform source printed without DC is 0, so Xyce gets the derived value written as its DC field; VACASK uses the t = 0 value itself"
+ ],
+ "runs": [
+  {
+   "name": "xyce_op_without_dc_is_zero",
+   "tool": "xyce",
+   "deck": "nodc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nodc.raw",
+     "col": "V(A)",
+     "value": 0.0,
+     "abs": 1e-12
+    },
+    {
+     "raw": "nodc.raw",
+     "col": "V(B)",
+     "value": 0.0,
+     "abs": 1e-12
+    },
+    {
+     "raw": "nodc.raw",
+     "col": "V(C)",
+     "value": 0.0,
+     "abs": 1e-12
+    },
+    {
+     "raw": "nodc.raw",
+     "col": "V(D)",
+     "value": 0.0,
+     "abs": 1e-12
+    },
+    {
+     "raw": "nodc.raw",
+     "col": "V(E)",
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "vacask_op_is_t0_value",
+   "tool": "vacask",
+   "deck": "nodc.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.3
+    },
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "value": 1.5
+    },
+    {
+     "raw": "op1.raw",
+     "col": "c",
+     "value": 0.2
+    },
+    {
+     "raw": "op1.raw",
+     "col": "d",
+     "value": 0.7
+    },
+    {
+     "raw": "op1.raw",
+     "col": "e",
+     "value": 0.6
+    }
+   ]
+  }
+ ]
+}

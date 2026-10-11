@@ -1,0 +1,4 @@
+// ic: initial conditions on nodes, including a hierarchical node and multiple params
+ic cc=5
+ic vout=2.5 vin=0
+ic X3.na=2.5

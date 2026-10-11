@@ -1,0 +1,7 @@
+// binning by conditional instantiation: short vs long channel model
+simulator lang=spectre
+if ( l < 0.5u ) {
+    m1 (d g s b) shortmod l=l w=w
+} else {
+    m2 (d g s b) longmod l=l w=w
+}

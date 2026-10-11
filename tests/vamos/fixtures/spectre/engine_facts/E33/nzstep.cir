@@ -1,0 +1,9 @@
+* noise with step
+.param rr=1k
+V1 in 0 DC 1 AC 1
+R1 in out {rr}
+R2 out 0 1k
+.STEP rr LIST 1k 3k
+.NOISE V(out) V1 DEC 1 1k 10k
+.PRINT NOISE FILE=nzstep.prn ONOISE INOISE
+.end

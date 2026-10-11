@@ -1,0 +1,24 @@
+noise of a divider
+ground 0
+load "resistor.osdi"
+model vs vsource
+model is isource
+model r resistor
+v1 (in 0) vs dc=1 mag=1
+r1 (in out) r r=1k
+r2 (out 0) r r=1k
+i2 (0 n2) is dc=0
+r3 (n2 0) r r=1k
+control
+  options rawfile="ascii"
+  analysis nz1 noise out="out" in="v1" from=1k to=10k mode="dec" points=1
+  analysis nz2 noise out="out" from=1k to=10k mode="dec" points=1
+  save v(out) i(v1)
+  analysis nz3 noise out="out" in="v1" from=1k to=10k mode="dec" points=1
+  clear saves
+  save full
+  analysis nz4 noise out=["out", "in"] in="v1" from=1k to=10k mode="dec" points=1
+  clear saves
+  analysis nz5 noise out="n2" in="i2" from=1k to=10k mode="dec" points=1
+  analysis xf1 acxf out="out" from=1k to=10k mode="dec" points=1
+endc

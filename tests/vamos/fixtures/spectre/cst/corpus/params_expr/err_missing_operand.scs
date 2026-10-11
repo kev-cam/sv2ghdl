@@ -1,0 +1,4 @@
+// malformed expression: an operator appears where an operand is expected
+simulator lang=spectre
+parameters p1=1
+parameters bad=1 * / 2

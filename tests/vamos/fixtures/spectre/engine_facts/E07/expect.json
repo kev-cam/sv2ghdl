@@ -1,0 +1,59 @@
+{
+ "row": "E7",
+ "experiment": "VACASK: alter instance(\"v1\") type=\"pulse\", options reltol=... tran_method=\"gear2\" between analyses",
+ "result": "the source becomes a pulse with its earlier printed val0/val1/width/delay (the edge is VACASK's 1 ns default); options lines are accepted",
+ "rules": [
+  "\u00a75.3 source-state switching through alter type=",
+  "\u00a75.4 per-analysis options lines"
+ ],
+ "runs": [
+  {
+   "name": "alter_type_pulse",
+   "tool": "vacask",
+   "deck": "e1h.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "a",
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 5e-09,
+     "value": 0.0,
+     "abs": 1e-06
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 1.2e-08,
+     "value": 2.0,
+     "rel": 0.01
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 5e-07,
+     "value": 2.0,
+     "rel": 0.001
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 2.9e-06,
+     "value": 2.0,
+     "rel": 0.001
+    },
+    {
+     "raw": "op2.raw",
+     "col": "a",
+     "value": 0.0,
+     "abs": 1e-09
+    }
+   ]
+  }
+ ]
+}

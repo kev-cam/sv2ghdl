@@ -1,0 +1,4 @@
+// body references the M_PI built-in constant
+real circ_area( real r ) {
+    return M_PI*r*r;
+}

@@ -1,0 +1,2 @@
+// ERROR: function call in the parameter expression is missing its closing ')'
+model RMOD resistor tc1=sqrt(p1*p2

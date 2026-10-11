@@ -1,0 +1,15 @@
+SPICENetlistSource 0-60
+  Title 0-29
+    Notation 0-28
+    Notation 28-29
+  Resistor 29-60
+    HierarchialNode 29-36
+      NodeName 29-36
+        Identifier 29-36
+    HierarchialNode 37-47
+      NodeName 37-47
+        Identifier 37-47
+    HierarchialNode 48-55
+      NodeName 48-55
+        Identifier 48-55
+    NumberLiteral 56-60

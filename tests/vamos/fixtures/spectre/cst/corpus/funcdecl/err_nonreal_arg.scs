@@ -1,0 +1,4 @@
+// ERROR: argument type must be 'real', 'integer' is not allowed
+real bad( integer a ) {
+    return a*a;
+}

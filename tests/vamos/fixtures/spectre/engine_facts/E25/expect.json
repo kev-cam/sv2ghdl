@@ -1,0 +1,74 @@
+{
+ "row": "E25",
+ "experiment": "VACASK: fall=tf with var tf=0; alter instance(\"v1\") rise=0; Xyce zero edges",
+ "result": "a(300 ns) = 1.0 for a 100 ns pulse (no fall); \"Rise time of pulse transient must be grater than 0.\", \"Circuit setup failed.\", rc 1; Xyce makes ideal steps (PulseData::updateSource)",
+ "rules": [
+  "\u00a73.8.1 the edge policy: an omitted or zero rise/fall becomes transres (a warning); VACASK rejects a zero rise and reads a zero fall as no fall"
+ ],
+ "runs": [
+  {
+   "name": "vacask_zero_edges",
+   "tool": "vacask",
+   "deck": "edge.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Rise time of pulse transient must be grater than 0.",
+     "Circuit setup failed."
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 1.5e-07,
+     "value": 1.0,
+     "rel": 1e-06
+    },
+    {
+     "raw": "tr1.raw",
+     "col": "a",
+     "at": 3e-07,
+     "value": 1.0,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "xyce_zero_edges",
+   "tool": "xyce",
+   "deck": "edge.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "edge.raw",
+     "col": "V(A)",
+     "at": 9.9e-08,
+     "value": 0.0,
+     "abs": 0.001
+    },
+    {
+     "raw": "edge.raw",
+     "col": "V(A)",
+     "at": 1.01e-07,
+     "value": 1.0,
+     "abs": 0.001
+    },
+    {
+     "raw": "edge.raw",
+     "col": "V(A)",
+     "at": 1.5e-07,
+     "value": 1.0,
+     "rel": 1e-06
+    },
+    {
+     "raw": "edge.raw",
+     "col": "V(A)",
+     "at": 3e-07,
+     "value": 0.0,
+     "abs": 1e-09
+    }
+   ]
+  }
+ ]
+}
