@@ -1,0 +1,8 @@
+* model-group route (cadence2xyce X->D rewrite): .model d level=N with a card parameter
+.hdl "mydio.va"
+v1 a 0 1
+.model dm d level=2002 r=2k
+d1 a 0 dm
+.op
+.print dc i(v1)
+.end

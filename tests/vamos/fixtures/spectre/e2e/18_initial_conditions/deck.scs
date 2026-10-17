@@ -1,0 +1,17 @@
+// e2e 18: initial conditions (sec. 5.4): ic statements under each tran ic mode, skipdc, a nodeset; the op and ac unchanged
+simulator lang=spectre
+V1 (in 0) vsource dc=1 mag=1
+R1 (in a) resistor r=1k
+C1 (a 0) capacitor c=1n
+R2 (in b) resistor r=1k
+C2 (b 0) capacitor c=1n
+ic a=0.2 b=0.4
+nodeset a=0.5 b=0.5
+op1 dc
+ac1 ac values=[1k]
+trall tran stop=100n ic=all
+trnode tran stop=100n ic=node
+trdev tran stop=100n ic=dev
+trdc tran stop=100n ic=dc
+trskip tran stop=100n skipdc=yes
+save in a b

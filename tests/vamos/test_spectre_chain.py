@@ -1,6 +1,7 @@
 """S6, phase 1b (docs/VAMOS_SPECTRE_DESIGN.md §12 "Phase 1b", §11 T2 e2e 1-10): the netlist chain
 spectre.parse -> plan.build -> signals.resolve -> render on both engines for the e2e decks 1-10, without
-flow.py.
+flow.py, and for every later e2e deck that holds an engine_expect.json (phase 2; a deck without one is
+CLI-level and not a chain case).
 
     cd tests/vamos && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_spectre_chain
 
@@ -18,13 +19,13 @@ TestChainRuns (WSL; needs_vacask / needs_xyce)   the rendered decks run on the e
     vamos.ams.engines, the raw output (rawfile.read_all / read_prn) matches engine_expect
 
 The Xyce state replay (§7.2: one deck per analysis, rendered from the IR with the alters up to that point
-applied) is phase 2's (flow.py); `replay` here applies the plan's alter actions to the render copy for
-the decks of this tier, and names the keys phase 2 reads (Action.args: target, value, source).  The
-Verilog-A sources are copied beside the decks and named by their base names (`hdl_beside`): Xyce's PyMS
-loses the parameters of two modules named by absolute paths (phase 1b, E: deck 08).
+applied) is phase 2's runner's: `replay` here is vamos.spectre.run_xyce.replay (phase 1b kept its own
+reference copy, which phase 2 replaced by the runner's), applied to the render copy for the decks of this
+tier (Action.args: target, value, source).  The Verilog-A sources are named by their base names
+(`hdl_beside`) and copied beside the decks with run_xyce.place_va, which also copies the files they
+`include: Xyce's PyMS loses the parameters of two modules named by absolute paths (phase 1b, E: deck 08).
 """
 
-import copy
 import json
 import os
 import shutil
@@ -34,16 +35,18 @@ from typing import Dict, List, Optional
 from vamos_testlib import TempDir, run  # noqa: F401
 from spectre_testlib import SPECTRE_FIXTURES, have_vacask, have_xyce  # noqa: E402
 
-from vamos.netlist import ir, plan as PL, rawfile, signals as SG, spectre, tables as T, vacask, xyce  # noqa: E402
-from vamos.netlist.expr_ast import Num, Str  # noqa: E402
+from vamos.netlist import ir, plan as PL, rawfile, signals as SG, spectre, vacask, xyce  # noqa: E402
 from vamos.notes import ERROR, NoteError  # noqa: E402
+from vamos.spectre import run_xyce  # noqa: E402  (the state replay and the Verilog-A placement, §7.2)
 from vamos.spectre.job import Settings  # noqa: E402
 
 E2E = os.path.join(SPECTRE_FIXTURES, "e2e")
-CASES = sorted(d for d in os.listdir(E2E) if os.path.isdir(os.path.join(E2E, d)) and d[:2].isdigit())
+DECKS = sorted(d for d in os.listdir(E2E) if os.path.isdir(os.path.join(E2E, d)) and d[:2].isdigit())
+# the chain cases: every e2e directory that holds an engine_expect.json; a directory without one is a
+# CLI-level deck (cpp, a command-line option), which phase 2's harness runs from its expect.json alone
+CASES = [d for d in DECKS if os.path.isfile(os.path.join(E2E, d, "engine_expect.json"))]
 ENGINES = ("vacask", "xyce")
 REGEN = bool(os.environ.get("VAMOS_REGEN_GOLDEN"))
-VALUE_KEY = {"resistor": "r", "capacitor": "c", "inductor": "l"}
 
 
 # -- the chain -------------------------------------------------------------------------------------------
@@ -103,84 +106,10 @@ def chain(deck: str, engine: str, hdl_beside: bool = True) -> ChainResult:
     return r
 
 
-def _subckts(nl: ir.Netlist) -> Dict[str, ir.Subckt]:
-    out: Dict[str, ir.Subckt] = {}
-
-    def collect(items):
-        for it in ir.flat_items(items):
-            if isinstance(it, ir.Subckt):
-                out[it.name] = it
-                collect(it.body)
-    collect(nl.body)
-    return out
-
-
-def find_instance(nl: ir.Netlist, path: str) -> ir.Instance:
-    """The Instance an IR path (x1.r1) names, through the subckt definitions."""
-    subs = _subckts(nl)
-    body = nl.body
-    inst: Optional[ir.Instance] = None
-    for part in path.split("."):
-        inst = next((it for it in ir.flat_items(body) if isinstance(it, ir.Instance) and it.name == part), None)
-        if inst is None:
-            raise KeyError("no instance %s (%s)" % (path, part))
-        if inst.kind == "x" and inst.master in subs:
-            body = subs[inst.master].body
-    assert inst is not None
-    return inst
-
-
-def _ir_param(prim: Optional[str], section: str, param: str) -> str:
-    """The IR spelling of a target's parameter: the plan applies SPECTRE_MASTERS' renames (§5.2), the IR
-    keeps Spectre's names."""
-    row = T.SPECTRE_MASTERS.get(prim or "")
-    if row is None:
-        return param
-    rules = row.params if section == "card" else row.instance
-    if any(r.name == param for r in rules):
-        return param
-    for r in rules:
-        if r.action == "rename" and r.value == param:
-            return r.name
-    return param
-
-
-def _ir_value(v):
-    if isinstance(v, list):
-        return [Num(float(x)) for x in v]
-    if isinstance(v, str):
-        return Str(v)
-    return Num(float(v))
-
-
-def replay(nl: ir.Netlist, act: PL.Action) -> ir.Netlist:
-    """§7.2's state replay for one alter action: a copy of nl with the alter applied in IR spellings
-    (phase 2's flow owns the real one; the keys read are §5.1's: target, value, source)."""
-    nl2 = copy.deepcopy(nl)
-    kind, name, param = act.args["target"]
-    value = act.args["value"]
-    if kind == "instance":
-        inst = find_instance(nl2, name)
-        if "source" in act.args:
-            inst.source = copy.deepcopy(act.args["source"])
-        else:
-            key = _ir_param(inst.prim, "instance", param)
-            if VALUE_KEY.get(inst.prim or "") == key:
-                inst.value = _ir_value(value)
-            else:
-                inst.params[key] = _ir_value(value)
-    elif kind == "model":
-        for m in nl2.models().values():
-            if m.name == name or m.base == name:
-                m.params[_ir_param(m.prim, "card", param)] = _ir_value(value)
-    elif kind == "option":
-        setattr(nl2, name, float(value))
-    elif kind == "variable":
-        nl2.values[name] = float(value)
-        for p in nl2.body:
-            if isinstance(p, ir.Param) and p.name == name:
-                p.value = Num(float(value))
-    return nl2
+# §7.2's state replay, the runner's (phase 2): a copy of the netlist with one alter action applied in IR
+# spellings; find_instance names an instance through the subckt definitions
+replay = run_xyce.replay
+find_instance = run_xyce.find_instance
 
 
 # -- the engine runs ---------------------------------------------------------------------------------------
@@ -201,8 +130,9 @@ def run_engine(r: ChainResult, engine: str, d: str) -> EngineRun:
     for fn, text in r.decks.items():
         with open(os.path.join(d, fn), "w") as fh:
             fh.write(text)
-    for h in r.hdl:
-        shutil.copy(h, os.path.join(d, os.path.basename(h)))
+    placed = run_xyce.place_va(r.hdl, d)                  # each source with the files it `includes
+    if r.hdl and r.nl2 is not None and list(r.nl2.hdl) == [os.path.basename(h) for h in r.hdl]:
+        assert placed == list(r.nl2.hdl), (placed, r.nl2.hdl)   # the decks name what place_va placed
     env = engines.env_for(engine, None, dict(os.environ))
     res = EngineRun()
     if engine == "vacask":
@@ -415,7 +345,7 @@ class TestChainRenders(unittest.TestCase):
                     self.assertEqual(text, want, "%s/%s differs from its golden" % (gdir, fn))
 
     def test_every_case_has_both_expectation_files(self):
-        self.assertEqual(len(CASES), 10, CASES)
+        self.assertEqual([c[:2] for c in CASES if int(c[:2]) <= 10], ["%02d" % k for k in range(1, 11)], CASES)
         for case in CASES:
             exp = load_json(os.path.join(case_dir(case), "expect.json"))
             for key in ("argv", "engines", "status", "files", "values", "cross_engine", "messages"):

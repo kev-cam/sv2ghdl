@@ -1,0 +1,10 @@
+// e2e 20: an alter of a card parameter Xyce does not know (ikp): the output scan of the later deck finds
+// it, so the run stops with status 2 naming the alter (sec. 7.2); VACASK's sp_diode takes ikp
+simulator lang=spectre
+I1 (0 d) isource dc=1m
+D1 (d 0) dm
+model dm diode is=1e-14
+op1 dc
+ikpAlter alter mod=dm param=ikp value=1m
+op2 dc
+save d

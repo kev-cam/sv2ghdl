@@ -1,0 +1,457 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "ac1.ac",
+  "logFile",
+  "op1.dc",
+  "trall.tran.tran",
+  "trdc.tran.tran",
+  "trdev.tran.tran",
+  "trnode.tran.tran",
+  "trskip.tran.tran"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "a",
+   "at": null,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "op1.dc",
+   "signal": "b",
+   "at": null,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "a",
+   "at": 1000.0,
+   "value": [
+    0.999961,
+    -0.00628294
+   ],
+   "rel": 1e-05
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "b",
+   "at": 1000.0,
+   "value": [
+    0.999961,
+    -0.00628294
+   ],
+   "rel": 1e-05
+  },
+  {
+   "file": "trall.tran.tran",
+   "signal": "a",
+   "at": 0.0,
+   "value": 0.2,
+   "abs": 0.0001
+  },
+  {
+   "file": "trall.tran.tran",
+   "signal": "b",
+   "at": 0.0,
+   "value": 0.4,
+   "abs": 0.0001
+  },
+  {
+   "file": "trall.tran.tran",
+   "signal": "a",
+   "at": 1e-07,
+   "value": 0.27613,
+   "rel": 0.0001
+  },
+  {
+   "file": "trall.tran.tran",
+   "signal": "b",
+   "at": 1e-07,
+   "value": 0.4571,
+   "rel": 0.0001
+  },
+  {
+   "file": "trnode.tran.tran",
+   "signal": "a",
+   "at": 0.0,
+   "value": 0.2,
+   "abs": 0.0001
+  },
+  {
+   "file": "trnode.tran.tran",
+   "signal": "b",
+   "at": 0.0,
+   "value": 0.4,
+   "abs": 0.0001
+  },
+  {
+   "file": "trnode.tran.tran",
+   "signal": "a",
+   "at": 1e-07,
+   "value": 0.27613,
+   "rel": 0.0001
+  },
+  {
+   "file": "trnode.tran.tran",
+   "signal": "b",
+   "at": 1e-07,
+   "value": 0.4571,
+   "rel": 0.0001
+  },
+  {
+   "file": "trdev.tran.tran",
+   "signal": "a",
+   "at": 0.0,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "trdev.tran.tran",
+   "signal": "b",
+   "at": 0.0,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "trdev.tran.tran",
+   "signal": "a",
+   "at": 1e-07,
+   "value": 1.0,
+   "rel": 0.0001
+  },
+  {
+   "file": "trdev.tran.tran",
+   "signal": "b",
+   "at": 1e-07,
+   "value": 1.0,
+   "rel": 0.0001
+  },
+  {
+   "file": "trdc.tran.tran",
+   "signal": "a",
+   "at": 0.0,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "trdc.tran.tran",
+   "signal": "b",
+   "at": 0.0,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "trdc.tran.tran",
+   "signal": "a",
+   "at": 1e-07,
+   "value": 1.0,
+   "rel": 0.0001
+  },
+  {
+   "file": "trdc.tran.tran",
+   "signal": "b",
+   "at": 1e-07,
+   "value": 1.0,
+   "rel": 0.0001
+  },
+  {
+   "file": "trskip.tran.tran",
+   "signal": "a",
+   "at": 0.0,
+   "value": 0.2,
+   "abs": 1e-09
+  },
+  {
+   "file": "trskip.tran.tran",
+   "signal": "b",
+   "at": 0.0,
+   "value": 0.4,
+   "abs": 1e-09
+  },
+  {
+   "file": "trskip.tran.tran",
+   "signal": "a",
+   "at": 1e-07,
+   "value": 0.27613,
+   "rel": 0.0001
+  },
+  {
+   "file": "trskip.tran.tran",
+   "signal": "b",
+   "at": 1e-07,
+   "value": 0.4571,
+   "rel": 0.0001
+  },
+  {
+   "file": "trskip.tran.tran",
+   "signal": "in",
+   "at": 0.0,
+   "value": 0.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "trskip.tran.tran",
+   "signal": "in",
+   "at": 1e-07,
+   "value": 1.0,
+   "abs": 1e-09
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": [],
+ "xyce": {
+  "messages": [
+   [
+    "note",
+    ".nodeset dropped in the tran deck"
+   ]
+  ]
+ },
+ "also": [
+  {
+   "deck": "deck_devic.scs",
+   "argv": [
+    "deck_devic.scs"
+   ],
+   "status": 0,
+   "files": [
+    "logFile",
+    "op1.dc",
+    "trdc.tran.tran",
+    "trnode.tran.tran"
+   ],
+   "values": [
+    {
+     "file": "op1.dc",
+     "signal": "a",
+     "at": null,
+     "value": 1.0,
+     "abs": 1e-09
+    },
+    {
+     "file": "op1.dc",
+     "signal": "b",
+     "at": null,
+     "value": 1.0,
+     "abs": 1e-09
+    },
+    {
+     "file": "trnode.tran.tran",
+     "signal": "a",
+     "at": 0.0,
+     "value": 0.2,
+     "abs": 0.0001
+    },
+    {
+     "file": "trnode.tran.tran",
+     "signal": "b",
+     "at": 0.0,
+     "value": 0.4,
+     "abs": 0.0001
+    },
+    {
+     "file": "trnode.tran.tran",
+     "signal": "a",
+     "at": 1e-07,
+     "value": 0.27613,
+     "rel": 0.0001
+    },
+    {
+     "file": "trnode.tran.tran",
+     "signal": "b",
+     "at": 1e-07,
+     "value": 0.4571,
+     "rel": 0.0001
+    },
+    {
+     "file": "trdc.tran.tran",
+     "signal": "a",
+     "at": 0.0,
+     "value": 1.0,
+     "abs": 1e-09
+    },
+    {
+     "file": "trdc.tran.tran",
+     "signal": "b",
+     "at": 0.0,
+     "value": 1.0,
+     "abs": 1e-09
+    },
+    {
+     "file": "trdc.tran.tran",
+     "signal": "a",
+     "at": 1e-07,
+     "value": 1.0,
+     "rel": 0.0001
+    },
+    {
+     "file": "trdc.tran.tran",
+     "signal": "b",
+     "at": 1e-07,
+     "value": 1.0,
+     "rel": 0.0001
+    }
+   ],
+   "cross_engine": {
+    "rel": 0.0001
+   },
+   "messages": []
+  },
+  {
+   "deck": "deck_devic_all.scs",
+   "argv": [
+    "deck_devic_all.scs"
+   ],
+   "status": 2,
+   "messages": [
+    [
+     "error",
+     "device ic= on a capacitor is not supported unless every tran uses ic=dc or ic=node"
+    ]
+   ]
+  },
+  {
+   "deck": "deck_state.scs",
+   "argv": [
+    "deck_state.scs"
+   ],
+   "status": 0,
+   "files": [
+    "logFile",
+    "op1.dc",
+    "trread.tran.tran",
+    "trread51.tran.tran",
+    "trstmt.tran.tran"
+   ],
+   "values": [
+    {
+     "file": "op1.dc",
+     "signal": "a",
+     "at": null,
+     "value": 1.0,
+     "abs": 1e-09
+    },
+    {
+     "file": "op1.dc",
+     "signal": "b",
+     "at": null,
+     "value": 1.0,
+     "abs": 1e-09
+    },
+    {
+     "file": "trread.tran.tran",
+     "signal": "a",
+     "at": 0.0,
+     "value": 0.6,
+     "abs": 0.0001
+    },
+    {
+     "file": "trread.tran.tran",
+     "signal": "b",
+     "at": 0.0,
+     "value": 0.3,
+     "abs": 0.0001
+    },
+    {
+     "file": "trread.tran.tran",
+     "signal": "a",
+     "at": 1e-07,
+     "value": 0.638065,
+     "rel": 0.0001
+    },
+    {
+     "file": "trread.tran.tran",
+     "signal": "b",
+     "at": 1e-07,
+     "value": 0.366614,
+     "rel": 0.0001
+    },
+    {
+     "file": "trstmt.tran.tran",
+     "signal": "a",
+     "at": 0.0,
+     "value": 0.2,
+     "abs": 0.0001
+    },
+    {
+     "file": "trstmt.tran.tran",
+     "signal": "b",
+     "at": 0.0,
+     "value": 0.4,
+     "abs": 0.0001
+    },
+    {
+     "file": "trstmt.tran.tran",
+     "signal": "a",
+     "at": 1e-07,
+     "value": 0.27613,
+     "rel": 0.0001
+    },
+    {
+     "file": "trstmt.tran.tran",
+     "signal": "b",
+     "at": 1e-07,
+     "value": 0.4571,
+     "rel": 0.0001
+    },
+    {
+     "file": "trread51.tran.tran",
+     "signal": "a",
+     "at": 0.0,
+     "value": 0.6,
+     "abs": 0.0001
+    },
+    {
+     "file": "trread51.tran.tran",
+     "signal": "b",
+     "at": 0.0,
+     "value": 0.3,
+     "abs": 0.0001
+    },
+    {
+     "file": "trread51.tran.tran",
+     "signal": "a",
+     "at": 1e-07,
+     "value": 0.638065,
+     "rel": 0.0001
+    },
+    {
+     "file": "trread51.tran.tran",
+     "signal": "b",
+     "at": 1e-07,
+     "value": 0.366614,
+     "rel": 0.0001
+    }
+   ],
+   "cross_engine": {
+    "rel": 0.0001
+   },
+   "messages": [
+    [
+     "note",
+     "op1 readns: 1 current entries of"
+    ],
+    [
+     "warning",
+     "trread readic: 1 current entries of"
+    ],
+    [
+     "warning",
+     "trread51 read: 1 current entries of"
+    ]
+   ]
+  }
+ ]
+}

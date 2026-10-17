@@ -1,0 +1,175 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "op0.dc",
+  "swp_op1.sweep",
+  "swp-000_op1.dc",
+  "swp-001_op1.dc",
+  "op2.dc",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op0.dc",
+   "signal": "in",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op0.dc",
+   "signal": "o1",
+   "at": null,
+   "value": 0.3333333333333333,
+   "rel": 1e-09
+  },
+  {
+   "file": "op0.dc",
+   "signal": "o2",
+   "at": null,
+   "value": 0.25,
+   "rel": 1e-09
+  },
+  {
+   "file": "op0.dc",
+   "signal": "o3",
+   "at": null,
+   "value": 0.25,
+   "rel": 1e-09
+  },
+  {
+   "file": "op0.dc",
+   "signal": "V1:p",
+   "at": null,
+   "value": -0.0008333333333333333,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp_op1.sweep",
+   "signal": "rval",
+   "at": null,
+   "value": [
+    1000.0,
+    2000.0
+   ],
+   "rel": 1e-12,
+   "points": 2
+  },
+  {
+   "file": "swp-000_op1.dc",
+   "signal": "in",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-000_op1.dc",
+   "signal": "o1",
+   "at": null,
+   "value": 0.3333333333333333,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-000_op1.dc",
+   "signal": "o2",
+   "at": null,
+   "value": 0.25,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-000_op1.dc",
+   "signal": "o3",
+   "at": null,
+   "value": 0.25,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-000_op1.dc",
+   "signal": "V1:p",
+   "at": null,
+   "value": -0.0008333333333333333,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-001_op1.dc",
+   "signal": "in",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-001_op1.dc",
+   "signal": "o1",
+   "at": null,
+   "value": 0.2,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-001_op1.dc",
+   "signal": "o2",
+   "at": null,
+   "value": 0.14285714285714288,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-001_op1.dc",
+   "signal": "o3",
+   "at": null,
+   "value": 0.25,
+   "rel": 1e-09
+  },
+  {
+   "file": "swp-001_op1.dc",
+   "signal": "V1:p",
+   "at": null,
+   "value": -0.0005928571428571429,
+   "rel": 1e-09
+  },
+  {
+   "file": "op2.dc",
+   "signal": "in",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op2.dc",
+   "signal": "o1",
+   "at": null,
+   "value": 0.3333333333333333,
+   "rel": 1e-09
+  },
+  {
+   "file": "op2.dc",
+   "signal": "o2",
+   "at": null,
+   "value": 0.25,
+   "rel": 1e-09
+  },
+  {
+   "file": "op2.dc",
+   "signal": "o3",
+   "at": null,
+   "value": 0.25,
+   "rel": 1e-09
+  },
+  {
+   "file": "op2.dc",
+   "signal": "V1:p",
+   "at": null,
+   "value": -0.0008333333333333333,
+   "rel": 1e-09
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-09
+ },
+ "messages": []
+}

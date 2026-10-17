@@ -175,6 +175,20 @@ class TestFiles(Case):
         self.assertEqual(i["r2"].origin, os.path.join(self.tmp, "inc", "deep", "more.scs") + ":1")
         self.assertEqual((i["c1"].origin, i["v1"].origin), ("inc/only.scs:1", top + ":5"))
 
+    def test_cpp_markers_of_a_stdin_copy(self):
+        # §1: a netlist on stdin is copied to <run>/stdin and cpp's markers name that copy; its statements
+        # read stdin:<line> and its relative includes resolve against top_dir (the cwd), not the run
+        # directory (phase 2's integration of the flow's seam)
+        self.write("inc/a.scs", "r1 (a 0) resistor r=1k\n")
+        copy = os.path.join(self.tmp, "x.run.abc", "stdin").replace("\\", "/")
+        out = ('# 1 "%s"\n# 1 "<built-in>"\n# 1 "<command-line>"\n# 1 "%s"\nsimulator lang=spectre\n'
+               'include "inc/a.scs"\nv1 (a 0) vsource dc=1\n' % (copy, copy))
+        nl = self.parse(out, name="x.run.abc/cpp.out", cpp_markers=True, title="simulator lang=spectre",
+                        top_dir=self.tmp, top_name="stdin")
+        i = self.insts(nl)
+        self.assertEqual(i["v1"].origin, "stdin:3")
+        self.assertEqual(i["r1"].origin, os.path.join(self.tmp, "inc", "a.scs") + ":1")
+
     def test_insensitive_is_inherited_by_an_include_and_restored_after_it(self):
         # the includer's mode is restored after an include (§3.1): a marked definition inside the included
         # file keeps its mark, the includer's insensitive=yes still holds after the include, and a file
@@ -440,6 +454,11 @@ class TestControls(Case):
         self.assertTrue(self.notes(nl, NOTE, "homotopy"))
         nl = self.parse("// t\no1 options scale=2 rcut=1\n")
         self.assertEqual(len(self.notes(nl, WARNING)), 2)
+        # §3.10 [M ref19 pp.196-197]: rcut/ccut/cgnd/cmax are silent only at their infinite default and
+        # rabsshort/cclamp/lshort/kcut at 0; dcut and qcut have no silent value (plan.py's table too)
+        nl = self.parse("// t\no1 options rcut=0 ccut=0 cgnd=0 dcut=0 qcut=1 rabsshort=0 kcut=0\n")
+        self.assertEqual(sorted(n.message.split("=")[0] for n in self.notes(nl, WARNING)),
+                         ["options ccut", "options cgnd", "options dcut", "options qcut", "options rcut"])
         self.fails("// t\no1 options scalem=2\n", "scalem")
         self.fails("// t\no1 options tempeffects=vt\n", "tempeffects")
         self.fails("// t\nsubckt s (a b)\no1 options temp=50\nends s\n", "options inside subckt s")
@@ -545,6 +564,18 @@ class TestAnalyses(Case):
         self.assertEqual(a["mc1"].kind, "montecarlo")
         self.assertEqual(a["mc1"].args["variations"], Str("process"))
 
+    def test_hierarchical_probe_names(self):
+        # §5.6: a given iprobe= inside a subckt (X1.V2) names an IR instance path; oprobe= and xf probe= the
+        # same (phase 2's integration: they were refused, "unexpected character '.'", H's seam)
+        nl = self.parse("// t\nsubckt cell (a)\nvb (a m) vsource dc=0\nr3 (m 0) resistor r=1k\nends cell\n"
+                        "x1 (out) cell\nv1 (out 0) vsource dc=1\n"
+                        "nz (x1.m 0) noise start=1 stop=10 dec=1 iprobe=x1.vb oprobe=x1.r3\n"
+                        "xf1 (out) xf start=1 stop=10 dec=1 probe=x1.r3\n")
+        a = {x.name: x for x in ir.flat_analyses(nl.analyses)}
+        self.assertEqual((a["nz"].args["iprobe"], a["nz"].args["oprobe"]), (Str("x1.vb"), Str("x1.r3")))
+        self.assertEqual(a["xf1"].args["probe"], Str("x1.r3"))
+        self.fails("// t\nv1 (out 0) vsource dc=1\nnz (out 0) noise start=1 stop=10 dec=1 iprobe=x1..vb\n", "iprobe")
+
     def test_analysis_errors(self):
         self.fails("// t\ntr1 tran step=1n\n", "stop is required")
         self.fails("// t\np1 pz\n", "pz analysis is not supported")
@@ -615,6 +646,24 @@ class TestSpiceMode(Case):
         self.fails("// t\nsimulator lang=spice\n.tran 1n 1u 0 10n 5n\n", ".tran needs tstep tstop")
         self.fails("// t\nsimulator lang=spice\n.ac oct 10 1 1g\n", "OCT")
         self.fails("// t\nsimulator lang=spice\n.dc v1 lin 0 1 0.1\n", "LIN/DEC/OCT/POI")
+
+    def test_controlled_sources_with_positional_values(self):
+        # §4.3 "Elements. As spice.py": E/G lines carry their gain positionally and F/H lines their controlling
+        # source and gain (phase 2's integration: "esource vcvs needs gain=" refused every one, C's seam; the
+        # CMC gummel decks); the same IR as Spectre's vcvs/vccs/cccs/ccvs (gain/gm/rm in value, probe in ctrl)
+        nl = self.parse("* t\nv1 in 0 dc 1\nvs in x 0\nrx x 0 1k\nesource out 0 in 0 -1\ng1 o2 0 in 0 1m\nf1 o3 0 vs 2\n"
+                        "h1 o4 0 vs 1k\n.op\n.end\n", name="t.sp")
+        i = self.insts(nl)
+        self.assertEqual((i["esource"].prim, i["esource"].nodes, i["esource"].value), ("vcvs", ["out", "0", "in", "0"], Num(-1.0)))
+        self.assertEqual((i["g1"].prim, i["g1"].value), ("vccs", Num(1e-3)))
+        self.assertEqual((i["f1"].prim, i["f1"].ctrl, i["f1"].value), ("cccs", ["vs"], Num(2.0)))
+        self.assertEqual((i["h1"].prim, i["h1"].ctrl, i["h1"].value), ("ccvs", ["vs"], Num(1000.0)))
+        sp = self.parse("// t\nv1 (in 0) vsource dc=1\nvs (in x) vsource dc=0\nrx (x 0) resistor r=1k\n"
+                        "esource (out 0 in 0) vcvs gain=-1\nf1 (o3 0) cccs gain=2 probe=vs\n")
+        j = self.insts(sp)
+        self.assertEqual((j["esource"].value, j["f1"].ctrl, j["f1"].value), (Num(-1.0), ["vs"], Num(2.0)))
+        self.fails("// t\nesource (out 0 in 0) vcvs\n", "esource vcvs needs gain=")                 # Spectre: gain= is required
+        self.fails("// t\nf1 (o3 0) cccs gain=2\n", "needs probe=")
 
     def test_a_spice_mode_netlist_saves_allpub(self):
         # the SPICE Reader inserts `sppSaveOptions options save=allpub` into every converted netlist (UG p.47; §4.3)

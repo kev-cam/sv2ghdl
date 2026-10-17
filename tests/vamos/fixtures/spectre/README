@@ -19,8 +19,10 @@ exist yet.
   cst/regen.sh     WSL, cargo: builds spectre_dump on NetlistParse.rs at the pinned commit and dumps the
                    vamos-authored fixtures (cadnip/*.scs with their title line stripped, lang/*.scs whole)
   cst/DIVERGENCES, cst/GAPS   the oracle's divergence and gap lists (phase 1, owner S1), vamos-authored
-  engine_facts/    E<nn>/{deck, expect.json}: the engine facts of §13's T1 rows (phase 0, owner S0G),
-                   vamos-authored
+  engine_facts/    E<nn>/{deck, expect.json}: the engine facts of §13's T1 rows (phase 0, owner S0G;
+                   E102-E109 and E114 phase 2, owner H), vamos-authored, except that E103, E105 and E106
+                   hold vamos's renders of xdm/ decks (Xyce_Regression, below) and E104, E108 and E109
+                   copy e2e/08's, E63's and E64's Verilog-A files
   lang/            vamos-authored Spectre inputs for the CST gaps and the left-out corpus files (phase 1,
                    owner S1): <case>.scs with its CST dump <case>.cst, made by cst/regen.sh
   psf/             PSF ASCII files for psfcheck.py (§11 T0 "psfcheck")
@@ -52,7 +54,16 @@ exist yet.
                    (the same checks in engine terms: exit status, the engine columns names_for gives, values
                    at points of the raw output) and render/<engine>/ (the rendered decks, goldens of
                    tests/vamos/test_spectre_chain.py); 1-10 phase 1b (owner S6), 11-30 phase 2; vamos-authored
-  plan/, cmc/ *    plan goldens, CMC expectations (phase 2)
+                   (e2e/22's deck holds one NetlistParse.rs card, below).  The CLI-level decks (11-15, 19:
+                   cpp, command-line options, exit statuses) carry no engine_expect.json or render goldens
+                   (test_spectre_chain takes only directories with an engine_expect.json); 12_ade/psf/ holds
+                   an ADE placeholder file (artistLogFile) the run must leave alone; e2e 29 has no directory:
+                   tests/vamos/test_spectre_e2e_29.py writes its deck at test time from VAMOS_VACASK_SRC
+  cmc/             one record per CMC benchmark deck (§11 T3c; phase 2, owner C): <tree>__<stem>.json, what
+                   vamos does with the deck, measured by tests/vamos/test_spectre_cmc.py (VAMOS_REGEN_GOLDEN=1
+                   rewrites them); the decks are read in place from VAMOS_CMC_EXAMPLES, never copied;
+                   vamos-authored
+  plan/ *          plan goldens (a later phase)
 
 Third-party files
 -----------------
@@ -63,7 +74,9 @@ NetlistParse.rs, https://github.com/NyanCAD/NetlistParse.rs,
 commit d565fd3e359893fbc4376bb9c7b5608ef786e6bb ("Merge pull request #5 from
 NyanCAD/fix/spice-bridge-scopes", 2026-09-14): its Spectre test corpus and the expected CST dumps the Julia reference parser produced
 for it, in cst/corpus/ and cst/expected/, and its SPICE corpus and dumps in spice/corpus/ and
-spice/expected/.  Copyright (c) JuliaHub, Inc. and other contributors; MIT License (SPDX: MIT), whose
+spice/expected/; and one model card of tests/corpus/spectre/model/ternary.scs (vto=(temp >= 27_C) ? 0.90 :
+0.75) in e2e/22_temperature/deck.scs, whose comment says so (phase 2, owner E1).  Copyright (c) JuliaHub,
+Inc. and other contributors; MIT License (SPDX: MIT), whose
 text is LICENSES/MIT.txt at the root of this repository (the project's LICENSE file, byte for byte).
 The files carry no licence header of their own.  Not copied, because whether to commit files that quote
 or cite a Spectre manual is the user's decision (design §11 "Licences", §14 q.41, §13 E88/E101): the
@@ -103,7 +116,10 @@ XDM 2.7.0 Spectre translation tests, in xdm/<CATEGORY>/ (the files listed under 
 2019 National Technology & Engineering Solutions of Sandia, LLC (NTESS); GNU General Public License
 version 3 or later (SPDX: GPL-3.0-or-later), as its README.md "Copyright and license" section states,
 the licence of this repository (COPYING).  Ten of the twelve .cir.spectre decks are real ADE netlists
-("Generated for: spectre", ic-5.1.41usr5).
+("Generated for: spectre", ic-5.1.41usr5).  Derived from them (phase 2, owner H): the decks of
+engine_facts/E103, E105 and E106 are vamos's renders of xdm/MULTIPLICITY/rlc.cir.spectre,
+xdm/DIODE_CLIPPER/diodeClipper.cir.spectre (with D1N3940.scs) and
+xdm/INDEPENDENT_SOURCES/{i,v}_sources.cir.spectre, under the same licence.
 
 Everything else in this tree is vamos-authored and GPL-3.0-or-later like the rest of the repository:
 cadnip/*.scs, cadnip/*.cst, cadnip/expect.json, cadnip/BUILD, cst/regen.sh, psf/bad/*, psf/real/PROVENANCE,
@@ -111,4 +127,5 @@ engine_facts/** and this README; and, from phase 1: emit/* (the emitter goldens,
 vamos's own emitters from hand-built IR) and psf/golden/** (the PSF writer's goldens, S4, written by
 vamos's own writer; psf/golden/engine/** holds the vamos-authored divider decks and the output the
 engines VACASK 0.3.4-91-g64489cf7 and Xyce DEVELOPMENT-202610100047 wrote for them on 2026-10-10, as
-psf/golden/README records).
+psf/golden/README records); and, from phase 2: e2e/11-30 (but e2e/22's one card), cmc/*.json and the
+engine_facts rows E102-E109 and E114 (but the derived and copied files named above).

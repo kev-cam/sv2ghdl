@@ -1,0 +1,5 @@
+// e2e 11: exit status 2, a parse error (an unclosed terminal list): no analysis runs
+simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a 0 resistor r=1k
+op1 dc

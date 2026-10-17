@@ -1293,7 +1293,7 @@ class _Parser:
             return
         if path not in self.hdl:
             self.hdl.append(path)
-        mods, files = va_modules(path, self.search)     # `include followed (§3.1, the shared fix)
+        mods, files = (spectre_va_modules if self.sp else va_modules)(path, self.search)   # `include followed (§3.1)
         if not mods:
             self.err(st.origin, "%s declares no Verilog-A module%s"
                      % (path, " (files read: %s)" % ", ".join(files) if len(files) > 1 else ""))
@@ -1693,7 +1693,15 @@ class _Parser:
         elif va_name is not None:
             kind = va_name                                 # a card of a .hdl Verilog-A module
         else:
-            self.leave_model(scope, name, st.origin, "model type %s is not supported" % ttext.upper())
+            why = "model type %s is not supported" % ttext.upper()
+            if self.sp:
+                # §11.3 (c) [E100]: a card whose type binds no module names the modules the .hdl files
+                # declare (bsimcmg against bsimcmg_108), spectre-spice only (phase 2's integration, C)
+                declared = sorted(set(self.va_modules.values()) |
+                                  {vm.name for vm in (getattr(self.resolver, "va", None) or {}).values()})
+                if declared:
+                    why += "; the .hdl files declare %s" % ", ".join(declared)
+            self.leave_model(scope, name, st.origin, why)
             return
         self.cur_origin = st.origin
         params: Dict[str, Expr] = {}
@@ -3628,6 +3636,11 @@ _VA_MODULE_HEAD = re.compile(r"(?:\(\*(?P<attrs>.*?)\*\)\s*)?\b(?:module|macromo
                              re.S)
 _VA_ATTR = re.compile(r"([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*(\"[^\"]*\"|[^\s,]+)")
 _VA_ATTR_BLOCK = re.compile(r"\(\*.*?\*\)", re.S)
+# the Spectre dialects (phase 2): the analog block, not an analog function; the attributes a CMC header
+# writes after its port list (`module bsim6(d, g, s, b, t) (* xyceModelGroup="MOSFET" ... *);`, and the
+# bsimcmg trees' `attr(...)` macro, which expands to the same)
+_VA_ANALOG_BLOCK = re.compile(r"\banalog\b(?!\s+function\b)")
+_VA_POST_PORT_ATTRS = re.compile(r"\s*(?:\([^;()]*\))?\s*\(\*(?P<attrs>.*?)\*\)\s*;", re.S)
 _VA_PARAM = re.compile(r"\b(parameter|aliasparam|localparam)\b")
 # the standard headers are never scanned (§3.1 names *.vams; the legacy discipline.h and constants.h
 # spellings, which PSP103 and the ADMS examples use, are the same headers)
@@ -3817,12 +3830,15 @@ def _split_args(text: str, lparen: int) -> Tuple[List[str], int]:
     return args, -1
 
 
-def _va_params(body: str) -> Tuple[List[str], Optional[str]]:
+def _va_params(body: str, spectre: bool = False) -> Tuple[List[str], Optional[str]]:
     """The names declared by `parameter` and `aliasparam` in an expanded module body (not localparam),
-    the (* ... *) attributes before them skipped; (names, the first unexpanded macro at a declaration head)."""
+    the (* ... *) attributes before them skipped; (names, the first unexpanded macro at a declaration head).
+    spectre (the Spectre dialects, phase 2): the analog block is `analog` not followed by `function`, so
+    the analog functions a CMC model declares before its parameters (BSIM6.1.1.va:656) do not end the
+    declarations; the HSPICE route keeps its reading."""
     names: List[str] = []
     text = _VA_ATTR_BLOCK.sub(" ", body)
-    m_analog = re.search(r"\banalog\b", text)
+    m_analog = re.search(_VA_ANALOG_BLOCK if spectre else r"\banalog\b", text)
     decl_end = m_analog.start() if m_analog else len(text)   # declarations precede the analog block
     pos = 0
     for stmt in text.split(";"):
@@ -3876,6 +3892,21 @@ def _split_decls(decl: str) -> List[str]:
 
 def va_modules(path: str, search: Sequence[str] = (), defines: Sequence[str] = ()
                ) -> Tuple[Dict[str, VaModule], List[str]]:
+    """The Verilog-A modules of path (see _va_modules), as the HSPICE route reads them; the Spectre
+    dialects read them with spectre_va_modules."""
+    return _va_modules(path, search, defines, False)
+
+
+def spectre_va_modules(path: str, search: Sequence[str] = (), defines: Sequence[str] = ()
+                       ) -> Tuple[Dict[str, VaModule], List[str]]:
+    """va_modules for spectre.py and the spectre-spice dialect (phase 2's integration): the header's
+    attributes may also follow the port list, as every CMC tree writes them (§4.5 item 13 [E64]), and an
+    `analog function` does not end the declarations (C's seams); the HSPICE route keeps va_modules."""
+    return _va_modules(path, search, defines, True)
+
+
+def _va_modules(path: str, search: Sequence[str], defines: Sequence[str], spectre: bool
+                ) -> Tuple[Dict[str, VaModule], List[str]]:
     """The Verilog-A modules of path by lower-cased name, and every file read (§3.1): `include is
     followed, recursively, relative to the including file and then the search directories
     (CDS_VLOGA_INCLUDE and -I; the *.vams standard headers are skipped), and the declaration
@@ -3885,7 +3916,9 @@ def va_modules(path: str, search: Sequence[str] = (), defines: Sequence[str] = (
     (an undefined macro at a declaration, an unbalanced `ifdef, an include not found), params is
     None and attrs["vamos_unknown_params"] names the reason: the caller notes it, and the engines
     still fail loudly on a wrong parameter name.  spice.d_hdl uses it too, and both parses store
-    the result in Netlist.va_modules (§4.1 item 16)."""
+    the result in Netlist.va_modules (§4.1 item 16).  spectre (spectre_va_modules, phase 2): the
+    header's attributes may also follow the port list, and an `analog function` does not end the
+    declarations."""
     pre = _VaPre(search, defines)
     pre.read(path)
     text = pre.expand("\n".join(pre.out))             # whole: a macro call may span lines
@@ -3903,7 +3936,12 @@ def va_modules(path: str, search: Sequence[str] = (), defines: Sequence[str] = (
         if m.group("attrs"):
             for k, v in _VA_ATTR.findall(m.group("attrs")):
                 attrs[k] = v.strip('"')
-        params, bad = _va_params(body)
+        if spectre:
+            post = _VA_POST_PORT_ATTRS.match(body)
+            if post is not None:
+                for k, v in _VA_ATTR.findall(post.group("attrs")):
+                    attrs.setdefault(k, v.strip('"'))
+        params, bad = _va_params(body, spectre)
         reason = None
         if bad is not None:
             reason = "an undefined macro at a parameter declaration (%s)" % bad.strip()[:40]

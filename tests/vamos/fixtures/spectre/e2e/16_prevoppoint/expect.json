@@ -1,0 +1,102 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask"
+ ],
+ "status": 0,
+ "files": [
+  "ac1.ac",
+  "ac2.ac",
+  "logFile",
+  "tr1.tran.tran"
+ ],
+ "values": [
+  {
+   "file": "tr1.tran.tran",
+   "signal": "out",
+   "at": 2e-05,
+   "value": 0.66263,
+   "rel": 0.0001
+  },
+  {
+   "file": "ac2.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    0.999961,
+    -0.00628294
+   ],
+   "rel": 1e-05
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    0.0189732,
+    -2.26183e-06
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "in",
+   "at": 1000.0,
+   "value": [
+    1.0,
+    0.0
+   ],
+   "abs": 1e-12
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": [],
+ "xyce": {
+  "status": 0,
+  "files": [
+   "ac1.ac",
+   "ac2.ac",
+   "logFile",
+   "tr1.tran.tran"
+  ],
+  "values": [
+   {
+    "file": "tr1.tran.tran",
+    "signal": "out",
+    "at": 2e-05,
+    "value": 0.66263,
+    "rel": 0.0001
+   },
+   {
+    "file": "ac2.ac",
+    "signal": "out",
+    "at": 1000.0,
+    "value": [
+     0.999961,
+     -0.00628294
+    ],
+    "rel": 1e-05
+   },
+   {
+    "file": "ac1.ac",
+    "signal": "out",
+    "at": 1000.0,
+    "value": [
+     0.999961,
+     -0.00628294
+    ],
+    "rel": 1e-05
+   }
+  ],
+  "messages": [
+   [
+    "warning",
+    "prevoppoint=yes: Xyce recomputes the operating point"
+   ]
+  ]
+ }
+}

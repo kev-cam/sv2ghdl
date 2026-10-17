@@ -1,0 +1,107 @@
+{
+ "row": "E107",
+ "experiment": "a diode with ik (Spectre) / ikf on both engines (phase 1b; S6's diode probes: Vd=1, Rd=100, is=1e-14 n=1, with and without ik=10m), vamos's renders",
+ "result": "the high-injection knee differs: V(da) 0.697772 V (VACASK sp_diode) against 0.688499 V (Xyce) at ik=10m, 1.3 % apart; without ik 0.684811 / 0.684793 V (2.6e-5 apart)",
+ "rules": [
+  "\u00a73.9 the diode's ik is renamed ikf on both targets, but their high-injection formulas differ, so the e2e decks do not compare a diode with ik across the engines (e2e 2 sweeps vtho instead, \u00a716's phase-1 record)"
+ ],
+ "runs": [
+  {
+   "name": "vacask_ik",
+   "tool": "vacask",
+   "deck": "ik.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "ik.raw",
+     "col": "da",
+     "value": 0.6977716891493052,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "xyce_ik",
+   "tool": "xyce",
+   "deck": "ik.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "No model parameter",
+     "Netlist error"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "ik.raw",
+     "col": "V(DA)",
+     "value": 0.6884993825960088,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "vacask_no_ik",
+   "tool": "vacask",
+   "deck": "noik.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "noik.raw",
+     "col": "da",
+     "value": 0.6848109219787946,
+     "rel": 1e-05
+    }
+   ]
+  },
+  {
+   "name": "xyce_no_ik",
+   "tool": "xyce",
+   "deck": "noik.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "noik.raw",
+     "col": "V(DA)",
+     "value": 0.684793017543018,
+     "rel": 1e-05
+    }
+   ]
+  }
+ ],
+ "cross": [
+  {
+   "name": "ik_knee_differs",
+   "rel": 0.02,
+   "min_rel": 0.01,
+   "a": {
+    "run": "vacask_ik",
+    "raw": "ik.raw",
+    "col": "da"
+   },
+   "b": {
+    "run": "xyce_ik",
+    "raw": "ik.raw",
+    "col": "V(DA)"
+   }
+  },
+  {
+   "name": "no_ik_equal",
+   "rel": 0.0001,
+   "a": {
+    "run": "vacask_no_ik",
+    "raw": "noik.raw",
+    "col": "da"
+   },
+   "b": {
+    "run": "xyce_no_ik",
+    "raw": "noik.raw",
+    "col": "V(DA)"
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos's renders of S6's sp1/S6/probe/diode_b.scs (ik) and diode_a.scs (no ik), the VACASK rawfiles ascii"
+ ]
+}

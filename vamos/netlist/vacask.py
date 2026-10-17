@@ -667,12 +667,18 @@ class _Deck:
     def rcl(self, inst: Instance, scope: T.Scope, indent: str) -> None:
         k = inst.kind
         params_in = self.params_of(inst, scope)
-        if "ic" in params_in:
-            self.err(inst.origin, "%s: IC= on a %s is not supported (use .ic)" % (inst.name, T.ELEMENT_NAME[k]))
-            return
         value, skip, mf = inst.value, ("m",), None
+        if "ic" in params_in:
+            if not self.spectre:
+                self.err(inst.origin, "%s: IC= on a %s is not supported (use .ic)" % (inst.name, T.ELEMENT_NAME[k]))
+                return
+            # Spectre netlists: plan.build refuses a device ic= unless every tran uses ic=node or ic=dc,
+            # under which Spectre does not apply it (§0, §5.4), so it is not printed
+            skip = ("m", "ic")
         tail: List[str] = []
         if self.spectre and k == "r":
+            if isinstance(value, Num) and math.isinf(value.value) and value.value > 0:
+                return                                  # §3.8: an infinite resistor is not printed (spectre.py notes it)
             if isinstance(value, Num) and value.value == 0.0:
                 # r = 0: a 0 V source, a short whose flow is the resistor current (§4.5 item 10) [E22]
                 self.add([note(inst.origin or inst.name, "%s: r=0 printed as a 0 V vamos_vsource (VACASK's "
@@ -681,7 +687,7 @@ class _Deck:
                 return
             noisy = params_in.get("isnoisy")
             if noisy is not None:
-                skip = ("m", "isnoisy")
+                skip = skip + ("isnoisy",)
                 if _is_no(noisy):
                     tail.append("noisy=0")              # §4.5 item 7: resistor and sp_resistor
         if k == "l" and inst.name in scope.coupled:
@@ -689,7 +695,7 @@ class _Deck:
             card = self.card(inst, scope) if inst.master is not None else None
             folded = T.coupled_inductance(inst, self.mult(inst, scope), card, *T.run_temps(self.nl))
             if folded is not None:
-                value, skip, mf = folded, T.COUPLED_FOLDED, []
+                value, skip, mf = folded, T.COUPLED_FOLDED + (("ic",) if "ic" in skip else ()), []
         if mf is None:
             mf = self.mf(inst, scope)
         extra = [p for p in params_in if p not in skip]
@@ -892,6 +898,8 @@ class _Deck:
         # one model card per instance, in the instance's scope (§4.4).
         card = _fresh("%s__va" % inst.name, self.taken)
         params = self.plist(inst, element="y", scope=scope)
+        if self.spectre:
+            module = module.lower()                     # openvaf-r's OSDI module names are lower case (phase 2)
         self.body.append("%smodel %s %s%s" % (indent, self.q(card), self.q(module), "".join(" " + p for p in params)))
         self.line(indent, inst, inst.nodes, self.q(card), self.mf(inst, scope))
 
@@ -1083,8 +1091,10 @@ class _Deck:
         return self.q(ir_path.replace(".", ":"))
 
     def spath(self, ir_path: str) -> str:
-        """An IR instance path inside a string argument, alter instance("x1:r1") and sweep
-        instance="x1:r1": the string carries the quotes, the name none (§5.2, §5.3 [E]; phase 1b)."""
+        """An IR instance or node path inside a string argument, alter instance("x1:r1"), sweep
+        instance="x1:r1" and the noise/acxf in= and out=: the string carries the quotes, the name none,
+        since VACASK reads the string's text as the name ("Node ''007'' not found" for out="'007'")
+        (§5.2, §5.3, §5.6 [E114]; phase 1b, phase 2)."""
         return ir_path.replace(".", ":")
 
     def var_name(self, p: str) -> str:
@@ -1371,6 +1381,9 @@ class _Deck:
         """A SweepSpec after plan.build (every field a Num) as VACASK's sweep/analysis grid (§5.2)."""
         if spec.mode in ("values", "log"):             # log: the values plan.build computed (§5.2)
             return "values=[%s]" % ", ".join(fmt(_numv(v)) for v in spec.values)
+        pts = step_values(spec)
+        if pts is not None:                            # VACASK's step= would run another count (§5.2)
+            return "values=[%s]" % ", ".join(fmt(v) for v in pts)
         parts = ["from=%s" % fmt(_numv(spec.start)), "to=%s" % fmt(_numv(spec.stop))]
         if spec.mode == "step":
             parts.append("step=%s" % fmt(_numv(spec.step)))
@@ -1452,7 +1465,7 @@ class _Deck:
             if step.kind == "noise":
                 if not step.noise_input:
                     raise T.TableError("%s: noise without an input source (plan.build names vamos_nin<k>)" % step.id)
-                parts.append('in="%s"' % self.path(step.noise_input))
+                parts.append('in="%s"' % self.spath(step.noise_input))
             if freq_grid is not None:
                 parts.append(freq_grid)
             else:
@@ -1467,11 +1480,14 @@ class _Deck:
             if a.get("skipdc") in ("yes", True):
                 parts.append('icmode="uic"')
             ic_mode = a.get("ic", "all")
-            if ic_mode in ("all", "node") and self.nl.ics:
+            ics = T.state_file_nodes(a, T.STATE_IC_KEYS)   # readic=/read= replaces the ic statements (§8.6)
+            if ics is None:
+                ics = self.nl.ics
+            if ic_mode in ("all", "node") and ics:
                 if step.uses and a.get("useprevic") in ("yes", True):
                     pass                                   # the stored solution is the ic (below)
                 else:
-                    ic = self.pairs(self.nl.ics, "ic")
+                    ic = self.pairs(ics, "ic")
                     if ic:
                         parts.append("ic=" + ic)
         else:
@@ -1483,8 +1499,11 @@ class _Deck:
                 parts.append('nodeset="%s" opsolve=0' % step.uses)
             else:
                 parts.append('nodeset="%s"' % step.uses)
-        elif self.nl.nodesets:
-            ns = self.pairs(self.nl.nodesets, "nodeset")
+        else:
+            nodesets = T.state_file_nodes(a, T.STATE_NS_KEYS)   # readns= replaces the nodeset statements (§8.6)
+            if nodesets is None:
+                nodesets = self.nl.nodesets
+            ns = self.pairs(nodesets, "nodeset") if nodesets else ""
             if ns:
                 parts.append("nodeset=" + ns)
         if step.stores:
@@ -1497,8 +1516,8 @@ class _Deck:
         p, n = step.args.get("p"), step.args.get("n", "0")
         if isinstance(p, str) and p and isinstance(n, str):
             if n == "0":
-                return 'out="%s"' % self.path(p)
-            return 'out=["%s", "%s"]' % (self.path(p), self.path(n))
+                return 'out="%s"' % self.spath(p)
+            return 'out=["%s", "%s"]' % (self.spath(p), self.spath(n))
         raise T.TableError("%s: %s without an output (AnalysisStep.args['p'], ['n']: the node pair)" % (step.id, step.kind))
 
 
@@ -1520,6 +1539,42 @@ def _numv(e: object) -> float:
     if isinstance(e, (int, float)):
         return float(e)
     raise T.TableError("sweep value %s is not a number after plan.build" % (X.to_text(e) if isinstance(e, Expr) else e))
+
+
+def vacask_step_count(start: float, stop: float, step: float) -> Optional[int]:
+    """The points VACASK runs for `from=start to=stop step=step` (VACASK lib/answeep.cpp, measured
+    2026-10-17 in phase 2): n = ceil((stop-start)/step) intervals, plus the end point when start+n*step
+    does not pass stop; None for a step that never reaches stop.  0..0.3 step 0.1 gives 3 points,
+    because 0.3/0.1 rounds to 2.9999999999999996 and 3*0.1 to 0.30000000000000004."""
+    if step == 0.0 or (stop - start) * step < 0:
+        return None
+    n = max(int(math.ceil((stop - start) / step)), 1)
+    end = start + n * step
+    return n + 1 if (end <= stop if step > 0 else end >= stop) else n
+
+
+def plan_step_points(start: float, stop: float, step: float) -> List[float]:
+    """plan.build's step grid (results.grid_values, §5.2): start, start+step, ... up to stop within a
+    1e-9 relative step, so 0..0.3 step 0.1 has its 4 points."""
+    if step == 0.0 or (stop - start) * step < 0:
+        return [start]
+    n = int(math.floor((stop - start) / step + 1e-9))
+    return [start + k * step for k in range(n + 1)]
+
+
+def step_values(spec) -> Optional[List[float]]:
+    """§5.2: a `step` grid is printed as VACASK's step= when VACASK runs the plan's points; when its own
+    count differs (a stop a rounding error short of start+n*step), as values=[...] with the plan's points,
+    as a non-integral dec is (phase 2: VACASK ran 3 points for 0..0.3 step 0.1 where the plan, Xyce and
+    the results have 4).  None: step= prints."""
+    if getattr(spec, "mode", None) != "step":
+        return None
+    start, stop, step = _numv(spec.start), _numv(spec.stop), _numv(spec.step)
+    n = vacask_step_count(start, stop, step)
+    pts = plan_step_points(start, stop, step)
+    if n is None or n == len(pts):                 # None: a step that never reaches stop (plan.build refuses it)
+        return None
+    return pts
 
 
 def _spectre_key(vacask_option: str) -> str:

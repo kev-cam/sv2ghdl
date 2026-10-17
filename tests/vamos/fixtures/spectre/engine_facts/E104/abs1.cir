@@ -1,0 +1,13 @@
+* e2e 8's letter device on Xyce with its one Verilog-A module named by an absolute .hdl path
+.hdl "@CWD@/vares.va"
+.model rmod r
+V1 a 0 DC 1.0
+.model vares__vamos r level=6
+rX1 a b vares__vamos R=3000.0
+R2 b 0 1000.0
+R4 a d rmod 3000.0
+R5 d 0 1000.0
+.options device temp=27.0 tnom=27.0 gmin=1e-12
+.OP
+.PRINT DC FORMAT=RAW FILE=abs1.raw V(B) V(D)
+.end

@@ -1,0 +1,11 @@
+// e2e 11: exit status 1 on VACASK, a bind failure: the sweep names a parameter the Verilog-A module
+// does not declare, which VACASK reports as "Failed to bind sweep parameters." with rc 0 (E28)
+simulator lang=spectre
+ahdl_include "vres.va"
+V1 (a 0) vsource dc=1
+X1 (a b) vres
+R2 (b 0) resistor r=1k
+op1 dc
+sw1 dc dev=X1 param=foo values=[1 2]
+op2 dc
+save b

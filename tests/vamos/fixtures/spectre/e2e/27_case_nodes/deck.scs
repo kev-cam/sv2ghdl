@@ -1,0 +1,6 @@
+// e2e 27: nodes A and a are distinct (Spectre is case sensitive); Xyce would merge them
+simulator lang=spectre
+V1 (A 0) vsource dc=1
+R1 (A a) resistor r=1k
+R2 (a 0) resistor r=3k
+op1 dc

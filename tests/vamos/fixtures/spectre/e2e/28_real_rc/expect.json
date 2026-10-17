@@ -1,0 +1,321 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "myop.dc",
+  "mydc.dc",
+  "myac.ac",
+  "mytran.tran.tran",
+  "mysweep_dc1.sweep",
+  "mysweep_ac1.sweep",
+  "mysweep_ac2.sweep",
+  "mysweep-000_dc1.dc",
+  "mysweep-000_ac1.ac",
+  "mysweep-000_mynestedsweep_ac2.sweep",
+  "mysweep-000_mynestedsweep-000_ac2.ac",
+  "mysweep-000_mynestedsweep-001_ac2.ac",
+  "mysweep-000_mynestedsweep-002_ac2.ac",
+  "mysweep-001_dc1.dc",
+  "mysweep-001_ac1.ac",
+  "mysweep-001_mynestedsweep_ac2.sweep",
+  "mysweep-001_mynestedsweep-000_ac2.ac",
+  "mysweep-001_mynestedsweep-001_ac2.ac",
+  "mysweep-001_mynestedsweep-002_ac2.ac",
+  "mysweep-002_dc1.dc",
+  "mysweep-002_ac1.ac",
+  "mysweep-002_mynestedsweep_ac2.sweep",
+  "mysweep-002_mynestedsweep-000_ac2.ac",
+  "mysweep-002_mynestedsweep-001_ac2.ac",
+  "mysweep-002_mynestedsweep-002_ac2.ac",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "myop.dc",
+   "signal": "in",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "myop.dc",
+   "signal": "out",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "mydc.dc",
+   "signal": "dc",
+   "at": null,
+   "value": [
+    0.0,
+    0.1,
+    0.2,
+    0.30000000000000004,
+    0.4,
+    0.5,
+    0.6000000000000001,
+    0.7000000000000001,
+    0.8,
+    0.9,
+    1.0,
+    1.1,
+    1.2000000000000002,
+    1.3,
+    1.4000000000000001,
+    1.5,
+    1.6,
+    1.7000000000000002,
+    1.8,
+    1.9000000000000001,
+    2.0
+   ],
+   "rel": 1e-09,
+   "abs": 1e-15,
+   "points": 21
+  },
+  {
+   "file": "mydc.dc",
+   "signal": "out",
+   "at": 2.0,
+   "value": 2.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "mydc.dc",
+   "signal": "in",
+   "at": 1.0,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "myac.ac",
+   "signal": "freq",
+   "at": null,
+   "value": 1000000.0,
+   "rel": 1e-09,
+   "row": -1,
+   "points": 21
+  },
+  {
+   "file": "myac.ac",
+   "signal": "freq",
+   "at": null,
+   "value": 1.9952623149688795,
+   "rel": 1e-09,
+   "row": 1
+  },
+  {
+   "file": "myac.ac",
+   "signal": "out",
+   "at": 1.0,
+   "value": [
+    0.9999605231408796,
+    -0.006282937266758387
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "myac.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    0.02470452303185765,
+    -0.15522309613464763
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "myac.ac",
+   "signal": "in",
+   "at": 1000.0,
+   "value": [
+    1.0,
+    0.0
+   ],
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "mytran.tran.tran",
+   "signal": "in",
+   "at": 0.0,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "mytran.tran.tran",
+   "signal": "out",
+   "at": 0.0,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "mytran.tran.tran",
+   "signal": "time",
+   "at": null,
+   "value": 0.5,
+   "rel": 1e-09,
+   "row": -1
+  },
+  {
+   "file": "mytran.tran.tran",
+   "signal": "in",
+   "at": 0.5,
+   "value": 1.0,
+   "abs": 1e-06
+  },
+  {
+   "file": "mytran.tran.tran",
+   "signal": "out",
+   "at": 0.5,
+   "value": 0.8447769038653391,
+   "rel": 0.005
+  },
+  {
+   "file": "mysweep_dc1.sweep",
+   "signal": "R1:r",
+   "at": null,
+   "value": [
+    1000.0,
+    2000.0,
+    3000.0
+   ],
+   "rel": 1e-12,
+   "points": 3
+  },
+  {
+   "file": "mysweep_ac1.sweep",
+   "signal": "R1:r",
+   "at": null,
+   "value": [
+    1000.0,
+    2000.0,
+    3000.0
+   ],
+   "rel": 1e-12,
+   "points": 3
+  },
+  {
+   "file": "mysweep_ac2.sweep",
+   "signal": "R1:r",
+   "at": null,
+   "value": [
+    1000.0,
+    2000.0,
+    3000.0
+   ],
+   "rel": 1e-12,
+   "points": 3
+  },
+  {
+   "file": "mysweep-002_dc1.dc",
+   "signal": "out",
+   "at": 2.0,
+   "value": 2.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "mysweep-001_ac1.ac",
+   "signal": "freq",
+   "at": null,
+   "value": 1000000.0,
+   "rel": 1e-09,
+   "row": -1,
+   "points": 121
+  },
+  {
+   "file": "mysweep-001_ac1.ac",
+   "signal": "out",
+   "at": 1.0,
+   "value": [
+    0.9998421112623725,
+    -0.012564386525966312
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "mysweep-002_ac1.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    0.002806578272493995,
+    -0.0529027540955512
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "mysweep-001_mynestedsweep_ac2.sweep",
+   "signal": "C1:c",
+   "at": null,
+   "value": [
+    1e-06,
+    2e-06,
+    3e-06
+   ],
+   "rel": 1e-12,
+   "points": 3
+  },
+  {
+   "file": "mysweep-000_mynestedsweep-001_ac2.ac",
+   "signal": "out",
+   "at": 1.0,
+   "value": [
+    0.9998421112623725,
+    -0.012564386525966312
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "mysweep-002_mynestedsweep-002_ac2.ac",
+   "signal": "out",
+   "at": 1.0,
+   "value": [
+    0.9968124411960327,
+    -0.056368415560830554
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "mysweep-002_mynestedsweep-002_ac2.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    0.00031262193955984265,
+    -0.01767835419609949
+   ],
+   "rel": 1e-06,
+   "points": 121
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.005
+ },
+ "messages": [],
+ "real": {
+  "dir": "../../psf/real/psf-parser/tests/data/ascii",
+  "logfile": "../../psf/real/psf-parser/tests/data/binary/logFile",
+  "omit": [
+   "myinfo_Oppoint-info",
+   "myinfo_Models-info",
+   "myinfo_all-info",
+   "dc2-dc",
+   "tran1-tran",
+   "mymonte_dc2-montecarlo",
+   "mymonte_tran1-montecarlo",
+   "mymonte-001_dc2-dc",
+   "mymonte-001_tran1-tran",
+   "mymonte-002_dc2-dc",
+   "mymonte-002_tran1-tran",
+   "mymonte-003_dc2-dc",
+   "mymonte-003_tran1-tran"
+  ]
+ }
+}

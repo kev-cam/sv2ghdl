@@ -1,0 +1,15 @@
+// e2e 11: exit status 1, one failing analysis among good ones: at gain 1 the vcvs makes op2 singular
+simulator lang=spectre
+parameters g=0.5
+V1 (in 0) vsource dc=1 mag=1
+R1 (in a) resistor r=1k
+C1 (a 0) capacitor c=1n
+E1 (out 0 out a) vcvs gain=g
+R2 (out 0) resistor r=1k
+op1 dc
+bad alter param=g value=1
+op2 dc
+good alter param=g value=2
+op3 dc
+ac1 ac start=1k stop=1M dec=1
+save out a

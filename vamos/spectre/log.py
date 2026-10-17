@@ -131,12 +131,14 @@ class SpectreLog:
         self.screen = mode != "file"
         path = effective(job, "log_path")
         if mode in ("both", "file") and path:
-            p = percent.expand(path, percent.codes(job, start))
+            codes = percent.codes(job, start)
+            p = percent.expand(path, codes)
             if not os.path.isabs(p):
                 base = job.cwd
                 outdir = effective(job, "outdir")
                 if outdir and "/" not in p and os.sep not in p:
-                    base = os.path.join(job.cwd, outdir)
+                    # §2.4: -outdir is %-expanded too, as flow.py expands it for the results
+                    base = os.path.join(job.cwd, percent.expand(str(outdir), codes))
                 p = os.path.join(base, p)
             self.path = p
             self.file = open(p, "w", encoding="utf-8")          # OSError: flow.run maps it (§2.7)
@@ -311,10 +313,14 @@ class SpectreLog:
 
     def status_line(self, progress: str = "") -> None:
         """The SIGUSR1 status line, printed from the main loop (§2.7) [M UG p.235]: the running
-        analysis and, where the engine reports it, its progress."""
+        analysis and, where the engine reports it, its progress.  With no analysis running, a
+        progress text names what vamos does (phase 2: "writing the results of `x'" during the
+        conversion), else it is setting up."""
         elapsed = time.time() - self.start.timestamp()
         if self.analysis:
             what = "analysis `%s' running" % self.analysis
+        elif progress:
+            what = "no analysis running"
         else:
             what = "no analysis running (setting up)"
         tail = (", " + progress) if progress else ""

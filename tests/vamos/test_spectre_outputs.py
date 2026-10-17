@@ -32,7 +32,8 @@ import unittest
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from vamos_testlib import ROOT, TempDir, fixture
-from spectre_testlib import import_psf_parser, needs_psf_parser, spectre_fixture
+from spectre_testlib import (RC_OMIT_KEYS, compare_results_dir, import_psf_parser,
+                             needs_psf_parser, spectre_fixture)
 
 import psfcheck
 from vamos.netlist import rawfile  # noqa: E402
@@ -214,11 +215,6 @@ def read_text(path: str) -> str:
 
 # -- the RC low-pass run of psf-parser's tests/data, rebuilt from synthetic engine output (e2e 28) --
 
-RC_OMIT_KEYS = ("myinfo_Oppoint-info", "myinfo_Models-info", "myinfo_all-info", "dc2-dc", "tran1-tran",
-                "mymonte_dc2-montecarlo", "mymonte_tran1-montecarlo") + tuple(
-    "mymonte-%03d_%s" % (k, c) for k in (1, 2, 3) for c in ("dc2-dc", "tran1-tran"))   # §11.2 e2e 28: info, montecarlo
-
-
 def rc_filter(f):
     """The RC divider's transfer function at a frequency (R1 = 1 kOhm, C1 = 1 uF)."""
     return 1 / complex(1, 2 * math.pi * f * 1e3 * 1e-6)
@@ -271,76 +267,6 @@ def rc_plan_and_files(d: str, engine: str = "vacask"):
                                   [("vamos_w2", "notype"), ("vamos_w3", "notype"), ("frequency", "notype")] + v,
                                   rows, cplx=True, plotname="AC Small Signal Analysis")
     return make_plan(steps, engine), sm, EngineResult(files=files, names=nm)
-
-
-def compare_results_dir(got: str, want: str, omit_keys: Sequence[str] = (), header_ignore: Sequence[str] = ("version", "date"),
-                        rel: float = 1e-9, want_logfile: Optional[str] = None) -> List[str]:
-    """e2e 28's structural assertions (§11.2): the set of files and their names; logFile's keys,
-    parents, PROPs and order; each file's header keys and values (except `header_ignore`), TYPE
-    list, TRACE names and order, SWEEP variable, units and grid, and description.  Values are not
-    compared.  Entries of `want`'s logFile whose keys are in `omit_keys` are left out with their
-    files.  `want_logfile` names `want`'s logFile when it is not `<want>/logFile` (psf-parser keeps
-    its 23.1 logFile under binary/).  Returns the differences, one line each; [] when the structures
-    agree."""
-    diffs: List[str] = []
-    wlog = psfcheck.check_logfile(want_logfile or os.path.join(want, "logFile"), datadir=want)
-    glog = psfcheck.check_logfile(os.path.join(got, "logFile"))
-    wentries = [e for e in wlog.entries if e.key not in omit_keys]
-    wfiles = sorted(e.data_file for e in wentries)
-    gfiles = sorted(e.data_file for e in glog.entries)
-    if wfiles != gfiles:
-        diffs.append("files: missing %s, extra %s" % (sorted(set(wfiles) - set(gfiles)), sorted(set(gfiles) - set(wfiles))))
-    present = sorted(f for f in os.listdir(got) if f != "logFile")
-    if present != gfiles:
-        diffs.append("logFile and directory disagree: %s vs %s" % (gfiles, present))
-    if [e.key for e in wentries] != glog.keys():
-        diffs.append("logFile order: want %s, got %s" % ([e.key for e in wentries], glog.keys()))
-    for we in wentries:
-        ge = glog.by_key.get(we.key)
-        if ge is None:
-            continue
-        for attr in ("analysis_type", "data_file", "parent", "sweep_variable", "description"):
-            if getattr(we, attr) != getattr(ge, attr):
-                diffs.append("logFile %s %s: want %r, got %r" % (we.key, attr, getattr(we, attr), getattr(ge, attr)))
-        if list(we.props) != list(ge.props):
-            diffs.append("logFile %s PROP keys: want %s, got %s" % (we.key, list(we.props), list(ge.props)))
-        else:
-            for k, wv in we.props.items():
-                gv = ge.props[k]
-                if isinstance(wv, (int, float)) and isinstance(gv, (int, float)):
-                    if not math.isclose(float(wv), float(gv), rel_tol=1e-5):
-                        diffs.append("logFile %s PROP %s: want %r, got %r" % (we.key, k, wv, gv))
-                elif wv != gv:
-                    diffs.append("logFile %s PROP %s: want %r, got %r" % (we.key, k, wv, gv))
-        if we.data_file not in gfiles:
-            continue
-        wf = psfcheck.check(os.path.join(want, we.data_file))
-        gf = psfcheck.check(os.path.join(got, ge.data_file))
-        if list(wf.header) != list(gf.header):
-            diffs.append("%s header keys: want %s, got %s" % (we.data_file, list(wf.header), list(gf.header)))
-        for k, wv in wf.header.items():
-            if k in header_ignore or k not in gf.header:
-                continue
-            gv = gf.header[k]
-            if isinstance(wv, float) and isinstance(gv, float):
-                if not math.isclose(wv, gv, rel_tol=rel, abs_tol=0.0):
-                    diffs.append("%s header %s: want %r, got %r" % (we.data_file, k, wv, gv))
-            elif wv != gv:
-                diffs.append("%s header %s: want %r, got %r" % (we.data_file, k, wv, gv))
-        wt = [(n, repr(t), t.props) for n, t in wf.types.items()]
-        gt = [(n, repr(t), t.props) for n, t in gf.types.items()]
-        if wt != gt:
-            diffs.append("%s TYPE: want %s, got %s" % (we.data_file, [n for n, _, _ in wt], [n for n, _, _ in gt]))
-        if [(t.name, t.type) for t in wf.traces] != [(t.name, t.type) for t in gf.traces]:
-            diffs.append("%s TRACE: want %s, got %s" % (we.data_file, [(t.name, t.type) for t in wf.traces],
-                                                       [(t.name, t.type) for t in gf.traces]))
-        ws = (wf.sweep.name, wf.sweep.props.get("units"), wf.sweep.props.get("grid")) if wf.sweep else None
-        gs = (gf.sweep.name, gf.sweep.props.get("units"), gf.sweep.props.get("grid")) if gf.sweep else None
-        if ws != gs:
-            diffs.append("%s SWEEP: want %s, got %s" % (we.data_file, ws, gs))
-        if not wf.swept and list(wf.values) != list(gf.values):
-            diffs.append("%s VALUE names: want %s, got %s" % (we.data_file, list(wf.values), list(gf.values)))
-    return diffs
 
 
 # -- goldens ---------------------------------------------------------------------------------------
@@ -1379,6 +1305,24 @@ class TestFailures(TempDir):
         self.assertEqual(len(notes), 1)
         self.assertIn("planned", notes[0].message)
         self.assertEqual(len(res), 2)
+
+    def test_fewer_groups_than_planned_from_a_passed_step_is_a_warning(self):
+        # phase 2's integration: a step the runner passed (ok) whose output holds fewer sweep points than the
+        # plan (VACASK's step= once ran 3 of 4) fails the missing leaves, and a warning names them, so the
+        # run's status 1 is never silent (§0, §2.7)
+        sw = level("sw", "w1", spec_values(1000, 2000, 3000), "R1:r", "R1:r", "Ohm")
+        p = write_raw(os.path.join(self.tmp, "a.raw"), [("w1", "notype"), ("out", "notype")], [(1000.0, 0.5), (2000.0, 0.3)],
+                      plotname="Operating Point")
+        st = step("vamos_a1", "op", "op", context=[sw])
+        sm = sigmap({"vamos_a1": [(("v", "out"), "out", "V")]})
+        res, notes = convert(self.tmp, make_plan([st]), sm, EngineResult(files={"vamos_a1": p}, names={"vamos_a1": {("v", "out"): "out"}}))
+        self.assertEqual([(r.key, r.status) for r in res], [("sw_op-sweep", "ok"), ("sw-000_op-dc", "ok"), ("sw-001_op-dc", "ok"),
+                                                             ("sw-002_op-dc", "failed")])
+        self.assertEqual([(n.severity, n.message) for n in notes],
+                         [("warning", "analysis `op' left 2 of the 3 sweep points planned; the missing ones are not written")])
+        log = check_dir(self.tmp)
+        self.assertEqual(log.keys(), ["sw_op-sweep", "sw-000_op-dc", "sw-001_op-dc"])
+        self.assertEqual(psfcheck.check(os.path.join(self.tmp, "sw_op.sweep")).sweep_values(), [1000.0, 2000.0])
 
 
 # -- read_prn --------------------------------------------------------------------------------------

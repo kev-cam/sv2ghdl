@@ -1,0 +1,51 @@
+{
+ "deck": "BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp",
+ "design": {
+  "names": [
+   "bsimcmg_108"
+  ]
+ },
+ "differs": [],
+ "errors": [
+  "xinv1: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv2: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv3: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv4: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv5: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv6: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv7: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv8: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv9: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv10: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv11: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv12: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv13: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv14: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv15: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv16: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)",
+  "xinv17: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/ringosc_17stg.sp:16)"
+ ],
+ "hdl": [
+  "BSIMCMG108.0.0_20140822/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [
+  "bsimcmg_108"
+ ],
+ "parse": "error",
+ "vacask": {
+  "openvaf": {
+   "BSIMCMG108.0.0_20140822/code/bsimcmg.va": {
+    "errors": 2108,
+    "rc": 65
+   }
+  },
+  "render": "no parse"
+ },
+ "xyce": {
+  "refused": "parse",
+  "render": "no parse"
+ }
+}

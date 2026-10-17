@@ -1,0 +1,35 @@
+{
+ "deck": "BSIMCMG108.0.0_20140822/benchmark_test/ac.sp",
+ "design": {
+  "names": [
+   "bsimcmg_108"
+  ]
+ },
+ "differs": [],
+ "errors": [
+  "X1: model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.nmos:8)"
+ ],
+ "hdl": [
+  "BSIMCMG108.0.0_20140822/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [
+  "bsimcmg_108"
+ ],
+ "parse": "error",
+ "vacask": {
+  "openvaf": {
+   "BSIMCMG108.0.0_20140822/code/bsimcmg.va": {
+    "errors": 2108,
+    "rc": 65
+   }
+  },
+  "render": "no parse"
+ },
+ "xyce": {
+  "refused": "parse",
+  "render": "no parse"
+ }
+}

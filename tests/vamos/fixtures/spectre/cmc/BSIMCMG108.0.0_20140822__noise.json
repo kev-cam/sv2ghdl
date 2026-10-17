@@ -1,0 +1,42 @@
+{
+ "deck": "BSIMCMG108.0.0_20140822/benchmark_test/noise.sp",
+ "design": {
+  "names": [
+   ".noise",
+   "bsimcmg_108"
+  ]
+ },
+ "differs": [
+  "parse fails on noise=, which §11.3 (c) does not list for this deck"
+ ],
+ "errors": [
+  "rload: noise= is neither a SPICE R parameter nor a Spectre resistor instance parameter",
+  "X1: model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108 ($VAMOS_CMC_EXAMPLES/BSIMCMG108.0.0_20140822/benchmark_test/modelcard.nmos:8)",
+  ".noise is an error in v1 (v2: a noise analysis over the preceding .ac, §4.3)"
+ ],
+ "hdl": [
+  "BSIMCMG108.0.0_20140822/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [
+  ".noise",
+  "noise=",
+  "bsimcmg_108"
+ ],
+ "parse": "error",
+ "vacask": {
+  "openvaf": {
+   "BSIMCMG108.0.0_20140822/code/bsimcmg.va": {
+    "errors": 2108,
+    "rc": 65
+   }
+  },
+  "render": "no parse"
+ },
+ "xyce": {
+  "refused": "parse",
+  "render": "no parse"
+ }
+}

@@ -1,0 +1,16 @@
+// e2e 20: alter mod= (sec. 5.3, sec. 7.2): the Xyce state replay prints the altered cards in every later deck
+simulator lang=spectre
+// a diode at 1 mA: is altered from 1e-14 to 1e-13
+I1 (0 d) isource dc=1m
+D1 (d 0) dm
+model dm diode is=1e-14
+// a diode in breakdown at 1 mA: vb, Spectre's alias of bv (renamed by SPECTRE_MASTERS), altered from 5 to 3
+I2 (d2 0) isource dc=1m
+D2 (d2 0) dz
+model dz diode is=1e-14 vb=5
+op1 dc
+isUp alter mod=dm param=is value=1e-13
+vbDown alter mod=dz param=vb value=3
+op2 dc
+tr1 tran stop=1u
+save d d2

@@ -1,0 +1,43 @@
+XDM MULTIPLICITY rlc as vamos renders it: a vamos_tp probe in series with every m != 1 element
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+load "inductor.osdi"
+model vamos_resistor resistor
+model vamos_capacitor capacitor
+model vamos_vsource vsource
+model vamos_inductor inductor
+subckt RC_sub (in out)
+  parameters rval=1000.0
+  parameters cval=1e-06
+  parameters mval=1.0
+  parameters $mfactor=1.0
+  R1 (vamos_tn6 mid) vamos_resistor r=rval $mfactor=$mfactor*mval
+  C1 (vamos_tn7 out) vamos_capacitor c=cval $mfactor=$mfactor*mval
+  vamos_tp6 (in vamos_tn6) vamos_vsource type="dc" dc=0.0
+  vamos_tp7 (mid vamos_tn7) vamos_vsource type="dc" dc=0.0
+ends
+L1 (vamos_tn1 0) vamos_inductor l=0.002 $mfactor=2.0
+L0 (net2 0) vamos_inductor l=0.001
+C1 (vamos_tn5 net07) vamos_capacitor c=5e-07 $mfactor=2.0
+C0 (vamos_tn3 net2) vamos_capacitor c=1e-06
+R1 (vamos_tn4 net011) vamos_resistor r=2000.0 $mfactor=2.0
+R0 (net7 net4) vamos_resistor r=1000.0
+V1 (net018 0) vamos_vsource type="sine" sinedc=0.0 ampl=2.0 freq=10.0 delay=0.0 theta=0.0 tdphase=0.0
+V0 (net7 0) vamos_vsource type="sine" sinedc=0.0 ampl=2.0 freq=10.0 delay=0.0 theta=0.0 tdphase=0.0
+L2 (vamos_tn2 0) vamos_inductor l=0.002 $mfactor=2.0
+X1 (net5 net6) RC_sub rval=2000.0 cval=5e-07 mval=2.0
+V2 (net5 0) vamos_vsource type="sine" sinedc=0.0 ampl=2.0 freq=10.0 delay=0.0 theta=0.0 tdphase=0.0
+vamos_tp1 (net07 vamos_tn1) vamos_vsource type="dc" dc=0.0
+vamos_tp2 (net6 vamos_tn2) vamos_vsource type="dc" dc=0.0
+vamos_tp3 (net4 vamos_tn3) vamos_vsource type="dc" dc=0.0
+vamos_tp4 (net018 vamos_tn4) vamos_vsource type="dc" dc=0.0
+vamos_tp5 (net011 vamos_tn5) vamos_vsource type="dc" dc=0.0
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0 strictsave=2 tran_lteimplicit=0 temp=27.0 tnom=27.0 reltol=0.001 vntol=1e-06 abstol=1e-12 gmin=1e-12
+  save default p(R0, i)
+  options relref="sigglobal" tran_method="trap" tran_lteratio=3.5
+  analysis vamos_a1 tran step=0.0001 stop=0.1 maxstep=0.002
+  options relref="alllocal"
+endc

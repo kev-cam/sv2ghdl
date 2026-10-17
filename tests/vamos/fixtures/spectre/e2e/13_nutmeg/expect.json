@@ -1,0 +1,46 @@
+{
+ "argv": [
+  "deck.scs",
+  "-format",
+  "nutascii"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "deck.raw"
+ ],
+ "values": [],
+ "messages": [],
+ "also": [
+  {
+   "argv": [
+    "deck.scs",
+    "-format",
+    "nutbin"
+   ],
+   "status": 0,
+   "files": [
+    "deck.raw"
+   ],
+   "messages": []
+  },
+  {
+   "argv": [
+    "case.scs",
+    "-format",
+    "nutascii"
+   ],
+   "engines": [
+    "vacask"
+   ],
+   "status": 0,
+   "files": [
+    "case.raw"
+   ],
+   "messages": []
+  }
+ ]
+}

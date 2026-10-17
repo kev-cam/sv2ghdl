@@ -337,6 +337,22 @@ class TestVaModules(TempDir):
                                                                        os.path.join(self.tmp, "inc")], ["FAST"])
         self.assertEqual(mods["bsimx"].params, ["L", "W", "NF", "l", "fast"])
 
+    def test_spectre_reading_of_a_cmc_header(self):
+        # phase 2's integration (C's seams): every CMC tree writes its attributes after the port list (also
+        # through an `attr() macro) and declares analog functions before its parameters; the Spectre dialects
+        # read both (spectre_va_modules), the HSPICE route keeps va_modules' reading
+        self.write("cmc.va", '`define attr(txt) (*txt*)\nmodule bsimq(d, g, s, b) `attr(xyceModelGroup="MOSFET" '
+                             'xyceLevelNumber="77");\ninout d, g, s, b; electrical d, g, s, b;\n'
+                             'analog function real lexp;\ninput x; real x;\nbegin lexp = exp(x); end\nendfunction\n'
+                             'parameter real toxe = 3e-9;\nparameter real l = 1e-6;\nanalog begin\nI(d, s) <+ 0;\nend\n'
+                             'endmodule\n')
+        path = os.path.join(self.tmp, "cmc.va")
+        mods, _ = spice.spectre_va_modules(path)
+        self.assertEqual(mods["bsimq"].attrs, {"xyceModelGroup": "MOSFET", "xyceLevelNumber": "77"})
+        self.assertEqual(mods["bsimq"].params, ["toxe", "l"])
+        mods, _ = spice.va_modules(path)                                   # the HSPICE route: unchanged
+        self.assertEqual((mods["bsimq"].attrs, mods["bsimq"].params), ({}, []))
+
     def test_unknown_parameter_list(self):
         self.write("m.va", 'module m(a, b);\n`MPR(R, 1)\nendmodule\n')
         mods, files = spice.va_modules(os.path.join(self.tmp, "m.va"))

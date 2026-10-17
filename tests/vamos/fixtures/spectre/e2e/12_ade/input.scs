@@ -1,0 +1,39 @@
+// Generated for: spectre
+// Generated on: Oct 16 12:00:00 2026
+// Design library name: vamos_e2e
+// Design cell name: rc_filter
+// Design view name: schematic
+simulator lang=spectre
+global 0
+parameters rval=1k cval=100n
+
+// Library name: vamos_e2e
+// Cell name: rc_stage
+// View name: schematic
+subckt rc_stage in out
+    R0 (in Mid) resistor r=rval
+    C0 (Mid 0) capacitor c=cval
+    R1 (Mid out) resistor r=rval
+ends rc_stage
+// End of subcircuit definition.
+
+// Library name: vamos_e2e
+// Cell name: rc_filter
+// View name: schematic
+V0 (net\<3\> 0) vsource type=pulse val0=0.2 val1=1 period=1m delay=0 rise=1u fall=1u width=500u
+I2 (net\<3\> out) rc_stage
+C1 (out 0) capacitor c=cval
+simulatorOptions options reltol=1e-3 vabstol=1e-6 iabstol=1e-12 temp=27 \
+    tnom=27 scalem=1.0 scale=1.0 gmin=1e-12 rforce=1 maxnotes=5 maxwarns=5 \
+    digits=5 cols=80 pivrel=1e-3 sensfile="../psf/sens.output" \
+    checklimitdest=psf
+tran tran stop=2m errpreset=moderate write="spectre.ic" \
+    writefinal="spectre.fc" annotate=status maxiters=5
+finalTimeOP info what=oppoint where=rawfile
+modelParameter info what=models where=rawfile
+element info what=inst where=rawfile
+outputParameter info what=output where=rawfile
+designParamVals info what=parameters where=rawfile
+primitives info what=primitives where=rawfile
+subckts info what=subckts  where=rawfile
+saveOptions options save=allpub

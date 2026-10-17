@@ -1,0 +1,8 @@
+// e2e 14: SPECTRE_DEFAULTS="+log %C:r.out", -outdir and a netlist on stdin
+simulator lang=spectre
+V1 (in 0) vsource dc=1
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=3k
+op1 dc
+tr1 tran stop=1u
+save out

@@ -1,0 +1,3 @@
+e2e 12 fixture (vamos-authored): stands for the files ADE writes into psf/ before it runs spectre
+(artistLogFile, runObjFile, variables_file; design section 9: not vamos's job).  ADE creates the
+directory, so +log ./psf/spectre.out can be opened, and vamos must leave this file alone.

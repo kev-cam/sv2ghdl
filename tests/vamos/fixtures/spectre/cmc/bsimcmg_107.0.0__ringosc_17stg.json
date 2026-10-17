@@ -1,0 +1,54 @@
+{
+ "deck": "bsimcmg_107.0.0/benchmark_test/ringosc_17stg.sp",
+ "design": {
+  "names": []
+ },
+ "differs": [],
+ "errors": [],
+ "hdl": [
+  "bsimcmg_107.0.0/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [],
+ "parse": "ok",
+ "vacask": {
+  "openvaf": {
+   "bsimcmg_107.0.0/code/bsimcmg.va": {
+    "errors": 1334,
+    "rc": 65
+   }
+  },
+  "render": "ok",
+  "steps": [
+   [
+    "vamos_a1",
+    "timeSweep",
+    "tran"
+   ]
+  ]
+ },
+ "xyce": {
+  "norun": {
+   "device_summary_problems": [],
+   "output_problem_count": 68,
+   "output_problems": [
+    "Netlist error in file vamos_a1.cir at or near line 7 Unrecognized fields for device MXP1",
+    "Netlist error in file vamos_a1.cir at or near line 7 Unrecognized parameter BULKMOD for device MXP1",
+    "Netlist error in file vamos_a1.cir at or near line 9 Unrecognized fields for device MXN1",
+    "Netlist error in file vamos_a1.cir at or near line 9 Unrecognized parameter BULKMOD for device MXN1"
+   ],
+   "rc": 1
+  },
+  "refused": "norun",
+  "render": "ok",
+  "steps": [
+   [
+    "vamos_a1",
+    "timeSweep",
+    "tran"
+   ]
+  ]
+ }
+}

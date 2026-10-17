@@ -1,0 +1,10 @@
+* Xyce: a .DC sweep of an instance parameter bound to a subckt parameter (e2e 2's dev=X2.R1)
+V1 in 0 DC 1.0
+R1 in mid 1000.0
+X2 mid 0 cell r=1000.0
+.subckt cell a b params: r=1000.0
+R1 a b {r}
+.ends cell
+.DC X2:R1:R LIST 1000.0 2000.0
+.PRINT DC FORMAT=RAW FILE=bound_dc.raw V(MID)
+.end

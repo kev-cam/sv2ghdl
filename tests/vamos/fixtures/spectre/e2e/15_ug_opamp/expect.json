@@ -1,0 +1,514 @@
+{
+ "argv": [
+  "deck.scs",
+  "-E"
+ ],
+ "engines": [
+  "vacask"
+ ],
+ "status": 0,
+ "files": [
+  "cmLoopGain.ac",
+  "cmNoise.noise",
+  "cmStepResponse.tran.tran",
+  "cmXferFunctions.xf",
+  "dmLoopGain.ac",
+  "dmNoise.noise",
+  "dmStepResponse.tran.tran",
+  "dmXferFunctions.xf",
+  "logFile",
+  "opPoint.dc"
+ ],
+ "values": [
+  {
+   "file": "opPoint.dc",
+   "signal": "out",
+   "at": null,
+   "value": 0.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "opPoint.dc",
+   "signal": "pout",
+   "at": null,
+   "value": 0.005543,
+   "abs": 2e-05
+  },
+  {
+   "file": "opPoint.dc",
+   "signal": "nout",
+   "at": null,
+   "value": 0.005543,
+   "abs": 2e-05
+  },
+  {
+   "file": "opPoint.dc",
+   "signal": "Vdd:p",
+   "at": null,
+   "value": -0.000620481,
+   "rel": 0.0001
+  },
+  {
+   "file": "opPoint.dc",
+   "signal": "Vss:p",
+   "at": null,
+   "value": 0.000630481,
+   "rel": 0.0001
+  },
+  {
+   "file": "dmNoise.noise",
+   "signal": "out",
+   "at": 1000.0,
+   "value": 1.18957e-08,
+   "rel": 0.001
+  },
+  {
+   "file": "dmNoise.noise",
+   "signal": "gain",
+   "at": 1000.0,
+   "value": 0.24995,
+   "rel": 0.0001
+  },
+  {
+   "file": "dmNoise.noise",
+   "signal": "in",
+   "at": 1000.0,
+   "value": 4.75923e-08,
+   "rel": 0.001
+  },
+  {
+   "file": "dmNoise.noise",
+   "signal": "A1.M1",
+   "at": 1000.0,
+   "value": {
+    "total": 3.07496e-17
+   },
+   "rel": 0.001
+  },
+  {
+   "file": "dmNoise.noise",
+   "signal": "Rgp",
+   "at": null,
+   "value": null
+  },
+  {
+   "file": "dmStepResponse.tran.tran",
+   "signal": "out",
+   "at": 5e-07,
+   "value": 0.4999,
+   "rel": 0.001
+  },
+  {
+   "file": "dmStepResponse.tran.tran",
+   "signal": "out",
+   "at": 1.5e-06,
+   "value": 0.0,
+   "abs": 0.001
+  },
+  {
+   "file": "dmLoopGain.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    1.9996,
+    -0.000142814
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "dmLoopGain.ac",
+   "signal": "t1",
+   "at": 1000.0,
+   "value": [
+    0.999901,
+    -4.89872e-05
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "dmLoopGain.ac",
+   "signal": "nvg",
+   "at": 1000.0,
+   "value": [
+    -9.88291e-05,
+    -4.89872e-05
+   ],
+   "rel": 0.001
+  },
+  {
+   "file": "cmNoise.noise",
+   "signal": "out",
+   "at": 1000.0,
+   "value": 5.74696e-08,
+   "rel": 0.001
+  },
+  {
+   "file": "cmNoise.noise",
+   "signal": "gain",
+   "at": 1000.0,
+   "value": 3.09597e-05,
+   "rel": 0.001
+  },
+  {
+   "file": "cmNoise.noise",
+   "signal": "in",
+   "at": 1000.0,
+   "value": 0.00185627,
+   "rel": 0.001
+  },
+  {
+   "file": "cmStepResponse.tran.tran",
+   "signal": "cmout",
+   "at": 5e-07,
+   "value": 0.005946,
+   "abs": 2e-05
+  },
+  {
+   "file": "cmStepResponse.tran.tran",
+   "signal": "out",
+   "at": 5e-07,
+   "value": 0.000292,
+   "abs": 2e-05
+  },
+  {
+   "file": "cmLoopGain.ac",
+   "signal": "t1",
+   "at": 1000.0,
+   "value": [
+    0.212432,
+    -7.5665e-06
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "cmLoopGain.ac",
+   "signal": "nvg",
+   "at": 1000.0,
+   "value": [
+    -0.787568,
+    -7.5665e-06
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "dmXferFunctions.xf",
+   "signal": "Vdif:p",
+   "at": 1000.0,
+   "value": [
+    0.24995,
+    -4.49843e-05
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "dmXferFunctions.xf",
+   "signal": "Vt1:p",
+   "at": 1000.0,
+   "value": [
+    0.9998,
+    -7.14135e-05
+   ],
+   "rel": 0.0001
+  },
+  {
+   "file": "dmXferFunctions.xf",
+   "signal": "Vdd:p",
+   "at": 1000000.0,
+   "value": [
+    0.0431886,
+    -0.0259039
+   ],
+   "rel": 0.001
+  },
+  {
+   "file": "dmXferFunctions.xf",
+   "signal": "Vss:p",
+   "at": 1000000.0,
+   "value": [
+    0.00150144,
+    0.00367037
+   ],
+   "rel": 0.001
+  },
+  {
+   "file": "dmXferFunctions.xf",
+   "signal": "A1.Ib:sink",
+   "at": 1000000.0,
+   "value": [
+    -2869.04,
+    3302.24
+   ],
+   "rel": 0.001
+  },
+  {
+   "file": "cmXferFunctions.xf",
+   "signal": "Vcm:p",
+   "at": 1000.0,
+   "value": [
+    -3.09443e-05,
+    -9.78968e-07
+   ],
+   "rel": 0.001
+  },
+  {
+   "file": "cmXferFunctions.xf",
+   "signal": "Vss:p",
+   "at": 1000.0,
+   "value": [
+    -0.00850146,
+    -8.64118e-06
+   ],
+   "rel": 0.001
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.002
+ },
+ "messages": [
+  [
+   "warning",
+   "badmos3=1 applied"
+  ],
+  [
+   "note",
+   "the info file is not written"
+  ]
+ ],
+ "gates": [
+  "needs_cpp"
+ ],
+ "xyce": {
+  "status": 2,
+  "messages": [
+   [
+    "error",
+    "xf is not available on Xyce"
+   ]
+  ]
+ },
+ "also": [
+  {
+   "deck": "deck_noxf.scs",
+   "argv": [
+    "deck_noxf.scs",
+    "-E"
+   ],
+   "engines": [
+    "vacask",
+    "xyce"
+   ],
+   "status": 0,
+   "files": [
+    "cmLoopGain.ac",
+    "cmNoise.noise",
+    "cmStepResponse.tran.tran",
+    "dmLoopGain.ac",
+    "dmNoise.noise",
+    "dmStepResponse.tran.tran",
+    "logFile",
+    "opPoint.dc"
+   ],
+   "values": [
+    {
+     "file": "opPoint.dc",
+     "signal": "out",
+     "at": null,
+     "value": 0.0,
+     "abs": 1e-09
+    },
+    {
+     "file": "opPoint.dc",
+     "signal": "pout",
+     "at": null,
+     "value": 0.005543,
+     "abs": 2e-05
+    },
+    {
+     "file": "opPoint.dc",
+     "signal": "nout",
+     "at": null,
+     "value": 0.005543,
+     "abs": 2e-05
+    },
+    {
+     "file": "opPoint.dc",
+     "signal": "Vdd:p",
+     "at": null,
+     "value": -0.000620481,
+     "rel": 0.0001
+    },
+    {
+     "file": "opPoint.dc",
+     "signal": "Vss:p",
+     "at": null,
+     "value": 0.000630481,
+     "rel": 0.0001
+    },
+    {
+     "file": "dmNoise.noise",
+     "signal": "out",
+     "at": 1000.0,
+     "value": 1.18957e-08,
+     "rel": 0.001
+    },
+    {
+     "file": "dmNoise.noise",
+     "signal": "gain",
+     "at": 1000.0,
+     "value": 0.24995,
+     "rel": 0.0001
+    },
+    {
+     "file": "dmNoise.noise",
+     "signal": "in",
+     "at": 1000.0,
+     "value": 4.75923e-08,
+     "rel": 0.001
+    },
+    {
+     "file": "dmNoise.noise",
+     "signal": "A1.M1",
+     "at": 1000.0,
+     "value": {
+      "total": 3.07496e-17
+     },
+     "rel": 0.001
+    },
+    {
+     "file": "dmNoise.noise",
+     "signal": "Rgp",
+     "at": null,
+     "value": null
+    },
+    {
+     "file": "dmStepResponse.tran.tran",
+     "signal": "out",
+     "at": 5e-07,
+     "value": 0.4999,
+     "rel": 0.001
+    },
+    {
+     "file": "dmStepResponse.tran.tran",
+     "signal": "out",
+     "at": 1.5e-06,
+     "value": 0.0,
+     "abs": 0.001
+    },
+    {
+     "file": "dmLoopGain.ac",
+     "signal": "out",
+     "at": 1000.0,
+     "value": [
+      1.9996,
+      -0.000142814
+     ],
+     "rel": 0.0001
+    },
+    {
+     "file": "dmLoopGain.ac",
+     "signal": "t1",
+     "at": 1000.0,
+     "value": [
+      0.999901,
+      -4.89872e-05
+     ],
+     "rel": 0.0001
+    },
+    {
+     "file": "dmLoopGain.ac",
+     "signal": "nvg",
+     "at": 1000.0,
+     "value": [
+      -9.88291e-05,
+      -4.89872e-05
+     ],
+     "rel": 0.001
+    },
+    {
+     "file": "cmNoise.noise",
+     "signal": "out",
+     "at": 1000.0,
+     "value": 5.74696e-08,
+     "rel": 0.001
+    },
+    {
+     "file": "cmNoise.noise",
+     "signal": "gain",
+     "at": 1000.0,
+     "value": 3.09597e-05,
+     "rel": 0.001
+    },
+    {
+     "file": "cmNoise.noise",
+     "signal": "in",
+     "at": 1000.0,
+     "value": 0.00185627,
+     "rel": 0.001
+    },
+    {
+     "file": "cmStepResponse.tran.tran",
+     "signal": "cmout",
+     "at": 5e-07,
+     "value": 0.005946,
+     "abs": 2e-05
+    },
+    {
+     "file": "cmStepResponse.tran.tran",
+     "signal": "out",
+     "at": 5e-07,
+     "value": 0.000292,
+     "abs": 2e-05
+    },
+    {
+     "file": "cmLoopGain.ac",
+     "signal": "t1",
+     "at": 1000.0,
+     "value": [
+      0.212432,
+      -7.5665e-06
+     ],
+     "rel": 0.0001
+    },
+    {
+     "file": "cmLoopGain.ac",
+     "signal": "nvg",
+     "at": 1000.0,
+     "value": [
+      -0.787568,
+      -7.5665e-06
+     ],
+     "rel": 0.0001
+    }
+   ],
+   "cross_engine": {
+    "rel": 0.002
+   },
+   "messages": [
+    [
+     "warning",
+     "badmos3=1 applied"
+    ],
+    [
+     "note",
+     "the info file is not written"
+    ]
+   ]
+  },
+  {
+   "deck": "deck.scs",
+   "argv": [
+    "deck.scs"
+   ],
+   "engines": [
+    "vacask"
+   ],
+   "status": 2,
+   "messages": [
+    [
+     "error",
+     "CPP directive without -E"
+    ]
+   ]
+  }
+ ]
+}

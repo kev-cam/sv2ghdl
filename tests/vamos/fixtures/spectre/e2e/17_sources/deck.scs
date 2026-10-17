@@ -1,0 +1,20 @@
+// e2e 17: independent sources (sec. 3.8.1): a derived dc, a pulse without edges, a given dc
+simulator lang=spectre
+// a pulse without dc: every DC solve uses its t = 0 value, val0
+V1 (a 0) vsource type=pulse val0=0.3 val1=1 delay=1u rise=10n fall=10n width=1u
+R1 (a 0) resistor r=1k
+// a pulse with no rise and no fall: Spectre's transres edge (1e-9 x the tran's stop), with a warning
+V2 (b 0) vsource type=pulse val0=0 val1=1 delay=1u width=1u
+R2 (b 0) resistor r=1k
+// a pulse with dc=0.9 and val0=0: 0.9 V for the op, the dc sweep and the AC bias, val0 at the tran start
+V3 (c 0) vsource type=pulse dc=0.9 val0=0 val1=1 delay=1u rise=10n fall=10n width=1u mag=1
+R3 (c d) resistor r=1k
+D3 (d 0) dm
+model dm diode is=1e-14
+op1 dc
+sw3 dc dev=V3 param=dc values=[0.7 0.9]
+ac3 ac values=[1k]
+tr1 tran stop=3u
+a1 alter dev=V1 param=val0 value=0.6
+op2 dc
+save a b c d

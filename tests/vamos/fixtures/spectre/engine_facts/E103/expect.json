@@ -1,0 +1,200 @@
+{
+ "row": "E103",
+ "experiment": "native currents of $mfactor instances (XDM MULTIPLICITY rlc with m=2 on R, L, C and in a subckt, phase 1b): VACASK with the native saves p(R1, i), i(L1), p('X1:R1', i); VACASK as vamos renders it (a vamos_tp probe in series with every m != 1 element); Xyce's I() of the same circuit",
+ "result": "VACASK's R1.i, L1:flow(br) and X1:R1.i are one unit's current: 6.2627e-5 A at t = 100 ms against the source's 1.2525e-4 A (exactly half at every point) and Xyce's total I(R1) 1.2523e-4 A, which is Spectre's R1:1; through the vamos_tp probes the three circuits agree (1.2529e-4 A, equal at every point)",
+ "rules": [
+  "\u00a76.3 currents: on VACASK an m != 1 r/l/v/e/h instance's current is read through a vamos_tp probe (signals.resolve), because its native current is one unit's while Spectre's R1:1 and Xyce's I(R1) are the total"
+ ],
+ "runs": [
+  {
+   "name": "vacask_native",
+   "tool": "vacask",
+   "deck": "rlc_native.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "tr.raw",
+     "col": "R1.i",
+     "row": -1,
+     "value": 6.262688659751103e-05,
+     "rel": 0.001
+    },
+    {
+     "raw": "tr.raw",
+     "col": "L1:flow(br)",
+     "row": -1,
+     "value": 6.262688659751102e-05,
+     "rel": 0.001
+    },
+    {
+     "raw": "tr.raw",
+     "col": "X1:R1.i",
+     "row": -1,
+     "value": 6.262688659751103e-05,
+     "rel": 0.001
+    },
+    {
+     "raw": "tr.raw",
+     "col": "R0.i",
+     "row": -1,
+     "value": 0.0001252537731950221,
+     "rel": 0.001
+    },
+    {
+     "raw": "tr.raw",
+     "col": "V1:flow(br)",
+     "row": -1,
+     "value": -0.0001252537731950221,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "vacask_probe",
+   "tool": "vacask",
+   "deck": "rlc_probe.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vamos_a1.raw",
+     "col": "vamos_tp4:flow(br)",
+     "row": -1,
+     "value": 0.00012529133319798,
+     "rel": 0.001
+    },
+    {
+     "raw": "vamos_a1.raw",
+     "col": "R0.i",
+     "row": -1,
+     "value": 0.00012529133319798,
+     "rel": 0.001
+    },
+    {
+     "raw": "vamos_a1.raw",
+     "col": "X1:vamos_tp6:flow(br)",
+     "row": -1,
+     "value": 0.00012529133319798,
+     "rel": 0.001
+    }
+   ]
+  },
+  {
+   "name": "xyce_total",
+   "tool": "xyce",
+   "deck": "rlc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "rlc.raw",
+     "col": "I(R1)",
+     "row": -1,
+     "value": 0.00012522902002607312,
+     "rel": 0.001
+    },
+    {
+     "raw": "rlc.raw",
+     "col": "I(X1:R1)",
+     "row": -1,
+     "value": 0.00012522902002607325,
+     "rel": 0.001
+    },
+    {
+     "raw": "rlc.raw",
+     "col": "I(L1)",
+     "row": -1,
+     "value": 0.00012522902002607352,
+     "rel": 0.001
+    },
+    {
+     "raw": "rlc.raw",
+     "col": "I(R0)",
+     "row": -1,
+     "value": 0.00012522902002607312,
+     "rel": 0.001
+    }
+   ]
+  }
+ ],
+ "cross": [
+  {
+   "name": "vacask_r1_is_one_unit",
+   "rel": 1e-06,
+   "a": {
+    "run": "vacask_native",
+    "raw": "tr.raw",
+    "col": "R1.i",
+    "scale": 2.0
+   },
+   "b": {
+    "run": "vacask_native",
+    "raw": "tr.raw",
+    "col": "V1:flow(br)",
+    "scale": -1.0
+   }
+  },
+  {
+   "name": "vacask_l1_is_one_unit",
+   "rel": 1e-06,
+   "a": {
+    "run": "vacask_native",
+    "raw": "tr.raw",
+    "col": "L1:flow(br)",
+    "scale": 2.0
+   },
+   "b": {
+    "run": "vacask_native",
+    "raw": "tr.raw",
+    "col": "V1:flow(br)",
+    "scale": -1.0
+   }
+  },
+  {
+   "name": "vacask_subckt_r1_is_one_unit",
+   "rel": 1e-06,
+   "a": {
+    "run": "vacask_native",
+    "raw": "tr.raw",
+    "col": "X1:R1.i",
+    "scale": 2.0
+   },
+   "b": {
+    "run": "vacask_native",
+    "raw": "tr.raw",
+    "col": "V2:flow(br)",
+    "scale": -1.0
+   }
+  },
+  {
+   "name": "probe_m2_equals_m1_circuit",
+   "rel": 1e-06,
+   "a": {
+    "run": "vacask_probe",
+    "raw": "vamos_a1.raw",
+    "col": "vamos_tp4:flow(br)"
+   },
+   "b": {
+    "run": "vacask_probe",
+    "raw": "vamos_a1.raw",
+    "col": "R0.i"
+   }
+  },
+  {
+   "name": "probe_subckt_equals_m1_circuit",
+   "rel": 1e-06,
+   "a": {
+    "run": "vacask_probe",
+    "raw": "vamos_a1.raw",
+    "col": "X1:vamos_tp6:flow(br)"
+   },
+   "b": {
+    "run": "vacask_probe",
+    "raw": "vamos_a1.raw",
+    "col": "R0.i"
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos's renders of tests/vamos/fixtures/spectre/xdm/MULTIPLICITY/rlc.cir.spectre (Xyce_Regression d4685581, GPL-3.0-or-later): rlc_probe.sim as the chain renders it (rawfile ascii), rlc_native.sim without the probes, rlc.cir the Xyce render without the probes"
+ ]
+}

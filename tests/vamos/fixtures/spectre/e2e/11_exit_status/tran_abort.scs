@@ -1,0 +1,11 @@
+// e2e 11: exit status 1, a tran that aborts mid-run: the vccs is a negative conductance, the pulse kicks
+// node a and it grows as exp(t / 1 us) until the engine gives up, long before stop (E66)
+simulator lang=spectre
+I1 (0 a) isource dc=0 type=pulse val0=0 val1=1u delay=0 rise=1n fall=1n width=1u period=10
+G1 (0 a a 0) vccs gm=1m
+C1 (a 0) capacitor c=1n
+R1 (a 0) resistor r=1M
+op1 dc
+tr1 tran stop=1m
+op2 dc
+save a

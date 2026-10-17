@@ -125,6 +125,13 @@ NOISE_EXTRA_TYPES: Dict[str, str] = {
     "V/V": '"V/V" FLOAT DOUBLE PROP(\n"units" "V/V"\n"key" "noise"\n)',
     "V/A": '"V/A" FLOAT DOUBLE PROP(\n"units" "V/A"\n"key" "noise"\n)',
 }
+# the types an xf file adds for its transfer-function traces (§6.4: "V/V" for a vsource, "V/A" for an
+# isource), which the complex family does not declare; no Spectre xf sample exists, so their shape is
+# the complex family's "V" entry without a tolerance, as NOISE_EXTRA_TYPES follow "V/sqrt(Hz)"'s
+XF_EXTRA_TYPES: Dict[str, str] = {
+    "V/V": '"V/V" COMPLEX DOUBLE PROP(\n"units" "V/V"\n"key" "node"\n)',
+    "V/A": '"V/A" COMPLEX DOUBLE PROP(\n"units" "V/A"\n"key" "node"\n)',
+}
 FIXED_TYPE_NAMES = frozenset(["sweep", "LogicV", "V", "I", "MMF", "Wb", "Temp", "Pwr", "U", "V/Sec",
                               "I/Sec", "1/Sec", "HOD", "Q", "V/sqrt(Hz)", "V^2/Hz", "A/sqrt(Hz)",
                               "V/V", "V/A"])
@@ -265,6 +272,16 @@ class _Writer:
         family = type_family(res)
         for entry in TYPES[family]:
             self.line(entry)
+        if family == "complex":
+            declared_c = set(_type_name(e) for e in TYPES[family])
+            for sig in res.signals:
+                if sig.members is None and sig.ptype not in declared_c:
+                    extra = XF_EXTRA_TYPES.get(sig.ptype)
+                    if extra is None:
+                        raise ValueError("%s: trace %r has type %r, which the %s file does not declare"
+                                         % (res.file, sig.name, sig.ptype, res.atype))
+                    self.line(extra)
+                    declared_c.add(sig.ptype)
         if family == "noise":
             declared = set(["sweep", "V/sqrt(Hz)", "V^2/Hz"])
             structs: set = set()
@@ -288,7 +305,7 @@ class _Writer:
                     body = "".join('%s FLOAT DOUBLE PROP(\n"units" %s\n)\n'
                                    % (self.s(m), psf_string(STRUCT_MEMBER_UNITS)) for m, _ in sig.members)
                     self.line('%s STRUCT(\n%s) PROP(\n"key" "inst"\n"master" %s\n)'
-                              % (self.s(sig.ptype), body, self.s(master)))
+                              % (psf_string(sig.ptype), body, self.s(master)))
                     structs.add(sig.ptype)
                 declared.add(sig.ptype)
 
@@ -302,12 +319,15 @@ class _Writer:
                   % (self.s(name), self.s(units), int(grid)))
 
     def trace(self) -> None:
+        """TRACE: each name (escaped under +escchars) and its type, referenced exactly as TYPE
+        declares it: a type name is not a signal name and is never +escchars-escaped, so a reader
+        that matches the reference against the declaration literally resolves it."""
         res = self.res
         if res.sweep is None or res.atype in PARENT_KINDS:
             return
         self.line("TRACE")
         for sig in res.signals:
-            self.line("%s %s%s" % (self.s(sig.name), self.s(sig.ptype), _current_prop(sig)))
+            self.line("%s %s%s" % (self.s(sig.name), psf_string(sig.ptype), _current_prop(sig)))
 
     def values(self) -> None:
         res = self.res
@@ -317,7 +337,7 @@ class _Writer:
                 if len(sig.values) != 1:
                     raise ValueError("%s: operating-point signal %r carries %d values, not one"
                                      % (res.file, sig.name, len(sig.values)))
-                self.line("%s %s %s%s" % (self.s(sig.name), self.s(sig.ptype),
+                self.line("%s %s %s%s" % (self.s(sig.name), psf_string(sig.ptype),
                                           self.value(sig.values[0], sig), _current_prop(sig)))
             return
         sname = self.s(res.sweep[0])
@@ -342,6 +362,11 @@ class _Writer:
         self.trace()
         self.values()
         self.line("END")
+
+
+def _type_name(entry: str) -> str:
+    """The name a TYPE entry declares (its first quoted string)."""
+    return entry.split('"')[1]
 
 
 def _current_prop(sig: Signal) -> str:
@@ -454,6 +479,6 @@ def _log_props(res: AnalysisResult, head: PsfHead, escchars: bool) -> Optional[L
 
 
 __all__ = ["SIMULATOR", "LOG_GENERATOR", "SIM_MODE", "SIGNAL_NAME_TYPE", "PSF_VERSION", "TYPES",
-           "NOISE_EXTRA_TYPES", "FIXED_TYPE_NAMES", "XVEC_SORTED", "DATA_TYPE", "PARENT_KINDS", "PsfHead",
-           "psf_string", "psf_date", "precision", "analysis_name", "type_family", "write_analysis",
-           "write_logfile"]
+           "NOISE_EXTRA_TYPES", "XF_EXTRA_TYPES", "FIXED_TYPE_NAMES", "XVEC_SORTED", "DATA_TYPE",
+           "PARENT_KINDS", "PsfHead", "psf_string", "psf_date", "precision", "analysis_name", "type_family",
+           "write_analysis", "write_logfile"]

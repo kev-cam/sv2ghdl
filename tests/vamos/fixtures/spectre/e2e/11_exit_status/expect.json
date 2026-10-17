@@ -1,0 +1,169 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 1,
+ "files": [
+  "op1.dc",
+  "op3.dc",
+  "ac1.ac",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "out",
+   "at": null,
+   "value": -1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op1.dc",
+   "signal": "a",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op3.dc",
+   "signal": "out",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "out",
+   "at": 1000.0,
+   "value": [
+    1.9999210462817592,
+    -0.012565874533516775
+   ],
+   "rel": 1e-06
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "freq",
+   "at": null,
+   "value": 1000000.0,
+   "rel": 1e-09,
+   "row": -1,
+   "points": 4
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-06
+ },
+ "messages": [],
+ "also": [
+  {
+   "deck": "sweep_fail.scs",
+   "status": 1,
+   "files": [
+    "sw_op1.sweep",
+    "sw-000_op1.dc",
+    "op9.dc",
+    "logFile"
+   ],
+   "values": [
+    {
+     "file": "sw_op1.sweep",
+     "signal": "g",
+     "at": null,
+     "value": [
+      0.75
+     ],
+     "rel": 1e-12,
+     "points": 1
+    },
+    {
+     "file": "sw-000_op1.dc",
+     "signal": "out",
+     "at": null,
+     "value": -3.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op9.dc",
+     "signal": "out",
+     "at": null,
+     "value": -1.0,
+     "rel": 1e-09
+    }
+   ],
+   "cross_engine": {
+    "rel": 1e-09
+   },
+   "messages": []
+  },
+  {
+   "deck": "tran_abort.scs",
+   "status": 1,
+   "files": [
+    "op1.dc",
+    "op2.dc",
+    "logFile"
+   ],
+   "values": [
+    {
+     "file": "op1.dc",
+     "signal": "a",
+     "at": null,
+     "value": 0.0,
+     "abs": 1e-12
+    },
+    {
+     "file": "op2.dc",
+     "signal": "a",
+     "at": null,
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ],
+   "messages": []
+  },
+  {
+   "deck": "bind_fail.scs",
+   "engines": [
+    "vacask"
+   ],
+   "status": 1,
+   "files": [
+    "op1.dc",
+    "op2.dc",
+    "logFile"
+   ],
+   "values": [
+    {
+     "file": "op1.dc",
+     "signal": "b",
+     "at": null,
+     "value": 0.3333333333333333,
+     "rel": 1e-06
+    },
+    {
+     "file": "op2.dc",
+     "signal": "b",
+     "at": null,
+     "value": 0.3333333333333333,
+     "rel": 1e-06
+    }
+   ],
+   "messages": []
+  },
+  {
+   "deck": "parse_error.scs",
+   "status": 2,
+   "messages": [
+    [
+     "error",
+     "parse_error.scs:4"
+    ]
+   ]
+  }
+ ]
+}

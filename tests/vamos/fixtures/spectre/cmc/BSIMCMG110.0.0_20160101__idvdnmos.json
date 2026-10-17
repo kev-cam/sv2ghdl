@@ -1,0 +1,38 @@
+{
+ "deck": "BSIMCMG110.0.0_20160101/benchmark_test/idvdnmos.sp",
+ "design": {
+  "names": [
+   ".alter",
+   "bsimcmg_110"
+  ]
+ },
+ "differs": [],
+ "errors": [
+  ".alter is not supported (one simulation per run)",
+  "X1: model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_110 ($VAMOS_CMC_EXAMPLES/BSIMCMG110.0.0_20160101/benchmark_test/modelcard.nmos.1:8)"
+ ],
+ "hdl": [
+  "BSIMCMG110.0.0_20160101/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [
+  ".alter",
+  "bsimcmg_110"
+ ],
+ "parse": "error",
+ "vacask": {
+  "openvaf": {
+   "BSIMCMG110.0.0_20160101/code/bsimcmg.va": {
+    "errors": 1,
+    "rc": 65
+   }
+  },
+  "render": "no parse"
+ },
+ "xyce": {
+  "refused": "parse",
+  "render": "no parse"
+ }
+}

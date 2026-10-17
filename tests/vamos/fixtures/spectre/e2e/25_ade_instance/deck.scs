@@ -1,0 +1,41 @@
+// Generated for: spectre
+// Generated on: Oct 16 12:00:00 2026
+// Design library name: vamos_e2e
+// Design cell name: tb_divider
+// Design view name: schematic
+simulator lang=spectre
+global 0
+
+// Library name: vamos_e2e
+// Cell name: divider
+// View name: schematic
+subckt divider in out
+    r3 (in Mid) resistor r=1K
+    r4 (Mid out) resistor r=1K
+    C0 (Mid 0) capacitor c=1n
+ends divider
+// End of subcircuit definition.
+
+// Library name: vamos_e2e
+// Cell name: tb_divider
+// View name: schematic
+I2 (net1 out) divider
+R0 (out 0) resistor r=2K
+V0 (net1 0) vsource dc=1 mag=1 type=dc
+ic I2.Mid=0.3
+simulatorOptions options reltol=1e-3 vabstol=1e-6 iabstol=1e-12 temp=27 \
+    tnom=27 scalem=1.0 scale=1.0 gmin=1e-12 rforce=1 maxnotes=5 maxwarns=5 \
+    digits=5 cols=80 pivrel=1e-3 checklimitdest=psf
+dcOp dc maxiters=150 maxsteps=10000 annotate=status
+dcOpInfo info what=oppoint where=rawfile
+noise (out 0) noise start=1 stop=100 dec=1 iprobe=V0 annotate=status
+tran tran stop=5u errpreset=moderate annotate=status maxiters=5
+finalTimeOP info what=oppoint where=rawfile
+modelParameter info what=models where=rawfile
+element info what=inst where=rawfile
+outputParameter info what=output where=rawfile
+designParamVals info what=parameters where=rawfile
+primitives info what=primitives where=rawfile
+subckts info what=subckts  where=rawfile
+save I2.Mid
+saveOptions options save=allpub

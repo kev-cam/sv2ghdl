@@ -1,0 +1,440 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "cv",
+    "kind": "ac",
+    "columns": {
+     "a": "a",
+     "V1:p": "V1:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "points": 8
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 0,
+    "value": -1.0,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -1.000000000069781e-12,
+     -8.377580409572781e-06
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 1,
+    "value": 0.0,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 1,
+    "value": [
+     -1.000038662408997e-12,
+     -1.2566370614359172e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 1,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 2,
+    "value": 0.2,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 2,
+    "value": [
+     -1.088198883535966e-12,
+     -1.451039491387374e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 2,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 3,
+    "value": 0.24,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 3,
+    "value": [
+     -1.414093032383968e-12,
+     -1.5019685673781106e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 3,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 4,
+    "value": 0.3,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 4,
+    "value": [
+     -5.212599541007007e-12,
+     -1.582431169201938e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 4,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 5,
+    "value": 0.4,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 5,
+    "value": [
+     -2.022043030641755e-10,
+     -1.7165355055749835e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 5,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 6,
+    "value": 0.5,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 6,
+    "value": [
+     -9.61102136031736e-09,
+     -1.850639841948029e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 6,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "col": "vamos_w1",
+    "row": 7,
+    "value": 0.6,
+    "rel": 1e-12,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 7,
+    "value": [
+     -4.589996851141032e-07,
+     -1.9847441783210747e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 7,
+    "value": [
+     1.0,
+     0.0
+    ],
+    "rel": 1e-12,
+    "abs": 1e-15
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "cv",
+    "kind": "ac",
+    "columns": {
+     "a": "V(A)",
+     "V1:p": "I(V1)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "plots": 8
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 0,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -1.000000000069775e-12,
+     -8.377580409572781e-06
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 0,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 1,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -1.000038663501149e-12,
+     -1.2566370614359172e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 1,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 2,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -1.08822064298654e-12,
+     -1.451039491387374e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 2,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 3,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -1.414213287789487e-12,
+     -1.5019685673781106e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 3,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 4,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -5.214099045509668e-12,
+     -1.582431169201938e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 4,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 5,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -2.022979067504073e-10,
+     -1.7165355055749835e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 5,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 6,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -9.6165422130556e-09,
+     -1.850639841948029e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 6,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 7,
+    "signal": "V1:p",
+    "row": 0,
+    "value": [
+     -4.593135360498429e-07,
+     -1.9847441783210747e-05
+    ],
+    "rel": 1e-06,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "plot": 7,
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000000.0,
+    "rel": 1e-12
+   }
+  ]
+ }
+}

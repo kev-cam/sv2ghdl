@@ -1,0 +1,41 @@
+// e2e 15: a fully differential folded-cascode CMOS op-amp with common-mode feedback (vamos-authored after
+// the UG 5.1.41 example's opamp.ckt, p.114, its widths less the cards' wd, 2 x 1.2u); needs the cards of
+// models.scs and the globals vdd, vss
+simulator lang=spectre
+subckt opamp (pout nout pin nin)
+  // the input pair and its tail
+  M1 (4 pin 1 1) nmos w=400u l=7.6u
+  M2 (5 nin 1 1) nmos w=400u l=7.6u
+  M18 (1 12 vss vss) nmos w=240u l=7.6u
+  // the folded cascode, upper half
+  M3 (4 11 vdd vdd) pmos w=400u l=7.6u
+  M4 (5 11 vdd vdd) pmos w=400u l=7.6u
+  M5 (nout 16 4 vdd) pmos w=120u l=7.6u
+  M6 (pout 16 5 vdd) pmos w=120u l=7.6u
+  // the folded cascode, lower half
+  M7 (nout 13 8 vss) nmos w=70u l=7.6u
+  M8 (pout 13 9 vss) nmos w=70u l=7.6u
+  M9 (8 12 vss vss) nmos w=120u l=7.6u
+  M10 (9 12 vss vss) nmos w=120u l=7.6u
+  // the common-mode feedback amplifier
+  M11 (10 nout vss vss) nmos w=10u l=62.6u
+  M12 (10 pout vss vss) nmos w=10u l=62.6u
+  M13a (11 gnd vss vss) nmos w=10u l=62.6u
+  M13b (11 gnd vss vss) nmos w=10u l=62.6u
+  M14 (10 10 vdd vdd) pmos w=50u l=7.6u
+  M15 (11 10 vdd vdd) pmos w=50u l=7.6u
+  Cc1 (nout 11) capacitor c=1p
+  Cc2 (pout 11) capacitor c=1p
+  // the bias network
+  M16 (12 12 vss vss) nmos w=20u l=11.6u
+  M17 (21 12 vss vss) nmos w=20u l=11.6u
+  M19 (13 13 14 vss) nmos w=20u l=21.6u
+  M20 (13 21 16 vdd) pmos w=50u l=7.6u
+  M21 (21 16 17 vdd) pmos w=24u l=11.6u
+  M22 (16 16 17 vdd) pmos w=24u l=11.6u
+  D1 (15 vss) dnp area=400n
+  D2 (14 15) dnp area=400n
+  D3 (18 17) dnp area=400n
+  D4 (vdd 18) dnp area=400n
+  Ib (gnd 12) isource dc=10u
+ends opamp

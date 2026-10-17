@@ -1,7 +1,8 @@
 """Engine facts: the T1 tier of docs/VAMOS_SPECTRE_DESIGN.md (§11 T1, §13).
 
 Every §13 row that its introduction lists as an engine fact (E1-E13, E15-E43, E45's engine
-half, E47, E51, E63-E75, E77, E81, E82, E84, E95, E96) lives in
+half, E47, E51, E63-E75, E77, E81, E82, E84, E95, E96; and E102-E109 and E114, harvested in
+phase 2) lives in
 fixtures/spectre/engine_facts/E<nn>/: the deck(s) the fact was observed on and an
 `expect.json` naming the tool, the command line and the facts the row states (values with
 tolerances, messages, exit status).  This module runs them on today's engines through

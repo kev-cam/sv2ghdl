@@ -1,0 +1,12 @@
+// e2e 18: a capacitor ic= with ic statements, under the tran ic modes v1 runs (node and dc ignore it)
+simulator lang=spectre
+V1 (in 0) vsource dc=1
+R1 (in a) resistor r=1k
+C1 (a 0) capacitor c=1n
+R2 (in b) resistor r=1k
+C2 (b 0) capacitor c=1n ic=0.7
+ic a=0.2 b=0.4
+op1 dc
+trnode tran stop=100n ic=node
+trdc tran stop=100n ic=dc
+save in a b

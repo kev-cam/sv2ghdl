@@ -1,0 +1,294 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "op1.dc",
+  "ac1.ac",
+  "swd.dc",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "c",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "s1",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "s2",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "o1",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "o2",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "o3",
+   "at": null,
+   "value": 0.5,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "o4",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "o5",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vs:p",
+   "at": null,
+   "value": 0.001,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Ip:in",
+   "at": null,
+   "value": 0.0005,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vc:p",
+   "at": null,
+   "value": -0.0015,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "dd",
+   "at": null,
+   "value": 1.5,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "g",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Vgs:p",
+   "at": null,
+   "value": 0.0,
+   "rel": 1e-09,
+   "abs": 1e-15
+  },
+  {
+   "file": "op1.dc",
+   "signal": "Ij:in",
+   "at": null,
+   "value": 0.0038062499999999993,
+   "rel": 1e-06
+  },
+  {
+   "file": "op1.dc",
+   "signal": "I1:in",
+   "at": null,
+   "value": 0.00043517500000000005,
+   "rel": 1e-06
+  },
+  {
+   "file": "op1.dc",
+   "signal": "I2:in",
+   "at": null,
+   "value": 0.0005111450588923426,
+   "rel": 0.0001
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "p",
+   "at": 1000.0,
+   "value": [
+    0.0,
+    0.006283185307179587
+   ],
+   "rel": 1e-06,
+   "abs": 1e-12
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "s",
+   "at": 1000.0,
+   "value": [
+    0.0,
+    0.00942477796076938
+   ],
+   "rel": 1e-06,
+   "abs": 1e-12
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "s",
+   "at": 10000.0,
+   "value": [
+    0.0,
+    0.09424777960769379
+   ],
+   "rel": 1e-06,
+   "abs": 1e-12
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "L1:1",
+   "at": 1000.0,
+   "value": [
+    0.001,
+    0.0
+   ],
+   "rel": 1e-06,
+   "abs": 1e-12
+  },
+  {
+   "file": "ac1.ac",
+   "signal": "freq",
+   "at": null,
+   "value": [
+    1000.0,
+    10000.0
+   ],
+   "rel": 1e-09,
+   "points": 2
+  },
+  {
+   "file": "swd.dc",
+   "signal": "dc",
+   "at": null,
+   "value": [
+    1.5,
+    3.0,
+    5.0
+   ],
+   "rel": 1e-12,
+   "points": 3
+  },
+  {
+   "file": "swd.dc",
+   "signal": "Ij:in",
+   "at": 1.5,
+   "value": 0.0038062499999999993,
+   "rel": 1e-06
+  },
+  {
+   "file": "swd.dc",
+   "signal": "I1:in",
+   "at": 1.5,
+   "value": 0.00043517500000000005,
+   "rel": 1e-06
+  },
+  {
+   "file": "swd.dc",
+   "signal": "I2:in",
+   "at": 1.5,
+   "value": 0.0005111450588923426,
+   "rel": 0.001
+  },
+  {
+   "file": "swd.dc",
+   "signal": "Ij:in",
+   "at": 3.0,
+   "value": 0.00412,
+   "rel": 1e-06
+  },
+  {
+   "file": "swd.dc",
+   "signal": "I1:in",
+   "at": 3.0,
+   "value": 0.00044785000000000007,
+   "rel": 1e-06
+  },
+  {
+   "file": "swd.dc",
+   "signal": "I2:in",
+   "at": 3.0,
+   "value": 0.0005334298271181403,
+   "rel": 0.001
+  },
+  {
+   "file": "swd.dc",
+   "signal": "Ij:in",
+   "at": 5.0,
+   "value": 0.004200000000000001,
+   "rel": 1e-06
+  },
+  {
+   "file": "swd.dc",
+   "signal": "I1:in",
+   "at": 5.0,
+   "value": 0.00046475000000000005,
+   "rel": 1e-06
+  },
+  {
+   "file": "swd.dc",
+   "signal": "I2:in",
+   "at": 5.0,
+   "value": 0.0005675428315463929,
+   "rel": 0.001
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.001
+ },
+ "messages": [
+  [
+   "note",
+   "nsub=1.13e+16"
+  ],
+  [
+   "warning",
+   "capmod absent"
+  ]
+ ]
+}

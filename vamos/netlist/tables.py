@@ -2134,7 +2134,7 @@ SPECTRE_MASTERS: Dict[str, MasterRow] = {
             ParamRule("kappa", "pass", cite="ref5 p.505; mos3.va:158; N_DEV_MOSFET3.C:344"),
             ParamRule("delta", "pass", cite="ref5 p.505; mos3.va:156; N_DEV_MOSFET3.C:324"),
             ParamRule("xj", "pass", cite="ref5 p.506; mos3.va:153; N_DEV_MOSFET3.C:354"),
-            ParamRule("badmos3", "default", "1", "absent:badmos3", warn="card", cite="§3.9 table: SPICE2's channel-length modulation, on which the engines agree (mos3.va:159, N_DEV_MOSFET3.C:349) [E69; §14 q.31]"),
+            ParamRule("badmos3", "default", "1", "absent:badmos3", warn="card", cite="§3.9 table: SPICE2's channel-length modulation, on which the engines agree (mos3.va:159, N_DEV_MOSFET3.C:349) [E69, §14 q.31]"),
         ),
         instance=(
             ParamRule("w", "default", "3e-6", "absent:w", cite="ref5 p.504; §3.9 default MOS geometry (ref5 'Default channel width')"),
@@ -4151,3 +4151,31 @@ def path_counts(nl: Netlist) -> Dict[str, int]:
         if pe.subckt is not None:
             out[pe.subckt.name] = out.get(pe.subckt.name, 0) + 1
     return out
+
+
+STATE_IC_KEYS = ("readic", "read")      # a tran's initial-condition file (read=: 5.1's name of readic)
+STATE_NS_KEYS = ("readns",)             # a nodeset file (every analysis that solves an operating point)
+
+
+def state_file_nodes(args: Mapping[str, object], keys: Sequence[str]) -> Optional[Dict[str, float]]:
+    """§5.4, §8.6: the node entries (IR net paths, '.' hierarchy) of the state file a step names under
+    the first of `keys` it gives; None when it names none or the file does not exist (signals.resolve
+    notes that: nothing is read).  The file replaces the netlist's statements for that step: "initial
+    conditions from the file are used, and any ic statements are ignored" [M ref19 p.106]; readns
+    likewise replaces the nodeset statements.  Current entries are dropped (signals.resolve notes or
+    warns them).  A relative name resolves against the process cwd, as signals.resolve reads it (the
+    flow makes the names absolute first).  A malformed file is a TableError."""
+    from vamos.output import statefile                   # output/statefile.py: the one state-file reader
+    for key in keys:
+        f = args.get(key)
+        if not isinstance(f, str) or not f:
+            continue
+        path = f if os.path.isabs(f) else os.path.join(os.getcwd(), f)
+        if not os.path.isfile(path):
+            return None
+        try:
+            nodes, _currents = statefile.read(path)
+        except (OSError, ValueError) as exc:
+            raise TableError("%s=%s: %s" % (key, f, exc))
+        return nodes
+    return None

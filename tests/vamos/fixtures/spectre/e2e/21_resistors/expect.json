@@ -1,0 +1,92 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "logFile",
+  "nz1.noise",
+  "op1.dc"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "a",
+   "at": null,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "op1.dc",
+   "signal": "R0:1",
+   "at": null,
+   "value": 0.001,
+   "rel": 1e-06
+  },
+  {
+   "file": "op1.dc",
+   "signal": "b",
+   "at": null,
+   "value": 0.246231,
+   "rel": 1e-05
+  },
+  {
+   "file": "op1.dc",
+   "signal": "c",
+   "at": null,
+   "value": 0.638686,
+   "rel": 1e-05
+  },
+  {
+   "file": "op1.dc",
+   "signal": "nq",
+   "at": null,
+   "value": 0.0,
+   "abs": 1e-12
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "out",
+   "at": 1000.0,
+   "value": 2.03568e-09,
+   "rel": 0.0001
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "gain",
+   "at": 1000.0,
+   "value": 0.5,
+   "rel": 1e-06
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "in",
+   "at": 1000.0,
+   "value": 4.07135e-09,
+   "rel": 0.0001
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "Rn",
+   "at": 1000.0,
+   "value": {
+    "total": 4.144e-18
+   },
+   "rel": 0.0001
+  },
+  {
+   "file": "nz1.noise",
+   "signal": "Rq",
+   "at": null,
+   "value": null
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": []
+}

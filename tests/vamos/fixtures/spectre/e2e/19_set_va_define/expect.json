@@ -1,0 +1,82 @@
+{
+ "argv": [
+  "deck.scs",
+  "-va,define",
+  "VAMOS_HALF"
+ ],
+ "engines": [
+  "vacask"
+ ],
+ "status": 0,
+ "files": [
+  "logFile",
+  "op1.dc",
+  "op2.dc",
+  "tr1.tran.tran"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "out",
+   "at": null,
+   "value": 0.3333333333333333,
+   "rel": 1e-09
+  },
+  {
+   "file": "op2.dc",
+   "signal": "out",
+   "at": null,
+   "value": 0.3333333333333333,
+   "rel": 1e-09
+  },
+  {
+   "file": "tr1.tran.tran",
+   "signal": "out",
+   "at": 1e-06,
+   "value": 0.3333333333333333,
+   "rel": 1e-09
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-06
+ },
+ "messages": [],
+ "xyce": {
+  "status": 0,
+  "files": [
+   "logFile",
+   "op1.dc",
+   "op2.dc",
+   "tr1.tran.tran"
+  ],
+  "values": [
+   {
+    "file": "op1.dc",
+    "signal": "out",
+    "at": null,
+    "value": 0.5,
+    "rel": 1e-06
+   },
+   {
+    "file": "op2.dc",
+    "signal": "out",
+    "at": null,
+    "value": 0.5,
+    "rel": 1e-06
+   },
+   {
+    "file": "tr1.tran.tran",
+    "signal": "out",
+    "at": 1e-06,
+    "value": 0.5,
+    "rel": 1e-06
+   }
+  ],
+  "messages": [
+   [
+    "note",
+    "va,define"
+   ]
+  ]
+ }
+}

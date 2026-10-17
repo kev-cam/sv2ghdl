@@ -1,0 +1,48 @@
+// e2e 23 (also): UG pp.85-86's portless subckts (x1 s1 p4=8), nested, on VACASK
+simulator lang=spectre
+// The same circuit as deck.scs, with the UG's subckts that have no ports.  VACASK keeps each
+// instance's internal nodes apart; Xyce does not (two instances of a portless subckt share them),
+// so this deck runs on VACASK only.
+parameters p1=1 p2=2
+I1 (0 a1) isource dc=1
+R1 (a1 0) resistor r=p1
+I2 (0 a2) isource dc=1
+R2 (a2 0) resistor r=p1+p2
+X1 s1 p4=8
+subckt s1
+  parameters p1=4 p3=5 p4=6
+  I1 (0 n1) isource dc=1
+  R1 (n1 0) resistor r=p1
+  I2 (0 n2) isource dc=1
+  R2 (n2 0) resistor r=p2
+  I3 (0 n3) isource dc=1
+  R3 (n3 0) resistor r=p3
+  I4 (0 n4) isource dc=1
+  R4 (n4 0) resistor r=p4
+  I5 (0 n5) isource dc=1
+  R5 (n5 0) resistor r=p1+p2/p3
+  subckt s2
+    parameters p3=7
+    I1 (0 m1) isource dc=1
+    R1 (m1 0) resistor r=p1
+    I2 (0 m2) isource dc=1
+    R2 (m2 0) resistor r=p2
+    I3 (0 m3) isource dc=1
+    R3 (m3 0) resistor r=p3
+    I4 (0 m4) isource dc=1
+    R4 (m4 0) resistor r=p4
+    I5 (0 m5) isource dc=1
+    R5 (m5 0) resistor r=p1+p2/p3
+    subckt s3
+      I1 (0 k1) isource dc=1
+      R1 (k1 0) resistor r=p3
+      I2 (0 k2) isource dc=1
+      R2 (k2 0) resistor r=p1*p4
+    ends s3
+    X4 s3
+  ends s2
+  X2 s2
+  X3 s2 p3=9
+ends s1
+op dc
+dc_sweep dc param=p1 values=[0.5 1 +p2 (sqrt(p2*p2))]

@@ -1,0 +1,35 @@
+{
+ "deck": "bsimcmg_107.0.0/benchmark_test/idvdnmos.sp",
+ "design": {
+  "names": [
+   ".alter"
+  ]
+ },
+ "differs": [],
+ "errors": [
+  ".alter is not supported (one simulation per run)"
+ ],
+ "hdl": [
+  "bsimcmg_107.0.0/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [
+  ".alter"
+ ],
+ "parse": "error",
+ "vacask": {
+  "openvaf": {
+   "bsimcmg_107.0.0/code/bsimcmg.va": {
+    "errors": 1334,
+    "rc": 65
+   }
+  },
+  "render": "no parse"
+ },
+ "xyce": {
+  "refused": "parse",
+  "render": "no parse"
+ }
+}

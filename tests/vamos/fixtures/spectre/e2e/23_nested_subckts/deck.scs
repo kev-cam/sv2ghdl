@@ -1,0 +1,54 @@
+// e2e 23: nested subckts, UG pp.85-86's parameter inheritance (VACASK through the lift)
+simulator lang=spectre
+// The design's §11.2 item 23; VACASK lifts the nested definitions (§4.5 item 11), Xyce nests them.
+// The title line stays ASCII: it is every PSF file's "design", and the PSF files are latin-1.
+// Every resistor is fed 1 A by its own current source, so its node voltage is its resistance.
+// The UG's subckts have no ports; here each has a reference port b, tied to ground.
+parameters p1=1 p2=2
+I1 (0 a1) isource dc=1
+R1 (a1 0) resistor r=p1
+I2 (0 a2) isource dc=1
+R2 (a2 0) resistor r=p1+p2
+X1 (0) s1 p4=8
+subckt s1 (b)
+  parameters p1=4 p3=5 p4=6
+  I1 (b n1) isource dc=1
+  R1 (n1 b) resistor r=p1
+  I2 (b n2) isource dc=1
+  R2 (n2 b) resistor r=p2
+  I3 (b n3) isource dc=1
+  R3 (n3 b) resistor r=p3
+  I4 (b n4) isource dc=1
+  R4 (n4 b) resistor r=p4
+  I5 (b n5) isource dc=1
+  R5 (n5 b) resistor r=p1+p2/p3
+  // a nested definition: what s1 can read, s2 can read, and its own p3 shadows s1's
+  subckt s2 (b)
+    parameters p3=7
+    I1 (b m1) isource dc=1
+    R1 (m1 b) resistor r=p1
+    I2 (b m2) isource dc=1
+    R2 (m2 b) resistor r=p2
+    I3 (b m3) isource dc=1
+    R3 (m3 b) resistor r=p3
+    I4 (b m4) isource dc=1
+    R4 (m4 b) resistor r=p4
+    I5 (b m5) isource dc=1
+    R5 (m5 b) resistor r=p1+p2/p3
+    // and one level deeper
+    subckt s3 (b)
+      I1 (b k1) isource dc=1
+      R1 (k1 b) resistor r=p3
+      I2 (b k2) isource dc=1
+      R2 (k2 b) resistor r=p1*p4
+    ends s3
+    X4 (b) s3
+  ends s2
+  X2 (b) s2
+  X3 (b) s2 p3=9
+ends s1
+op dc
+// the UG's stop=(p1+p2)*50e-6 = 150 us reads p1, which dc_sweep sweeps: an error in v1 (§3.11)
+time_sweep tran start=0 stop=150u
+// only the top-level p1 follows the sweep: s1's own p1 shadows it, and s2 inherits s1's
+dc_sweep dc param=p1 values=[0.5 1 +p2 (sqrt(p2*p2))]

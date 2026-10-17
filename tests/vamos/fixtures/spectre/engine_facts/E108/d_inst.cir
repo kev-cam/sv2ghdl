@@ -1,0 +1,8 @@
+* the letter-device route: a model-typed Verilog-A parameter (mydio's r) on the device line
+.hdl "mydio.va"
+v1 a 0 1
+.model dm d level=2002
+d1 a 0 dm r=2k
+.op
+.print dc i(v1)
+.end

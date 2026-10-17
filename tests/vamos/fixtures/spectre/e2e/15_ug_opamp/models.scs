@@ -1,0 +1,23 @@
+// e2e 15: the MOS and diode cards of the op-amp, one library section per process corner (vamos-authored
+// after the UG 5.1.41 example's cmos.mod, pp.114-115, two of its three corners).  Left out: the diode
+// cards' imax=1000, no ref5 diode parameter (ref5 pp.302-307), and the MOS cards' wd, which Xyce's
+// level-3 MOSFET does not know (a status-2 run there, sec. 7.2); opamp.scs gives the effective widths instead
+simulator lang=spectre
+library cmos_mod
+  section typical
+    model nmos mos3 type=n vto=1.26 gamma=1.62 phi=.58 nsub=1e15 cgso=370p cgdo=370p cgbo=250p cj=400u \
+      tox=750e-10 pb=0.914 js=1e-4 xj=1u ld=0.8u uo=717 bvj=14
+    model pmos mos3 type=p vto=-1.11 gamma=0.39 phi=.72 nsub=1.7e16 cgso=220p cgdo=220p cgbo=250p cj=100u \
+      tox=750e-10 pb=0.605 js=1e-4 xj=0.65u ld=0.5u uo=206 bvj=14
+    model dnp diode is=3.1e-10 n=1.12 cjo=3.1e-8 pb=.914 m=.5 bvj=45
+    model dpn diode is=1.3e-10 n=1.05 cjo=9.8e-9 pb=.605 m=.5 bvj=45
+  endsection typical
+  section slow
+    model nmos mos3 type=n vto=1.48 gamma=1.90 phi=.59 nsub=1e15 cgso=440p cgdo=440p cgbo=250p cj=440u \
+      tox=800e-10 pb=0.914 js=1e-4 xj=0.8u ld=0.38u uo=641 bvj=14
+    model pmos mos3 type=p vto=-1.42 gamma=0.58 phi=.73 nsub=1.7e16 cgso=300p cgdo=300p cgbo=250p cj=120u \
+      tox=800e-10 pb=0.605 js=1e-4 xj=0.5u ld=0.1u uo=167 bvj=14
+    model dnp diode is=3.1e-10 n=1.12 cjo=3.1e-8 pb=.914 m=.5 bvj=45
+    model dpn diode is=1.3e-10 n=1.05 cjo=9.8e-9 pb=.605 m=.5 bvj=45
+  endsection slow
+endlibrary

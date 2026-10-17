@@ -1,0 +1,12 @@
+`include "disciplines.vams"
+// e2e 19: a Verilog-A resistor whose default r depends on a macro: 500 under -va,define VAMOS_HALF,
+// else 1000 (vamos-authored)
+module vdef(a, b);
+  inout a, b; electrical a, b;
+`ifdef VAMOS_HALF
+  parameter real r = 500.0;
+`else
+  parameter real r = 1000.0;
+`endif
+  analog I(a, b) <+ V(a, b) / r;
+endmodule

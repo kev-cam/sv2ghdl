@@ -1,0 +1,62 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "A": "A",
+     "a": "a",
+     "V1:p": "V1:flow(br)"
+    },
+    "signals": [
+     "A",
+     "a",
+     "V1:p"
+    ]
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "A",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": 0.75,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V1:p",
+    "row": 0,
+    "value": -0.00025,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "col": "A",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "col": "a",
+    "row": 0,
+    "value": 0.75,
+    "rel": 1e-09
+   }
+  ]
+ },
+ "xyce": {
+  "status": 2,
+  "refused": "nodes A and a differ only in case; Xyce would merge them"
+ }
+}

@@ -1,0 +1,11 @@
+// e2e 16: prevoppoint after a tran: the AC gain at the final transient state against a fresh op
+simulator lang=spectre
+V1 (in 0) vsource type=pulse val0=0 val1=2 delay=0 rise=1n fall=1n width=1 mag=1
+R1 (in out) resistor r=1k
+D1 (out 0) dm
+C1 (out 0) capacitor c=1n
+model dm diode is=1e-14
+tr1 tran stop=20u
+ac1 ac values=[1k] prevoppoint=yes
+ac2 ac values=[1k]
+save in out

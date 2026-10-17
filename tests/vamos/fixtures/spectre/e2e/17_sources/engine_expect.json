@@ -1,0 +1,349 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "a": "a",
+     "b": "b",
+     "c": "c",
+     "d": "d"
+    }
+   },
+   "vamos_a2": {
+    "name": "sw3",
+    "kind": "dc",
+    "columns": {
+     "a": "a",
+     "b": "b",
+     "c": "c",
+     "d": "d"
+    }
+   },
+   "vamos_a3": {
+    "name": "ac3",
+    "kind": "ac",
+    "columns": {
+     "a": "a",
+     "b": "b",
+     "c": "c",
+     "d": "d"
+    }
+   },
+   "vamos_a4": {
+    "name": "tr1",
+    "kind": "tran",
+    "columns": {
+     "a": "a",
+     "b": "b",
+     "c": "c",
+     "d": "d"
+    }
+   },
+   "vamos_a5": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "a": "a",
+     "b": "b",
+     "c": "c",
+     "d": "d"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": 0.3,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 0.9,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "d",
+    "row": 0,
+    "value": 0.622007,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "col": "vamos_w1",
+    "row": 0,
+    "value": 0.7,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "col": "vamos_w1",
+    "row": 1,
+    "value": 0.9,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d",
+    "row": 0,
+    "value": 0.596461,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d",
+    "row": 1,
+    "value": 0.622007,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "d",
+    "row": 0,
+    "value": [
+     0.0851202,
+     0.0
+    ],
+    "rel": 1e-05,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "c",
+    "at": 0.0,
+    "value": 0.0,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "a",
+    "at": 0.0,
+    "value": 0.3,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "c",
+    "at": 1.5e-06,
+    "value": 1.0,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "d",
+    "at": 1.5e-06,
+    "value": 0.629441,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "b",
+    "at": 1.0001e-06,
+    "value": 1.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "b",
+    "at": 2.5e-06,
+    "value": 0.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a5",
+    "signal": "a",
+    "row": 0,
+    "value": 0.6,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a5",
+    "signal": "c",
+    "row": 0,
+    "value": 0.9,
+    "abs": 1e-09
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "a": "V(A)",
+     "b": "V(B)",
+     "c": "V(C)",
+     "d": "V(D)"
+    }
+   },
+   "vamos_a2": {
+    "name": "sw3",
+    "kind": "dc",
+    "columns": {
+     "a": "V(A)",
+     "b": "V(B)",
+     "c": "V(C)",
+     "d": "V(D)"
+    }
+   },
+   "vamos_a3": {
+    "name": "ac3",
+    "kind": "ac",
+    "columns": {
+     "a": "V(A)",
+     "b": "V(B)",
+     "c": "V(C)",
+     "d": "V(D)"
+    }
+   },
+   "vamos_a4": {
+    "name": "tr1",
+    "kind": "tran",
+    "columns": {
+     "a": "V(A)",
+     "b": "V(B)",
+     "c": "V(C)",
+     "d": "V(D)"
+    }
+   },
+   "vamos_a5": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "a": "V(A)",
+     "b": "V(B)",
+     "c": "V(C)",
+     "d": "V(D)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": 0.3,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 0.9,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "d",
+    "row": 0,
+    "value": 0.621991,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "c",
+    "row": 0,
+    "value": 0.7,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d",
+    "row": 0,
+    "value": 0.596448,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d",
+    "row": 1,
+    "value": 0.621991,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "d",
+    "row": 0,
+    "value": [
+     0.0851129,
+     0.0
+    ],
+    "rel": 1e-05,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "c",
+    "at": 0.0,
+    "value": 0.0,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "a",
+    "at": 0.0,
+    "value": 0.3,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "c",
+    "at": 1.5e-06,
+    "value": 1.0,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "d",
+    "at": 1.5e-06,
+    "value": 0.629424,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "b",
+    "at": 1.0001e-06,
+    "value": 1.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a4",
+    "signal": "b",
+    "at": 2.5e-06,
+    "value": 0.0,
+    "abs": 1e-06
+   },
+   {
+    "step": "vamos_a5",
+    "signal": "a",
+    "row": 0,
+    "value": 0.6,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a5",
+    "signal": "c",
+    "row": 0,
+    "value": 0.9,
+    "abs": 1e-09
+   }
+  ]
+ }
+}

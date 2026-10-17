@@ -1,0 +1,98 @@
+{
+ "row": "E102",
+ "experiment": "a VACASK sweep of an instance parameter bound to an expression (e2e 2's dev=X2.R1, phase 1b): R1's r=r reads its subckt's parameter; the same instance altered; Xyce's .DC of X2:R1:R",
+ "result": "sweep ... instance=\"X2:R1\" parameter=\"r\": \"parameter 'r' of instance 'X2:R1' is bound to an expression.\" and \"Failed to bind sweep parameters.\", rc 0, no rawfile of that analysis (the run goes on); alter instance(\"X2:R1\") r=2000 on the same instance works and moves the node (0.5 -> 2/3); Xyce sweeps .DC X2:R1:R natively (0.5, 2/3)",
+ "rules": [
+  "\u00a75.2 Targets: on VACASK a sweep of an instance parameter bound to an expression that reads a subckt or netlist parameter is an error naming what to sweep instead (sub=/param=), while an alter of it stays allowed; Xyce sweeps it natively (plan.build's VACASK bound-parameter check)"
+ ],
+ "runs": [
+  {
+   "name": "sweep_of_bound_parameter_fails",
+   "tool": "vacask",
+   "deck": "bound_sweep.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Sweep 's1': parameter 'r' of instance 'X2:R1' is bound to an expression.",
+     "Failed to bind sweep parameters."
+    ]
+   },
+   "files": {
+    "present": [
+     "op1.raw",
+     "op2.raw"
+    ],
+    "absent": [
+     "dc1.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "mid",
+     "value": 0.5,
+     "rel": 1e-09
+    },
+    {
+     "raw": "op2.raw",
+     "col": "mid",
+     "value": 0.5,
+     "rel": 1e-09
+    }
+   ],
+   "note": "the row's quotation drops VACASK's quote marks: the message is \"Sweep 's1': parameter 'r' of instance 'X2:R1' is bound to an expression.\""
+  },
+  {
+   "name": "alter_of_bound_parameter_works",
+   "tool": "vacask",
+   "deck": "bound_alter.sim",
+   "status": 0,
+   "output": {
+    "absent": [
+     "bound to an expression",
+     "not found"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "mid",
+     "value": 0.5,
+     "rel": 1e-09
+    },
+    {
+     "raw": "op2.raw",
+     "col": "mid",
+     "value": 0.6666666666666666,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_sweeps_it_natively",
+   "tool": "xyce",
+   "deck": "bound_dc.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "Netlist error"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "bound_dc.raw",
+     "col": "V(MID)",
+     "values": [
+      0.5,
+      0.6666666666666666
+     ],
+     "rel": 1e-09
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored, after S6's sp1/S6/wsl_alter.sh and e2e 2's first dev=X2.R1 form"
+ ]
+}

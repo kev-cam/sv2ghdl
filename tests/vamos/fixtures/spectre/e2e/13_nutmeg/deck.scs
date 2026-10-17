@@ -1,0 +1,15 @@
+// e2e 13: the nutmeg formats: an op, a dc sweep, an ac, a tran, a noise analysis and a sweep block
+simulator lang=spectre
+V1 (in 0) vsource dc=1 mag=1 type=sine sinedc=1 ampl=0.5 freq=1k
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+C1 (out 0) capacitor c=1p
+op1 dc
+swdc dc dev=V1 param=dc values=[0 1 2]
+ac1 ac start=1k stop=1M dec=1
+tr1 tran stop=1m
+nz1 (out 0) noise start=1k stop=10k dec=1
+sw sweep dev=R2 param=r values=[1k 3k] {
+  op2 dc
+}
+save in out

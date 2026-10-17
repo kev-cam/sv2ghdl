@@ -1,0 +1,40 @@
+// e2e 30: controlled sources and the remaining masters: vccs, ccvs, cccs, mutual_inductor, jfet, mos1, mos2
+simulator lang=spectre
+// The controlling side: c = 1 V; Vs (a 0 V vsource) carries 1 mA, the iprobe Ip 0.5 mA.
+Vc (c 0) vsource dc=1
+Vs (c s1) vsource dc=0
+Rs1 (s1 0) resistor r=1k
+Ip (c s2) iprobe
+Rs2 (s2 0) resistor r=2k
+// vccs (sink src ps ns): gm*V(c) leaves the device at src, so o1 = +1 V (the reversed order gives -1 V)
+G1 (0 o1 c 0) vccs gm=1m
+Ro1 (o1 0) resistor r=1k
+// ccvs (p n): V(p,n) = rm * the probe's current
+H1 (o2 0) ccvs rm=1k probe=Vs
+H2 (o3 0) ccvs rm=1k probe=Ip
+// cccs (sink src): gain * the probe's current leaves the device at src
+F1 (0 o4) cccs gain=2 probe=Vs
+Ro4 (o4 0) resistor r=1k
+F2 (0 o5) cccs gain=2 probe=Ip
+Ro5 (o5 0) resistor r=1k
+// mutual_inductor: an AC current of 1 mA into L1, L2 open: V(p) = jwL1*I, V(s) = jwM*I, M = k*sqrt(L1*L2)
+Iac (0 p) isource dc=0 mag=1m
+L1 (p 0) inductor l=1m
+L2 (s 0) inductor l=9m
+K1 mutual_inductor coupling=0.5 ind1=L1 ind2=L2
+// a jfet (gate and source grounded), a mos1 and a mos2 card at vgs = 2 V, each drain on dd through an iprobe
+Vds (dd 0) vsource dc=1.5
+Vgs (g 0) vsource dc=2
+Ij (dd dj) iprobe
+J1 (dj 0 0) njf
+model njf jfet type=n vto=-2 beta=1m lambda=0.01
+I1 (dd d1) iprobe
+M1 (d1 g 0 0) nm1 w=10u l=2u
+model nm1 mos1 type=n vto=0.7 kp=1e-4 lambda=0.02
+// a mos2 card without nsub: Spectre's nsub=1.13e16 is written (§3.9), so the current rises with vds
+I2 (dd d2) iprobe
+M2 (d2 g 0 0) nm2 w=10u l=2u
+model nm2 mos2 type=n vto=0.7 kp=1e-4 tox=1e-7 phi=0.7
+op1 dc
+ac1 ac start=1k stop=10k dec=1
+swd dc dev=Vds param=dc values=[1.5 3 5]

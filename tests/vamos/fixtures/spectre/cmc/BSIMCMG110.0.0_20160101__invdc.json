@@ -1,0 +1,35 @@
+{
+ "deck": "BSIMCMG110.0.0_20160101/benchmark_test/invdc.sp",
+ "design": {
+  "names": [
+   "bsimcmg_110"
+  ]
+ },
+ "differs": [],
+ "errors": [
+  "xinv1: subckt mg_inv cannot be simulated by vamos: Xp1: model pmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_110 ($VAMOS_CMC_EXAMPLES/BSIMCMG110.0.0_20160101/benchmark_test/modelcard.pmos:8) ($VAMOS_CMC_EXAMPLES/BSIMCMG110.0.0_20160101/benchmark_test/invdc.sp:16)"
+ ],
+ "hdl": [
+  "BSIMCMG110.0.0_20160101/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [
+  "bsimcmg_110"
+ ],
+ "parse": "error",
+ "vacask": {
+  "openvaf": {
+   "BSIMCMG110.0.0_20160101/code/bsimcmg.va": {
+    "errors": 1,
+    "rc": 65
+   }
+  },
+  "render": "no parse"
+ },
+ "xyce": {
+  "refused": "parse",
+  "render": "no parse"
+ }
+}

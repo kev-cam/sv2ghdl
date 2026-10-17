@@ -1,0 +1,44 @@
+{
+ "deck": "BSIM6.1.1/Benchmark_tests/idvd_pmos.sp",
+ "design": {
+  "names": []
+ },
+ "differs": [
+  "vacask render fails on dc step, which §11.3 (c) does not list for this deck",
+  "xyce render fails on dc step, which §11.3 (c) does not list for this deck"
+ ],
+ "errors": [],
+ "hdl": [
+  "BSIM6.1.1/code/BSIM6.1.1.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [],
+ "parse": "ok",
+ "vacask": {
+  "errors": [
+   "sweep srcSweep: step=-0.3 never reaches stop=-0.4 from start=-1"
+  ],
+  "names": [
+   "dc step"
+  ],
+  "openvaf": {
+   "BSIM6.1.1/code/BSIM6.1.1.va": {
+    "errors": 650,
+    "rc": 65
+   }
+  },
+  "render": "error"
+ },
+ "xyce": {
+  "errors": [
+   "sweep srcSweep: step=-0.3 never reaches stop=-0.4 from start=-1"
+  ],
+  "names": [
+   "dc step"
+  ],
+  "refused": "render",
+  "render": "error"
+ }
+}

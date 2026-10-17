@@ -1,0 +1,83 @@
+{
+ "argv": [
+  "x.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "env": {
+  "SPECTRE_DEFAULTS": "+log %C:r.out"
+ },
+ "status": 0,
+ "files": [
+  "op1.dc",
+  "tr1.tran.tran",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "out",
+   "at": null,
+   "value": 0.75,
+   "rel": 1e-09
+  },
+  {
+   "file": "tr1.tran.tran",
+   "signal": "out",
+   "at": 5e-07,
+   "value": 0.75,
+   "rel": 1e-09
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-09
+ },
+ "messages": [],
+ "also": [
+  {
+   "argv": [
+    "x.scs",
+    "-outdir",
+    "o"
+   ],
+   "status": 0,
+   "files": [
+    "op1.dc",
+    "tr1.tran.tran",
+    "logFile"
+   ],
+   "values": [
+    {
+     "file": "op1.dc",
+     "signal": "out",
+     "at": null,
+     "value": 0.75,
+     "rel": 1e-09
+    }
+   ],
+   "messages": []
+  },
+  {
+   "argv": [],
+   "stdin": "x.scs",
+   "status": 0,
+   "files": [
+    "op1.dc",
+    "tr1.tran.tran",
+    "logFile"
+   ],
+   "values": [
+    {
+     "file": "op1.dc",
+     "signal": "out",
+     "at": null,
+     "value": 0.75,
+     "rel": 1e-09
+    }
+   ],
+   "messages": []
+  }
+ ]
+}

@@ -1,0 +1,110 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "logFile",
+  "op1.dc",
+  "op2.dc",
+  "tr1.tran.tran"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "d",
+   "at": null,
+   "value": 0.65511,
+   "rel": 0.0001
+  },
+  {
+   "file": "op1.dc",
+   "signal": "d2",
+   "at": null,
+   "value": -5.0,
+   "rel": 1e-05
+  },
+  {
+   "file": "op2.dc",
+   "signal": "d",
+   "at": null,
+   "value": 0.59556,
+   "rel": 0.0001
+  },
+  {
+   "file": "op2.dc",
+   "signal": "d2",
+   "at": null,
+   "value": -3.0,
+   "rel": 1e-05
+  },
+  {
+   "file": "tr1.tran.tran",
+   "signal": "d",
+   "at": 5e-07,
+   "value": 0.59556,
+   "rel": 0.0001
+  },
+  {
+   "file": "tr1.tran.tran",
+   "signal": "d2",
+   "at": 5e-07,
+   "value": -3.0,
+   "rel": 1e-05
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": [],
+ "also": [
+  {
+   "deck": "deck_unknown.scs",
+   "argv": [
+    "deck_unknown.scs"
+   ],
+   "engines": [
+    "vacask"
+   ],
+   "status": 0,
+   "files": [
+    "logFile",
+    "op1.dc",
+    "op2.dc"
+   ],
+   "values": [
+    {
+     "file": "op1.dc",
+     "signal": "d",
+     "at": null,
+     "value": 0.65512,
+     "rel": 0.0001
+    },
+    {
+     "file": "op2.dc",
+     "signal": "d",
+     "at": null,
+     "value": 0.65512,
+     "rel": 0.0001
+    }
+   ],
+   "cross_engine": {
+    "rel": 0.0001
+   },
+   "messages": [],
+   "xyce": {
+    "status": 2,
+    "messages": [
+     [
+      "error",
+      "ikpAlter"
+     ]
+    ]
+   }
+  }
+ ]
+}

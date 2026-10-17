@@ -1,0 +1,39 @@
+{
+ "deck": "bsimcmg_107.0.0/benchmark_test/noise.sp",
+ "design": {
+  "names": [
+   ".noise"
+  ]
+ },
+ "differs": [
+  "parse fails on noise=, which §11.3 (c) does not list for this deck"
+ ],
+ "errors": [
+  "rload: noise= is neither a SPICE R parameter nor a Spectre resistor instance parameter",
+  ".noise is an error in v1 (v2: a noise analysis over the preceding .ac, §4.3)"
+ ],
+ "hdl": [
+  "bsimcmg_107.0.0/code/bsimcmg.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [
+  ".noise",
+  "noise="
+ ],
+ "parse": "error",
+ "vacask": {
+  "openvaf": {
+   "bsimcmg_107.0.0/code/bsimcmg.va": {
+    "errors": 1334,
+    "rc": 65
+   }
+  },
+  "render": "no parse"
+ },
+ "xyce": {
+  "refused": "parse",
+  "render": "no parse"
+ }
+}

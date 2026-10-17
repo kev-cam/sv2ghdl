@@ -1,0 +1,48 @@
+{
+ "row": "E108",
+ "experiment": "Verilog-A parameters on Xyce's letter-device route (phase 1; the E63/E64 modules): mydio's model-typed r on the device line; toy_resistor's instance-typed R on the .model card",
+ "result": "a model-typed parameter on the device line: \"Unrecognized parameter R for device D1\", rc 1; an instance-typed parameter on the .model card: only \"No model parameter R found for model RMOD of type R, parameter ignored.\", rc 0",
+ "rules": [
+  "\u00a74.5 item 13: every merged Verilog-A parameter goes on the device line, where a model-typed one fails loudly (output_problems), while on the card an instance-typed one would only be warned about and ignored: the refusal of Verilog-A card parameters on Xyce holds by construction"
+ ],
+ "runs": [
+  {
+   "name": "model_param_on_device_line",
+   "tool": "xyce",
+   "deck": "d_inst.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 1,
+   "output": {
+    "contains": [
+     "compiled and registered mydio from mydio.va",
+     "Unrecognized parameter R for device D1"
+    ]
+   }
+  },
+  {
+   "name": "instance_param_on_card",
+   "tool": "xyce",
+   "deck": "r_card.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "compiled and registered resistor from toy_resistor.va",
+     "No model parameter R found for model RMOD of type R, parameter ignored."
+    ],
+    "absent": [
+     "Unrecognized",
+     "Netlist error"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: S3's sp1/S3/va_inst_param.sh (d_inst.cir, r_card.cir); mydio.va from E63, toy_resistor.va from E64"
+ ]
+}

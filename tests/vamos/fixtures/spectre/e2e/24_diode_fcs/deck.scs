@@ -1,0 +1,8 @@
+// e2e 24: a diode's sidewall capacitance with fc=0.3 and no fcs: Spectre's fcs=fc (ref5 p.305), not 0.5
+simulator lang=spectre
+// Only the sidewall junction is capacitive (cjo=0, tt=0), and is is tiny, so the AC current of V1 is
+// -(g + j*w*Csw(V)) per volt: Csw(V) = -Im(V1:p)/(2*pi*f) at the bias V = V1's dc.
+V1 (a 0) vsource dc=0 mag=1
+D1 (a 0) dsw perim=2
+model dsw diode is=1e-18 cjo=0 cjsw=1p vjsw=0.8 mjsw=0.5 fc=0.3
+cv ac dev=V1 param=dc values=[-1 0 0.2 0.24 0.3 0.4 0.5 0.6] freq=1M

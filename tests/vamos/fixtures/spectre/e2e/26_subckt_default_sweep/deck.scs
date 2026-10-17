@@ -1,0 +1,24 @@
+// e2e 26: a subckt default that reads a swept parameter follows the sweep (E53's pattern)
+simulator lang=spectre
+// rdep depends on rval, and rsec's default r reads rdep: under the sweep both X1 and X2 must follow
+// rval, X2 through its own default reading rval directly; X3 overrides r and stays put.
+parameters rval=1k rdep=rval*2
+V1 (in 0) vsource dc=1
+X1 (in o1) rsec
+X2 (in o2) rsec2
+X3 (in o3) rsec r=3k
+subckt rsec (a b)
+  parameters r=rdep
+  R1 (a b) resistor r=r
+  R2 (b 0) resistor r=1k
+ends rsec
+subckt rsec2 (a b)
+  parameters r=rval*3
+  R1 (a b) resistor r=r
+  R2 (b 0) resistor r=1k
+ends rsec2
+op0 dc
+swp sweep param=rval values=[1k 2k] {
+  op1 dc
+}
+op2 dc

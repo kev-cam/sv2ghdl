@@ -1,0 +1,70 @@
+// e2e 15: a fully differential op-amp test bench (vamos-authored after the UG 5.1.41 example, pp.112-115)
+#define PROCESS_CORNER typical
+simulator lang=spectre
+global gnd vdd vss
+parameters VDD=5.0_V GAIN=0.5
+include "models.scs" section=PROCESS_CORNER
+include "opamp.scs"
+// the supplies
+Vdd (vdd gnd) vsource dc=VDD
+Vss (vss gnd) vsource dc=-VDD
+// common-mode and differential inputs: dc sources, made pulses by alter for the step responses; with
+// explicit 1 ns edges, since Spectre's default edge for a pulse without rise and fall (transres = 1e-9 x
+// the tran stop, 2 fs here, sec. 3.8.1) stops Xyce's transient of this bench ("Time step too small")
+Vcm (cmin gnd) vsource type=dc dc=0 val0=0 val1=2 width=1u delay=10ns rise=1n fall=1n
+Vdif (in gnd) vsource type=dc dc=0 val0=0 val1=2 width=1u delay=10ns rise=1n fall=1n
+// infinite resistors: no r, nothing printed, but probe= and oprobe= targets (sec. 3.8)
+Ridif (in gnd) resistor
+Eicmp (pin cmin in gnd) vcvs gain=GAIN
+Eicmn (nin cmin in gnd) vcvs gain=-GAIN
+// the amplifier with capacitive feedback; Vt1 and Vt2 break the loops for the loop-gain analyses
+A1 (pout nout pvg nvg) opamp
+Cf1 (pout t1) capacitor c=8p
+Cf2 (nout t2) capacitor c=8p
+Vt1 (t1 nvg) vsource mag=0
+Vt2 (t2 pvg) vsource mag=0
+Cl1 (pout gnd) capacitor c=8p
+Cl2 (out gnd) capacitor c=8p
+Ci1 (pin pvg) capacitor c=2p
+Ci2 (nin nvg) capacitor c=2p
+// the amplifier inputs have no DC path to ground: Spectre's topology check installs a gmin resistor
+// (1e12 Ohm) there (UG p.276), which vamos does not, so the bench writes them, noise-free
+Rgp (pvg gnd) resistor r=1e12 isnoisy=no
+Rgn (nvg gnd) resistor r=1e12 isnoisy=no
+// differential and common-mode outputs
+Edif (out gnd pout nout) vcvs gain=1
+Rodif (out gnd) resistor
+Ecmp (cmout mid pout gnd) vcvs gain=GAIN
+Ecmn (mid gnd nout gnd) vcvs gain=GAIN
+Rocm (cmout gnd) resistor
+spectre options save=lvlpub nestlvl=1
+printParams info what=output where=logfile
+opPoint dc readns="%C:r.dc" write="%C:r.dc"
+// differential mode: the closed-loop gain is Vdif:p, the supply rejections Vdd:p and Vss:p (xf: VACASK)
+#ifndef NO_XF
+dmXferFunctions xf start=1k stop=1G dec=10 probe=Rodif
+#endif
+dmNoise noise start=1k stop=1G dec=10 oprobe=Edif oportv=1 iprobe=Vdif iportv=1
+dmEnablePulse alter dev=Vdif param=type value=pulse annotate=no
+dmStepResponse tran stop=2us errpreset=conservative
+dmDisablePulse alter dev=Vdif param=type value=dc annotate=no
+// the loop gain -t1/nvg and the open-loop gain out/(pvg-nvg)
+dmEnableTest1 alter dev=Vt1 param=mag value=1 annotate=no
+dmEnableTest2 alter dev=Vt2 param=mag value=-1 annotate=no
+dmLoopGain ac start=1k stop=1G dec=10
+dmDisableTest1 alter dev=Vt1 param=mag value=0 annotate=no
+dmDisableTest2 alter dev=Vt2 param=mag value=0 annotate=no
+// common mode: the closed-loop gain is Vcm:p
+#ifndef NO_XF
+cmXferFunctions xf start=1k stop=1G dec=10 probe=Rocm
+#endif
+cmNoise noise start=1k stop=1G dec=10 oprobe=Rocm oportv=1 iprobe=Vcm iportv=1
+cmEnablePulse alter dev=Vcm param=type value=pulse annotate=no
+cmStepResponse tran stop=2us errpreset=conservative
+cmDisablePulse alter dev=Vcm param=type value=dc annotate=no
+// the common-mode loop gain -t1/nvg and open-loop gain 2*cmout/(pvg+nvg)
+cmEnableTest1 alter dev=Vt1 param=mag value=1 annotate=no
+cmEnableTest2 alter dev=Vt2 param=mag value=1 annotate=no
+cmLoopGain ac start=1k stop=1G dec=10
+cmDisableTest1 alter dev=Vt1 param=mag value=0 annotate=no
+cmDisableTest2 alter dev=Vt2 param=mag value=0 annotate=no

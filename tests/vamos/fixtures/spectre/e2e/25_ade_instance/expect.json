@@ -1,0 +1,162 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "dcOp.dc",
+  "noise.noise",
+  "tran.tran.tran",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "dcOp.dc",
+   "signal": "I2.Mid",
+   "at": null,
+   "value": 0.75,
+   "rel": 1e-09
+  },
+  {
+   "file": "dcOp.dc",
+   "signal": "net1",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "dcOp.dc",
+   "signal": "out",
+   "at": null,
+   "value": 0.5,
+   "rel": 1e-09
+  },
+  {
+   "file": "dcOp.dc",
+   "signal": "V0:p",
+   "at": null,
+   "value": -0.00025,
+   "rel": 1e-09
+  },
+  {
+   "file": "noise.noise",
+   "signal": "freq",
+   "at": null,
+   "value": [
+    1.0,
+    10.0,
+    100.0
+   ],
+   "rel": 1e-09,
+   "points": 3
+  },
+  {
+   "file": "noise.noise",
+   "signal": "out",
+   "at": 1.0,
+   "value": 4.0713722372192895e-09,
+   "rel": 3e-05
+  },
+  {
+   "file": "noise.noise",
+   "signal": "gain",
+   "at": 1.0,
+   "value": 0.5,
+   "rel": 1e-06
+  },
+  {
+   "file": "noise.noise",
+   "signal": "in",
+   "at": 1.0,
+   "value": 8.142744474438579e-09,
+   "rel": 3e-05
+  },
+  {
+   "file": "noise.noise",
+   "signal": "R0",
+   "at": 1.0,
+   "value": {
+    "total": 8.288035947000001e-18
+   },
+   "rel": 3e-05
+  },
+  {
+   "file": "noise.noise",
+   "signal": "I2.r3",
+   "at": 1.0,
+   "value": {
+    "total": 4.144017973500001e-18
+   },
+   "rel": 3e-05
+  },
+  {
+   "file": "noise.noise",
+   "signal": "I2.r4",
+   "at": 1.0,
+   "value": {
+    "total": 4.144017973500001e-18
+   },
+   "rel": 3e-05
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "I2.Mid",
+   "at": 0.0,
+   "value": 0.3,
+   "abs": 1e-05
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "out",
+   "at": 0.0,
+   "value": 0.2,
+   "abs": 1e-05
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "I2.Mid",
+   "at": 5e-06,
+   "value": 0.7494273147893971,
+   "abs": 2e-05
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "out",
+   "at": 5e-06,
+   "value": 0.49961820985959804,
+   "abs": 2e-05
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "net1",
+   "at": 5e-06,
+   "value": 1.0,
+   "rel": 1e-09
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": [
+  [
+   "note",
+   "file is not written"
+  ]
+ ],
+ "xyce": {
+  "messages": [
+   [
+    "note",
+    "file is not written"
+   ],
+   [
+    "note",
+    "STRUCTs carry only `total'"
+   ]
+  ]
+ }
+}

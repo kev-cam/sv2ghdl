@@ -1,0 +1,52 @@
+{
+ "deck": "BSIM6.1.1/Benchmark_tests/gummel_nmos.sp",
+ "design": {
+  "names": []
+ },
+ "differs": [],
+ "errors": [],
+ "hdl": [
+  "BSIM6.1.1/code/BSIM6.1.1.va"
+ ],
+ "include": [
+  "../code"
+ ],
+ "names": [],
+ "parse": "ok",
+ "vacask": {
+  "openvaf": {
+   "BSIM6.1.1/code/BSIM6.1.1.va": {
+    "errors": 650,
+    "rc": 65
+   }
+  },
+  "render": "ok",
+  "steps": [
+   [
+    "vamos_a1",
+    "srcSweep",
+    "dc"
+   ]
+  ]
+ },
+ "xyce": {
+  "norun": {
+   "device_summary_problems": [],
+   "output_problem_count": 2,
+   "output_problems": [
+    "Netlist error in file vamos_a1.cir at or near line 9 Unrecognized fields for device MX1",
+    "Netlist error in file vamos_a1.cir at or near line 9 Unrecognized parameter LLONG for device MX1"
+   ],
+   "rc": 1
+  },
+  "refused": "norun",
+  "render": "ok",
+  "steps": [
+   [
+    "vamos_a1",
+    "srcSweep",
+    "dc"
+   ]
+  ]
+ }
+}

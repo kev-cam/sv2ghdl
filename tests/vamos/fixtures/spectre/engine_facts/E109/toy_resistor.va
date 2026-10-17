@@ -1,0 +1,9 @@
+`include "disciplines.vams"
+// vamos-authored, in the pattern of the ADMS example toys/resistor.va: the same attributes and parameter
+(*xyceModelGroup="Resistor", xyceSpiceDeviceName="R", xyceLevelNumber="6"*)
+module resistor (p,n);
+   electrical p,n;
+   inout p,n;
+   (*desc="Resistance", type="instance"*) parameter real R=1 from (0:inf);
+   analog I(p,n) <+ V(p,n)/R;
+endmodule

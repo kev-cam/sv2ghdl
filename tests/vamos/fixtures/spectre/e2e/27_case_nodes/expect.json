@@ -1,0 +1,52 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "op1.dc",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op1.dc",
+   "signal": "A",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op1.dc",
+   "signal": "a",
+   "at": null,
+   "value": 0.75,
+   "rel": 1e-09
+  },
+  {
+   "file": "op1.dc",
+   "signal": "V1:p",
+   "at": null,
+   "value": -0.00025,
+   "rel": 1e-09
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-09
+ },
+ "messages": [],
+ "xyce": {
+  "status": 2,
+  "files": null,
+  "values": [],
+  "messages": [
+   [
+    "error",
+    "nodes A and a differ only in case"
+   ]
+  ]
+ }
+}

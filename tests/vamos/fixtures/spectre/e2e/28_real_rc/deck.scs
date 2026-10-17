@@ -1,0 +1,22 @@
+#RC Low-Pass Filter
+simulator lang=spectre
+// e2e 28: psf-parser's tests/data run (Spectre 23.1.0.242, vendored under psf/real/) rebuilt from its outputs
+// (§11.2 item 28, E101), without its montecarlo block and its info statements.  myac.ac holds 21 points
+// from 1 Hz to 1 MHz, 10^0.3 apart (log 20); the ac1 and ac2 leaves hold 121, 10^0.05 apart (dec 20).
+// Every file of the run traces in and out only, which allpub would extend by Vin:p (ref19 p.188), so
+// the run saved them explicitly.
+Vin (in 0) vsource type=sine sinedc=1 ampl=1 freq=1k mag=1
+R1 (in out) resistor r=1k
+C1 (out 0) capacitor c=1u
+save in out
+myop dc
+mydc dc dev=Vin param=dc start=0 stop=2 step=0.1
+myac ac start=1 stop=1M log=20
+mytran tran stop=0.5 step=5e-4
+mysweep sweep dev=R1 param=r values=[1k 2k 3k] {
+  dc1 dc dev=Vin param=dc start=0 stop=2 step=0.1
+  ac1 ac start=1 stop=1M dec=20
+  mynestedsweep sweep dev=C1 param=c values=[1u 2u 3u] {
+    ac2 ac start=1 stop=1M dec=20
+  }
+}

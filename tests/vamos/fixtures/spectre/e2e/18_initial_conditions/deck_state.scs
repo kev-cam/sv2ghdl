@@ -1,0 +1,13 @@
+// e2e 18: state files (sec. 8.6) feeding a run: readns on an op, readic and its 5.1 name read on a tran
+simulator lang=spectre
+V1 (in 0) vsource dc=1
+R1 (in a) resistor r=1k
+C1 (a 0) capacitor c=1n
+R2 (in b) resistor r=1k
+C2 (b 0) capacitor c=1n
+ic a=0.2 b=0.4
+op1 dc readns="rc.ns"
+trread tran stop=100n readic="rc.ic"
+trstmt tran stop=100n
+trread51 tran stop=100n read="rc.ic"
+save in a b

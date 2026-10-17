@@ -1,0 +1,223 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "d": "d",
+     "d2": "d2"
+    }
+   },
+   "vamos_a2": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "d": "d",
+     "d2": "d2"
+    }
+   },
+   "vamos_a3": {
+    "name": "tr1",
+    "kind": "tran",
+    "columns": {
+     "d": "d",
+     "d2": "d2"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "d",
+    "row": 0,
+    "value": 0.655119,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "d2",
+    "row": 0,
+    "value": -5.0000011,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d",
+    "row": 0,
+    "value": 0.595562,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d2",
+    "row": 0,
+    "value": -3.0000011,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "d",
+    "at": 5e-07,
+    "value": 0.595562,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "d2",
+    "at": 5e-07,
+    "value": -3.0,
+    "rel": 1e-05
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "d": "V(D)",
+     "d2": "V(D2)"
+    }
+   },
+   "vamos_a2": {
+    "name": "op2",
+    "kind": "dc",
+    "columns": {
+     "d": "V(D)",
+     "d2": "V(D2)"
+    }
+   },
+   "vamos_a3": {
+    "name": "tr1",
+    "kind": "tran",
+    "columns": {
+     "d": "V(D)",
+     "d2": "V(D2)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "d",
+    "row": 0,
+    "value": 0.655099,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "d2",
+    "row": 0,
+    "value": -5.0000061,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d",
+    "row": 0,
+    "value": 0.595545,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "d2",
+    "row": 0,
+    "value": -3.0000061,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "d",
+    "at": 5e-07,
+    "value": 0.595545,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "d2",
+    "at": 5e-07,
+    "value": -3.0,
+    "rel": 1e-05
+   }
+  ]
+ },
+ "also": [
+  {
+   "deck": "deck_unknown.scs",
+   "vacask": {
+    "status": 0,
+    "steps": {
+     "vamos_a1": {
+      "name": "op1",
+      "kind": "dc",
+      "columns": {
+       "d": "d"
+      }
+     },
+     "vamos_a2": {
+      "name": "op2",
+      "kind": "dc",
+      "columns": {
+       "d": "d"
+      }
+     }
+    },
+    "checks": [
+     {
+      "step": "vamos_a1",
+      "signal": "d",
+      "row": 0,
+      "value": 0.655119,
+      "rel": 1e-05
+     },
+     {
+      "step": "vamos_a2",
+      "signal": "d",
+      "row": 0,
+      "value": 0.655119,
+      "rel": 1e-05
+     }
+    ]
+   },
+   "xyce": {
+    "status": 2,
+    "steps": {
+     "vamos_a1": {
+      "name": "op1",
+      "kind": "dc",
+      "columns": {
+       "d": "V(D)"
+      }
+     },
+     "vamos_a2": {
+      "name": "op2",
+      "kind": "dc",
+      "columns": {
+       "d": "V(D)"
+      }
+     }
+    },
+    "checks": [
+     {
+      "step": "vamos_a1",
+      "signal": "d",
+      "row": 0,
+      "value": 0.6551,
+      "rel": 1e-05
+     },
+     {
+      "step": "vamos_a2",
+      "signal": "d",
+      "row": 0,
+      "value": 0.6551,
+      "rel": 1e-05
+     }
+    ]
+   }
+  }
+ ]
+}

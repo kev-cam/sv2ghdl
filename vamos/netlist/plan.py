@@ -235,11 +235,18 @@ def _exprs(v: object) -> List[Expr]:
     return [v]                                         # type: ignore[list-item]
 
 
+def is_infinite_resistor(it: Instance) -> bool:
+    """§3.8: a resistor whose r is infinite (spectre.py's Num(inf): no r, rsh or l) is not printed but
+    stays in the instance table; its value is a marker, not an expression to evaluate."""
+    v = it.value
+    return it.kind == "r" and isinstance(v, Num) and math.isinf(v.value) and v.value > 0
+
+
 def _item_exprs(it: Instance) -> List[Tuple[str, Expr]]:
     """Every expression of an instance with the name it is written under (tables.item_exprs widened
     to vectors and Source.spectre)."""
     out: List[Tuple[str, Expr]] = []
-    if it.value is not None:
+    if it.value is not None and not is_infinite_resistor(it):
         out.extend(("value", e) for e in _exprs(it.value))
     if it.expr is not None:
         out.extend(("expr", e) for e in _exprs(it.expr))
@@ -1754,6 +1761,12 @@ _ANALYSES_TEXT = {"ac,noise,xf,tran": "an ac, noise, xf or tran analysis runs",
                   "noise": "a noise analysis runs"}
 
 
+def _reaches_absent(rule: T.ParamRule, name: str) -> bool:
+    """Whether a row applies to a parameter the card or instance does not give (tables.rule_for's
+    reading of §10): a default row, a match "absent", or a `when` naming absent:<name>."""
+    return rule.action == "default" or "absent" in rule.match or ("absent:%s" % name) in rule.when.split(",")
+
+
 def _card_tnom(ctx: _Ctx, card: Model, step: AnalysisStep) -> float:
     e = card.params.get("tnom")
     if e is not None:
@@ -1783,6 +1796,11 @@ def _run_dependent_rules(ctx: _Ctx) -> None:
             if rule is None or not rule.warn or rule.warn == "card":
                 continue
             given = params.get(name, _MISSING)
+            if given is _MISSING and not _reaches_absent(rule, name):
+                # §10's grammar (tables.rule_for): a row reaches an absent parameter only through match
+                # "absent", a `when` on it, or a default row; the noise-only rows warn about a value the
+                # card gives, not about one it leaves at Spectre's default (phase 2's integration)
+                continue
             shown = "%s absent" % name if given is _MISSING else "%s=%s" % (name, _txt(given))
             if rule.warn.startswith("analyses="):
                 kinds = set(rule.warn[len("analyses="):].split(","))

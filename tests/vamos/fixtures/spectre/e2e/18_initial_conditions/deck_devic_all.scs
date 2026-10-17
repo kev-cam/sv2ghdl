@@ -1,0 +1,7 @@
+// e2e 18: a capacitor ic= under a tran with ic=all, which would apply it: not in v1 (sec. 0), an error
+simulator lang=spectre
+V1 (in 0) vsource dc=1
+R1 (in b) resistor r=1k
+C2 (b 0) capacitor c=1n ic=0.7
+trall tran stop=100n ic=all
+save in b

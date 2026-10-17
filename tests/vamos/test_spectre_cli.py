@@ -13,8 +13,10 @@ licenses.json's cpp.  Phase 1 (S5) adds the personality itself: every §2.3 row 
 build_job, the defaults layer and its precedence, the percent codes (the UG tables), settings(),
 SpectreLog (routing, classes, limits, the trailer, built-in text), main through cli.main (help,
 -V/-W, the messages, the exit statuses, nothing on stderr, the invoked name), cpp, the guide's
-spectre section and shims/spectre.  Tests that need the run itself (spectre/flow.py, phase 2)
-are skipped with the reason PHASE2.
+spectre section and shims/spectre.  Phase 2 (the integrator) released the phase-1 pins of the
+stop before the run: main hands every job to spectre/flow.py, so a missing netlist is now the
+flow's "netlist not found" and an empty stdin netlist runs nothing and exits 0; the two runs
+phase 1 skipped are tests (an engine run is gated on needs_vacask).
 """
 
 import contextlib
@@ -25,12 +27,13 @@ import os
 import re
 import shutil
 import string
+import sys
 import tempfile
 import unittest
 from datetime import datetime
 
 from spectre_testlib import needs_cpp  # noqa: F401
-from vamos_testlib import LAUNCHER, ROOT, TempDir  # noqa: F401
+from vamos_testlib import LAUNCHER, ROOT, TempDir, needs_vacask  # noqa: F401
 
 from vamos import VERSION, banner, cli, optable, tools  # noqa: E402
 from vamos.job import IGNORED, INAPPLICABLE, NOTED, UNKNOWN, UNSUPPORTED, Job, Unmapped  # noqa: E402
@@ -455,9 +458,6 @@ class TestDispatch(TempDir):
 # settings(), SpectreLog, main, cpp (§2, §8.7, §11 T0 "CLI", "Percent codes", "Log", "CLI and cpp")
 # =============================================================================
 
-PHASE2 = "S6/phase 2: spectre/flow.py (the integrator) runs the netlist; phase 1 stops before the run"
-
-
 def build(argv, env=None, cwd="/tmp", prog="spectre"):
     return spectre.build_job(list(argv), dict(env or {}), cwd, prog)
 
@@ -808,9 +808,36 @@ class TestDefaultsLayer(unittest.TestCase):
         # a dagger option (+log) and a ref19-only one (+aps=) are applied from the defaults
         self.assertEqual((j.defaults["log_mode"], j.defaults["log_path"], j.defaults["aps"]), ("both", "f", "liberal"))
 
-    @unittest.skip(PHASE2)
+    @needs_vacask
     def test_a_run_with_unread_defaults_still_simulates_and_exits_0(self):
-        pass
+        # the options Spectre does not read from the defaults are noted and the run goes on (§2.2)
+        d = tempfile.mkdtemp(prefix="vamos-cli-")
+        cwd = os.getcwd()
+        try:
+            os.chdir(d)
+            with open("rc.scs", "w") as fh:
+                fh.write("// rc\nsimulator lang=spectre\nV1 (in 0) vsource dc=1\nR1 (in out) resistor r=1k\n"
+                         "R2 (out 0) resistor r=1k\nop1 dc\n")
+            env = {"VAMOS_ARGV0": "spectre", "SPECTRE_DEFAULTS": "-help +interactive -note +mpssession=x"}
+            saved = {k: os.environ.get(k) for k in list(env) + ["spectre_DEFAULTS"]}
+            os.environ.pop("spectre_DEFAULTS", None)
+            os.environ.update(env)
+            try:
+                rc, out, err = call_cli(["rc.scs"])
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            self.assertEqual((rc, err), (0, ""), out)
+            self.assertIn("Spectre does not read -help from SPECTRE_DEFAULTS; ignored", out)
+            self.assertIn("Spectre does not read +interactive from SPECTRE_DEFAULTS; ignored", out)
+            self.assertIn("spectre completes with 0 errors", out)
+            self.assertEqual(sorted(os.listdir(os.path.join(d, "rc.raw"))), ["logFile", "op1.dc"])
+        finally:
+            os.chdir(cwd)
+            shutil.rmtree(d, ignore_errors=True)
 
     def test_maxwarns_three_ways(self):
         # an options maxwarns beats a defaults -maxw and loses to an argv -maxw (settings() and limits())
@@ -1019,6 +1046,11 @@ class TestSpectreLog(TempDir):
         log = self.log(self.job("+log", "o/%S.%A.log", "-outdir", "zz", "x.scs"))
         log.close()
         self.assertEqual(log.path, os.path.join(self.tmp, "o", "spectre..log"))
+        # -outdir is %-expanded as well (§2.4), as the flow expands it for the results (phase 2)
+        os.makedirs(os.path.join(self.tmp, "o_spectre"))
+        log = self.log(self.job("+log", "%C:r.out", "-outdir", "o_%S", "x.scs"))
+        log.close()
+        self.assertEqual(log.path, os.path.join(self.tmp, "o_spectre", "x.out"))
         # the defaults layer's +log applies; a log that cannot be opened raises OSError (§2.7)
         log = self.log(self.job("x.scs", SPECTRE_DEFAULTS="=log d.log"))
         log.close()
@@ -1169,7 +1201,7 @@ class TestMain(InTmp):
     """main through cli.main: help, -V/-W, the messages, the exit statuses, nothing on stderr (§2.7, §8.7)."""
 
     TRAILER = "spectre terminated prematurely due to fatal error.\n"
-    NOT_YET = "the spectre run is not implemented yet"
+    NOT_FOUND = "    x.scs: netlist x.scs not found\n"       # phase 2: the run reads the netlist (flow.py)
 
     def test_help(self):
         for argv in (["-h"], ["-help"], ["-hsf"], ["-h", "-raw", "o"], ["-hs", "=log", "l.log"]):
@@ -1218,19 +1250,18 @@ class TestMain(InTmp):
             self.assertEqual((rc, out, err), (0, "vamos %s (spectre personality)\n" % VERSION, ""))
         rc, out, err = self.spectre(["-V"], argv0="spectre231")
         self.assertEqual((rc, out, err), (0, "vamos %s (spectre personality)\n" % VERSION, ""))
-        # with a netlist the run continues (phase 1: to the stop)
+        # with a netlist the run continues (phase 2: to the netlist, which does not exist here)
         rc, out, err = self.spectre(["-V", "x.scs"])
         self.assertEqual((rc, err), (2, ""))
         self.assertTrue(out.startswith("vamos %s (spectre personality)\n" % VERSION), out)
-        self.assertIn(self.NOT_YET, out)
+        self.assertIn(self.NOT_FOUND, out)
         self.assertTrue(out.endswith(self.TRAILER), out)
 
     def test_phase1_stop_and_the_trailer(self):
         rc, out, err = self.spectre(["x.scs"])
         self.assertEqual((rc, err), (2, ""))
-        self.assertEqual(out, "Error from spectre during setup.\n    the spectre run is not implemented yet "
-                              "(docs/VAMOS_SPECTRE_DESIGN.md §12: phase 2 writes spectre/flow.py); the command "
-                              "line was accepted\n" + self.TRAILER)
+        self.assertTrue(out.endswith("Error from spectre during circuit read-in.\n" + self.NOT_FOUND + self.TRAILER),
+                        out)
         self.assertFalse(os.listdir(self.tmp))                              # no run directory
         rc, out, err = self.spectre(["x.scs"], argv0="vamos") if False else call_cli(["-spectre", "x.scs"])
         self.assertEqual((rc, err), (2, ""))
@@ -1242,7 +1273,7 @@ class TestMain(InTmp):
         self.assertIn("Error from spectre during command-line processing.\n    +top s: exposing", out)
         self.assertIn("    -format uwi: the user-defined output format is not supported\n", out)
         self.assertIn("    y.scs: a second input file", out)
-        self.assertNotIn(self.NOT_YET, out)
+        self.assertNotIn(self.NOT_FOUND, out)
         self.assertTrue(out.endswith(self.TRAILER), out)
         self.assertFalse(os.listdir(self.tmp))
         # `spectre x.scs -raw`: the option needs a value (§11 T0)
@@ -1257,12 +1288,12 @@ class TestMain(InTmp):
         self.assertIn("Warning from spectre during command-line processing.\n    unknown option -bogus ignored\n", out)
         self.assertIn("Notice from spectre during command-line processing.\n    +cp: no checkpoint file is written\n",
                       out)
-        self.assertIn(self.NOT_YET, out)                                    # not an error by itself
+        self.assertIn(self.NOT_FOUND, out)                                  # not an error by itself
         rc, out, err = self.spectre(["-bogus", "x.scs", "--vamos-strict"])
         self.assertEqual((rc, err), (2, ""))
         self.assertIn("Error from spectre during command-line processing.\n    --vamos-strict: 1 unsupported/unknown "
                       "option(s): -bogus\n", out)
-        self.assertNotIn(self.NOT_YET, out)
+        self.assertNotIn(self.NOT_FOUND, out)
         self.assertTrue(out.endswith(self.TRAILER), out)
 
     def test_vamos_options_are_recorded_by_the_personality(self):
@@ -1291,7 +1322,7 @@ class TestMain(InTmp):
         rc, out, err = self.spectre(["+log", "both.log", "x.scs"])
         self.assertEqual((rc, err), (2, ""))
         self.assertEqual(out, open(os.path.join(self.tmp, "both.log")).read())
-        self.assertIn(self.NOT_YET, out)
+        self.assertIn(self.NOT_FOUND, out)
         # a log file that cannot be opened: the error on the screen, exit 2
         rc, out, err = self.spectre(["+log", "nodir/x.log", "x.scs"])
         self.assertEqual((rc, err), (2, ""))
@@ -1364,14 +1395,21 @@ class TestMain(InTmp):
         self.assertIs(spectre.open_log, saved_open)
 
     def test_main_never_raises_and_never_writes_stderr(self):
-        for argv in (["x.scs"], ["-h"], ["-V"], ["+top"], ["=log"], ["x.scs", "-raw"], [], ["-h", "all"]):
-            with self.subTest(argv=argv):
-                rc, out, err = self.spectre(argv)
-                self.assertIn(rc, (0, 2))
-                self.assertEqual(err, "")
-        rc, out, err = self.spectre([])                                    # stdin would be the netlist
-        self.assertEqual((rc, err), (2, ""))
-        self.assertIn(self.NOT_YET, out)
+        saved = sys.stdin
+        sys.stdin = io.StringIO("")                     # [] reads the netlist from stdin (§1): an empty one
+        try:
+            for argv in (["x.scs"], ["-h"], ["-V"], ["+top"], ["=log"], ["x.scs", "-raw"], [], ["-h", "all"]):
+                with self.subTest(argv=argv):
+                    rc, out, err = self.spectre(argv)
+                    self.assertIn(rc, (0, 2))
+                    self.assertEqual(err, "")
+            sys.stdin = io.StringIO("")
+            rc, out, err = self.spectre([])                                # stdin is the netlist
+        finally:
+            sys.stdin = saved
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("the netlist has no analyses: nothing to run", out)
+        self.assertIn("spectre completes with", out)
 
     def test_the_frozen_signatures_are_implemented(self):
         self.assertIsInstance(spectre.OPTIONS, list)
@@ -1382,10 +1420,15 @@ class TestMain(InTmp):
         self.assertIn("resistor (Spectre master", spectre.help_text("resistor"))
         tools.invoked = "spectre"                                            # as cli.main sets it (§2.1)
         out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            self.assertEqual(spectre.main([], {}), 2)
+        saved = sys.stdin
+        sys.stdin = io.StringIO("")                                          # an empty netlist on stdin
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(spectre.main([], {}), 0)
+        finally:
+            sys.stdin = saved
         self.assertEqual(err.getvalue(), "")
-        self.assertIn("spectre terminated prematurely", out.getvalue())
+        self.assertIn("spectre completes with", out.getvalue())
         tools.invoked = "vcs"                                                # outside cli.main: still never raises
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             self.assertEqual(spectre.main(["x.scs"], {}), 2)
@@ -1490,9 +1533,26 @@ class TestCpp(TempDir):
         self.assertTrue(any(n.severity in (WARNING, NOTE) and "boom" in n.message for n in cm.exception.notes))
         self.assertTrue(all(n.message.startswith("cpp") for n in cm.exception.notes))
 
-    @unittest.skip(PHASE2)
     def test_vamos_cpp_nonexistent_with_E_gives_exit_2(self):
-        pass
+        # a bad VAMOS_CPP is a ToolError, exit status 2 through the flow, before any engine (§2.6, §2.7)
+        self.write("rc.scs", "// rc\nsimulator lang=spectre\nR1 (a 0) resistor r=1k\nop1 dc\n")
+        cwd = os.getcwd()
+        saved = {k: os.environ.get(k) for k in ("VAMOS_CPP", "VAMOS_ARGV0")}
+        try:
+            os.chdir(self.tmp)
+            os.environ.update({"VAMOS_CPP": "/nonexistent", "VAMOS_ARGV0": "spectre"})
+            rc, out, err = call_cli(["-E", "rc.scs"])
+        finally:
+            os.chdir(cwd)
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.assertEqual((rc, err), (2, ""), out)
+        self.assertIn("VAMOS_CPP=/nonexistent", out)
+        self.assertTrue(out.endswith("spectre terminated prematurely due to fatal error.\n"), out)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "rc.raw")))
 
 
 class TestGuideAndShim(unittest.TestCase):

@@ -1,0 +1,612 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "op.dc",
+  "time_sweep.tran.tran",
+  "dc_sweep.dc",
+  "logFile"
+ ],
+ "values": [
+  {
+   "file": "op.dc",
+   "signal": "a1",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "a2",
+   "at": null,
+   "value": 3.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.n1",
+   "at": null,
+   "value": 4.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.n2",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.n3",
+   "at": null,
+   "value": 5.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.n4",
+   "at": null,
+   "value": 8.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.n5",
+   "at": null,
+   "value": 4.4,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X2.m1",
+   "at": null,
+   "value": 4.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X2.m2",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X2.m3",
+   "at": null,
+   "value": 7.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X2.m4",
+   "at": null,
+   "value": 8.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X2.m5",
+   "at": null,
+   "value": 4.285714285714286,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X2.X4.k1",
+   "at": null,
+   "value": 7.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X2.X4.k2",
+   "at": null,
+   "value": 32.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X3.m1",
+   "at": null,
+   "value": 4.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X3.m2",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X3.m3",
+   "at": null,
+   "value": 9.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X3.m4",
+   "at": null,
+   "value": 8.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X3.m5",
+   "at": null,
+   "value": 4.222222222222222,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X3.X4.k1",
+   "at": null,
+   "value": 9.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "op.dc",
+   "signal": "X1.X3.X4.k2",
+   "at": null,
+   "value": 32.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "time_sweep.tran.tran",
+   "signal": "a2",
+   "at": 0.00015,
+   "value": 3.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "time_sweep.tran.tran",
+   "signal": "X1.n5",
+   "at": 0.00015,
+   "value": 4.4,
+   "rel": 1e-09
+  },
+  {
+   "file": "time_sweep.tran.tran",
+   "signal": "X1.X2.m5",
+   "at": 0.00015,
+   "value": 4.285714285714286,
+   "rel": 1e-09
+  },
+  {
+   "file": "time_sweep.tran.tran",
+   "signal": "X1.X2.X4.k1",
+   "at": 0.00015,
+   "value": 7.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "time_sweep.tran.tran",
+   "signal": "X1.X3.m3",
+   "at": 0.00015,
+   "value": 9.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "time_sweep.tran.tran",
+   "signal": "X1.X3.X4.k1",
+   "at": 0.00015,
+   "value": 9.0,
+   "rel": 1e-09
+  },
+  {
+   "file": "time_sweep.tran.tran",
+   "signal": "time",
+   "at": null,
+   "value": 0.00015,
+   "rel": 1e-09,
+   "row": -1
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "p1",
+   "at": null,
+   "value": [
+    0.5,
+    1.0,
+    2.0,
+    2.0
+   ],
+   "rel": 1e-12,
+   "points": 4
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a1",
+   "at": null,
+   "value": 0.5,
+   "rel": 1e-09,
+   "row": 0
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a2",
+   "at": null,
+   "value": 2.5,
+   "rel": 1e-09,
+   "row": 0
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a1",
+   "at": null,
+   "value": 1.0,
+   "rel": 1e-09,
+   "row": 1
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a2",
+   "at": null,
+   "value": 3.0,
+   "rel": 1e-09,
+   "row": 1
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a1",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09,
+   "row": 2
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a2",
+   "at": null,
+   "value": 4.0,
+   "rel": 1e-09,
+   "row": 2
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a1",
+   "at": null,
+   "value": 2.0,
+   "rel": 1e-09,
+   "row": 3
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "a2",
+   "at": null,
+   "value": 4.0,
+   "rel": 1e-09,
+   "row": 3
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "X1.n1",
+   "at": null,
+   "value": 4.0,
+   "rel": 1e-09,
+   "row": -1
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "X1.X2.m1",
+   "at": null,
+   "value": 4.0,
+   "rel": 1e-09,
+   "row": -1
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "X1.X2.X4.k2",
+   "at": null,
+   "value": 32.0,
+   "rel": 1e-09,
+   "row": -1
+  },
+  {
+   "file": "dc_sweep.dc",
+   "signal": "X1.X3.m5",
+   "at": null,
+   "value": 4.222222222222222,
+   "rel": 1e-09,
+   "row": -1
+  }
+ ],
+ "cross_engine": {
+  "rel": 1e-09
+ },
+ "messages": [],
+ "also": [
+  {
+   "deck": "deck_portless.scs",
+   "engines": [
+    "vacask"
+   ],
+   "status": 0,
+   "files": [
+    "op.dc",
+    "dc_sweep.dc",
+    "logFile"
+   ],
+   "values": [
+    {
+     "file": "op.dc",
+     "signal": "a1",
+     "at": null,
+     "value": 1.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "a2",
+     "at": null,
+     "value": 3.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.n1",
+     "at": null,
+     "value": 4.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.n2",
+     "at": null,
+     "value": 2.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.n3",
+     "at": null,
+     "value": 5.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.n4",
+     "at": null,
+     "value": 8.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.n5",
+     "at": null,
+     "value": 4.4,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X2.m1",
+     "at": null,
+     "value": 4.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X2.m2",
+     "at": null,
+     "value": 2.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X2.m3",
+     "at": null,
+     "value": 7.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X2.m4",
+     "at": null,
+     "value": 8.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X2.m5",
+     "at": null,
+     "value": 4.285714285714286,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X2.X4.k1",
+     "at": null,
+     "value": 7.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X2.X4.k2",
+     "at": null,
+     "value": 32.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X3.m1",
+     "at": null,
+     "value": 4.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X3.m2",
+     "at": null,
+     "value": 2.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X3.m3",
+     "at": null,
+     "value": 9.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X3.m4",
+     "at": null,
+     "value": 8.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X3.m5",
+     "at": null,
+     "value": 4.222222222222222,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X3.X4.k1",
+     "at": null,
+     "value": 9.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "op.dc",
+     "signal": "X1.X3.X4.k2",
+     "at": null,
+     "value": 32.0,
+     "rel": 1e-09
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "p1",
+     "at": null,
+     "value": [
+      0.5,
+      1.0,
+      2.0,
+      2.0
+     ],
+     "rel": 1e-12,
+     "points": 4
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a1",
+     "at": null,
+     "value": 0.5,
+     "rel": 1e-09,
+     "row": 0
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a2",
+     "at": null,
+     "value": 2.5,
+     "rel": 1e-09,
+     "row": 0
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a1",
+     "at": null,
+     "value": 1.0,
+     "rel": 1e-09,
+     "row": 1
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a2",
+     "at": null,
+     "value": 3.0,
+     "rel": 1e-09,
+     "row": 1
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a1",
+     "at": null,
+     "value": 2.0,
+     "rel": 1e-09,
+     "row": 2
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a2",
+     "at": null,
+     "value": 4.0,
+     "rel": 1e-09,
+     "row": 2
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a1",
+     "at": null,
+     "value": 2.0,
+     "rel": 1e-09,
+     "row": 3
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "a2",
+     "at": null,
+     "value": 4.0,
+     "rel": 1e-09,
+     "row": 3
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "X1.n1",
+     "at": null,
+     "value": 4.0,
+     "rel": 1e-09,
+     "row": -1
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "X1.X2.m1",
+     "at": null,
+     "value": 4.0,
+     "rel": 1e-09,
+     "row": -1
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "X1.X2.X4.k2",
+     "at": null,
+     "value": 32.0,
+     "rel": 1e-09,
+     "row": -1
+    },
+    {
+     "file": "dc_sweep.dc",
+     "signal": "X1.X3.m5",
+     "at": null,
+     "value": 4.222222222222222,
+     "rel": 1e-09,
+     "row": -1
+    }
+   ],
+   "messages": [],
+   "xyce": {
+    "status": 2,
+    "files": null,
+    "values": [],
+    "messages": [
+     [
+      "error",
+      "has no ports: on Xyce the instances of a portless subckt share its internal nodes"
+     ]
+    ]
+   }
+  }
+ ]
+}

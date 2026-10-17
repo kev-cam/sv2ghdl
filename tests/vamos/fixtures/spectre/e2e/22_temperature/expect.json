@@ -1,0 +1,155 @@
+{
+ "argv": [
+  "deck.scs"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "logFile",
+  "nz27.noise",
+  "op127.dc",
+  "op27.dc",
+  "tsw.dc"
+ ],
+ "values": [
+  {
+   "file": "nz27.noise",
+   "signal": "out",
+   "at": 1000.0,
+   "value": 4.07137e-09,
+   "rel": 0.0001
+  },
+  {
+   "file": "nz27.noise",
+   "signal": "Rn",
+   "at": 1000.0,
+   "value": {
+    "total": 1.65761e-17
+   },
+   "rel": 0.0001
+  },
+  {
+   "file": "nz27.noise",
+   "signal": "gain",
+   "at": null,
+   "value": null
+  },
+  {
+   "file": "op27.dc",
+   "signal": "d",
+   "at": null,
+   "value": 0.655118,
+   "rel": 0.0001
+  },
+  {
+   "file": "op27.dc",
+   "signal": "Vd1:p",
+   "at": null,
+   "value": -6.99702e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "op27.dc",
+   "signal": "Vd2:p",
+   "at": null,
+   "value": -8.99323e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "op27.dc",
+   "signal": "Vd3:p",
+   "at": null,
+   "value": -6.99702e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "temp",
+   "at": null,
+   "value": [
+    25.0,
+    50.0
+   ],
+   "rel": 1e-12
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "Vd1:p",
+   "at": 25.0,
+   "value": -9.06052e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "Vd2:p",
+   "at": 25.0,
+   "value": -9.06052e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "Vd3:p",
+   "at": 25.0,
+   "value": -7.04683e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "Vd1:p",
+   "at": 50.0,
+   "value": -6.47779e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "Vd2:p",
+   "at": 50.0,
+   "value": -8.29181e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "Vd3:p",
+   "at": 50.0,
+   "value": -6.47779e-05,
+   "rel": 1e-05
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "d",
+   "at": 25.0,
+   "value": 0.65875,
+   "rel": 0.0001
+  },
+  {
+   "file": "tsw.dc",
+   "signal": "d",
+   "at": 50.0,
+   "value": 0.61298,
+   "rel": 0.0001
+  },
+  {
+   "file": "op127.dc",
+   "signal": "d",
+   "at": null,
+   "value": 0.46898,
+   "rel": 0.0001
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.0001
+ },
+ "messages": [
+  [
+   "warning",
+   "dnoeg (diode): eg absent"
+  ],
+  [
+   "warning",
+   "badmos3=1 applied"
+  ]
+ ]
+}

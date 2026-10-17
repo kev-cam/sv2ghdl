@@ -12,7 +12,8 @@ TestSpectreCards        tables.model_params(dialect="spectre"): the SPECTRE_MAST
                         level folds, the engine fixes that stay)
 TestSpectreInstances    tables.spectre_instance_params: the MasterRow.instance rows (defaults, renames,
                         instance_<name> without the prefix on Xyce, strips, errors)
-TestSpectreBins         bin_bounds_spectre / bin_guard_spectre / select_bin_spectre, the Scope group order
+TestSpectreBins         bin_bounds_spectre / bin_guard_spectre / select_bin_spectre, the Scope group order,
+                        the total w with nf > 1 (a bsim4 group, §12 phase 2)
 TestCondWalks           every shared walk sees a Cond (E44, E56): reachable, Scope, item_exprs,
                         enclosing_reads, element_at, smoke_netlist, xyce._multiplied
 TestPathEnvsSpectre     the dialect="spectre" leg of path_envs: a nested definition sees the enclosing
@@ -20,10 +21,13 @@ TestPathEnvsSpectre     the dialect="spectre" leg of path_envs: a nested definit
 TestSharedData          SPECTRE_OPTIONS, the method maps, wave_t0, va_letter / va_polarity
 TestVacaskSpectre       the VACASK goldens and texts of every §7.1 mapping row the emitter owns
 TestXyceSpectre         the Xyce goldens and texts of every §7.2 mapping row, output_problems and
-                        device_summary_problems
+                        device_summary_problems; path_of's noise-input and sweep-hook matches against
+                        §5.3's one-path rule for hand-built steps (phase 2; expected failures until the
+                        xyce.py seam of that phase's report is applied)
 TestHspiceRouteRegressions   the S3 shared fixes that reach the HSPICE path (§4)
 TestVacaskRuns, TestXyceRuns, TestCrossEngine (WSL)   the rendered decks on the engines, with the §13
-                        values (E74, E17, E22, E35, E65, E32, E19, E18, E64, E67, E84)
+                        values (E74, E17, E22, E35, E65, E32, E19, E18, E64, E67, E84); the bsim4 group with
+                        nf > 1 runs as the entry its total w selects
 """
 
 import copy
@@ -227,6 +231,66 @@ def group_netlist(nf=None, w=2e-6, l=0.5e-6):
     nl.temp, nl.tnom = 27.0, 27.0
     nl.analyses = [Analysis("tran", {"step": 1e-10, "stop": 1e-9}, "deck:20")]
     return nl
+
+
+B4 = {"toxe": 4e-9, "u0": 0.04}
+BSIM4_REFS = [(("i", "vd"), "vd:p", "I"), (("i", "vr1"), "vr1:p", "I"), (("i", "vr2"), "vr2:p", "I")]
+
+
+def bsim4_group_netlist(nf=4.0, w=2e-6, l=0.5e-6):
+    """A Spectre bsim4 model group (bin_rule="spectre") whose two entries split at w = 1u.  The instance's
+    total w selects the entry, also with nf > 1 (§3.9, §14 q.8): w=2u nf=4 selects entry 2, where HSPICE's
+    per-finger rule (w/nf = 0.5u) would select entry 1.  Spectre's bsim3v3 instance has no nf, so this is the
+    group golden with nf (§12 phase 2).  ref1 and ref2 are plain cards equal to the two entries, on instances
+    of the same geometry, so an engine run shows which entry m1 ran as."""
+    def entry(k, wmin, wmax, vth0):
+        m = card("nch.%d" % k, "nmos", 54, "bsim4", vtho=vth0, lmin=1e-7, lmax=1e-5, wmin=wmin, wmax=wmax, **B4)
+        m.base, m.bin_index, m.bin_rule = "nch", k, "spectre"
+        return m
+    params = {"w": Num(w), "l": Num(l), "nf": Num(float(nf))}
+    nl = Netlist(title="spectre bsim4 model group, nf > 1", dialect="spectre")
+    nl.body = [entry(1, 1e-7, 1e-6, 0.30), entry(2, 1e-6, 1e-4, 0.45),
+               card("ref1", "nmos", 54, "bsim4", vtho=0.30, **B4), card("ref2", "nmos", 54, "bsim4", vtho=0.45, **B4),
+               V("vd", "d", "0", 1.0), V("vg", "g", "0", 1.0), V("vr1", "r1", "0", 1.0), V("vr2", "r2", "0", 1.0),
+               I("m1", "m", ["d", "g", "0", "0"], master="nch", params=dict(params), prim="bsim4"),
+               I("mr1", "m", ["r1", "g", "0", "0"], master="ref1", params=dict(params), prim="bsim4"),
+               I("mr2", "m", ["r2", "g", "0", "0"], master="ref2", params=dict(params), prim="bsim4")]
+    nl.temp, nl.tnom = 27.0, 27.0
+    nl.analyses = [Analysis("tran", {"step": 1e-10, "stop": 1e-9}, "deck:20")]
+    return nl
+
+
+def two_cells(shared):
+    """The divider with subckt cell (r3, the source vb) under I2, and under I3 either cell again (shared: one
+    definition, two instance paths) or `other`, a second definition whose body also holds an instance vb."""
+    cell = Subckt("cell", ["a"], body=[R("r3", "a", "Mid", 1000.0), V("vb", "Mid", "0", dc=0.0)])
+    extra = [cell]
+    if not shared:
+        extra.append(Subckt("other", ["a"], body=[R("r5", "a", "Mid", 1000.0), V("vb", "Mid", "0", dc=0.0)]))
+    extra += [I("I2", "x", ["out"], master="cell"), I("I3", "x", ["out"], master="cell" if shared else "other")]
+    return divider(extra=extra)
+
+
+def hier_noise_netlist():
+    """The divider with a noise input source vb inside subckt cell (I2) and a free node I2.Mid beside it, plus
+    the top-level nodes '007' and 'net4<0>' that VACASK's netlist syntax quotes (§4.5 item 9)."""
+    cell = Subckt("cell", ["a"], body=[R("r3", "a", "Mid", 1000.0), V("vb", "Mid", "M2", dc=0.0), R("r4", "M2", "0", 1000.0)])
+    return divider(extra=[cell, I("I2", "x", ["out"], master="cell"), R("r7", "out", "007", 1000.0), R("r8", "007", "0", 1000.0),
+                          R("rn", "out", "net4<0>", 1000.0), R("rn2", "net4<0>", "0", 1000.0)])
+
+
+def hier_noise_plan():
+    """Hand-built steps (§10): a noise with its input and output inside I2, an acxf of a pair with one node
+    inside I2, and noises out of the two quoted top-level nodes."""
+    nz = step("vamos_a1", "noise", options=OPTIONS, own=freq_level(count=1, start=1.0, stop=10.0), noise_input="I2.vb",
+              args={"p": "I2.Mid", "n": "0"})
+    xf = step("vamos_a2", "xf", options=OPTIONS, own=freq_level(count=1, start=1.0, stop=10.0, lid="vamos_f2"),
+              args={"p": "I2.Mid", "n": "out"})
+    n7 = step("vamos_a3", "noise", options=OPTIONS, own=freq_level(count=1, start=1.0, stop=10.0, lid="vamos_f3"),
+              noise_input="v1", args={"p": "007", "n": "0"})
+    n4 = step("vamos_a4", "noise", options=OPTIONS, own=freq_level(count=1, start=1.0, stop=10.0, lid="vamos_f4"),
+              noise_input="v1", args={"p": "net4<0>", "n": "0"})
+    return plan_of([P.Action("options", dict(OPTIONS), None, "o")] + [analysis(s) for s in (nz, xf, n7, n4)])
 
 
 def op_plan(nl, refs, engine="vacask", options=None):
@@ -558,6 +622,19 @@ class TestSpectreBins(unittest.TestCase):
         hs = [Model("nch.%d" % k, "nmos", 54.0, {}, base="nch", bin_index=k) for k in (1, 2, 10)]
         self.assertEqual([m.name for m in T.Scope(hs).bins("nch")], ["nch.1", "nch.10", "nch.2"])
 
+    def test_bsim4_group_with_nf_selects_on_the_total_w(self):
+        """§3.9, §14 q.8: w is the instance's total w, also with nf > 1: w=2u nf=4 selects entry 2 (wmin=1u),
+        where HSPICE's per-finger rule (w/nf = 0.5u) selects entry 1; with nf=1 the two rules agree."""
+        nl = bsim4_group_netlist()
+        bounds = [(b, T.bin_bounds_spectre(b, nl.values)) for b in T.Scope(nl.body).bins("nch")]
+        self.assertEqual([b.name for b, _ in bounds], ["nch.1", "nch.2"])
+        self.assertEqual(bounds[1][1], (1e-7, 1e-5, 1e-6, 1e-4))
+        self.assertEqual(T.select_bin_spectre(bounds, 0.5e-6, 2e-6, 1.0).name, "nch.2")
+        self.assertEqual(T.select_bin(bounds, 0.5e-6, 2e-6, 4.0, 1.0).name, "nch.1")       # HSPICE: w/nf
+        self.assertEqual(T.select_bin(bounds, 0.5e-6, 2e-6, 1.0, 1.0).name, "nch.2")
+        guards = [X.evaluate(T.bin_guard_spectre(bd, Num(0.5e-6), Num(2e-6), 1.0), {}) for _, bd in bounds]
+        self.assertEqual(guards, [0.0, 1.0])                                            # no nf in the guard
+
 
 class TestCondWalks(unittest.TestCase):
     def test_reachable_sees_cards_used_in_branches(self):
@@ -695,6 +772,35 @@ class TestVacaskSpectre(unittest.TestCase):
         self.assertIn("model 'm_nch.1' sp_bsim3v3 type=1.0 tox=4e-09 toxm=4e-09 u0=0.04 vth0=0.3 capmod=2.0", text)
         with self.assertRaisesRegex(NoteError, "no bin of nch for l=0.05, w=2e-06"):
             vacask.render(group_netlist(l=0.05))
+
+    def test_golden_bsim4_group_nf(self):
+        """§3.9, §4.5 item 3: a bsim4 group with nf=4 prints the @if chain in group order with exact guards on
+        the total w: entry 1's guard is 0 and entry 2's 1 for w=2u (HSPICE's w/nf = 0.5u would hold entry
+        1's), every copy keeping nf=4 for sp_bsim4v8; the entries print without their bounds."""
+        text = vacask.render(bsim4_group_netlist())
+        golden(self, "group_bsim4_nf_vacask.sim", text)
+        self.assertIn("@if 0.0\n  m1 (d g 0 0) 'm_nch.1' w=2e-06 l=5e-07 nf=4.0 nrd=0.0 nrs=0.0\n"
+                      "@elseif 1.0\n  m1 (d g 0 0) 'm_nch.2' w=2e-06 l=5e-07 nf=4.0 nrd=0.0 nrs=0.0\n"
+                      "@else\n  m1 (d g 0 0) m_nch w=2e-06 l=5e-07 nf=4.0 nrd=0.0 nrs=0.0\n@end\n", text)
+        self.assertIn('load "spice/bsim4v8.osdi"\n', text)
+        self.assertIn("model 'm_nch.2' sp_bsim4v8 type=1.0 vth0=0.45 toxe=4e-09 u0=0.04 rdsmod=1.0 igbmod=1.0\n", text)
+        self.assertNotIn("wmin", text)
+        # nf=1: the same entry; a total w below entry 2's wmin selects entry 1 whatever nf
+        self.assertIn("@if 0.0\n  m1 (d g 0 0) 'm_nch.1' w=2e-06 l=5e-07 nf=1.0", vacask.render(bsim4_group_netlist(nf=1.0)))
+        self.assertIn("@if 1.0\n  m1 (d g 0 0) 'm_nch.1' w=5e-07 l=5e-07 nf=4.0", vacask.render(bsim4_group_netlist(w=0.5e-6)))
+
+    def test_noise_and_xf_ports_print_unquoted_inside_their_strings(self):
+        """E114's fact holds for the noise and acxf string arguments too: inside a string VACASK takes the
+        name literally, so in="'I2:vb'" is "Instance ''I2:vb'' not found", out="'I2:Mid'", "'007'" and
+        "'net4<0>'" are "Node ... not found", each analysis aborted, while out="007" and out="net4<0>" find
+        the nodes the netlist quotes (WSL, 2026-10-17).  So in= and out= print the path as spath() does for
+        sweep instance= and alter instance() (§4.5 item 5); today they carry the node quoting of item 9
+        (seam H-2 of the phase-2 report: vacask.py; §5.6 writes in="'X1:V2'")."""
+        text = vacask.render(hier_noise_netlist(), plan=hier_noise_plan(), sigmap=sigmap({}, []))
+        self.assertIn('  analysis vamos_a1 noise out="I2:Mid" in="I2:vb" ', text)
+        self.assertIn('  analysis vamos_a2 acxf out=["I2:Mid", "out"] ', text)
+        self.assertIn('  analysis vamos_a3 noise out="007" in="v1" ', text)
+        self.assertIn('  analysis vamos_a4 noise out="net4<0>" in="v1" ', text)
 
     def test_golden_worked_example(self):
         """§7.1's control block for §7.3, byte for byte."""
@@ -989,6 +1095,22 @@ class TestXyceSpectre(unittest.TestCase):
         with self.assertRaisesRegex(NoteError, "condition nowhere is not a number"):
             xyce.render(nl)
 
+    def test_a_portless_subckt_is_refused(self):
+        """Measured (phase 2, E2's e2e 23): Xyce's instances of a subckt without ports share its internal
+        nodes and V(X2:M1) is undefined, so a Spectre netlist instantiating one is an error on Xyce (§0's
+        one rule); VACASK keeps the instances apart and renders it.  The HSPICE route is not touched."""
+        def netlist(dialect):
+            s = Subckt("s2", [], body=[R("r1", "m1", "0", 7.0), V("v1", "m1", "0", 1.0)])
+            nl = divider(extra=[s, I("X2", "x", [], master="s2"), I("X3", "x", [], master="s2")])
+            nl.dialect = dialect
+            nl.analyses = [Analysis("tran", {"step": 1e-9, "stop": 1e-8}, "deck:9")]
+            return nl
+        with self.assertRaisesRegex(NoteError, "X2: subckt s2 has no ports: on Xyce the instances of a portless "
+                                               "subckt share its internal nodes"):
+            xyce.render(netlist("spectre"))
+        self.assertIn("\nX2 () s2\nX3 () s2\n", vacask.render(netlist("spectre")))
+        self.assertIn("\nX2 s2\nX3 s2\n", xyce.render(netlist("hspice")))
+
     def test_golden_spectre_group(self):
         text = xyce.render(group_netlist())
         golden(self, "group_xyce.cir", text)
@@ -997,6 +1119,17 @@ class TestXyceSpectre(unittest.TestCase):
         self.assertEqual(len(lines(text, r"^\.model nch\.")), 1)                           # only the bound entry
         with self.assertRaisesRegex(NoteError, "no bin of nch for l=0.05"):
             xyce.render(group_netlist(l=0.05))
+
+    def test_golden_bsim4_group_nf(self):
+        """§3.9, §4.5 item 3: on Xyce the bsim4 group instance with nf=4 is bound to the entry its total w
+        selects (nch.2; HSPICE's w/nf would give nch.1), nf printed on the M line, only that entry printed."""
+        text = xyce.render(bsim4_group_netlist())
+        golden(self, "group_bsim4_nf_xyce.cir", text)
+        self.assertIn("m1 d g 0 0 nch.2 w=2e-06 l=5e-07 nf=4.0 nrd=0.0 nrs=0.0\n", text)
+        self.assertEqual(lines(text, r"^\.model nch\."),
+                         [".model nch.2 nmos level=54 vth0=0.45 lmin=1e-07 lmax=1e-05 wmin=1e-06 wmax=0.0001 toxe=4e-09 "
+                          "u0=0.04 rdsmod=1.0 igbmod=1.0"])
+        self.assertIn("m1 d g 0 0 nch.1 w=5e-07 l=5e-07 nf=4.0", xyce.render(bsim4_group_netlist(w=0.5e-6)))
 
     def test_golden_worked_example_decks(self):
         if not spectre_eval_ready():
@@ -1074,6 +1207,57 @@ class TestXyceSpectre(unittest.TestCase):
         self.assertIn("vb Mid 0 DC 0.0\n", text)                                     # the body's source untouched
         self.assertIn("v1 in 0 DC 1.0 AC 1 0\n", text)
 
+    # xyce.path_of's noise-input match and the sweep hooks assume §5.3's one-path rule, which only plan.build
+    # enforces (§12 phase 2): hand-built steps naming a source in a shared definition, or in a definition whose
+    # instance name another definition reuses.  The expected failures are today's behaviour (seam H-4 of the
+    # phase-2 report: xyce.py); the integration stage removes the decorators with the fix.
+
+    def test_noise_input_match_checks_the_x_lines_master(self):
+        """A hierarchical noise input I2.vb prints AC 1 0 in cell, the master of I2, not in other, whose body
+        holds an instance vb too (path_of compares the X line's master)."""
+        nz = step("vamos_a1", "noise", options=OPTIONS, own=freq_level(), noise_input="I2.vb", args={"p": "out", "n": "0"})
+        text = xyce.render(two_cells(shared=False), step=nz, sigmap=sigmap({}, []))
+        self.assertIn("vb Mid 0 DC 0.0 AC 1 0\n.ends cell\n", text)
+        self.assertIn("vb Mid 0 DC 0.0\n.ends other\n", text)
+        self.assertIn(".NOISE V(OUT) XI2:VB DEC 10 1.0 1000000.0\n", text)
+
+    def test_noise_input_inside_a_shared_subckt_is_refused(self):
+        """§5.3, §5.6: on Xyce a noise input inside a subckt that two instance paths reach is an error in v1.
+        Today xyce.render prints AC 1 0 into the shared definition, so I3.vb is an input too: Xyce's INOISE is
+        7.367e-18 V^2/Hz against 1.6576e-17 with the definition uniquified (ONOISE equal; WSL, 2026-10-16)."""
+        nz = step("vamos_a1", "noise", options=OPTIONS, own=freq_level(), noise_input="I2.vb", args={"p": "out", "n": "0"})
+        with self.assertRaisesRegex(NoteError, "I2, I3"):
+            xyce.render(two_cells(shared=True), step=nz, sigmap=sigmap({}, []))
+
+    def test_sweep_hook_inside_a_shared_subckt_is_refused(self):
+        """§5.3: on Xyce a sweep of a field of a source inside a subckt that two instance paths reach is an
+        error in v1.  Today the shared definition's vb reads the hook, so I3.vb is swept with I2.vb."""
+        dc = step("vamos_a2", "dc", options=OPTIONS, own=level(("instance", "I2.vb", "dc"), values_spec(0.1, 0.2)))
+        with self.assertRaisesRegex(NoteError, "I2, I3"):
+            xyce.render(two_cells(shared=True), step=dc, sigmap=sigmap({}, []))
+
+    def test_sweep_hook_reaches_only_its_own_path(self):
+        """A dc of I2.vb's dc where `other` (I3) holds a vb too: only cell's vb may read the hook.  Today
+        path_of matches the instance name alone, so other's vb reads it as well: Xyce sweeps V(XI3:MID) 0.1,
+        0.2 where VACASK keeps I3:Mid at 0 (V(OUT) 0.3/0.35 against 0.275/0.3; WSL, 2026-10-16).  plan.build
+        accepts the Spectre deck (cell has one path), so this reaches real runs."""
+        dc = step("vamos_a2", "dc", options=OPTIONS, own=level(("instance", "I2.vb", "dc"), values_spec(0.1, 0.2)))
+        text = xyce.render(two_cells(shared=False), step=dc, sigmap=sigmap({}, []))
+        self.assertIn("vb Mid 0 DC {vamos_x_I2_vb_dc}\n.ends cell\n", text)
+        self.assertIn("vb Mid 0 DC 0.0\n.ends other\n", text)
+
+    def test_sub_hook_reaches_only_its_own_path(self):
+        """The sub= form of the previous case (an X line's parameter, §7.2's generated .param): a sweep of
+        I2.xs's w where `other` (I3) holds an X line xs too; only cell's xs may read the hook."""
+        leaf = Subckt("leaf", ["a"], params=[Param("w", Num(1e-6))], body=[R("rl", "a", "0", Binary("*", Name("w"), Num(1e9)))])
+        cell = Subckt("cell", ["a"], body=[I("xs", "x", ["a"], master="leaf", params={"w": Num(1e-6)})])
+        other = Subckt("other", ["a"], body=[I("xs", "x", ["a"], master="leaf", params={"w": Num(1e-6)})])
+        nl = divider(extra=[leaf, cell, other, I("I2", "x", ["out"], master="cell"), I("I3", "x", ["out"], master="other")])
+        dc = step("vamos_a3", "dc", options=OPTIONS, own=level(("instance", "I2.xs", "w"), values_spec(1e-6, 3e-6)))
+        text = xyce.render(nl, step=dc, sigmap=sigmap({}, []))
+        self.assertIn("xs a leaf w={vamos_x_I2_xs_w} vamos_mfactor={vamos_mfactor}\n.ends cell\n", text)
+        self.assertIn("xs a leaf w=1e-06 vamos_mfactor={vamos_mfactor}\n.ends other\n", text)
+
     def test_ac_noise_forms_and_printed_paths(self):
         inner = Subckt("cell", ["a"], body=[R("r3", "a", "Mid", 1000.0), R("r4", "Mid", "0", 1000.0)])
         nl = divider(extra=[inner, I("I2", "x", ["out"], master="cell")])
@@ -1094,14 +1278,29 @@ class TestXyceSpectre(unittest.TestCase):
         ac3 = step("vamos_a3", "ac", options=OPTIONS, own=level(("instance", "r1", "r"), values_spec(1000, 2000)), args={"freq": 1e3})
         text = xyce.render(nl, step=ac3, sigmap=sigmap({}, []))
         self.assertIn(".STEP R1:R LIST 1000.0 2000.0\n.data vamos_f_vamos_a3\n+ hertz\n+ 1000.0\n.enddata\n.AC DATA=vamos_f_vamos_a3\n", text)
-        # noise: the input source prints AC 1 0, the output pair through printed paths, DNO() columns [E19, E73, E84]
-        nz = step("vamos_a4", "noise", options=OPTIONS, own=freq_level(), noise_input="v1", args={"p": "out", "n": "I2.Mid"})
+        # noise: the input source prints AC 1 0, the output node through its printed path, DNO() columns [E19, E73, E84]
+        nz = step("vamos_a4", "noise", options=OPTIONS, own=freq_level(), noise_input="v1", args={"p": "I2.Mid", "n": "0"})
         nrefs = [(("noise", "r1"), "r1", "resistor"), (("noise", "I2.r3"), "I2.r3", "resistor"), (("onoise",), "out", "V/sqrt(Hz)"),
                  (("gain",), "gain", "V/V"), (("inoise",), "in", "V/sqrt(Hz)")]
         names = {}
         text = xyce.render(nl, step=nz, sigmap=sigmap({"vamos_a4": nrefs}), names=names)
         self.assertIn("v1 in 0 DC 1.0 AC 1 0\n", text)
-        self.assertIn(".NOISE V(OUT,XI2:MID) V1 DEC 10 1.0 1000000.0\n.PRINT NOISE FILE=vamos_a4.prn DNO(R1) DNO(XI2:R3) ONOISE INOISE\n", text)
+        self.assertIn(".NOISE V(XI2:MID) V1 DEC 10 1.0 1000000.0\n.PRINT NOISE FILE=vamos_a4.prn DNO(R1) DNO(XI2:R3) ONOISE INOISE\n", text)
+        # the other sources print no AC in the noise deck: Xyce's .NOISE drives every AC source, Spectre's gain
+        # is from the input alone (phase 2: gain 0.8 for 0.6 with a second mag=1 source); the ac deck keeps them
+        nl2 = copy.deepcopy(nl)
+        nl2.body.append(V("v2", "o9", "0", 1.0, ac=(Num(1.0), Num(0.0))))
+        nl2.body.append(R("r9", "o9", "out", 1000.0))
+        text = xyce.render(nl2, step=nz, sigmap=sigmap({"vamos_a4": nrefs}))
+        self.assertIn("v1 in 0 DC 1.0 AC 1 0\n", text)
+        self.assertIn("v2 o9 0 DC 1.0\n", text)
+        self.assertIn("v2 o9 0 DC 1.0 AC 1.0 0.0\n", xyce.render(nl2, step=ac, sigmap=sigmap({"vamos_a1": refs})))
+        # an output across two nodes is refused on Xyce: it aborts on .NOISE V(a,b) (measured in phase 2, H)
+        nz2 = step("vamos_a4", "noise", name="nz", options=OPTIONS, own=freq_level(), noise_input="v1",
+                   args={"p": "out", "n": "I2.Mid"})
+        with self.assertRaisesRegex((T.TableError, NoteError), r"noise nz: the output across two nodes \(out, I2.Mid\) is "
+                                                               r"not supported on Xyce in v1"):
+            xyce.render(nl, step=nz2, sigmap=sigmap({"vamos_a4": nrefs}))
         self.assertEqual(names["vamos_a4"], {("noise", "r1"): "DNO(R1)", ("noise", "I2.r3"): "DNO(XI2:R3)", ("onoise",): "ONOISE",
                                              ("gain",): "INOISE", ("inoise",): "INOISE"})
         # .IC only in a tran deck whose ic is all or node, dropping the nodeset with a note [E18]
@@ -1127,10 +1326,16 @@ class TestXyceSpectre(unittest.TestCase):
         nl.body[1].params["isnoisy"] = Str("no")
         nl.body.append(R("rshort", "out", "o2", 0.0))
         nl.body.append(R("rt", "o2", "0", 1000.0, isnoisy=Str("no"), tc1=1e-3))
+        nl.body.append(R("rsq", "o2", "o3", 0.0, isnoisy=Str("no")))                    # a short with isnoisy=no
         notes = []
         text = xyce.render(nl, step=step("vamos_a1", "op", options=OPTIONS), sigmap=sigmap({}, []), notes=notes)
         self.assertIn("gr1 in out in out 0.001\n", text)                                     # [E32]
         self.assertIn("rshort out o2 0.0\n", text)                                           # Xyce takes R=0 [E22]
+        # phase 2's integration: r=0 with isnoisy=no is the short, not a G form of 1/0 ("division by zero"),
+        # and its current I(RSQ) needs no probe
+        self.assertIn("rsq o2 o3 0.0\n", text)
+        self.assertEqual(xyce.names_for(nl, plan_of([]), sigmap({"s": [(("i", "rsq"), "rsq:1", "I")]}))["s"],
+                         {("i", "rsq"): "I(RSQ)"})
         self.assertIn("rt o2 0 1000.0 tc1=0.001\n", text)
         self.assertTrue(any("isnoisy=no with tc1/tc2" in n.message for n in notes))
         # an options-free step prints temp=27 tnom=27 (§3.10), and the plan-less render of a Spectre netlist
@@ -1222,6 +1427,10 @@ class TestXyceSpectre(unittest.TestCase):
         total_only = ("Netlist warning: .HDL: compiled and registered resistor from toy_resistor.va\n"
                       "***** Device Count Summary ...\n       Total Devices                          3\n")
         self.assertEqual(xyce.device_summary_problems(total_only, nl), [])                 # the registration line stands
+        # Xyce wraps a long path onto the next line after `from' (phase 2, C): still a registration
+        wrapped = ("Netlist warning: .HDL: compiled and registered resistor from\n /a/long/path/toy_resistor.va\n"
+                   "***** Device Count Summary ...\n   Total Devices  2\n")
+        self.assertEqual(xyce.device_summary_problems(wrapped, nl), [])
         counted = "***** Device Count Summary ...\n       Total Devices 3\nNumber of resistor models: 1\nNumber of resistor instances: 1\n"
         self.assertEqual(xyce.device_summary_problems(counted, nl), [])
         self.assertIn("was not bound", xyce.device_summary_problems("***** Device Count Summary ...\n       Total Devices 3\n", nl)[0].message)
@@ -1409,6 +1618,31 @@ class TestVacaskRuns(_Engines):
         self.assertFalse(os.path.exists(os.path.join(d2, "vamos_a1.raw")) and
                          rawfile.read_all(os.path.join(d2, "vamos_a1.raw"))[0].points)  # strictsave=2: never a zero column
 
+    def test_bsim4_group_nf_runs_as_the_total_w_entry(self):
+        """§3.9, §14 q.8: m1 (group nch, w=2u nf=4) runs as entry 2: its drain current equals mr2's (the entry-2
+        card, -6.893e-5 A measured 2026-10-16) and not mr1's (entry 1, which HSPICE's per-finger rule selects)."""
+        nl = bsim4_group_netlist()
+        pl, st, sm = op_plan(nl, BSIM4_REFS)
+        names = {}
+        d, _ = self.vacask(vacask.render(nl, plan=pl, sigmap=sm, names=names), "bsim4")
+        p = _plot(os.path.join(d, "vamos_a1.raw"))
+        im1, imr1, imr2 = (p.column(names["vamos_a1"][ref])[0] for ref, _n, _t in BSIM4_REFS)
+        self.assertLess(im1, -1e-6)
+        self.assertAlmostEqual(im1, imr2, delta=abs(imr2) * 1e-9)
+        self.assertGreater(abs(imr1 - imr2), 0.5 * abs(imr2))
+        self.assertAlmostEqual(im1, -6.893e-05, delta=1e-7)
+
+    def test_noise_and_xf_ports_inside_a_subckt_run(self):
+        """The hand-built noise (input I2.vb, output I2.Mid), acxf (I2.Mid against out) and noises out of
+        '007' and 'net4<0>' each write their points; today the quoted in=/out= strings abort every one, rc 0
+        under `abort except analysis`, leaving header-only rawfiles under strictoutput=0 (seam H-2: vacask.py)."""
+        d, out = self.vacask(vacask.render(hier_noise_netlist(), plan=hier_noise_plan(), sigmap=sigmap({}, [])), "hier")
+        self.assertNotIn("not found", out)
+        for sid in ("vamos_a1", "vamos_a2", "vamos_a3", "vamos_a4"):
+            path = os.path.join(d, sid + ".raw")
+            self.assertTrue(os.path.exists(path) and _plot(path).points, "%s aborted:\n%s" % (sid, out[-1500:]))
+        self.assertGreater(_plot(os.path.join(d, "vamos_a1.raw")).column("onoise")[0].real, 0.0)
+
 
 @needs_xyce
 class TestXyceRuns(_Engines):
@@ -1506,6 +1740,21 @@ class TestXyceRuns(_Engines):
         probs = xyce.output_problems(out, bad)
         self.assertTrue(any("Unrecognized parameter R" in n.message for n in probs), out[-1500:])
 
+    def test_bsim4_group_nf_runs_as_the_total_w_entry(self):
+        """§3.9, §4.5 item 3: m1 bound to nch.2 (w=2u nf=4, the total w) equals mr2 (the entry-2 card) and not
+        mr1; the deck's output has no problem the output scan reports (BSIM4's own warnings only)."""
+        nl = bsim4_group_netlist()
+        names = {}
+        d, out = self.xyce(xyce.render(nl, step=step("vamos_a1", "op", options=OPTIONS), sigmap=sigmap({"vamos_a1": BSIM4_REFS}),
+                                       names=names), "bsim4", "vamos_a1.cir")
+        self.assertEqual(xyce.output_problems(out, nl), [])
+        p = _plot(os.path.join(d, "vamos_a1.raw"))
+        im1, imr1, imr2 = (p.column(names["vamos_a1"][ref])[0] for ref, _n, _t in BSIM4_REFS)
+        self.assertLess(im1, -1e-6)
+        self.assertAlmostEqual(im1, imr2, delta=abs(imr2) * 1e-9)
+        self.assertGreater(abs(imr1 - imr2), 0.5 * abs(imr2))
+        self.assertAlmostEqual(im1, -6.893e-05, delta=1e-7)
+
     def test_smoke_accepts_the_letter_device(self):
         nl = va_resistor(dialect="hspice", params={"R": Num(3e3)})
         nl.hdl = [os.path.join(FACTS, "E64", "toy_resistor.va")]
@@ -1534,6 +1783,20 @@ class TestCrossEngine(_Engines):
             self.assertAlmostEqual(a, b, delta=abs(b) * 0.01, msg=ref)
         # q1 (20x20) and q2/q3 (10x10 / default) differ, so the branches were taken per instance
         self.assertNotAlmostEqual(pv.column(names_v["vamos_a1"][("i", "vb")])[0], pv.column(names_v["vamos_a1"][("i", "vb3")])[0])
+
+    def test_bsim4_group_nf_agrees(self):
+        """The bsim4 group with nf=4 on both engines (sp_bsim4v8 and Xyce's BSIM4 are Berkeley's code): the
+        three drain currents agree to 1e-6 (1e-11 measured 2026-10-16)."""
+        nl = bsim4_group_netlist()
+        pl, st, sm = op_plan(nl, BSIM4_REFS)
+        names_v, names_x = {}, {}
+        d, _ = self.vacask(vacask.render(nl, plan=pl, sigmap=sm, names=names_v), "v4")
+        pv = _plot(os.path.join(d, "vamos_a1.raw"))
+        d, _ = self.xyce(xyce.render(nl, step=st, sigmap=sm, names=names_x), "x4", "vamos_a1.cir")
+        px = _plot(os.path.join(d, "vamos_a1.raw"))
+        for ref, _n, _t in BSIM4_REFS:
+            a, b = pv.column(names_v["vamos_a1"][ref])[0], px.column(names_x["vamos_a1"][ref])[0]
+            self.assertAlmostEqual(a, b, delta=abs(b) * 1e-6, msg=ref)
 
 
 if __name__ == "__main__":

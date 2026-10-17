@@ -1,0 +1,28 @@
+// e2e 22: temperature (sec. 3.10, sec. 3.9): an options-free netlist at 27 C, a diode card without eg at 127 C,
+// and a card whose vto depends on temp, at 25 C and 50 C
+simulator lang=spectre
+// noise of a 1 kOhm resistor: 4kTR at 27 C (T = 300.15 K)
+Rn (n1 0) resistor r=1k
+// a diode card without eg, biased at 1 mA
+I1 (0 d) isource dc=1m
+D1 (d 0) dnoeg
+model dnoeg diode is=1e-14
+// NetlistParse.rs tests/corpus/spectre/model/ternary.scs (d565fd3, MIT, Copyright (c) JuliaHub, Inc.
+// and other contributors; LICENSES/MIT.txt), its one card copied unchanged:
+model fast_1x1 mos3 type=n vto=(temp >= 27_C) ? 0.90 : 0.75
+// the same card with its two vto values fixed
+model m075 mos3 type=n vto=0.75
+model m090 mos3 type=n vto=0.90
+Vg (g 0) vsource dc=2
+Vd1 (d1 0) vsource dc=3
+Vd2 (d2 0) vsource dc=3
+Vd3 (d3 0) vsource dc=3
+M1 (d1 g 0 0) fast_1x1 w=10u l=2u
+M2 (d2 g 0 0) m075 w=10u l=2u
+M3 (d3 g 0 0) m090 w=10u l=2u
+nz27 (n1 0) noise start=1k stop=10k dec=1
+op27 dc
+tsw dc param=temp values=[25 50]
+t127 alter param=temp value=127
+op127 dc
+save d Vd1:p Vd2:p Vd3:p

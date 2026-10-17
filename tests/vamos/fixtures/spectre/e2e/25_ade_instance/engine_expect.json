@@ -1,0 +1,347 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "dcOp",
+    "kind": "dc",
+    "columns": {
+     "I2.Mid": "I2:Mid",
+     "net1": "net1",
+     "out": "out",
+     "V0:p": "V0:flow(br)"
+    },
+    "signals": [
+     "I2.Mid",
+     "net1",
+     "out",
+     "V0:p"
+    ]
+   },
+   "vamos_a2": {
+    "name": "noise",
+    "kind": "noise",
+    "columns": {
+     "R0": "n(R0)",
+     "I2.r3": "n(I2:r3)",
+     "I2.r4": "n(I2:r4)",
+     "out": "onoise",
+     "gain": "gain",
+     "in": "gain"
+    },
+    "signals": [
+     "R0",
+     "I2.r3",
+     "I2.r4",
+     "out",
+     "gain",
+     "in"
+    ]
+   },
+   "vamos_a3": {
+    "name": "tran",
+    "kind": "tran",
+    "columns": {
+     "I2.Mid": "I2:Mid",
+     "net1": "net1",
+     "out": "out",
+     "V0:p": "V0:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "I2.Mid",
+    "row": 0,
+    "value": 0.75,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "net1",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "row": 0,
+    "value": 0.5,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V0:p",
+    "row": 0,
+    "value": -0.00025,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "points": 3
+   },
+   {
+    "step": "vamos_a2",
+    "col": "frequency",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": 1.65760875e-17,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "gain",
+    "row": 0,
+    "value": 0.25,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "R0",
+    "row": 0,
+    "value": 8.28804375e-18,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "I2.r3",
+    "row": 0,
+    "value": 4.14402188e-18,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "col": "n(I2:r3,thermal)",
+    "row": 0,
+    "value": 4.14402188e-18,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "I2.r4",
+    "row": 0,
+    "value": 4.14402188e-18,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "col": "time",
+    "row": 0,
+    "value": 0.0,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2.Mid",
+    "row": 0,
+    "value": 0.3,
+    "abs": 1e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "out",
+    "row": 0,
+    "value": 0.2,
+    "abs": 1e-05
+   },
+   {
+    "step": "vamos_a3",
+    "col": "time",
+    "row": -1,
+    "value": 5e-06,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2.Mid",
+    "row": -1,
+    "value": 0.7494273147893971,
+    "abs": 2e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "net1",
+    "row": -1,
+    "value": 1.0,
+    "rel": 1e-09
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "dcOp",
+    "kind": "dc",
+    "columns": {
+     "I2.Mid": "V(XI2:MID)",
+     "net1": "V(NET1)",
+     "out": "V(OUT)",
+     "V0:p": "I(V0)"
+    },
+    "signals": [
+     "I2.Mid",
+     "net1",
+     "out",
+     "V0:p"
+    ]
+   },
+   "vamos_a2": {
+    "name": "noise",
+    "kind": "noise",
+    "columns": {
+     "R0": "DNO(R0)",
+     "I2.r3": "DNO(XI2:R3)",
+     "I2.r4": "DNO(XI2:R4)",
+     "out": "ONOISE",
+     "gain": "INOISE",
+     "in": "INOISE"
+    },
+    "signals": [
+     "R0",
+     "I2.r3",
+     "I2.r4",
+     "out",
+     "gain",
+     "in"
+    ]
+   },
+   "vamos_a3": {
+    "name": "tran",
+    "kind": "tran",
+    "columns": {
+     "I2.Mid": "V(XI2:MID)",
+     "net1": "V(NET1)",
+     "out": "V(OUT)",
+     "V0:p": "I(V0)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "I2.Mid",
+    "row": 0,
+    "value": 0.75,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "net1",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "row": 0,
+    "value": 0.5,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "V0:p",
+    "row": 0,
+    "value": -0.00025,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "points": 3
+   },
+   {
+    "step": "vamos_a2",
+    "col": "FREQ",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": 1.65757549e-17,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "in",
+    "row": 0,
+    "value": 6.63030197e-17,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "R0",
+    "row": 0,
+    "value": 8.28787747e-18,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "I2.r3",
+    "row": 0,
+    "value": 4.14393873e-18,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "I2.r4",
+    "row": 0,
+    "value": 4.14393873e-18,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "col": "TIME",
+    "row": 0,
+    "value": 0.0,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2.Mid",
+    "row": 0,
+    "value": 0.3,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "out",
+    "row": 0,
+    "value": 0.2,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a3",
+    "col": "TIME",
+    "row": -1,
+    "value": 5e-06,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2.Mid",
+    "row": -1,
+    "value": 0.7494273147893971,
+    "abs": 2e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "net1",
+    "row": -1,
+    "value": 1.0,
+    "rel": 1e-09
+   }
+  ]
+ }
+}

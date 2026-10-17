@@ -1,0 +1,100 @@
+{
+ "row": "E109",
+ "experiment": "the Device Count Summary of PyMS modules (phase 1): E63's c.cir (mydio tagged DIODE level 2002) and E64's x5.cir (toy_resistor, Resistor level 6), each under -norun and in a full run",
+ "result": "all four print per-type lines: MYDIO (mydio) 1, V level 1 (Independent Voltage Source) 1, Total Devices 2 for c.cir; RESISTOR (resistor) 1 beside R level 1 (Resistor) 1, Total Devices 3 for x5.cir; -norun prints the same listing as the full run",
+ "rules": [
+  "\u00a74.5 item 13 xyce.device_summary_problems: the launcher prints per-type Device Count Summary lines under -norun and in a full run alike, a bound module under its own name; a built-in '<L> level <n> (...)' at a used module's letter and level is an error"
+ ],
+ "runs": [
+  {
+   "name": "level_card_full_run",
+   "tool": "xyce",
+   "deck": "c.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "regex": [
+     "MYDIO \\(mydio\\)\\s+1\\s",
+     "V level 1 \\(Independent Voltage Source\\)\\s+1\\s",
+     "Total Devices\\s+2\\s"
+    ],
+    "absent": [
+     "DIODE_CMC",
+     "D level 2002"
+    ]
+   }
+  },
+  {
+   "name": "level_card_norun",
+   "tool": "xyce",
+   "deck": "c.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "regex": [
+     "MYDIO \\(mydio\\)\\s+1\\s",
+     "V level 1 \\(Independent Voltage Source\\)\\s+1\\s",
+     "Total Devices\\s+2\\s"
+    ],
+    "absent": [
+     "DIODE_CMC",
+     "D level 2002"
+    ]
+   }
+  },
+  {
+   "name": "resistor_full_run",
+   "tool": "xyce",
+   "deck": "x5.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "regex": [
+     "RESISTOR \\(resistor\\)\\s+1\\s",
+     "R level 1 \\(Resistor\\)\\s+1\\s",
+     "Total Devices\\s+3\\s"
+    ],
+    "absent": [
+     "R level 6"
+    ]
+   }
+  },
+  {
+   "name": "resistor_norun",
+   "tool": "xyce",
+   "deck": "x5.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "regex": [
+     "RESISTOR \\(resistor\\)\\s+1\\s",
+     "R level 1 \\(Resistor\\)\\s+1\\s",
+     "Total Devices\\s+3\\s"
+    ],
+    "absent": [
+     "R level 6"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: E63's c.cir and mydio.va, E64's x5.cir and toy_resistor.va, copied unchanged; after S3's sp1/S3/e63_norun.sh"
+ ]
+}

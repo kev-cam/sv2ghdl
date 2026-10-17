@@ -1,0 +1,24 @@
+hierarchical instance paths unquoted inside string arguments: a sweep and an alter (e2e 2)
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+V1 (in 0) vamos_vsource type="dc" dc=1.0
+R1 (in mid) vamos_resistor r=1000.0
+X3 (mid 0) cell2
+x1 (mid 0) sec
+subckt cell2 (a b)
+  R1 (a b) vamos_resistor r=2000.0
+ends
+subckt sec (a b)
+  r1 (a b) vamos_resistor r=2000.0
+ends
+control
+  options rawfile="ascii"
+  save v(mid)
+  analysis op1 op
+  sweep s1 instance="X3:R1" parameter="r" values=[1000.0, 2000.0, 4000.0]
+    analysis dc1 op
+  alter instance("x1:r1") r=1000.0
+  analysis op2 op
+endc

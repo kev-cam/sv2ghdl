@@ -140,8 +140,11 @@ _ENUM_OPTIONS = frozenset(("save rawfmt rawfile tempeffects currents useprobes u
 _OPTION_NOTE = frozenset(("homotopy newton limit maxdeltav gmin_start gmin_converge try_fast_op dcmaxiters pivrel "
                           "pivabs rforce residualtol digits cols checklimitdest sensfile psfversion topcheck "
                           "compatible approx icversion").split())
-_OPTION_REDUCTION = {"rabsshort": 0.0, "rcut": 0.0, "ccut": 0.0, "cgnd": 0.0, "cmax": math.inf, "cclamp": 0.0,
-                     "lshort": 0.0, "kcut": 0.0, "dcut": 0.0, "qcut": 0.0}
+# the element-reduction options' silent defaults [M ref19 pp.196-197] (§3.10's table, as plan.py's
+# REDUCTION_DEFAULTS): rcut, ccut, cgnd and cmax are infinite; dcut and qcut have none, so any value warns
+_OPTION_REDUCTION: Dict[str, Optional[float]] = {
+    "rabsshort": 0.0, "rcut": math.inf, "ccut": math.inf, "cgnd": math.inf, "cmax": math.inf, "cclamp": 0.0,
+    "lshort": 0.0, "kcut": 0.0, "dcut": None, "qcut": None}
 _OPTION_OUTPUT = frozenset(("save nestlvl currents subcktprobelvl pwr useprobes useterms saveahdlvars subcktiprobes "
                             "savefilter saveports wfdebug").split())
 _OPTION_SILENT = frozenset("reltol vabstol iabstol chargeabstol temp tnom gmin rawfmt rawfile precision maxwarns "
@@ -157,6 +160,10 @@ _MODEL_MASTERS = ("diode", "bjt", "jfet", "mos1", "mos2", "mos3", "bsim3v3", "bs
 _SOURCE_TYPES = ("dc", "pulse", "sine", "exp", "pwl")
 
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
+# a hierarchical instance name (X1.V2) where an analysis names an instance: noise iprobe=/oprobe= (§5.6:
+# "a given iprobe= inside a subckt (X1.V2)") and xf probe=; dev=/mod=/sub= are read by sweep_spec
+_HIER_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+_INSTANCE_ARGS = frozenset(("iprobe", "oprobe", "probe"))
 _PERCENT = re.compile(r"%([A-Za-z%])((?::[reht:])*)")
 _LANG = re.compile(r"^\s*simulator\s+lang\s*=\s*(spectre|spice)\b", re.I)
 _CPP_MARKER = re.compile(r'^#\s*(\d+)\s+"([^"]*)"((?:\s+\d+)*)\s*$')
@@ -1428,15 +1435,21 @@ class _Parser:
                 continue
             is_top = fname == top
             body = "\n".join(lines)
+            # §1: the markers of a netlist read from stdin name its copy in the run directory; its
+            # statements carry opts.top_name (stdin:<line>) and its includes resolve against opts.top_dir
+            origin = self.opts.top_name if (is_top and self.opts.top_name) else fname
             if is_top:
                 probe = (self.title + "\n" + body) if first > 1 else body
-                lang = self.language_of(fname, probe, first <= 1)
+                lang = self.language_of(origin, probe, first <= 1)
                 if first <= 1 or not self.top_origin:
-                    self.top_lang, self.top_origin = lang, "%s:1" % fname
+                    self.top_lang, self.top_origin = lang, "%s:1" % origin
             else:
                 lang = self.language_of(fname, body, False)
-            base = os.path.dirname(os.path.normpath(os.path.join(self.cwd, fname)))
-            out.extend(self.read_units(body, fname, base, lang, is_top and first <= 1, None, first_line=first))
+            if is_top and self.opts.top_dir:
+                base = self.opts.top_dir
+            else:
+                base = os.path.dirname(os.path.normpath(os.path.join(self.cwd, fname)))
+            out.extend(self.read_units(body, origin, base, lang, is_top and first <= 1, None, first_line=first))
         return out
 
     def read_units(self, text: str, origin: str, base: str, lang: str, title: bool, scope_name: Optional[str],
@@ -1560,7 +1573,7 @@ class _Parser:
         if path not in self.hdl:
             self.hdl.append(path)
         search = [os.path.normpath(os.path.join(self.cwd, d)) for d in self.opts.va_include] + self.search
-        mods, files = spice.va_modules(path, search, self.opts.va_defines)
+        mods, files = spice.spectre_va_modules(path, search, self.opts.va_defines)
         if not mods:
             self.err(origin, "%s declares no Verilog-A module (files read: %s)" % (path, ", ".join(files)))
         for low, vm in mods.items():
@@ -1809,6 +1822,8 @@ class _Parser:
         t = text.strip()
         if key in enums and _IDENT.match(t):
             return Str(t)
+        if key in _INSTANCE_ARGS and key in enums and _HIER_IDENT.match(t):
+            return Str(t)                               # iprobe=I2.vb: an IR instance path (§5.6)
         if len(t) >= 2 and t[0] == '"' and t[-1] == '"':
             return Str(self.percent(t[1:-1]))
         if t.startswith("["):
@@ -2231,7 +2246,9 @@ class _Parser:
         master = d.master
         va = self.resolver.va.get(master.lower()) if master else None
         if va is not None:
-            inst = Instance(name, "y", nodes, d.name, params={}, origin=st.origin, prim=va.name)
+            # master is the module, as for a direct module instance: the emitters read inst.master as
+            # the module (spice.py's rule); the card's parameters are merged into the instance (§3.9)
+            inst = Instance(name, "y", nodes, va.name, params={}, origin=st.origin, prim=va.name)
             if not self.va_params(inst, va, params, st.origin):
                 return None
             self.va_card_refs.append((inst, d.name))
@@ -3044,19 +3061,25 @@ class _Parser:
                 inst.value = params.pop("area")
         elif prim in ("vcvs", "vccs"):
             key = "gain" if prim == "vcvs" else "gm"
-            if key not in params:
+            if key in params:
+                inst.value = params.pop(key)
+            elif inst.value is None:
+                # a SPICE-mode E/G line carries its gain positionally (`e1 out 0 in 0 -1`, §4.3 "as
+                # spice.py"), which spice.parse_fragment puts in Instance.value
                 self.err(inst.origin, "%s %s needs %s=" % (inst.name, prim, key))
                 return
-            inst.value = params.pop(key)
             params.pop("type", None)
         elif prim in ("ccvs", "cccs"):
             key = "rm" if prim == "ccvs" else "gain"
-            if key not in params:
+            if key in params:
+                inst.value = params.pop(key)
+            elif inst.value is None:
                 self.err(inst.origin, "%s %s needs %s=" % (inst.name, prim, key))
                 return
-            inst.value = params.pop(key)
             probe = params.pop("probe", None)
             pn = probe.text if isinstance(probe, Str) else probe.name if isinstance(probe, Name) else None
+            if pn is None and inst.ctrl and len(inst.ctrl) == 1:
+                pn = inst.ctrl[0]                       # a SPICE-mode F/H line names its controlling source
             if pn is None:
                 self.err(inst.origin, "%s %s needs probe=<vsource or iprobe>" % (inst.name, prim))
                 return
@@ -3220,7 +3243,7 @@ class _Parser:
         fed = [g for g, given in (("w", w_given), ("l", l_given)) if given]
         rsh = self.constant_on(folds.get("rsh"), inst, "rsh") if "rsh" in folds else None
         etch = self.constant_on(folds.get("etch"), inst, "etch") if "etch" in folds else 0.0
-        etchl = self.constant_on(folds.get("etchl"), inst, "etchl") if "etchl" in folds else etch
+        etchl = self.constant_on(folds.get("etchl"), inst, "etchl") if "etchl" in folds else 0.0  # ref5 p.630
         w = self.constant_on(w_e, inst, "w") if w_e is not None else 1e-6
         l = self.constant_on(l_e, inst, "l") if l_e is not None else None
         if None in (etch, etchl, w) or (l_e is not None and l is None):

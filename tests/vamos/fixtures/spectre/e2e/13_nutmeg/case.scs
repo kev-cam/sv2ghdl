@@ -1,0 +1,8 @@
+// e2e 13: nodes A and a in a nutmeg file: VACASK keeps them apart (E84), and so does ngspice's load (E87)
+simulator lang=spectre
+V1 (A 0) vsource dc=1
+R1 (A a) resistor r=1k
+R2 (a 0) resistor r=3k
+op1 dc
+tr1 tran stop=1u
+save A a

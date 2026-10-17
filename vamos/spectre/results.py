@@ -356,11 +356,16 @@ class _Step:
                     continue
                 self.traces.append(_Trace(Signal(name, ptype, ptype), [k], lambda v, k=k: _sqrt(v[k])))
             elif kind == "gain":
-                k = col(ref)
-                if k is not None:                                       # VACASK: the power gain
+                # §8.4 per engine: the name maps send ('gain',) and ('inoise',) to one column on each
+                # engine (VACASK `gain`, the power gain; Xyce INOISE), so the formula follows the engine
+                if self.engine != "xyce":                               # VACASK: sqrt(power gain)
+                    k = col(ref)
+                    if k is None:
+                        missing(name)
+                        continue
                     self.traces.append(_Trace(Signal(name, ptype, ptype), [k], lambda v, k=k: _sqrt(v[k])))
                     continue
-                ko, ki = col(("onoise",)), col(("inoise",))
+                ko, ki = col(("onoise",)), col(("inoise",)) if ("inoise",) in names else col(ref)
                 if ko is None or ki is None:
                     missing(name)
                     continue
@@ -368,11 +373,15 @@ class _Step:
                                           lambda v, ko=ko, ki=ki: _sqrt(float(v[ko]) / float(v[ki])
                                                                         if float(v[ki]) else float("nan"))))
             elif kind == "inoise":
-                k = col(ref)
-                if k is not None:                                       # Xyce: sqrt(INOISE)
+                if self.engine == "xyce":                               # Xyce: sqrt(INOISE)
+                    k = col(ref)
+                    if k is None:
+                        missing(name)
+                        continue
                     self.traces.append(_Trace(Signal(name, ptype, ptype), [k], lambda v, k=k: _sqrt(v[k])))
                     continue
-                ko, kg = col(("onoise",)), col(("gain",))               # VACASK: out / gain
+                ko = col(("onoise",))                                   # VACASK: out / gain
+                kg = col(("gain",)) if ("gain",) in names else col(ref)
                 if ko is None or kg is None:
                     missing(name)
                     continue
@@ -437,6 +446,7 @@ class _Step:
             per = len(self.own_values) if self.own_stepped else 1
             n = len(self.plots) // per if per else 0
             self.groups = [(g, 0, -1) for g in range(n)]
+            self._short_of_plan()
             return
         plot = self.plots[0]
         if not self.step.context:
@@ -467,6 +477,20 @@ class _Step:
             self.c.warn(self.step.name, "analysis `%s' left %d sweep groups where %d were planned; the extra "
                         "ones are ignored" % (self.step.name, len(self.groups), planned))
             self.groups = self.groups[:planned]
+        self._short_of_plan()
+
+    def _short_of_plan(self) -> None:
+        """A step the runner passed (ok) whose output holds fewer sweep groups than planned: its missing
+        points are failed leaves (group_status), and the run's status 1 then names them (§0's one rule,
+        §2.7: a short output counts, whatever the engine returned; phase 2's integration)."""
+        if self.status != "ok":
+            return
+        planned = 1
+        for n in self.counts:
+            planned *= n
+        if len(self.groups) < planned:
+            self.c.warn(self.step.name, "analysis `%s' left %d of the %d sweep points planned; the missing ones "
+                        "are not written" % (self.step.name, len(self.groups), planned))
 
     # -- rows
     def row_source(self, g: int) -> Callable[[], Iterator[tuple]]:
@@ -675,10 +699,13 @@ class _Collector:
                 yield self.unswept(_Step(self, st))
                 i += 1
                 continue
-            top = st.context[0].id
+            # the children of one Spectre sweep: plan.build gives each child its own SweepLevel copy
+            # (a fresh vamos_w<k> id per child, §5.2), so a block is the run of consecutive steps under
+            # the same sweep name, emitted point-major (§8.2)
+            top = st.context[0].name
             block = [_Step(self, st)]
             j = i + 1
-            while j < len(steps) and steps[j].context and steps[j].context[0].id == top:
+            while j < len(steps) and steps[j].context and steps[j].context[0].name == top:
                 block.append(_Step(self, steps[j]))
                 j += 1
             for s in block:
@@ -703,11 +730,11 @@ class _Collector:
                     yield self.leaf(s, idx2)
                     k += 1
                     continue
-                nested = s.step.context[depth + 1].id
+                nested = s.step.context[depth + 1].name          # by the sweep's name, as above
                 sub = [s]
                 k += 1
                 while (k < len(block) and len(block[k].step.context) > depth + 1
-                       and block[k].step.context[depth + 1].id == nested):
+                       and block[k].step.context[depth + 1].name == nested):
                     sub.append(block[k])
                     k += 1
                 if not self.legacy:

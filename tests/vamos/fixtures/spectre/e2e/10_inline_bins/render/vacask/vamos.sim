@@ -8,19 +8,19 @@ subckt npn_mod (c b e s)
   parameters $mfactor=1.0
   @if real(area<1e-10)
     npn_mod (vamos_tn2 b e s) m_npn10x10 $mfactor=$mfactor
+    vamos_tp2 (c vamos_tn2) vamos_vsource type="dc" dc=0.0
   @else
     @if real(area<4e-10)
       npn_mod (vamos_tn1 b e s) m_npn20x20 $mfactor=$mfactor
+      vamos_tp1 (c vamos_tn1) vamos_vsource type="dc" dc=0.0
     @else
       npn_mod (vamos_tn3 b e s) m_npn_default $mfactor=$mfactor
+      vamos_tp3 (c vamos_tn3) vamos_vsource type="dc" dc=0.0
     @end
   @end
   model m_npn10x10 sp_bjt type=1.0 is=3.5e-16 vaf=61.5 mje=0.3333333333333333 mjc=0.3333333333333333 fc=0.5
   model m_npn20x20 sp_bjt type=1.0 is=3.77e-16 vaf=60.5 mje=0.3333333333333333 mjc=0.3333333333333333 fc=0.5
   model m_npn_default sp_bjt type=1.0 is=3.2e-16 vaf=59.8 mje=0.3333333333333333 mjc=0.3333333333333333 fc=0.5
-  vamos_tp1 (c vamos_tn1) vamos_vsource type="dc" dc=0.0
-  vamos_tp2 (c vamos_tn2) vamos_vsource type="dc" dc=0.0
-  vamos_tp3 (c vamos_tn3) vamos_vsource type="dc" dc=0.0
 ends
 vin (1 0) vamos_vsource type="dc" dc=1.0
 vb (2 0) vamos_vsource type="dc" dc=0.7

@@ -1,0 +1,126 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "tr1",
+    "kind": "tran",
+    "columns": {
+     "in": "in",
+     "out": "out"
+    }
+   },
+   "vamos_a2": {
+    "name": "ac1",
+    "kind": "ac",
+    "columns": {
+     "in": "in",
+     "out": "out"
+    }
+   },
+   "vamos_a3": {
+    "name": "ac2",
+    "kind": "ac",
+    "columns": {
+     "in": "in",
+     "out": "out"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "at": 2e-05,
+    "value": 0.662637,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "points": 1
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.0189732,
+     -2.26183e-06
+    ],
+    "rel": 0.0001
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.999961,
+     -0.00628294
+    ],
+    "rel": 1e-05
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "tr1",
+    "kind": "tran",
+    "columns": {
+     "in": "V(IN)",
+     "out": "V(OUT)"
+    }
+   },
+   "vamos_a2": {
+    "name": "ac1",
+    "kind": "ac",
+    "columns": {
+     "in": "V(IN)",
+     "out": "V(OUT)"
+    }
+   },
+   "vamos_a3": {
+    "name": "ac2",
+    "kind": "ac",
+    "columns": {
+     "in": "V(IN)",
+     "out": "V(OUT)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "out",
+    "at": 2e-05,
+    "value": 0.662618,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "points": 1
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.999961,
+     -0.00628294
+    ],
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "out",
+    "row": 0,
+    "value": [
+     0.999961,
+     -0.00628294
+    ],
+    "rel": 1e-05
+   }
+  ]
+ }
+}

@@ -281,6 +281,8 @@ class _Deck:
         if step is not None:
             self._hooks(step)
         self.elaborate()
+        if step is not None:
+            self._one_path(step)
 
     def err(self, origin: str, msg: str) -> None:
         self.notes.append(error(origin, msg))
@@ -334,6 +336,26 @@ class _Deck:
                 else:
                     nominal = src.ac[where[1]] if src.ac is not None else None   # type: ignore[index]
                 self.hooks[(name, param)] = (hook, nominal if nominal is not None else Num(0.0))
+
+    def _one_path(self, step: AnalysisStep) -> None:
+        """§5.3: a sweep hook or a hierarchical noise input inside a subckt that several instance paths
+        reach would change the shared definition on every path, where Spectre and VACASK change one path:
+        an error in v1.  plan.build refuses such a target (plan._multipath); this guards a step built by
+        hand, after the elaboration has listed the paths."""
+        names = [name for (name, _p) in self.hooks]
+        if self.noise_input is not None:
+            names.append(self.noise_input)
+        what = "%s %s" % (step.kind, step.name or step.id)
+        for name in dict.fromkeys(n for n in names if "." in n):
+            parent = _resolve(self.nl, name.rsplit(".", 1)[0])
+            sub = parent.master if parent is not None else None
+            paths = [p for p, pe in self.by_path.items() if pe.subckt is not None and pe.subckt.name == sub]
+            if len(paths) > 1:
+                target = _resolve(self.nl, name)
+                self.once(target.origin if target is not None else "",
+                          "%s: on Xyce %s lies in subckt %s, which %d instance paths reach (%s): changing the "
+                          "shared definition would change every path; not supported in v1 (§5.3)"
+                          % (what, name, sub, len(paths), ", ".join(paths)))
 
     def hook_name(self, path: str, param: str) -> Optional[str]:
         h = self.hooks.get((path, param))
@@ -810,20 +832,28 @@ class _Deck:
 
     def rcl(self, inst: Instance, scope: T.Scope) -> None:
         params_in = self.params_of(inst, scope)
+        val, skip, mparam = inst.value, ("m",), None
         if "ic" in params_in:
-            self.err(inst.origin, "%s: IC= on a %s is not supported (use .ic)"
-                     % (inst.name, T.ELEMENT_NAME[inst.kind]))
-            return
+            if not self.spectre:
+                self.err(inst.origin, "%s: IC= on a %s is not supported (use .ic)"
+                         % (inst.name, T.ELEMENT_NAME[inst.kind]))
+                return
+            # Spectre netlists: plan.build refuses a device ic= unless every tran uses ic=node or ic=dc,
+            # under which Spectre does not apply it (§0, §5.4), so it is not printed (nor applied by UIC)
+            skip = ("m", "ic")
+        if self.spectre and inst.kind == "r" and isinstance(val, Num) and val.value == float("inf"):
+            return                                      # §3.8: an infinite resistor is not printed (spectre.py notes it)
         card = self.card(inst, scope) if inst.master is not None else None
         master = card.name if card is not None else ""
-        val, skip, mparam = inst.value, ("m",), None
         if self.spectre and inst.kind == "r" and "isnoisy" in params_in:
-            skip = ("m", "isnoisy")
+            skip = skip + ("isnoisy",)
             if _is_no(params_in["isnoisy"]):
                 if any(k in params_in for k in ("tc1", "tc2")):
                     self.add([warning(inst.origin or inst.name, "%s: isnoisy=no with tc1/tc2: Xyce has no resistor "
                                       "noise switch, and the noise-free G form has no temperature coefficient; "
                                       "the resistor stays an R and noisy" % inst.name)])
+                elif isinstance(val, Num) and val.value == 0.0:
+                    pass                                # r = 0: a short has no noise; R=0 is Xyce's short [E22]
                 elif val is not None and card is None:
                     # the same current with no noise: G<name> a b a b {1/r} (§4.5 item 7) [E32]
                     g = Binary("/", Num(1.0), val)
@@ -841,7 +871,7 @@ class _Deck:
             # folded into the value (tables.coupled_inductance)
             folded = T.coupled_inductance(inst, self.mult(inst, scope), card, *T.run_temps(self.nl))
             if folded is not None:
-                val, skip, mparam = folded, T.COUPLED_FOLDED, []
+                val, skip, mparam = folded, T.COUPLED_FOLDED + (("ic",) if "ic" in skip else ()), []
         if val is None and not master:
             self.err(inst.origin, "%s has no value" % inst.name)
             return
@@ -919,6 +949,10 @@ class _Deck:
         lv = T.level_of(m)                       # .option scale reaches a LEVEL 3 diode only
         area = (self.xv(T.scaled("d", "area", inst.value, self.s, lv), inst.origin, "area of " + inst.name)
                 if inst.value is not None else "")
+        if self.spectre and area:
+            # a positional area followed by any parameter (the m={vamos_mfactor} of a diode inside a
+            # subckt) is "Unrecognized fields for device D1" on Xyce (rc 1); AREA= is accepted (phase 2)
+            area = "AREA=" + area
         self.line(inst, inst.nodes + [m.name, area] + self.plist(inst, ("m", "area"), level=lv, scope=scope)
                   + self.mparam(inst, scope))
 
@@ -970,6 +1004,12 @@ class _Deck:
             self.err(inst.origin, "%s: %d nodes for subckt %s with %d ports"
                      % (inst.name, len(inst.nodes), sub.name, len(sub.ports)))
             return
+        if self.spectre and not sub.ports:
+            # measured (Xyce DEVELOPMENT-202610100047, phase 2): the instances of a subckt without ports
+            # share its internal nodes, and V(X1:n) names none of them; §0's one rule makes it an error
+            self.err(inst.origin, "%s: subckt %s has no ports: on Xyce the instances of a portless subckt share "
+                     "its internal nodes; not supported in v1 on Xyce (VACASK runs it)" % (inst.name, sub.name))
+            return
         master = self.var.bind.get(id(inst), sub.name)
         if master is None:
             raise _Skip()                        # the elaboration recorded the error
@@ -993,21 +1033,23 @@ class _Deck:
 
     def path_of(self, inst: Instance, scope: T.Scope) -> Optional[str]:
         """The IR path of an instance for the sweep hooks and the noise input: a top-level instance's
-        name; inside a subckt the hooks (and a hierarchical noise input, §5.6) name one path, which the
-        per-path rule of §5.3 guarantees is the only one (plan.build enforces it for both)."""
+        name; inside a subckt the hook path (or the hierarchical noise input, §5.6) whose last name is the
+        instance's and whose parent X line instantiates this body (another subckt's instance of the same
+        name is not on it); _one_path has refused a body that several paths reach (§5.3)."""
         if not self.hooks and self.noise_input is None:
             return None
         if not scope.in_subckt:
             return inst.name
-        for (path, _p) in self.hooks:
+        cands = [path for (path, _p) in self.hooks]
+        if self.noise_input is not None:
+            cands.append(self.noise_input)
+        for path in cands:
             parts = path.split(".")
-            if parts[-1] == inst.name and len(parts) > 1:
-                return path
-        if self.noise_input is not None and "." in self.noise_input:
-            parts = self.noise_input.split(".")
+            if len(parts) < 2 or parts[-1] != inst.name:
+                continue
             parent = _resolve(self.nl, ".".join(parts[:-1]))     # the X line whose body this is
-            if parts[-1] == inst.name and parent is not None and scope.subckt is not None                     and parent.master == scope.subckt.name:
-                return self.noise_input
+            if parent is not None and scope.subckt is not None and parent.master == scope.subckt.name:
+                return path
         return None
 
     def i_y(self, inst: Instance, scope: T.Scope) -> None:
@@ -1102,6 +1144,11 @@ class _Deck:
                 out.append("DC " + xv(t0, "dc (the t = 0 value of the waveform)"))
         if self.noise_input is not None and self.noise_input == (path or inst.name):
             out.append("AC 1 0")                   # the noise step's input: INOISE per unit input (§8.4) [E19]
+        elif self.spectre and self.noise_input is not None:
+            # Spectre's noise gain is from the input probe alone, while Xyce's .NOISE drives every AC source
+            # (measured in phase 2: gain 0.8 for 0.6 with a second source of mag=1); the noise deck is the
+            # step's own (§7.2), so the other sources print no AC (ONOISE does not depend on them)
+            pass
         elif src.ac is not None:
             out.append("AC %s %s" % (xv(src.ac[0], "ac magnitude"), xv(src.ac[1], "ac phase")))
         w = src.wave
@@ -1253,7 +1300,8 @@ class _Deck:
         if kind == "i":
             inst = _resolve(self.nl, ref[1])
             if inst is not None and inst.kind == "r" and self.spectre and _is_no(inst.params.get("isnoisy", Num(1.0))) \
-                    and not any(k in inst.params for k in ("tc1", "tc2")):
+                    and not any(k in inst.params for k in ("tc1", "tc2")) \
+                    and not (isinstance(inst.value, Num) and inst.value.value == 0.0):   # r=0 stays an R (rcl)
                 raise T.TableError("%s: the current of the noise-free G form of %s needs a probe (signals.resolve)"
                                    % (ref[1], ref[1]))
             return "I(%s)" % self.element_text(ref[1])
@@ -1397,18 +1445,25 @@ class _Deck:
             lines.append(".param %s=%s" % (hook, self.xv(nominal, o, "hook of %s %s" % (path, param))))
         ics = ""
         if step.kind == "tran" and step.args.get("ic", "all") in ("all", "node"):
-            ics = self.step_pairs(self.nl.ics, ".ic")          # Xyce applies .IC to every DC solve [E18]
+            table = T.state_file_nodes(step.args, T.STATE_IC_KEYS)   # readic=/read= replaces the ic statements
+            ics = self.step_pairs(self.nl.ics if table is None else table, ".ic")   # Xyce applies .IC to every DC solve [E18]
             if ics:
                 lines.append(".IC " + ics)
-        nodesets = self.step_pairs(self.nl.nodesets, ".nodeset")
+        table = T.state_file_nodes(step.args, T.STATE_NS_KEYS)       # readns= replaces the nodeset statements
+        nodesets = self.step_pairs(self.nl.nodesets if table is None else table, ".nodeset")
         if nodesets:
             if ics:
                 self.add([note(o, ".nodeset dropped in the tran deck: Xyce cannot take .ic and .nodeset together")])
             else:
                 lines.append(".NODESET " + nodesets)
+        own = step.own
+        own_stepped = own is not None and own.target[0] != "freq" and step.kind in ("ac", "noise")
+        if own_stepped:
+            # an ac/noise parameter sweep at a fixed frequency is the innermost level (§7.2 ".STEP lines
+            # innermost first"): Xyce's first .STEP is the fastest loop [E20], as results.collect reads it
+            lines.append(self.sweep_text(own, ".STEP"))
         for lv in reversed(step.context):              # Xyce's first .STEP is the fastest loop [E20]
             lines.append(self.sweep_text(lv, ".STEP"))
-        own = step.own
         print_type = "DC"
         if step.kind in ("op", "dc"):
             if own is not None and own.target[0] != "freq":
@@ -1424,8 +1479,6 @@ class _Deck:
             if own is not None and own.target[0] == "freq":
                 grid = self.freq_text(own, data_name, lines)
             else:
-                if own is not None:
-                    lines.append(self.sweep_text(own, ".STEP"))
                 if "freq" not in step.args:
                     raise T.TableError("%s: an %s parameter sweep needs freq" % (o, step.kind))
                 lines.append(".data %s" % data_name)
@@ -1440,6 +1493,13 @@ class _Deck:
                 if not (isinstance(p, str) and p and isinstance(n, str)):
                     raise T.TableError("%s: noise without an output (AnalysisStep.args['p'], ['n']: the node pair)" % o)
                 out = [p] if n == "0" else [p, n]
+                if len(out) == 2 and self.spectre:
+                    # measured (Xyce DEVELOPMENT-202610100047, phase 2, H): Xyce aborts on a .NOISE output
+                    # across two nodes, V(a,b) ("OUT OF MEMORY", rc 1; a segfault with a subckt), while
+                    # V(a) runs; §2.7: an unsupported construct is status 2, not a failed analysis
+                    raise T.TableError("noise %s: the output across two nodes (%s, %s) is not supported on Xyce in "
+                                       "v1 (Xyce aborts on .NOISE V(a,b)); VACASK runs it"
+                                       % (step.name or o, p, n))
                 if not step.noise_input:
                     raise T.TableError("%s: noise without an input source (plan.build names vamos_nin<k>)" % o)
                 lines.append(".NOISE V(%s) %s %s" % (",".join(self.node_text(n) for n in out),
@@ -1463,12 +1523,31 @@ class _Deck:
         cols = self.name_map(step.id, step.kind)
         if self.sigmap is not None and step.id in self.sigmap.allpub:
             cols = ["V(*)"] + [c for c in cols if not c.startswith("V(")]
+        elif step.full_solution and self.spectre and step.kind in ("op", "dc", "tran"):
+            cols = ["V(*)"] + [c for c in cols if not c.startswith("V(")]
+        if step.full_solution and self.spectre and step.kind in ("op", "dc", "tran"):
+            # write=/writefinal= hold the full solution: V(*) plus every V and L current (§5.4); the
+            # extra columns feed the state file, and the PSF keeps the SignalMap's selection
+            for path in self.source_paths(("v", "l")):
+                col = "I(%s)" % self.element_text(path)
+                if col not in cols:
+                    cols.append(col)
         if step.kind == "noise":
             lines.append(".PRINT NOISE FILE=%s.prn %s" % (step.id, " ".join(cols or ["ONOISE", "INOISE"])))
         else:
             lines.append(".PRINT %s FORMAT=RAW FILE=%s.raw %s" % (print_type, step.id, " ".join(cols or ["V(*)"])))
         lines.append(".end")
         return lines
+
+    def source_paths(self, kinds: Sequence[str]) -> List[str]:
+        """The IR paths of every instance of these kinds over the elaborated instance paths, in
+        path order (the full-solution currents of §5.4); vamos's own probes are left out."""
+        out: List[str] = []
+        for path, pe in getattr(self, "by_path", {}).items():
+            for it in pe.items:
+                if isinstance(it, Instance) and it.kind in kinds and not it.name.startswith("vamos_"):
+                    out.append(it.name if not path else path + "." + it.name)
+        return out
 
     def step_pairs(self, d: Dict[str, object], what: str) -> str:
         out = []
@@ -1686,7 +1765,8 @@ def output_problems(text: str, nl: Netlist) -> List[Note]:
 
 _SUMMARY_BUILTIN = re.compile(r"^\s+([A-Za-z]) level (\d+) \(([^)]*)\)\s+(\d+)\s*$")
 _SUMMARY_MODULE = re.compile(r"^\s+([A-Za-z_][A-Za-z0-9_]*) \(([^)]*)\)\s+(\d+)\s*$")
-_REGISTERED = re.compile(r"\.HDL: compiled and registered (\S+) from ")
+# Xyce wraps a long path onto the next line (`... registered bsim6 from` + newline + path; phase 2, C)
+_REGISTERED = re.compile(r"\.HDL: compiled and registered (\S+) from(?:\s|$)")
 _COUNTED = re.compile(r"^Number of (\S+) (models|instances): (\d+)")
 
 

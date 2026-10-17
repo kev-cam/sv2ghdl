@@ -1,0 +1,106 @@
+{
+ "argv": [
+  "input.scs",
+  "-64",
+  "+escchars",
+  "+log",
+  "./psf/spectre.out",
+  "-format",
+  "psfascii",
+  "-raw",
+  "./psf",
+  "+lqtimeout",
+  "900",
+  "-maxw",
+  "5",
+  "-maxn",
+  "5",
+  "+logstatus"
+ ],
+ "engines": [
+  "vacask",
+  "xyce"
+ ],
+ "status": 0,
+ "files": [
+  "artistLogFile",
+  "logFile",
+  "spectre.out",
+  "tran.tran.tran"
+ ],
+ "values": [
+  {
+   "file": "tran.tran.tran",
+   "signal": "net<3>",
+   "at": 0.0,
+   "value": 0.2,
+   "abs": 1e-09
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "net<3>",
+   "at": 0.00025,
+   "value": 1.0,
+   "abs": 1e-09
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "I2.Mid",
+   "at": 0.0,
+   "value": 0.2,
+   "abs": 1e-09
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "out",
+   "at": 0.0,
+   "value": 0.2,
+   "abs": 1e-09
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "V0:p",
+   "at": 0.0,
+   "value": 0.0,
+   "abs": 1e-12
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "I2.Mid",
+   "at": 0.0005,
+   "value": 0.9140994385019344,
+   "rel": 0.005
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "out",
+   "at": 0.0005,
+   "value": 0.8610110065357635,
+   "rel": 0.005
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "out",
+   "at": 0.002,
+   "value": 0.3215447023894986,
+   "rel": 0.005
+  },
+  {
+   "file": "tran.tran.tran",
+   "signal": "time",
+   "at": null,
+   "value": 0.002,
+   "rel": 1e-09,
+   "row": -1
+  }
+ ],
+ "cross_engine": {
+  "rel": 0.005
+ },
+ "messages": [
+  [
+   "note",
+   "info file is not written"
+  ]
+ ]
+}

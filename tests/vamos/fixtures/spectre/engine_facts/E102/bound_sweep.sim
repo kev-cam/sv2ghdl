@@ -1,0 +1,20 @@
+sweep of an instance parameter bound to a subckt parameter (e2e 2's dev=X2.R1)
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+V1 (in 0) vamos_vsource type="dc" dc=1.0
+R1 (in mid) vamos_resistor r=1000.0
+X2 (mid 0) cell r=1000.0
+subckt cell (a b)
+  parameters r=1000.0
+  R1 (a b) vamos_resistor r=r
+ends
+control
+  options rawfile="ascii"
+  save v(mid)
+  analysis op1 op
+  sweep s1 instance="X2:R1" parameter="r" values=[1000.0, 2000.0]
+    analysis dc1 op
+  analysis op2 op
+endc

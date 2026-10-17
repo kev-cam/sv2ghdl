@@ -1,0 +1,26 @@
+hierarchical instance paths quoted inside a sweep's string argument (e2e 2, the node quoting of 4.5 item 9)
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+V1 (in 0) vamos_vsource type="dc" dc=1.0
+R1 (in mid) vamos_resistor r=1000.0
+X2 (mid 0) cell r=1000.0
+X3 (mid 0) cell2
+subckt cell (a b)
+  parameters r=1000.0
+  R1 (a b) vamos_resistor r=r
+ends
+subckt cell2 (a b)
+  R1 (a b) vamos_resistor r=2000.0
+ends
+control
+  options rawfile="ascii"
+  save v(mid)
+  analysis op1 op
+  sweep s1 instance="'X2:R1'" parameter="r" values=[1000.0, 2000.0]
+    analysis dc1 op
+  sweep s2 instance="'X3:R1'" parameter="r" values=[1000.0, 2000.0]
+    analysis dc2 op
+  analysis op2 op
+endc

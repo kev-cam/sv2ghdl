@@ -1,0 +1,215 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "a": "a",
+     "b": "b",
+     "c": "c",
+     "R0:1": "R0:flow(br)",
+     "nq": "nq"
+    }
+   },
+   "vamos_a2": {
+    "name": "nz1",
+    "kind": "noise",
+    "columns": {
+     "Ra": "n(Ra)",
+     "R1": "n(R1)",
+     "R2": "n(R2)",
+     "R3": "n(R3)",
+     "R4": "n(R4)",
+     "Rn": "n(Rn)",
+     "out": "onoise",
+     "gain": "gain",
+     "in": "gain"
+    },
+    "signals": [
+     "Ra",
+     "R1",
+     "R2",
+     "R3",
+     "R4",
+     "Rn",
+     "out",
+     "gain",
+     "in"
+    ]
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": 1.0,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "R0:1",
+    "row": 0,
+    "value": 0.001,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "b",
+    "row": 0,
+    "value": 0.246231,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 0.638686,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": 4.14402e-18,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "gain",
+    "row": 0,
+    "value": 0.25,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "Rn",
+    "row": 0,
+    "value": 4.14402e-18,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "col": "n(Rn,thermal)",
+    "row": 0,
+    "value": 4.14402e-18,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "absent": [
+     "n(Rq)"
+    ]
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "a": "V(A)",
+     "b": "V(B)",
+     "c": "V(C)",
+     "R0:1": "I(R0)",
+     "nq": "V(NQ)"
+    }
+   },
+   "vamos_a2": {
+    "name": "nz1",
+    "kind": "noise",
+    "columns": {
+     "Ra": "DNO(RA)",
+     "R1": "DNO(R1)",
+     "R2": "DNO(R2)",
+     "R3": "DNO(R3)",
+     "R4": "DNO(R4)",
+     "Rn": "DNO(RN)",
+     "out": "ONOISE",
+     "gain": "INOISE",
+     "in": "INOISE"
+    },
+    "signals": [
+     "Ra",
+     "R1",
+     "R2",
+     "R3",
+     "R4",
+     "Rn",
+     "out",
+     "gain",
+     "in"
+    ]
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "a",
+    "row": 0,
+    "value": 1.0,
+    "abs": 1e-09
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "R0:1",
+    "row": 0,
+    "value": 0.001,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "b",
+    "row": 0,
+    "value": 0.246231,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 0.638686,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "out",
+    "row": 0,
+    "value": 4.14394e-18,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "in",
+    "row": 0,
+    "value": 1.65758e-17,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "Rn",
+    "row": 0,
+    "value": 4.14394e-18,
+    "rel": 1e-05
+   },
+   {
+    "step": "vamos_a2",
+    "absent": [
+     "DNO(RQ)"
+    ]
+   }
+  ]
+ }
+}

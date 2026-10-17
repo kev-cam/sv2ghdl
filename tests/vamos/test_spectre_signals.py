@@ -234,15 +234,29 @@ class TestSaveItems(SignalsCase):
         self.assertEqual(refs(sm.per_step["vamos_a1"])[1:], [("i", "R1"), ("i", "Rq"), ("i", "Rt"), ("i", "R0")])
         _, sm, _ = self.resolve(copy.deepcopy(nl), saves=[["out", "R1:1", "Rq:1", "Rt:1", "R0:1"]], engine="xyce")
         self.assertEqual(refs(sm.per_step["vamos_a1"])[1:], [("i", "R1"), ("i", "vamos_tp1"), ("i", "Rt"), ("i", "R0")])
+        # isnoisy=0 reads as no, as the emitters read it (xyce prints its G form, so it needs the probe), and an
+        # r=0 short stays an R on Xyce whatever its isnoisy (phase 2's integration: the guard behind the probe,
+        # "needs a probe", fired through the flow for both)
+        nl.body.append(inst("Rn", "r", ["out", "0"], "resistor", value=N(1e3), params={"isnoisy": 0.0}))
+        nl.body.append(inst("Rs", "r", ["out", "0"], "resistor", value=N(0.0), params={"isnoisy": "no"}))
+        _, sm, _ = self.resolve(copy.deepcopy(nl), saves=[["out", "Rn:1", "Rs:1"]], engine="xyce")
+        self.assertEqual(refs(sm.per_step["vamos_a1"])[1:], [("i", "vamos_tp1"), ("i", "Rs")])
+        self.assertTrue(SG.is_no(N(0.0)) and SG.is_no(Str("no")) and SG.is_no("false") and not SG.is_no(Str("yes"))
+                        and not SG.is_no(None))
 
     def test_resistor_current_with_an_ac_or_xf_step_is_probed_on_vacask(self):
         """VACASK's ac and acxf save no resistor current (p(r, i) is an op/dc/tran opvar), so a run with such
-        a step probes the resistor terminal on VACASK (§6.3's generic rule); Xyce keeps I(R1)."""
+        a step probes the resistor terminal on VACASK (§6.3's generic rule).  Phase 2 measured that Xyce's
+        .PRINT AC prints no I(R1) either ("Function or variable I(R1) is not defined", rc 1), so a run with
+        an ac step probes it on Xyce too (R=0 included); without one Xyce keeps I(R1)."""
         nl = testbench()
         _, sm, _ = self.resolve(copy.deepcopy(nl), step("vamos_a1", "op1", "dc"), step("vamos_a2", "ac1", "ac"),
                                 saves=[["out", "R1:1", "V1:p"]])
         self.assertEqual(refs(sm.per_step["vamos_a1"]), [("v", "out"), ("i", "vamos_tp1"), ("i", "V1")])
         _, sm, _ = self.resolve(copy.deepcopy(nl), step("vamos_a1", "op1", "dc"), step("vamos_a2", "ac1", "ac"),
+                                saves=[["out", "R1:1", "V1:p"]], engine="xyce")
+        self.assertEqual(refs(sm.per_step["vamos_a1"]), [("v", "out"), ("i", "vamos_tp1"), ("i", "V1")])
+        _, sm, _ = self.resolve(copy.deepcopy(nl), step("vamos_a1", "op1", "dc"), step("vamos_a2", "tr1", "tran"),
                                 saves=[["out", "R1:1", "V1:p"]], engine="xyce")
         self.assertEqual(refs(sm.per_step["vamos_a1"]), [("v", "out"), ("i", "R1"), ("i", "V1")])
         _, sm, _ = self.resolve(copy.deepcopy(nl), step("vamos_a1", "op1", "dc"), step("vamos_a2", "tr1", "tran"),
@@ -399,10 +413,20 @@ class TestNoiseXf(SignalsCase):
         nl2, _, notes = self.resolve(nl, AnalysisStep("vamos_a1", "nz", "noise", args={"oprobe": "R1"}, noise_input="vamos_nin1"))
         self.assertEqual(instances(nl2.body)["vamos_nin1"].nodes, ["b", "out"])
         nl = self.netlist_with_noise(nodes=("X1.mid",))
-        nl2, _, notes = self.resolve(nl, self.noise_step())
+        st = self.noise_step()
+        nl2, sm, notes = self.resolve(nl, st)
         sub = [s for s in nl2.body if isinstance(s, Subckt)][0]
         self.assertEqual(instances(sub.body)["vamos_nin1"].nodes, ["mid", "0"])
         self.assertEqual(notes, [])
+        # placed in X1's body, the input is that path's instance: the step names it by its IR path, which
+        # render prints (VACASK in="X1:vamos_nin1"), and it is still §5.6's input (no gain/in traces);
+        # a second resolve of the same plan places it again under its own name (phase 2's integration)
+        self.assertEqual(st.noise_input, "X1.vamos_nin1")
+        self.assertEqual(names(sm.per_step["vamos_a1"])[-1], "out")
+        nl2, sm, notes = self.resolve(nl, st)
+        sub = [s for s in nl2.body if isinstance(s, Subckt)][0]
+        self.assertEqual(instances(sub.body)["vamos_nin1"].nodes, ["mid", "0"])
+        self.assertEqual((st.noise_input, notes, names(sm.per_step["vamos_a1"])[-1]), ("X1.vamos_nin1", [], "out"))
         nl = self.netlist_with_noise(nodes=("X1.mid", "in"))
         _, _, notes = self.resolve(nl, self.noise_step())
         self.assertTrue(any(n.severity == ERROR and "different subckt bodies" in n.message for n in notes))

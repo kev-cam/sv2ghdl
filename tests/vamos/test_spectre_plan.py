@@ -861,6 +861,26 @@ class TestRunDependent(PlanCase):
         self.assertEqual(len(w), 1)
         self.assertIn("noise", w[0].message)
 
+    def test_noise_only_rows_are_silent_for_a_parameter_the_card_leaves_out(self):
+        # §10's grammar (tables.rule_for): a row reaches an absent parameter only through match "absent",
+        # a `when` on it, or a default row; the noise-only rows warn about a written value (§3.9: weexp and
+        # leexp "silently at 0, else with the noise warning"; kf "passed with the noise warning")
+        noise = [an("noise", "nz", nodes=["out"], sweep=sw("freq", mode="lin", start=1.0, stop=2.0, count=1))]
+
+        def resistor_netlist(**params):
+            nl = rc_netlist(noise)
+            nl.body.insert(1, card("rmod", "r", "resistor", None, **params))
+            nl.body.insert(2, Instance("R2", "r", ["in", "0"], master="rmod", value=N(1e3), origin="t.scs:4",
+                                       prim="resistor"))
+            return nl
+        self.assertEqual(self.warnings(self.build(resistor_netlist()), "absent"), [])
+        self.assertEqual(self.warnings(self.build(resistor_netlist(weexp=0.0, leexp=0.0)), "exp"), [])
+        w = self.warnings(self.build(resistor_netlist(weexp=0.5)), "weexp")
+        self.assertEqual(len(w), 1)
+        self.assertIn("weexp=0.5", w[0].message)
+        self.assertEqual([n.message for n in self.build(self.mos_netlist(noise)).notes
+                          if n.severity == WARNING and any(k in n.message for k in ("kf", "ef ", "wnoi"))], [])
+
     def test_diode_eg_at_temp_other_than_tnom(self):
         def netlist(temp, **params):
             nl = rc_netlist([an("dc", "op1")])

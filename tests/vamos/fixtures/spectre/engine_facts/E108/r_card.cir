@@ -1,0 +1,9 @@
+* the letter-device route: an instance-typed Verilog-A parameter (toy_resistor's R) on the .model card
+.hdl "toy_resistor.va"
+.model rmod r level=6 R=3k
+V1 a 0 1
+R1 a b rmod
+R2 b 0 1k
+.op
+.print dc v(b)
+.end

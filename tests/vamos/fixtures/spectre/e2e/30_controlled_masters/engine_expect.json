@@ -1,0 +1,788 @@
+{
+ "vacask": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "c": "c",
+     "d1": "d1",
+     "d2": "d2",
+     "dd": "dd",
+     "dj": "dj",
+     "g": "g",
+     "I1:in": "I1:flow(br)",
+     "I2:in": "I2:flow(br)",
+     "Ij:in": "Ij:flow(br)",
+     "Ip:in": "Ip:flow(br)",
+     "L1:1": "L1:flow(br)",
+     "L2:1": "L2:flow(br)",
+     "o1": "o1",
+     "o2": "o2",
+     "o3": "o3",
+     "o4": "o4",
+     "o5": "o5",
+     "p": "p",
+     "s": "s",
+     "s1": "s1",
+     "s2": "s2",
+     "Vc:p": "Vc:flow(br)",
+     "Vds:p": "Vds:flow(br)",
+     "Vgs:p": "Vgs:flow(br)",
+     "Vs:p": "Vs:flow(br)"
+    }
+   },
+   "vamos_a2": {
+    "name": "ac1",
+    "kind": "ac",
+    "columns": {
+     "c": "c",
+     "d1": "d1",
+     "d2": "d2",
+     "dd": "dd",
+     "dj": "dj",
+     "g": "g",
+     "I1:in": "I1:flow(br)",
+     "I2:in": "I2:flow(br)",
+     "Ij:in": "Ij:flow(br)",
+     "Ip:in": "Ip:flow(br)",
+     "L1:1": "L1:flow(br)",
+     "L2:1": "L2:flow(br)",
+     "o1": "o1",
+     "o2": "o2",
+     "o3": "o3",
+     "o4": "o4",
+     "o5": "o5",
+     "p": "p",
+     "s": "s",
+     "s1": "s1",
+     "s2": "s2",
+     "Vc:p": "Vc:flow(br)",
+     "Vds:p": "Vds:flow(br)",
+     "Vgs:p": "Vgs:flow(br)",
+     "Vs:p": "Vs:flow(br)"
+    }
+   },
+   "vamos_a3": {
+    "name": "swd",
+    "kind": "dc",
+    "columns": {
+     "c": "c",
+     "d1": "d1",
+     "d2": "d2",
+     "dd": "dd",
+     "dj": "dj",
+     "g": "g",
+     "I1:in": "I1:flow(br)",
+     "I2:in": "I2:flow(br)",
+     "Ij:in": "Ij:flow(br)",
+     "Ip:in": "Ip:flow(br)",
+     "L1:1": "L1:flow(br)",
+     "L2:1": "L2:flow(br)",
+     "o1": "o1",
+     "o2": "o2",
+     "o3": "o3",
+     "o4": "o4",
+     "o5": "o5",
+     "p": "p",
+     "s": "s",
+     "s1": "s1",
+     "s2": "s2",
+     "Vc:p": "Vc:flow(br)",
+     "Vds:p": "Vds:flow(br)",
+     "Vgs:p": "Vgs:flow(br)",
+     "Vs:p": "Vs:flow(br)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "s1",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "s2",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o1",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o2",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o3",
+    "row": 0,
+    "value": 0.5,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o4",
+    "row": 0,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o5",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vs:p",
+    "row": 0,
+    "value": 0.001,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Ip:in",
+    "row": 0,
+    "value": 0.0005,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vc:p",
+    "row": 0,
+    "value": -0.0015,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "dd",
+    "row": 0,
+    "value": 1.5,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "g",
+    "row": 0,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vgs:p",
+    "row": 0,
+    "value": 0.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Ij:in",
+    "row": 0,
+    "value": 0.0038062499999999993,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "I1:in",
+    "row": 0,
+    "value": 0.00043517500000000005,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "I2:in",
+    "row": 0,
+    "value": 0.000511145312784685,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vds:p",
+    "row": 0,
+    "value": -0.004752570312784685,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "col": "frequency",
+    "row": 0,
+    "value": 1000.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "p",
+    "row": 0,
+    "value": [
+     0.0,
+     0.006283185307179586
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "s",
+    "row": 0,
+    "value": [
+     0.0,
+     0.00942477796076938
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "s",
+    "row": 1,
+    "value": [
+     0.0,
+     0.09424777960769379
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "L1:1",
+    "row": 0,
+    "value": [
+     0.001,
+     0.0
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "L2:1",
+    "row": 0,
+    "value": [
+     0.0,
+     0.0
+    ],
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "points": 3
+   },
+   {
+    "step": "vamos_a3",
+    "col": "vamos_w2",
+    "row": 0,
+    "value": 1.5,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "Ij:in",
+    "row": 0,
+    "value": 0.0038062499999999993,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I1:in",
+    "row": 0,
+    "value": 0.00043517500000000005,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2:in",
+    "row": 0,
+    "value": 0.000511145312784685,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "col": "vamos_w2",
+    "row": 1,
+    "value": 3.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "Ij:in",
+    "row": 1,
+    "value": 0.00412,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I1:in",
+    "row": 1,
+    "value": 0.00044785000000000007,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2:in",
+    "row": 1,
+    "value": 0.0005334301582362807,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "col": "vamos_w2",
+    "row": 2,
+    "value": 5.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "Ij:in",
+    "row": 2,
+    "value": 0.004200000000000001,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I1:in",
+    "row": 2,
+    "value": 0.00046475000000000005,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2:in",
+    "row": 2,
+    "value": 0.0005673577570927858,
+    "rel": 1e-06
+   }
+  ]
+ },
+ "xyce": {
+  "status": 0,
+  "steps": {
+   "vamos_a1": {
+    "name": "op1",
+    "kind": "dc",
+    "columns": {
+     "c": "V(C)",
+     "d1": "V(D1)",
+     "d2": "V(D2)",
+     "dd": "V(DD)",
+     "dj": "V(DJ)",
+     "g": "V(G)",
+     "I1:in": "I(VI1)",
+     "I2:in": "I(VI2)",
+     "Ij:in": "I(VIJ)",
+     "Ip:in": "I(VIP)",
+     "L1:1": "I(L1)",
+     "L2:1": "I(L2)",
+     "o1": "V(O1)",
+     "o2": "V(O2)",
+     "o3": "V(O3)",
+     "o4": "V(O4)",
+     "o5": "V(O5)",
+     "p": "V(P)",
+     "s": "V(S)",
+     "s1": "V(S1)",
+     "s2": "V(S2)",
+     "Vc:p": "I(VC)",
+     "Vds:p": "I(VDS)",
+     "Vgs:p": "I(VGS)",
+     "Vs:p": "I(VS)"
+    }
+   },
+   "vamos_a2": {
+    "name": "ac1",
+    "kind": "ac",
+    "columns": {
+     "c": "V(C)",
+     "d1": "V(D1)",
+     "d2": "V(D2)",
+     "dd": "V(DD)",
+     "dj": "V(DJ)",
+     "g": "V(G)",
+     "I1:in": "I(VI1)",
+     "I2:in": "I(VI2)",
+     "Ij:in": "I(VIJ)",
+     "Ip:in": "I(VIP)",
+     "L1:1": "I(L1)",
+     "L2:1": "I(L2)",
+     "o1": "V(O1)",
+     "o2": "V(O2)",
+     "o3": "V(O3)",
+     "o4": "V(O4)",
+     "o5": "V(O5)",
+     "p": "V(P)",
+     "s": "V(S)",
+     "s1": "V(S1)",
+     "s2": "V(S2)",
+     "Vc:p": "I(VC)",
+     "Vds:p": "I(VDS)",
+     "Vgs:p": "I(VGS)",
+     "Vs:p": "I(VS)"
+    }
+   },
+   "vamos_a3": {
+    "name": "swd",
+    "kind": "dc",
+    "columns": {
+     "c": "V(C)",
+     "d1": "V(D1)",
+     "d2": "V(D2)",
+     "dd": "V(DD)",
+     "dj": "V(DJ)",
+     "g": "V(G)",
+     "I1:in": "I(VI1)",
+     "I2:in": "I(VI2)",
+     "Ij:in": "I(VIJ)",
+     "Ip:in": "I(VIP)",
+     "L1:1": "I(L1)",
+     "L2:1": "I(L2)",
+     "o1": "V(O1)",
+     "o2": "V(O2)",
+     "o3": "V(O3)",
+     "o4": "V(O4)",
+     "o5": "V(O5)",
+     "p": "V(P)",
+     "s": "V(S)",
+     "s1": "V(S1)",
+     "s2": "V(S2)",
+     "Vc:p": "I(VC)",
+     "Vds:p": "I(VDS)",
+     "Vgs:p": "I(VGS)",
+     "Vs:p": "I(VS)"
+    }
+   }
+  },
+  "checks": [
+   {
+    "step": "vamos_a1",
+    "signal": "c",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "s1",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "s2",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o1",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o2",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o3",
+    "row": 0,
+    "value": 0.5,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o4",
+    "row": 0,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "o5",
+    "row": 0,
+    "value": 1.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vs:p",
+    "row": 0,
+    "value": 0.001,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Ip:in",
+    "row": 0,
+    "value": 0.0005,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vc:p",
+    "row": 0,
+    "value": -0.0015,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "dd",
+    "row": 0,
+    "value": 1.5,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "g",
+    "row": 0,
+    "value": 2.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vgs:p",
+    "row": 0,
+    "value": 0.0,
+    "rel": 1e-09,
+    "abs": 1e-15
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Ij:in",
+    "row": 0,
+    "value": 0.0038062499999999993,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "I1:in",
+    "row": 0,
+    "value": 0.00043517500000000005,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "I2:in",
+    "row": 0,
+    "value": 0.000511144805,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a1",
+    "signal": "Vds:p",
+    "row": 0,
+    "value": -0.004752569804999999,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a2",
+    "points": 2
+   },
+   {
+    "step": "vamos_a2",
+    "col": "FREQUENCY",
+    "row": 0,
+    "value": 1000.0,
+    "rel": 1e-09
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "p",
+    "row": 0,
+    "value": [
+     0.0,
+     0.006283185307179586
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "s",
+    "row": 0,
+    "value": [
+     0.0,
+     0.00942477796076938
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "s",
+    "row": 1,
+    "value": [
+     0.0,
+     0.09424777960769379
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "L1:1",
+    "row": 0,
+    "value": [
+     0.001,
+     0.0
+    ],
+    "rel": 1e-06,
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a2",
+    "signal": "L2:1",
+    "row": 0,
+    "value": [
+     0.0,
+     0.0
+    ],
+    "abs": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "points": 3
+   },
+   {
+    "step": "vamos_a3",
+    "col": "sweep",
+    "row": 0,
+    "value": 1.5,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "Ij:in",
+    "row": 0,
+    "value": 0.0038062499999999993,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I1:in",
+    "row": 0,
+    "value": 0.00043517500000000005,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2:in",
+    "row": 0,
+    "value": 0.000511144805,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "col": "sweep",
+    "row": 1,
+    "value": 3.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "Ij:in",
+    "row": 1,
+    "value": 0.00412,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I1:in",
+    "row": 1,
+    "value": 0.00044785000000000007,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2:in",
+    "row": 1,
+    "value": 0.000533429496,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "col": "sweep",
+    "row": 2,
+    "value": 5.0,
+    "rel": 1e-12
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "Ij:in",
+    "row": 2,
+    "value": 0.004200000000000001,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I1:in",
+    "row": 2,
+    "value": 0.00046475000000000005,
+    "rel": 1e-06
+   },
+   {
+    "step": "vamos_a3",
+    "signal": "I2:in",
+    "row": 2,
+    "value": 0.000567727906,
+    "rel": 1e-06
+   }
+  ]
+ }
+}

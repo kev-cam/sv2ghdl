@@ -1,0 +1,122 @@
+{
+ "row": "E104",
+ "experiment": "Xyce PyMS with several .hdl modules (e2e 8, phase 1b): e2e 8's Xyce deck with both modules named by absolute paths, one module by an absolute path, and both by base names beside the deck; every run with its own PYMS_CACHE",
+ "result": "two modules named by absolute .hdl paths compile (\"compiled and registered vares from ...\", vres likewise) but lose their parameters: \"Unrecognized parameter R for device RX1\", \"Unrecognized parameter A for device YVRES!X2\", rc 1; one module by an absolute path, and two by base names beside the deck, work (V(B) = 0.25, V(C) = 1/3, V(D) = 0.25)",
+ "rules": [
+  "\u00a74.5 item 13: the .hdl lines name the Verilog-A sources by base name, the files copied into the run directory (phase 2's flow does the copy; test_spectre_chain's hdl_beside)"
+ ],
+ "runs": [
+  {
+   "name": "two_absolute_paths_lose_parameters",
+   "tool": "xyce",
+   "deck": "abs2.cir",
+   "subst": [
+    "abs2.cir"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 1,
+   "output": {
+    "contains": [
+     "compiled and registered vares from",
+     "compiled and registered vres from",
+     "Unrecognized parameter R for device RX1",
+     "Unrecognized parameter A for device YVRES!X2"
+    ]
+   },
+   "files": {
+    "absent": [
+     "abs2.raw"
+    ]
+   }
+  },
+  {
+   "name": "one_absolute_path_works",
+   "tool": "xyce",
+   "deck": "abs1.cir",
+   "subst": [
+    "abs1.cir"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "compiled and registered vares from"
+    ],
+    "absent": [
+     "Unrecognized",
+     "Netlist error"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "abs1.raw",
+     "col": "V(B)",
+     "value": 0.25,
+     "rel": 1e-06
+    },
+    {
+     "raw": "abs1.raw",
+     "col": "V(D)",
+     "value": 0.25,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "two_base_names_work",
+   "tool": "xyce",
+   "deck": "rel2.cir",
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "compiled and registered vares from vares.va",
+     "compiled and registered vres from vres.va"
+    ],
+    "absent": [
+     "Unrecognized",
+     "Netlist error"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "rel2.raw",
+     "col": "V(B)",
+     "value": 0.25,
+     "rel": 1e-06
+    },
+    {
+     "raw": "rel2.raw",
+     "col": "V(C)",
+     "value": 0.3333333333333333,
+     "rel": 1e-06
+    },
+    {
+     "raw": "rel2.raw",
+     "col": "V(D)",
+     "value": 0.25,
+     "rel": 1e-06
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: e2e 8's Xyce render (tests/vamos/fixtures/spectre/e2e/08_include_ahdl/render/xyce/vamos_a1.cir) with its .hdl paths made absolute (@CWD@, the scratch copy) or reduced to one module; vares.va and vres.va copied from e2e/08_include_ahdl; after S6's sp1/S6/wsl_va3.sh, wsl_va4.sh"
+ ]
+}

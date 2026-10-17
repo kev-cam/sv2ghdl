@@ -1,0 +1,22 @@
+// e2e 21: resistors (sec. 3.8): r = 0, a card's r folded into its instances, an instance scale, isnoisy=no
+simulator lang=spectre
+V1 (in 0) vsource dc=1
+// r = 0: a short on both engines (VACASK prints a 0 V source, Xyce R=0)
+R0 (in a) resistor r=0
+Ra (a 0) resistor r=1k
+// a card's r, folded into its instance
+model rcard resistor r=2k
+R1 (in b) rcard
+// a geometric card: r = rsh*(l-2*etchl)/(w-2*etch) per instance (ref5 p.627), the instance scale on w and l
+model rgeo resistor rsh=100 etch=0.25u etchl=0.1u
+R2 (b 0) rgeo w=2u l=10u
+R3 (in c) rgeo w=2u l=10u scale=2
+// with r given, scale changes nothing
+R4 (c 0) resistor r=1k scale=2
+// isnoisy=no: Rq is noise-free on both engines, so the divider's noise is Rn's alone
+Vn (n1 0) vsource dc=0
+Rn (n1 nq) resistor r=1k
+Rq (nq 0) resistor r=1k isnoisy=no
+op1 dc
+nz1 (nq 0) noise iprobe=Vn start=1k stop=10k dec=1
+save a b c R0:1 nq

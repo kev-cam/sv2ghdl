@@ -1,0 +1,74 @@
+{
+ "row": "E114",
+ "experiment": "VACASK instance paths inside string arguments (e2e 2, phase 1b): a sweep's instance=\"'X2:R1'\" and instance=\"'X3:R1'\" (the node quoting of 4.5 item 9); unquoted instance=\"X3:R1\" and alter instance(\"x1:r1\")",
+ "result": "quoted: \"Sweep 's1': instance ''X2:R1'' not found.\" (and ''X3:R1'' likewise), \"Failed to bind sweep parameters.\", the analysis missing, rc 0; unquoted instance=\"X3:R1\" sweeps (0.4, 0.5, 0.5714) and alter instance(\"x1:r1\") r=1000 moves the node (0.4)",
+ "rules": [
+  "\u00a74.5 item 5 / \u00a75.2: a hierarchical instance path inside a string argument (sweep instance=\"X2:R1\", alter instance(\"x1:r1\")) is printed without the node quoting of item 9"
+ ],
+ "runs": [
+  {
+   "name": "quoted_path_not_found",
+   "tool": "vacask",
+   "deck": "quoted_sweep.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Sweep 's1': instance ''X2:R1'' not found.",
+     "Sweep 's2': instance ''X3:R1'' not found.",
+     "Failed to bind sweep parameters."
+    ]
+   },
+   "files": {
+    "present": [
+     "op1.raw",
+     "op2.raw"
+    ],
+    "absent": [
+     "dc1.raw",
+     "dc2.raw"
+    ]
+   },
+   "note": "the row abbreviates the message as \"instance 'X2:R1' not found\"; VACASK quotes the quoted name"
+  },
+  {
+   "name": "unquoted_paths_work",
+   "tool": "vacask",
+   "deck": "unquoted.sim",
+   "status": 0,
+   "output": {
+    "absent": [
+     "not found",
+     "Failed to bind"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "dc1.raw",
+     "col": "mid",
+     "values": [
+      0.4,
+      0.5,
+      0.5714285714285714
+     ],
+     "rel": 1e-09
+    },
+    {
+     "raw": "op1.raw",
+     "col": "mid",
+     "value": 0.5,
+     "rel": 1e-09
+    },
+    {
+     "raw": "op2.raw",
+     "col": "mid",
+     "value": 0.4,
+     "rel": 1e-09
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored, after e2e 2's first dev=X2.R1 form and S6's quoting fix of vacask.spath"
+ ]
+}

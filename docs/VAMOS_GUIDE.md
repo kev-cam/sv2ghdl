@@ -1,9 +1,10 @@
 # vamos user guide
 
-How to run your VCS and VCS AMS command lines and scripts on the open stack.
-Covers vamos 0.1.0 as of 2026-10-03. Every command below was run under WSL2 with Python 3.14, and the
-output shown is that run's output, shortened where marked `...`, with the working directory shown as
-`/work/ams`, the sv2ghdl checkout as `/usr/local/src/sv2ghdl` and its commit as `git-<commit>`.
+How to run your VCS, VCS AMS and Spectre command lines and scripts on the open stack.
+Covers vamos 0.1.0 as of 2026-10-03 (§12, the spectre personality, as of 2026-10-17). Every command below
+was run under WSL2 with Python 3.14, and the output shown is that run's output, shortened where marked
+`...`, with the working directory shown as `/work/ams` (`/work/spectre` in §12), the sv2ghdl checkout as
+`/usr/local/src/sv2ghdl`, its commit as `git-<commit>` and the host name as `myhost`.
 
 Contents: [1 What vamos is](#1-what-vamos-is) · [2 Set up](#2-set-up) ·
 [3 Quick start: digital](#3-quick-start-digital) · [4 Options vamos does not implement](#4-options-vamos-does-not-implement) ·
@@ -21,14 +22,15 @@ vamos is a drop-in replacement for a simulator's command line. You keep your `vc
 - **digital** (Verilog, SystemVerilog): iverilog's VHDL back end and the sv2ghdl scripts translate the design
   to VHDL, and nvc simulates it;
 - **AMS** (`vcs-ams`, `vcs -ad`): the digital side as above; HSPICE-dialect SPICE cells on VACASK (the
-  default) or Xyce; nvc couples the two.
+  default) or Xyce; nvc couples the two;
+- **analog** (`spectre`): a Spectre netlist on VACASK (the default) or Xyce, with Spectre's outputs (PSF
+  or nutmeg results, the log, state files) and exit status.
 
 vamos never runs a vendor tool, and needs no vendor licence.
 
 **Working today:** the `vcs` personality (the two-step flow: `vcs`, then `./simv`), `vcs-ams`, the `simv`
-runtime, and an `nvc` pass-through. **Being built:** `spectre`, Cadence Spectre's command line on VACASK or
-Xyce (docs/VAMOS_SPECTRE_DESIGN.md): its command line, defaults variable and log are in place (§12); the run
-itself is the design's phase 2. **Planned:** the VCS MX three-step flow (`vlogan`/`vhdlan`), Cadence
+runtime, `spectre` (Cadence Spectre's command line on VACASK or Xyce, §12; its contract is
+docs/VAMOS_SPECTRE_DESIGN.md) and an `nvc` pass-through. **Planned:** the VCS MX three-step flow (`vlogan`/`vhdlan`), Cadence
 `xrun`/`irun`/`ncverilog` and Questa (docs/VAMOS_PLAN.md §8), an installer and `use-vamos`
 (docs/VAMOS_PLAN.md §2a, §2c).
 
@@ -879,6 +881,8 @@ them, `NVC_RESOLVER_DIR` and `NVC_WORK` (the resolver plugin's cache and work li
 
 ## 9. Troubleshooting
 
+The spectre personality's messages are in §12's Troubleshooting.
+
 Setup and tools:
 
 | message | cause and fix |
@@ -1004,9 +1008,12 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 
 ## 10. Limitations
 
-- Personalities: only `vcs`, `vcs-ams`, `simv` and the `nvc` pass-through. No three-step flow, no VHDL
-  sources, no `xrun`/Questa yet (docs/VAMOS_PLAN.md §8); `spectre` takes its command line but does not run a
-  netlist yet (§12; docs/VAMOS_SPECTRE_DESIGN.md §12, phase 2).
+- Personalities: only `vcs`, `vcs-ams`, `simv`, `spectre` and the `nvc` pass-through. No three-step flow,
+  no VHDL sources, no `xrun`/Questa yet (docs/VAMOS_PLAN.md §8). `spectre` refuses, with an error naming
+  it, what docs/VAMOS_SPECTRE_DESIGN.md §0 lists as not in v1: among them Monte Carlo, the periodic and RF
+  analyses, device models with no faithful target (until they come through Verilog-A) and, on Xyce, `xf`,
+  a noise output across two nodes, an instance of a subckt without ports and the parameters of a
+  Verilog-A model card (§12).
 - Accepted and reported, but not done yet: debug and other wave formats (`-debug_access`, VPD/FSDB, `-kdb`;
   `$dumpvars` writes a VCD, §3), coverage (`-cm`), UCLI (`-ucli`, `-do`), VPI/PLI/DPI (`-P`, `-load`, C
   sources), UVM and SystemVerilog classes (`-ntb_opts uvm`; the route is docs/TODO-uvm-translator.md; a
@@ -1058,7 +1065,7 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 |---|---|
 | docs/VAMOS_PLAN.md | the overall plan, phases and decisions (installation, use-vamos, provenance), as of 2026-09-27. Its AMS parts (§6 and phase 4) predate VACASK, the default engine; they are marked superseded and point to docs/VAMOS_AMS_DESIGN.md and this guide |
 | docs/VAMOS_AMS_DESIGN.md | the `vcs-ams` contract: every control-file command, key and disposition; the runtime; the open items |
-| docs/VAMOS_SPECTRE_DESIGN.md | the `spectre` personality's contract: the command line, the Spectre language, the engine mappings, the outputs and the work breakdown (its §12: phase 0 and the phase-1 command line and log are built; the run flow is phase 2) |
+| docs/VAMOS_SPECTRE_DESIGN.md | the `spectre` personality's contract: the command line, the Spectre language, the engine mappings, the outputs and the work breakdown (its §12: phases 0, 1 and 2 are built; the review and guide trial of phases 2b-2f follow) |
 | docs/TODO-uvm-translator.md | the planned UVM route |
 | docs/vamos-manuals.html | links to the vendor manuals vamos follows |
 | tests/vamos/ | working examples. `test_vamos.py` and `test_vamos_driver.py` cover digital; `test_ams_e2e_*.py` cover AMS end to end; `test_r6_*.py` cover the latest fixes, such as file I/O (`test_r6_F.py`) and waves (`test_r6_W.py`) (each item is described in docs/VAMOS_AMS_DESIGN.md §9). Run them from `tests/vamos`: `python3 -m unittest test_vamos` (about 10 s), `python3 -m unittest test_ams_e2e_basics` (2 to 3 minutes). Tests that need a tool or engine the machine lacks are skipped |
@@ -1067,13 +1074,12 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 ## 12. The spectre personality
 
 `spectre [options] [netlist]` is Cadence Spectre's command line, run on VACASK (the default) or Xyce
-(`--vamos-analog=xyce`, or `VAMOS_ANALOG=xyce`). The contract is docs/VAMOS_SPECTRE_DESIGN.md. This section
-covers what needs no run: the names, the defaults variable, the options and their dispositions, the
-environment variables and the banner profile. The quick start, the outputs (the results directory,
-`logFile`, the PSF files, `+log`, the state files), how a run ends and the troubleshooting table are written
-from real runs when the run flow exists (the design's phase 2); until then a command line that would run a
-netlist is accepted, checked and reported, and stops with `spectre terminated prematurely due to fatal
-error.` and exit status 2 after the message `the spectre run is not implemented yet`.
+(`--vamos-analog=xyce`, or `VAMOS_ANALOG=xyce`). It reads a Spectre netlist (the Spectre language,
+`simulator lang=spice` sections, or a SPICE-mode file), runs its analyses and writes what Spectre writes: a
+directory of PSF files indexed by `logFile` (or one nutmeg file), the `+log` file, state files and Spectre's
+exit status. The contract is docs/VAMOS_SPECTRE_DESIGN.md. Its §0 lists what v1 runs and what it refuses,
+and the `§` numbers inside vamos's messages are that document's sections. The runs below were made in an
+empty directory, shown as `/work/spectre`, with `shims/` first on PATH.
 
 ### The names
 
@@ -1114,6 +1120,642 @@ The vamos options (`--vamos-*`, §7) are read from the command line only. Under 
 `--vamos-keep`, `--vamos-psf-names`, `--vamos-banner`, `--vamos-strict` and `--vamos-verbose` have an effect;
 the vcs-ams compile options and the `./simv` options get the `has no effect` warning in the log (an error
 under `--vamos-strict`).
+
+### Quick start
+
+`rc.scs` is the design's worked example (docs/VAMOS_SPECTRE_DESIGN.md §7.3): an RC low-pass in a subckt, an
+operating point, an AC sweep, and a transient run once for each of two resistor values.
+
+```
+// RC Low-Pass Filter
+simulator lang=spectre
+parameters rval=1k
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=1m rise=1u fall=1u width=4m period=10m mag=1
+X1 (in out) rcsec r=rval
+subckt rcsec (a b)
+  parameters r=1k
+  R1 (a b) resistor r=r
+  C1 (b 0) capacitor c=1u
+ends rcsec
+myop dc
+myac ac start=1 stop=1M dec=10
+swp sweep param=rval values=[1k 2k] {
+  tr tran stop=5m
+}
+```
+
+```
+$ export PATH=$SV2GHDL/shims:$PATH
+$ spectre rc.scs
+vamos 0.1.0 (spectre personality) - tools used:
+  vamos      git-<commit>         GPL-3.0-or-later           /usr/local/src/sv2ghdl/bin/vamos
+  VACASK     0.3.4-91-g64489cf7   AGPL-3.0-only              /opt/build.VACASK/Release/simulator/vacask
+  OpenVAF-r  20260616-3-g0e83f1ed GPL-3.0-only               /opt/openvaf-r-20260616/openvaf-r
+Simulating `rc.scs' on myhost at 3:37:03 AM, Sat Oct 17, 2026.
+
+Circuit inventory:
+              nodes 2
+          capacitor 1
+           resistor 1
+            vsource 1
+******************
+DC Analysis `myop'
+******************
+Total time required for dc analysis `myop' was 0.00 s.
+
+******************************************
+AC Analysis `myac': freq = (1 Hz -> 1 MHz)
+******************************************
+Total time required for ac analysis `myac' was 0.00 s.
+
+*********************************************
+Transient Analysis `tr': time = (0 s -> 5 ms)
+*********************************************
+Total time required for tran analysis `tr' was 0.00 s.
+
+Aggregate audit (3:37:04 AM, Sat Oct 17, 2026):
+Time used: CPU = 0.69 s, elapsed = 0 s.
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ ls rc.raw
+logFile
+myac.ac
+myop.dc
+swp-000_tr.tran.tran
+swp-001_tr.tran.tran
+swp_tr.sweep
+```
+
+The screen shows the tools the run used (§8), the start line, the circuit inventory, a banner and a time for
+each analysis, the aggregate audit and the last line, which scripts grep (How a run ends, below). The sweep
+runs `tr` once for each value of `rval`, under one banner.
+
+The results are the directory `rc.raw`: the netlist's name with `.raw` (`%C:r.raw`), beside the netlist. It
+holds one PSF ASCII file per analysis, named after it (`myop.dc`, `myac.ac`), the sweep's parent file
+`swp_tr.sweep`, one file per sweep point (`swp-000_tr.tran.tran` for `rval` = 1k, `swp-001_tr.tran.tran` for
+2k), and the index, `logFile` (Outputs, below). The engine runs in a run directory beside the results, which
+vamos removes after a successful run. A PSF file is text. `myac.ac`, shortened:
+
+```
+$ cat rc.raw/myac.ac
+HEADER
+"PSFversion" "1.00"
+"simulator" "spectre"
+"version" "0.1.0"
+"date" "3:37:03 AM, Sat Oct 17, 2026"
+"design" "// RC Low-Pass Filter"
+"analysis type" "ac"
+"analysis name" "myac"
+"analysis description" "AC Analysis `myac': freq = (1 Hz -> 1 MHz)"
+"xVecSorted" "ascending"
+"tolerance.relative" 1.000000000000000e-03
+"start" 1.000000000000000e+00
+"stop" 1.000000000000000e+06
+"operating point producer" "myac"
+TYPE
+"sweep" FLOAT DOUBLE PROP(
+"key" "sweep"
+)
+"V" COMPLEX DOUBLE PROP(
+"units" "V"
+"key" "node"
+"tolerance" 1.000000000000000e-06
+)
+...
+SWEEP
+"freq" "sweep" PROP(
+"sweep_direction" 0
+"units" "Hz"
+"plot" 0
+"grid" 3
+)
+TRACE
+"in" "V"
+"out" "V"
+"V1:p" "I" PROP(
+"units" "A"
+)
+VALUE
+"freq" 1.000000000000000e+00
+"in" (1.000000000000000e+00 -0.000000000000000e+00)
+"out" (9.999605231408795e-01 -6.282937266758386e-03)
+"V1:p" (-3.947685912062196e-08 -6.282937266758386e-06)
+...
+"freq" 9.999999999999995e+05
+"in" (1.000000000000000e+00 -0.000000000000000e+00)
+"out" (2.533029526896061e-08 -1.591549390604537e-04)
+"V1:p" (-9.999999746697047e-04 -1.591549390604538e-07)
+END
+```
+
+Signals carry Spectre's names: a node by its name (`out`), the current of a source's terminal as `V1:p`, and
+a name inside a subckt as a path (`I2.r3`, the noise trace of resistor `r3` in instance `I2`).
+
+**Reading the results.** Two PSF readers come with sv2ghdl: `tests/vamos/psfcheck.py`, the strict reader the
+tests use (standard library only, Python 3.9 or newer), and a copy of psf-parser (MIT; Python 3.10 or newer)
+in `tests/vamos/third_party/psf_parser`:
+
+```
+$ python3 $SV2GHDL/tests/vamos/psfcheck.py rc.raw/*
+PASS logFile: logFile, 5 entries, 1 parents
+PASS myac.ac: ac, 13 types, sweep=freq, 3 traces, 61 points, 0 values
+PASS myop.dc: dc, 13 types, sweep=None, 0 traces, 0 points, 3 values
+PASS swp-000_tr.tran.tran: tran, 14 types, sweep=time, 3 traces, 71 points, 0 values
+PASS swp-001_tr.tran.tran: tran, 14 types, sweep=time, 3 traces, 71 points, 0 values
+PASS swp_tr.sweep: sweep, 13 types, sweep=rval, 0 traces, 2 points, 0 values
+$ PYTHONPATH=$SV2GHDL/tests/vamos python3 -c 'import psfcheck; p = psfcheck.check("rc.raw/swp-000_tr.tran.tran"); print(p.names(), p.points, p.at("out", 5e-3)); print(psfcheck.check("rc.raw/myac.ac").at("out", 1.0))'
+['in', 'out', 'V1:p'] 71 0.9817353644916788
+(0.9999605231408795-0.006282937266758386j)
+$ PYTHONPATH=$SV2GHDL/tests/vamos/third_party/psf_parser/src python3 -c 'from psf_parser import PsfFile; p = PsfFile("rc.raw/swp-001_tr.tran.tran"); print([t.name for t in p.traces], p.sweeps[0].data[-1], p.traces[1].data[-1])'
+['in', 'out', 'V1:p'] 0.005 0.8646896211266671
+```
+
+`psfcheck.check(path)` checks a file and returns it: `names()` lists the traces, `points` counts the sweep
+points, `column(name)` returns a trace, `at(name, x)` interpolates it along the sweep and `value(name)` reads
+an operating point. psf_utils, the other open reader, was not installed for these runs (the tests use it when
+`VAMOS_PSF_UTILS` and `VAMOS_PSF_UTILS_DEPS` name a checkout and its dependencies). For tools that read SPICE
+rawfiles, ask for a nutmeg file (Outputs, below).
+
+**Choosing the engine.** The same run on Xyce:
+
+```
+$ spectre --vamos-analog=xyce rc.scs
+vamos 0.1.0 (spectre personality) - tools used:
+  vamos     git-<commit>         GPL-3.0-or-later           /usr/local/src/sv2ghdl/bin/vamos
+  Xyce      7.10.0-212-g7cd78110 GPL-3.0-or-later           /usr/local/src/xyce-build/src/Xyce
+Simulating `rc.scs' on myhost at 3:37:06 AM, Sat Oct 17, 2026.
+
+Circuit inventory:
+...
+Notice from spectre during initial setup.
+    /work/spectre/rc.scs:14: tran tr: Xyce takes the method (traponly) only; reltol=0.001 relref=sigglobal lteratio=3.5 are Spectre's settings, not Xyce's (§5.4)
+Notice from spectre during circuit read-in.
+    option reltol=0.001 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
+Notice from spectre during circuit read-in.
+    option vabstol=1e-06 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
+Notice from spectre during circuit read-in.
+    option iabstol=1e-12 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
+******************
+DC Analysis `myop'
+******************
+Total time required for dc analysis `myop' was 0.12 s.
+...
+Aggregate audit (3:37:06 AM, Sat Oct 17, 2026):
+Time used: CPU = 5.92 s, elapsed = 1 s.
+spectre completes with 0 errors, 0 warnings, and 4 notices
+$ PYTHONPATH=$SV2GHDL/tests/vamos python3 -c 'import psfcheck; p = psfcheck.check("rc.raw/swp-000_tr.tran.tran"); print(p.names(), p.points, p.at("out", 5e-3)); print(psfcheck.check("rc.raw/myac.ac").at("out", 1.0))'
+['in', 'out', 'V1:p'] 84 0.9817251209780554
+(0.9999605231408796-0.006282937266758386j)
+```
+
+Xyce writes the same six files, with its own time steps (84 points where VACASK took 71). The values agree to
+about 1e-5: `out` at 5 ms is 0.981735 on VACASK and 0.981725 on Xyce for `rval` = 1k (0.864690 and 0.864685
+for 2k), and `out` at 1 Hz is 0.99996 - j0.00628 on both. The notices are Xyce's standing differences:
+Spectre's tolerance settings (`reltol`, `vabstol`, `iabstol`, and a `tran`'s `relref` and `lteratio`) are not
+passed to Xyce, whose tolerances have other meanings; only the integration method is. Every Xyce run prints
+the three option notices.
+
+VACASK is the default; `--vamos-analog=vacask|xyce` beats `VAMOS_ANALOG`. Xyce runs one deck per analysis. On
+Xyce, v1 refuses `xf`, the parameters of a Verilog-A instance or of its model card, a noise output whose second
+node is not ground, an instance of a subckt without ports, and two names that differ only in case (`A` and
+`a`, which Xyce would merge): each is an error naming the construct, with exit status 2 (Troubleshooting,
+below). A noise analysis on Xyce writes each instance's `total` noise only, without its contributions (a
+notice). VACASK runs all of these.
+
+### Outputs
+
+| path | contents |
+|---|---|
+| `<netlist>.raw/` | the results directory (`%C:r.raw`, beside the netlist): one PSF ASCII file per analysis and `logFile`. `-raw <path>` names another, else `options rawfile=` in the netlist; `-outdir <dir>` moves the default name into `<dir>` (`spectre -outdir out rc.scs` writes `out/rc.raw`), as it moves every default output name without a `/` |
+| `<raw>/logFile` | the index: the analyses that finished, in the order they ran |
+| `<raw>/<name>.dc`, `.ac`, `.noise`, `.xf`, `.tran.tran` | one file per analysis |
+| `<raw>/<sweep>_<child>.sweep`, `<raw>/<sweep>-<NNN>_<child>.<ext>` | a sweep's parent file, and one file per point, counted from `000` |
+| `<netlist>.ahdlSimDB/` | the Verilog-A that a VACASK run compiled (`<module>_<sha1>.osdi`), in the current directory (in `-outdir` when one is given), unless `-ahdllibdir` or `CDS_AHDLCMI_SIMDB_DIR` names another |
+| `<netlist>.run.<random>/` | the run directory, beside the results: the engine's decks, rawfiles and logs. Removed after exit status 0 unless `--vamos-keep` is given; kept after 1, 2 or 3 |
+| the `+log` or `=log` file | the screen's lines (below) |
+| state files | `write=`, `writefinal=` (below) |
+
+A run with no netlist argument reads standard input: `spectre < rc.scs` writes `stdin.raw`. A spectre run
+writes no `vamos.tools.json`; the tools it used are in its screen and log output only (§8). At its start a
+run removes the `logFile` an earlier run left at the same results path, so `logFile` never lists an analysis
+this run did not finish; the earlier run's data files stay until this run replaces them.
+
+**File names.** The default names are those of Spectre 23.1. `--vamos-psf-names=legacy` gives the Spectre 5
+names, without the sweep parents:
+
+```
+$ spectre --vamos-psf-names=legacy -raw legacy.raw rc.scs
+...
+$ ls legacy.raw
+logFile
+myac.ac
+myop.dc
+swp_000_tr.tran
+swp_001_tr.tran
+```
+
+A SPICE-mode netlist's analyses have Spectre's names for them: `.op` writes `opBegin.dc`, `.dc` writes
+`srcSweep.dc`, `.ac` `frequencySweep.ac` and `.tran` `timeSweep.tran.tran` (`timeSweep.tran` with legacy
+names).
+
+**`logFile`** is PSF ASCII as well, one entry per analysis that finished, in the order the analyses ran, a
+sweep's parent first and then its points; shortened:
+
+```
+$ cat rc.raw/logFile
+HEADER
+"PSFversion" "1.00"
+"Log Generator" "drlLog rev. 1.0"
+"Log Time Stamp" "Sat Oct 17 03:37:06 2026"
+"psfversion" "1.4.0"
+"simulator" "spectre"
+"version" "0.1.0"
+"date" "3:37:06 AM, Sat Oct 17, 2026"
+"design" "// RC Low-Pass Filter"
+...
+VALUE
+"myop-dc" "analysisInst" (
+"dc"
+"myop.dc"
+"PSF"
+""
+()
+"DC Analysis `myop'"
+) PROP(
+"data_type" "scalar"
+)
+
+...
+"swp-001_tr-tran" "analysisInst" (
+"tran"
+"swp-001_tr.tran.tran"
+"PSF"
+"swp_tr-sweep"
+("time")
+"Transient Analysis `swp-001_tr': time = (0 s -> 5 ms)"
+) PROP(
+"data_type" "swept_scalar"
+"sweep_tree_type" "leafNode"
+"rval" 2000.00
+)
+
+END
+```
+
+Each entry gives the analysis type, its data file, the format, its parent (the sweep's entry, for a sweep
+point), its sweep variable and its description; a sweep point's `PROP` holds the swept value. The format
+fields (`"simulator" "spectre"`, `"Log Generator"`, `"signalNameType"`, `"simMode"`) keep Spectre's values for
+the readers that key on them; `"version"` is vamos's. An analysis that failed has no entry and no data file,
+a sweep's parent lists only the points written before a failed one, and an analysis a signal interrupted is
+listed with its partial data (How a run ends, below).
+
+**Formats.** `-format psfascii` is the default. The other PSF formats (`psfbin`, `psfxl`, ...) are written as
+psfascii, with the notice `-format psfbin: psfascii is written`. `-format nutascii` and `-format nutbin` write
+one SPICE rawfile at the results path instead, with no `logFile` and no sweep parents: one plot per analysis
+and sweep point, named after its PSF description.
+
+```
+$ spectre -format nutascii -raw rc.nut rc.scs
+...
+$ head -14 rc.nut
+Title: // RC Low-Pass Filter
+Date: Sat Oct 17 03:37:14 2026
+Plotname: DC Analysis `myop'
+Flags: real
+No. Variables: 3
+No. Points: 1                 
+Variables:
+	0	in	voltage
+	1	out	voltage
+	2	V1:p	current
+Values:
+0
+	0.000000000000000e+00
+	0.000000000000000e+00
+$ grep -e Plotname -e 'No. Points' rc.nut
+Plotname: DC Analysis `myop'
+No. Points: 1                 
+Plotname: AC Analysis `myac': freq = (1 Hz -> 1 MHz)
+No. Points: 61                
+Plotname: Transient Analysis `swp-000_tr': time = (0 s -> 5 ms)
+No. Points: 71                
+Plotname: Transient Analysis `swp-001_tr': time = (0 s -> 5 ms)
+No. Points: 71                
+```
+
+Without `-raw` the file is `rc.raw`; when `rc.raw` is the directory of an earlier PSF run, the file goes into
+it as `rc.raw/rc.raw`, with the notice `/work/spectre/rc.raw is a directory: the nutascii results are written
+to /work/spectre/rc.raw/rc.raw (§8.5)`. ngspice loads either format; here the binary one, with this
+`meas.sp`:
+
+```spice
+* read a vamos nutmeg file
+.control
+load rc.bin
+setplot
+setplot tran1
+meas tran out5 find v(out) at=5m
+setplot ac1
+print out[0]
+quit
+.endc
+.end
+```
+
+```
+$ spectre -format nutbin -raw rc.bin rc.scs
+...
+$ ngspice meas.sp
+...
+Loading raw data file ("rc.bin") ...
+done.
+...
+List of plots available:
+
+Current tran2	// RC Low-Pass Filter (Transient Analysis `swp-001_tr': time = (0 s -> 5 ms))
+	tran1	// RC Low-Pass Filter (Transient Analysis `swp-000_tr': time = (0 s -> 5 ms))
+	ac1	// RC Low-Pass Filter (AC Analysis `myac': freq = (1 Hz -> 1 MHz))
+	op1	// RC Low-Pass Filter (DC Analysis `myop')
+	const	Constant values (constants)
+out5                =  9.817354e-01
+out[0] = 9.999605e-01,-6.28294e-03
+ngspice-45.2 done
+```
+
+**The log file.** `+log <file>` writes the screen's lines to a file as well, `=log <file>` to the file only,
+and `-log`, the default, to the screen only. The name takes percent codes, and a name without a `/` goes into
+`-outdir` when one is given (`spectre -outdir o +log run.log rc.scs` writes `o/run.log` and `o/rc.raw`):
+
+```
+$ spectre =log %C:r.%D.log rc.scs
+$ ls
+legacy.raw
+out
+rc.26-10-17.log
+rc.log
+rc.raw
+rc.scs
+$ tail -1 rc.26-10-17.log
+spectre completes with 0 errors, 0 warnings, and 0 notices
+```
+
+**State files.** `write="<file>"` on a `dc` or `tran` writes the analysis's first point to the file, and
+`writefinal="<file>"` its last. `readns="<file>"` reads a file as nodesets, and `readic="<file>"` (or `read=`)
+as initial conditions:
+
+```
+$ cat state.scs
+// state files: the operating point and the end of the tran
+simulator lang=spectre
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.1m rise=1u fall=1u width=10m period=20m
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=3k
+C1 (out 0) capacitor c=1u
+op1 dc write="op1.ns"
+tr1 tran stop=1m writefinal="tr1.fin"
+$ spectre state.scs
+...
+$ cat op1.ns tr1.fin
+# State file generated by Spectre from circuit file 'state.scs'
+# during 'op1' at 3:39:13 AM, oct 17, 2026.
+in 0
+out 0
+V1:p 0
+# State file generated by Spectre from circuit file 'state.scs'
+# during 'tr1' at 3:39:13 AM, oct 17, 2026.
+in 1
+out 0.523987994943507
+V1:p -0.000476012005056493
+$ cat state2.scs
+// a tran that starts from the state the first run ended in
+simulator lang=spectre
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.1m rise=1u fall=1u width=10m period=20m
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=3k
+C1 (out 0) capacitor c=1u
+tr2 tran stop=1m readic="tr1.fin"
+$ spectre state2.scs
+...
+Warning from spectre during initial setup.
+    tr2 readic: 1 current entries of /work/spectre/tr1.fin not applied
+...
+spectre completes with 0 errors, 1 warnings, and 0 notices
+```
+
+`tr2` starts with `out` at 0.524 V. A state file's source currents (`V1:p`) are not applied: a warning for
+`readic`, a notice for `readns`. A relative name is relative to the current directory, or to `-outdir` when it
+has no `/` (`spectre -outdir st state.scs` writes `st/op1.ns`, `st/tr1.fin` and `st/state.raw`).
+
+**The run directory.** `--vamos-keep` keeps it after a successful run as well:
+
+```
+$ spectre --vamos-keep rc.scs
+...
+run directory kept: /work/spectre/rc.run.fmyqdqz9
+Aggregate audit (3:37:19 AM, Sat Oct 17, 2026):
+Time used: CPU = 0.84 s, elapsed = 0 s.
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ ls rc.run.*
+vacask.log
+vamos.sim
+vamos_a1.raw
+vamos_a2.raw
+vamos_a3.raw
+```
+
+`vamos.sim` is the VACASK deck vamos wrote, `vamos_a<k>.raw` the engine's rawfile of analysis k, and
+`vacask.log` VACASK's own output. A Xyce run directory holds one deck per analysis, `vamos_a<k>.cir`, with
+its print file `vamos_a<k>.raw` and its log `vamos_a<k>.log`, and `vamos_a1.norun.log`, Xyce's check
+(`Xyce -norun`) of the first deck:
+
+```
+$ spectre --vamos-keep --vamos-analog=xyce rc.scs
+...
+$ ls rc.run.*
+vamos_a1.cir
+vamos_a1.log
+vamos_a1.norun.log
+vamos_a1.raw
+vamos_a2.cir
+vamos_a2.log
+vamos_a2.raw
+vamos_a3.cir
+vamos_a3.cir.res
+vamos_a3.log
+vamos_a3.raw
+```
+
+The sweep is one Xyce deck: `vamos_a3.cir` holds `.STEP rval LIST 1000.0 2000.0` and
+`.TRAN 5e-06 0.005 0.0 0.0001`. `--vamos-verbose` prints each engine command as it starts
+(`vamos: + cd /work/spectre/rc.run.crlpfhkh && /opt/build.VACASK/Release/simulator/vacask vamos.sim`).
+
+### How a run ends
+
+| exit status | when | the last line |
+|---|---|---|
+| 0 | every analysis ran and wrote its results, notes and warnings allowed | `spectre completes with 0 errors, M warnings, and K notices`, after the aggregate audit |
+| 1 | an analysis or a sweep point failed in the engine; the other analyses ran and were written | `spectre completes with N errors, M warnings, and K notices`, after the aggregate audit |
+| 2 | vamos stopped the run: a usage, netlist or setup error, a construct v1 refuses, a `--vamos-strict` failure, a missing netlist or tool, an engine error, an internal error | `spectre terminated prematurely due to fatal error.` |
+| 3 | a signal stopped it: SIGINT (Ctrl-C), SIGTERM, SIGHUP or SIGQUIT | `spectre terminated prematurely due to fatal error.` |
+
+The last line names the program you ran (The names, above). Status 1 means what it means to Spectre, an
+analysis stopped by an error; every problem vamos finds itself is 2, so that it never looks like a partial
+result. After every status the analyses that finished are written and listed in `logFile`. The run directory
+is kept after status 1, 2 or 3 (`run directory kept: <dir>`), unless it is empty.
+
+An analysis that fails:
+
+```
+$ cat fail.scs
+// one analysis fails: at gain 1 the vcvs makes op2 singular
+simulator lang=spectre
+parameters g=0.5
+V1 (in 0) vsource dc=1 mag=1
+R1 (in a) resistor r=1k
+C1 (a 0) capacitor c=1n
+E1 (out 0 out a) vcvs gain=g
+R2 (out 0) resistor r=1k
+op1 dc
+bad alter param=g value=1
+op2 dc
+good alter param=g value=2
+op3 dc
+ac1 ac start=1k stop=1M dec=1
+save out a
+$ spectre fail.scs
+...
+*****************
+DC Analysis `op1'
+*****************
+Total time required for dc analysis `op1' was 0.00 s.
+
+*****************
+DC Analysis `op2'
+*****************
+Error from spectre during DC analysis `op2'.
+    Factorization failed, size=5, rank=1, zero pivot @ node 'out'.
+    Leaving core NR loop in iteration 1.
+    Homotopy failed, 12 step(s) tried.
+    Analysis `op2' aborted.
+    vamos: analysis `op2' failed: its rawfile's No. Points: is blank (0 rows written)
+Total time required for dc analysis `op2' was 0.00 s.
+
+*****************
+DC Analysis `op3'
+*****************
+Total time required for dc analysis `op3' was 0.00 s.
+
+******************************************
+AC Analysis `ac1': freq = (1 kHz -> 1 MHz)
+******************************************
+Total time required for ac analysis `ac1' was 0.00 s.
+
+run directory kept: /work/spectre/fail.run.5ls8dc6i
+Aggregate audit (3:39:00 AM, Sat Oct 17, 2026):
+Time used: CPU = 0.76 s, elapsed = 0 s.
+spectre completes with 1 errors, 0 warnings, and 0 notices
+$ echo $?
+1
+$ ls fail.raw
+ac1.ac
+logFile
+op1.dc
+op3.dc
+```
+
+The error block holds VACASK's own messages. `op2` has no file and no `logFile` entry, and the analyses after
+it ran. On Xyce the block reads `` analysis `op2' failed in Xyce (exit status 1; Xyce wrote no vamos_a2.raw):
+Netlist warning: Numerically singular matrix found by Amesos, returning zero solution to nonlinear solver!;
+Failed DC sweep steps: DC Step # 1 ``. When a sweep point fails, the points before it are written and the
+parent lists only those; VACASK's run adds the warning `` sweep `sw' of analysis `op1' failed at point 2 of
+3: the results of point 1 are written, the later points have none ``.
+
+An error in the netlist stops the run before any analysis, and leaves no results and no run directory:
+
+```
+$ cat typo.scs
+// a typo: R1's terminal list is not closed
+simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a 0 resistor r=1k
+op1 dc
+$ spectre typo.scs
+vamos 0.1.0 (spectre personality) - tools used:
+  vamos      git-<commit>         GPL-3.0-or-later           /usr/local/src/sv2ghdl/bin/vamos
+  VACASK     0.3.4-91-g64489cf7   AGPL-3.0-only              /opt/build.VACASK/Release/simulator/vacask
+  OpenVAF-r  20260616-3-g0e83f1ed GPL-3.0-only               /opt/openvaf-r-20260616/openvaf-r
+Simulating `typo.scs' on myhost at 3:39:03 AM, Sat Oct 17, 2026.
+
+Error from spectre during circuit read-in.
+    /work/spectre/typo.scs:4: unclosed '('
+spectre terminated prematurely due to fatal error.
+$ echo $?
+2
+```
+
+**Stopping a run.** Ctrl-C (SIGINT), SIGTERM, SIGHUP or SIGQUIT stops the engine. vamos then writes the
+analyses that finished and, from the engine's partial output, the one it interrupted, which a warning names,
+and exits 3. `long.scs` runs a 10 s transient; a Ctrl-C (here `kill -INT` of vamos from another shell, 3 s
+after the start) gives:
+
+```
+$ cat long.scs
+// a long transient: 10 s of a 1 kHz sine through an RC
+simulator lang=spectre
+V1 (in 0) vsource type=sine ampl=1 freq=1k
+R1 (in out) resistor r=1k
+C1 (out 0) capacitor c=100n
+op1 dc
+tr1 tran stop=10 maxstep=10u
+save out
+$ spectre long.scs
+...
+**********************************************
+Transient Analysis `tr1': time = (0 s -> 10 s)
+**********************************************
+Warning from spectre during transient analysis `tr1'.
+    analysis `tr1' was interrupted at time = 9.02125 s (vamos got SIGINT and stopped VACASK); its partial results are written
+Total time required for tran analysis `tr1' was 1.57 s.
+
+run directory kept: /work/spectre/long.run.5jr3soq4
+spectre terminated prematurely due to fatal error.
+$ echo $?
+3
+$ ls long.raw
+logFile
+op1.dc
+tr1.tran.tran
+```
+
+`tr1.tran.tran` holds the points up to the time the warning names, and `logFile` lists it. On Xyce the
+warning reads `` analysis `tr1' was interrupted at time = 1.66064 s (SIGINT); its partial results
+(vamos_a2.raw) are written, and the analyses after it are not run ``. Where `./simv` exits 130 after a Ctrl-C
+(§5), spectre exits 3, Spectre's status. Writing a long transient takes a while; a Ctrl-C while vamos writes
+the results stops the writing, keeps the analyses already written (`the conversion was stopped by SIGINT: the
+analyses converted before it are written and listed in logFile (§2.7)`), and exits 3 as well. Ctrl-Z
+suspends vamos and the engine together, and `fg` resumes both. A run started in the background of a script
+(`spectre x.scs &`) has SIGINT ignored, as the shell sets it up; stop it with SIGTERM (`kill <pid>`), which
+also ends it with status 3.
+
+SIGUSR1 prints a status line, and the run goes on (here `kill -USR1`, 1.5 s after the start of `short.scs`,
+`long.scs` with a 1 s transient):
+
+```
+$ spectre short.scs
+...
+*********************************************
+Transient Analysis `tr1': time = (0 s -> 1 s)
+*********************************************
+spectre status: analysis `tr1' running, time = 778.051 ms of 1 s (78 %), 77810 points written, elapsed = 1 s.
+Total time required for tran analysis `tr1' was 0.19 s.
+
+Aggregate audit (3:39:11 AM, Sat Oct 17, 2026):
+Time used: CPU = 2.68 s, elapsed = 1 s.
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ echo $?
+0
+```
+
+SIGUSR2 prints the notice `SIGUSR2: checkpoint not supported`, and the run goes on.
 
 ### The defaults variable
 
@@ -1216,3 +1858,41 @@ profile or, for a missing key, an invalid template (which also gets one notice) 
 from vamos's built-in text, so a script that greps the last line always finds it. `none` drops only
 `run_start`, `inventory`, `analysis_banner`, `analysis_done` and `audit`. No key holds licence or copyright
 text, and no key holds a PSF format field.
+
+### Troubleshooting
+
+Every message is a Spectre message block, `Error from spectre during <phase>.` (or `Warning from`, `Notice
+from`) followed by the indented text; the table gives the text. A message from the netlist starts with its
+file and line. A construct that v1 does not run is an error that names it, with exit status 2
+(docs/VAMOS_SPECTRE_DESIGN.md §0 lists them).
+
+| message | cause and fix |
+|---|---|
+| `nosuch.scs: netlist nosuch.scs not found` (exit 2) | the netlist path, relative to the current directory. With no netlist argument, spectre reads standard input |
+| `<file>:<line>: unclosed '('` and the other netlist errors (exit 2) | a netlist error at that line; no analysis runs (How a run ends) |
+| `<file>:<line>: CPP directive without -E: #include is not processed (give -E, or -D/-U/-I without -disableCPP)` (exit 2) | a `#include`, `#define` or `#if` line needs the C preprocessor: give `-E` |
+| `VAMOS_CPP=/nonexistent: no such file (it must name the real cpp)` (exit 2) | the C preprocessor's override names no tool; fix it, or unset it to use the `cpp` on PATH |
+| `VAMOS_VACASK=/nonexistent is not an executable` (exit 2), also for `VAMOS_OPENVAF` and `VAMOS_XYCE` | an engine override names nothing usable; fix or unset it (§7) |
+| `unknown option -bogus ignored` (warning) | not a Spectre option. Under `--vamos-strict` the run stops: `--vamos-strict: 1 unsupported/unknown option(s): -bogus` (exit 2) |
+| `+top tb: exposing a subcircuit's contents at the top level is not supported`, `-format uwi: the user-defined output format is not supported` (exit 2) | two of the three option errors (Options, above); remove the option |
+| `xf xf1: xf is not available on Xyce (§3.11); use --vamos-analog=vacask` (exit 2) | `xf` runs on VACASK only |
+| `X1: Verilog-A parameters (r) on Xyce: PyMS ignores parameter overrides, so they are not supported (VACASK honours them)` (exit 2) | a Verilog-A instance with parameters on Xyce, given on the instance (`X1 (a b) vres r=500`) or by its model card (`model rva vres r=500`): Xyce's Verilog-A route (PyMS) ignores them. Use VACASK |
+| `nodes A and a differ only in case; Xyce would merge them` (exit 2) | Spectre names are case-sensitive and Xyce's are not. Rename one of them, or use VACASK |
+| `` analysis `nz1': noise nz1: the output across two nodes (a, b) is not supported on Xyce in v1 (Xyce aborts on .NOISE V(a,b)); VACASK runs it `` (exit 2) | a noise output whose second node is not ground, on Xyce. Use VACASK |
+| `X1: subckt bias has no ports: on Xyce the instances of a portless subckt share its internal nodes; not supported in v1 on Xyce (VACASK runs it)` (exit 2) | an instance of a subckt without ports, on Xyce. Use VACASK |
+| `option reltol=0.001 is not mapped on Xyce: ...` (also `vabstol`, `iabstol`), `tran tr: Xyce takes the method (traponly) only; ...`, `` nz1: noise analysis `nz1' on Xyce: the per-instance STRUCTs carry only `total' (DNO), no contributions `` (notices) | information: Xyce's differences (Quick start, Choosing the engine) |
+| `<dir>/code/bsimcmg.va: openvaf-r failed (exit status 65):` followed by openvaf-r's errors, the first `error: unexpected token '(*'; expected ';'` at `` module bsimcmg(d, g, s, e) `attr(...) `` (exit 2) | a CMC Verilog-A model (the benchmark decks under xyce's `utils/ADMS/examples`, run as `spectre -I../code gummel_n.sp`) on VACASK: openvaf-r does not compile these trees yet (the design's phase 3 runs them on VACASK once it does) |
+| `` Xyce, the deck of analysis `srcSweep' (vamos_a1.cir): Netlist error in file vamos_a1.cir at or near line 9 Unrecognized parameter BULKMOD for device MX1 `` (also `Unrecognized fields for device MX1`) (exit 2) | the same CMC model on Xyce: Xyce's check of the first deck (`Xyce -norun`) rejects the model card's parameters on the Verilog-A device; v1 does not run Verilog-A model-card parameters on Xyce (docs/VAMOS_SPECTRE_DESIGN.md §0) |
+| `model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108; using it is an error` (a notice at the card), then `X1: model nmos1 is left out: ...` (exit 2) | the BSIM-CMG 108 and 110 benchmark cards name `bsimcmg`, while their `.hdl` files declare `bsimcmg_108` and `bsimcmg_110`, and v1 has no built-in `bsimcmg` (§0) |
+| `.alter is not supported (one simulation per run)` (exit 2) | SPICE mode: `.alter` is not in v1. Run each variant as a netlist of its own, or use the Spectre language's `alter` |
+| `.print ids=par'-i(vdrain)': an output expression is not written (§0)` (warning); `.hdl is read as ahdl_include`, `.option post ignored (output and listing control)`, `a SPICE-mode netlist saves allpub (...)` (notices) | a SPICE-mode netlist's output requests: the saved signals are written, output expressions are not |
+| `` Error from spectre during DC analysis `op2'. `` with the engine's messages (exit 1) | the engine could not solve the analysis; the other analyses ran (How a run ends) |
+| `` sweep `sw' of analysis `op1' failed at point 2 of 3: the results of point 1 are written, the later points have none `` (warning) | a sweep point failed (How a run ends) |
+| `` analysis `tr1' was interrupted at time = ... s (vamos got SIGINT and stopped VACASK); its partial results are written `` (warning, exit 3); `the conversion was stopped by SIGINT: ...` | a signal stopped the run (How a run ends) |
+| `run directory kept: <dir>` | after exit status 1, 2 or 3, or with `--vamos-keep`: the engine's decks, output and logs, for a look or a report. Remove it when done |
+| `<raw> is a directory: the nutascii results are written to <raw>/<netlist>.raw (§8.5)` (notice) | a nutmeg run whose results path is an earlier PSF run's directory; give `-raw` |
+| `op2 readns: 1 current entries of <file> not applied` (notice; a warning for `readic`) | a state file's source currents are not applied (Outputs) |
+| `internal error: <exception>: <text> (the traceback is in <file>)` (exit 2) | a bug in vamos. The traceback is in the run directory (`<dir>/vamos-spectre.traceback`, and the directory is kept), or, when the run stopped before it made one, in the `+log`/`=log` file, or else in a temporary file (`/tmp/vamos-spectre-<random>.traceback`). Report it with that file |
+
+To see what vamos runs, add `--vamos-verbose`; `--vamos-keep` keeps the run directory, with the decks the
+engine ran.

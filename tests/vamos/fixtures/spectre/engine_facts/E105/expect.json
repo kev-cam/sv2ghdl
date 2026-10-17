@@ -1,0 +1,45 @@
+{
+ "row": "E105",
+ "experiment": "the XDM diode clipper under tran_lteimplicit=0 (phase 1b): vamos's VACASK and Xyce renders of xdm/DIODE_CLIPPER/diodeClipper.cir.spectre (tran stop=2m, maxstep T/50 = 40 us)",
+ "result": "VACASK keeps its 40 us maxstep across the clamp knee (points at 1.5144, 1.5544, 1.5944 ms; 70 points) where Xyce refines to 0.84 us steps (208 points): at VACASK's 1.5544 ms point N03179 is -0.86156 V against Xyce's -0.53851 V interpolated there, 5.78 % of full scale (5.587 V), 1 of 70 points; the other points are within 0.48 % (N03179; N03334: 7.24 % at the knee, 0.62 % elsewhere)",
+ "rules": [
+  "\u00a75.4 / \u00a714 q.22: VACASK's tran_lteimplicit=0 for every errpreset keeps the maxstep across a knee",
+  "\u00a711.3 T3a's outlier rule (\u00a714 q.55): a knee the engines step differently"
+ ],
+ "runs": [
+  {
+   "name": "vacask_clipper",
+   "tool": "vacask",
+   "deck": "clip.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vamos_a1.raw",
+     "col": "N03179",
+     "at": 0.00155441549,
+     "value": -0.86156123,
+     "rel": 0.01
+    }
+   ]
+  },
+  {
+   "name": "xyce_clipper",
+   "tool": "xyce",
+   "deck": "clip.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vamos_a1.raw",
+     "col": "V(N03179)",
+     "at": 0.00155441549,
+     "value": -0.538508159,
+     "rel": 0.01
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos's renders of tests/vamos/fixtures/spectre/xdm/DIODE_CLIPPER/diodeClipper.cir.spectre with D1N3940.scs (Xyce_Regression d4685581, GPL-3.0-or-later) through spectre.parse -> plan.build -> signals.resolve -> render, the VACASK rawfile ascii; after S6's sp1/S6/wsl_clip.sh"
+ ]
+}

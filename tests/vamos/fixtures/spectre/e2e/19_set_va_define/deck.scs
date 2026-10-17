@@ -1,0 +1,11 @@
+// e2e 19: set reltol= between analyses (sec. 5.3), and -va,define for an ahdl_include'd module (sec. 2.3)
+simulator lang=spectre
+ahdl_include "vdef.va"
+V1 (in 0) vsource dc=1
+R1 (in out) resistor r=1k
+X1 (out 0) vdef
+op1 dc
+tight set reltol=1e-4
+op2 dc
+tr1 tran stop=1u errpreset=conservative
+save out

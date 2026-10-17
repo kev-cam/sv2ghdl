@@ -41,7 +41,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 from vamos.netlist import plan as PL
 from vamos.netlist import tables as T
 from vamos.netlist.expr_ast import Num, Str
-from vamos.netlist.ir import Analysis, Instance, Netlist, SaveSpec, Source, Subckt, flat_analyses
+from vamos.netlist.ir import Analysis, Cond, Instance, Netlist, SaveSpec, Source, Subckt, flat_analyses
 from vamos.netlist.plan import AnalysisStep, RunPlan
 from vamos.notes import ERROR, NOTE, WARNING, Note
 
@@ -122,6 +122,20 @@ def _text(v: object) -> Optional[str]:
     return None
 
 
+def is_no(v: object) -> bool:
+    """isnoisy=no as the parser may spell it, read as the emitters read it (vacask._is_no, xyce._is_no):
+    Str or Name no|false|0, or the number 0 (phase 2: isnoisy=0 was a G form on Xyce and not here)."""
+    if isinstance(v, Num):
+        return v.value == 0.0
+    if isinstance(v, Str):
+        text = v.text
+    elif isinstance(v, str):
+        text = v
+    else:
+        text = getattr(v, "name", None)                # a Name
+    return isinstance(text, str) and text.lower() in ("no", "false", "0")
+
+
 def _value(v: object) -> Optional[float]:
     if isinstance(v, Num):
         return float(v.value)
@@ -140,6 +154,24 @@ def _is_vamos(name: str) -> bool:
     return name.rsplit(".", 1)[-1].startswith("vamos_")
 
 
+def _container_of(items: List[object], target: object) -> Optional[List[object]]:
+    """The item list that holds target (by identity): items itself or a branch or default of a Cond
+    in it, recursively; None when it is not there."""
+    for it in items:
+        if it is target:
+            return items
+    for it in items:
+        if isinstance(it, Cond):
+            for _cond, body in it.branches:
+                found = _container_of(body, target)
+                if found is not None:
+                    return found
+            found = _container_of(it.default, target)
+            if found is not None:
+                return found
+    return None
+
+
 class _Flat:
     """The flattened IR of the render copy, with the probe insertion (§6.3)."""
 
@@ -154,8 +186,9 @@ class _Flat:
         self.globals = set(nl.globals)
         self.probes: Dict[Tuple[int, int], str] = {}      # (id(instance), terminal) -> probe name
         self.n_probe = 0
-        # §6.3: VACASK's ac and acxf save no resistor current (p(r, i) is an op/dc/tran opvar), so a
-        # resistor terminal saved for a run with such a step gets the generic probe on VACASK
+        # §6.3: VACASK's ac and acxf save no resistor current (p(r, i) is an op/dc/tran opvar), and Xyce's
+        # .PRINT AC prints no I(R) (phase 2), so a resistor terminal saved for a run with such a step gets
+        # the generic probe on both engines
         self.small_signal = any(a.op == "analysis" and a.step is not None and a.step.kind in ("ac", "xf")
                                 for a in plan.actions)
         self._build()
@@ -287,11 +320,14 @@ class _Flat:
                                        "is not written" % ent.spectre))
                 return None
             if idx == 0:
-                noisy_off = (_text(it.params.get("isnoisy")) or "").lower() == "no"
+                noisy_off = is_no(it.params.get("isnoisy"))
                 has_tc = any(k in it.params for k in ("tc1", "tc2"))
                 short = isinstance(v, Num) and v.value == 0
                 g_form = self.plan.engine == "xyce" and noisy_off and not has_tc and not short
-                no_ac_opvar = self.plan.engine == "vacask" and self.small_signal and not short
+                # VACASK has no dv/di of a resistor (its r=0 short is a 0 V source, which has them); Xyce's
+                # .PRINT AC cannot print I(R) either ("Function or variable I(R1) is not defined", rc 1,
+                # measured on DEVELOPMENT-202610100047 in phase 2), R=0 included
+                no_ac_opvar = self.small_signal and (self.plan.engine == "xyce" or not short)
                 if not g_form and not no_ac_opvar:
                     return ("i", ent.path)
         return self.probe(ent, idx)
@@ -307,8 +343,12 @@ class _Flat:
             new_node = "%s%d" % (PROBE_NODE_PREFIX, self.n_probe)
             orig = it.nodes[idx]
             it.nodes[idx] = new_node
-            ent.at.body.append(Instance(name, "v", [orig, new_node], source=Source(dc=Num(0.0)),
-                                        origin=it.origin, prim="vsource"))
+            # the probe goes where its instance is: inside the same if/else branch of an inline subckt, so
+            # a variant that does not hold the instance prints no dangling probe (phase 2's integration,
+            # X's seam: Xyce warned "connected to only 1 device Terminal" for every other branch)
+            where = _container_of(ent.at.body, it)
+            (where if where is not None else ent.at.body).append(
+                Instance(name, "v", [orig, new_node], source=Source(dc=Num(0.0)), origin=it.origin, prim="vsource"))
             self.probes[key] = name
         prefix = ent.at.path + "." if ent.at.path else ""
         return ("i", prefix + name)
@@ -570,7 +610,7 @@ def _is_noisy(ent: _Inst) -> bool:
         v = it.value
         if isinstance(v, Num) and (v.value == 0 or math.isinf(v.value)):
             return False
-        if (_text(it.params.get("isnoisy")) or "").lower() == "no":
+        if is_no(it.params.get("isnoisy")):
             return False
     return True
 
@@ -607,7 +647,7 @@ def _noise_signals(flat: _Flat, step: AnalysisStep, types: Dict[str, str]) -> Li
             out.append((("noise", ent.path), ent.spectre, types[ent.path], "n"))
     out.append((("onoise",), "out", PSF_V_NOISE, "n"))
     inp = step.noise_input
-    if inp and not inp.startswith("vamos_nin"):
+    if inp and not is_vamos_input(inp):
         ent = flat.lookup(inp)
         isrc = ent is not None and ent.inst.kind == "i"
         out.append((("gain",), "gain", PSF_GAIN_VA if isrc else PSF_GAIN_VV, "n"))
@@ -682,9 +722,18 @@ def _insert_noise_input(flat: _Flat, step: AnalysisStep, notes: List[Note]) -> N
             return
         where = p
         local.append(name)
+    base = (step.noise_input or "vamos_nin").rsplit(".", 1)[-1]
     body = (where or flat.by_path[""]).body
-    body.append(Instance(step.noise_input or "vamos_nin", "i", local, source=Source(dc=Num(0.0)), origin=a.origin,
-                         prim="isource"))
+    body.append(Instance(base, "i", local, source=Source(dc=Num(0.0)), origin=a.origin, prim="isource"))
+    # placed inside a subckt body, the input is that path's instance: the step names it by its IR path,
+    # which render prints (VACASK in="I2:vamos_nin1"; Xyce AC 1 0 in the body, .NOISE naming XI2:VAMOS_NIN1,
+    # under §5.3's one-path rule); phase 2's integration (H's seam)
+    step.noise_input = ("%s.%s" % (where.path, base)) if where is not None and where.path else base
+
+
+def is_vamos_input(name: str) -> bool:
+    """Whether a step's noise input is §5.6's vamos_nin<k> (at the top level or on a subckt path)."""
+    return name.rsplit(".", 1)[-1].startswith("vamos_nin")
 
 
 # -- ic, nodeset and state files (§3.10, §8.6) ----------------------------------------------------------
@@ -758,7 +807,7 @@ def resolve(nl: Netlist, plan: RunPlan) -> Tuple[Netlist, SignalMap, List[Note]]
             mode = "selected"
         nest = _nestlvl(step.args.get("nestlvl", options.get("nestlvl")))
         if step.kind == "noise":
-            if step.noise_input and step.noise_input.startswith("vamos_nin"):
+            if step.noise_input and is_vamos_input(step.noise_input):
                 _insert_noise_input(flat, step, notes)
             sigs = _noise_signals(flat, step, types)
         elif step.kind == "xf":

@@ -1,0 +1,32 @@
+XDM MULTIPLICITY rlc: the native currents of $mfactor=2 instances (R, L, C and in a subckt)
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+load "inductor.osdi"
+model vamos_resistor resistor
+model vamos_capacitor capacitor
+model vamos_vsource vsource
+model vamos_inductor inductor
+subckt RC_sub (in out)
+  parameters rval=1000.0
+  parameters cval=1e-06
+  parameters mval=1.0
+  R1 (in mid) vamos_resistor r=rval $mfactor=mval
+  C1 (mid out) vamos_capacitor c=cval $mfactor=mval
+ends
+L1 (net07 0) vamos_inductor l=0.002 $mfactor=2.0
+L0 (net2 0) vamos_inductor l=0.001
+C1 (net011 net07) vamos_capacitor c=5e-07 $mfactor=2.0
+C0 (net4 net2) vamos_capacitor c=1e-06
+R1 (net018 net011) vamos_resistor r=2000.0 $mfactor=2.0
+R0 (net7 net4) vamos_resistor r=1000.0
+V1 (net018 0) vamos_vsource type="sine" sinedc=0.0 ampl=2.0 freq=10.0
+V0 (net7 0) vamos_vsource type="sine" sinedc=0.0 ampl=2.0 freq=10.0
+L2 (net6 0) vamos_inductor l=0.002 $mfactor=2.0
+X1 (net5 net6) RC_sub rval=2000.0 cval=5e-07 mval=2.0
+V2 (net5 0) vamos_vsource type="sine" sinedc=0.0 ampl=2.0 freq=10.0
+control
+  options rawfile="ascii"
+  save p(R1, i) p(R0, i) p('X1:R1', i) i(L1) i(L0) i(L2) i(V1) i(V0) i(V2)
+  analysis tr tran step=0.0001 stop=0.1 maxstep=0.002
+endc

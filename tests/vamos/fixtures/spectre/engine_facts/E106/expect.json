@@ -1,0 +1,82 @@
+{
+ "row": "E106",
+ "experiment": "Xyce's EXP source at td2 (XDM i_sources, v_sources, phase 1b): vamos's VACASK and Xyce renders of xdm/INDEPENDENT_SOURCES/{i,v}_sources.cir.spectre (tran stop=1m, maxstep 20 us; the exp source's td1=100u, td2=600u)",
+ "result": "Xyce places no time point at the exp source's td2 breakpoint (600 us): its points are 592 us and 603.06 us (i_sources), 592/595.2/601.6 us (v_sources), so its run interpolated there gives -946.68 V (V(NET08)) and 0.97077 V (V(NET1)) where VACASK's point at 600 us has the value -1000 V and 1 V: 5.33 % and 2.92 % of full scale, 1 of 71 points",
+ "rules": [
+  "\u00a711.3 T3a's outlier rule (\u00a714 q.55): an isolated breakpoint the reference run did not sample"
+ ],
+ "runs": [
+  {
+   "name": "vacask_i_sources",
+   "tool": "vacask",
+   "deck": "isrc.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vamos_a1.raw",
+     "col": "net08",
+     "select": {
+      "col": "time",
+      "value": 0.0006,
+      "rel": 1e-09
+     },
+     "value": -1000.0,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "xyce_i_sources",
+   "tool": "xyce",
+   "deck": "isrc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vamos_a1.raw",
+     "col": "V(NET08)",
+     "at": 0.0006,
+     "value": -946.678925,
+     "rel": 0.01
+    }
+   ]
+  },
+  {
+   "name": "vacask_v_sources",
+   "tool": "vacask",
+   "deck": "vsrc.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vamos_a1.raw",
+     "col": "net1",
+     "select": {
+      "col": "time",
+      "value": 0.0006,
+      "rel": 1e-09
+     },
+     "value": 1.0,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "xyce_v_sources",
+   "tool": "xyce",
+   "deck": "vsrc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vamos_a1.raw",
+     "col": "V(NET1)",
+     "at": 0.0006,
+     "value": 0.970766845,
+     "rel": 0.01
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-16 (phase 2, owner H) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos's renders of tests/vamos/fixtures/spectre/xdm/INDEPENDENT_SOURCES/i_sources.cir.spectre and v_sources.cir.spectre (Xyce_Regression d4685581, GPL-3.0-or-later) through the chain, the VACASK rawfiles ascii"
+ ]
+}
