@@ -1,0 +1,7 @@
+* stepped sweep counts on Xyce: .DC DEC from 1 down to 1m, one point per decade (start > stop)
+V1 in 0 DC 0
+R1 in out 1000.0
+R2 out 0 1000.0
+.DC DEC V1 1 0.001 1
+.PRINT DC FORMAT=RAW FILE=dcdec.raw V(OUT)
+.end

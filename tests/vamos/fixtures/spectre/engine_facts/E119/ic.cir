@@ -1,0 +1,11 @@
+* the tran ic forcing (e2e 25 flattened) on Xyce: .IC V(MID)=0.3
+V0 net1 0 DC 1.0
+r3 net1 Mid 1000.0
+r4 Mid out 1000.0
+C0 Mid 0 1e-09
+R0 out 0 2000.0
+.options timeint method=TRAP
+.IC V(MID)=0.3
+.TRAN 5e-09 5e-06 0.0 1e-07
+.PRINT TRAN FORMAT=RAW FILE=ic.raw V(MID) V(OUT)
+.end

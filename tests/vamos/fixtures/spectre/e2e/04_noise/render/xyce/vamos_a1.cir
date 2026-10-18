@@ -10,5 +10,5 @@ r3 a 0 1000000000.0 m={vamos_mfactor}
 ivamos_nin2 out 0 DC 0.0
 .options device temp=27.0 tnom=27.0 gmin=1e-12
 .NOISE V(OUT) V1 DEC 1 1000.0 10000.0
-.PRINT NOISE FILE=vamos_a1.prn DNO(R1) DNO(R2) DNO(XI2:R3) ONOISE INOISE
+.PRINT NOISE FILE=vamos_a1.prn DNO(R1) DNO(R2) DNO(XI2:R3) ONOISE VM(OUT) INOISE
 .end

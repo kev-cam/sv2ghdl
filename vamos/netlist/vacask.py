@@ -108,7 +108,8 @@ Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, �
     sources a waveform source whose dc is given prints type="dc" dc=<dc> with its waveform fields
             (VACASK uses dc only under type="dc" [E17]); the plan switches the type around each tran
     r = 0   a 0 V vamos_vsource, a short whose flow is the resistor current [E22]
-    isnoisy=no   noisy=0 (resistor and sp_resistor)
+    isnoisy=no   noisy=0 (resistor and sp_resistor); a parameter (a word other than no/yes, which spectre.py
+            keeps as a Str, or an expression) prints as noisy=<it>, which VACASK evaluates per instance
     nested subckts   a definition nested in another that reads the enclosing parameters P is
             lifted to top level as <outer>__<name> with P as its own parameters; its X lines pass
             p=p for every p in P they do not override (VACASK resolves names in a nested definition
@@ -123,6 +124,12 @@ Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, �
             and restored after the analysis; sweep statements (context outermost first, then the
             step's own) around the analysis line vamos_a<k>; alter instance/model, options, var;
             the source-state alters with every field explicit [E37]
+    targets a sweep or alter of m is one of $mfactor (refused for a coupled inductor, whose multiplier
+            is folded into l, and inside a multiplied subckt instance, whose $mfactor the device's
+            carries); a controlled source's gain, gm or rm is VACASK's gain; a Verilog-A instance's
+            parameter is on its per-instance card, model="<inst>__va" (hierarchical inside a subckt:
+            model="X2:Y1__va"); a mod= target on a Verilog-A card names the cards of the instances
+            that read its value (the card's parameters are merged into its instances, §3.9)
 """
 
 from __future__ import annotations
@@ -179,6 +186,9 @@ SOURCE_FIELDS: Dict[str, str] = {
     "width": "width", "period": "period", "sinedc": "sinedc", "ampl": "ampl", "freq": "freq",
     "damp": "theta", "sinephase": "tdphase", "mag": "mag", "phase": "phase", "tau1": "tau1", "tau2": "tau2",
 }
+# The Spectre name of a controlled source's gain (ref5 pp.681, 679, 289, 286; the IR holds it in
+# Instance.value): VACASK's vcvs, vccs, ccvs and cccs all call it gain (dev-builtin-*.md).
+_GAIN_PARAM = {"e": "gain", "g": "gm", "h": "rm", "f": "gain"}
 # The global options of a plan's options action, in the order the control block prints them
 # (Spectre's keys; tables.SPECTRE_OPTIONS["vacask"] spells VACASK's).
 _OPTION_ORDER = ("temp", "tnom", "reltol", "vabstol", "iabstol", "chargeabstol", "gmin")
@@ -242,6 +252,7 @@ class _Deck:
         self.iparams: Dict[int, Dict[str, Expr]] = {}   # instance id -> parameters after the Spectre rules
         self.lifted: Dict[int, Tuple[str, List[str]]] = {}   # id(nested subckt) -> (lifted name, enclosing params)
         self.lift_queue: List[Tuple[Subckt, T.Scope]] = []
+        self.va_cards: Dict[int, str] = {}        # id(Verilog-A instance) -> its per-instance card (i_y)
         self.variables: Dict[str, float] = dict(plan.variables) if plan is not None else {}
         for items in [nl.body] + [s.body for s in T.all_subckts(nl)]:
             for it in flat_items(items):          # X lines inside Cond branches too (§4.5 item 1)
@@ -688,8 +699,13 @@ class _Deck:
             noisy = params_in.get("isnoisy")
             if noisy is not None:
                 skip = skip + ("isnoisy",)
-                if _is_no(noisy):
+                switch = _noise_switch(noisy)
+                if switch is True:
                     tail.append("noisy=0")              # §4.5 item 7: resistor and sp_resistor
+                elif switch is not False:
+                    # a parameter (isnoisy=nflag, a subckt's nz): VACASK evaluates noisy= per instance, a real
+                    # 0.0 into the integer noisy turning the noise off (raw VACASK, R-emit-6)
+                    tail.append("noisy=" + self.pv(switch, inst.origin, "isnoisy of " + inst.name))
         if k == "l" and inst.name in scope.coupled:
             # a coupled inductor's multiplier and TCs are folded into its value (tables.coupled_inductance)
             card = self.card(inst, scope) if inst.master is not None else None
@@ -897,6 +913,7 @@ class _Deck:
         # VA parameters are model parameters unless the module says otherwise:
         # one model card per instance, in the instance's scope (§4.4).
         card = _fresh("%s__va" % inst.name, self.taken)
+        self.va_cards[id(inst)] = card               # a sweep or alter of its parameters targets it (R-plan-4)
         params = self.plist(inst, element="y", scope=scope)
         if self.spectre:
             module = module.lower()                     # openvaf-r's OSDI module names are lower case (phase 2)
@@ -1198,10 +1215,19 @@ class _Deck:
                     state = "dc"                          # an alter of dc makes it given from then on
                 self.src_state[name] = state
                 return ['  alter instance("%s") %s' % (self.spath(name), " ".join(self.source_fields(inst.name, o, src, state)))]
-            pname = self.instance_param(inst, param)
+            card = self.va_card_target(inst, name, param)
+            if card is not None:                          # a Verilog-A parameter: on the instance's card (R-plan-4)
+                return ['  alter model("%s") %s=%s' % (card, param.lower(), self.setting_text(value, o, param))]
+            if self.spectre and inst.kind == "r" and param == "isnoisy":
+                # phase 2c2 (R-plan-19): VACASK's resistor and sp_resistor call the switch noisy, an integer
+                # ("Parameter 'isnoisy' not found" before); plan.build allows the four words and a number
+                return ['  alter instance("%s") noisy=%s' % (self.spath(name), _alter_noisy(value, name))]
+            pname = self.instance_param(inst, param, name)
             return ['  alter instance("%s") %s=%s' % (self.spath(name), pname, self.setting_text(value, o, param))]
         if kind == "model":
-            cards = self.model_names(name, o)
+            cards = self.model_names(name, o, param)
+            if not cards:
+                return []                                 # a Verilog-A card none of whose instances reads param
             pname = self.card_param(name, param)
             return ['  alter model(%s) %s=%s' % (", ".join('"%s"' % c for c in cards), pname,
                                                self.setting_text(value, o, param))]
@@ -1231,9 +1257,12 @@ class _Deck:
         self.src_state[path] = state
         return ['  alter instance("%s") %s' % (self.spath(path), " ".join(self.source_fields(inst.name, act.origin or "alter", src, state)))]
 
-    def instance_param(self, inst: Instance, param: str) -> str:
+    def instance_param(self, inst: Instance, param: str, path: str = "") -> str:
         """The VACASK spelling of an instance parameter a sweep or alter targets (the master's instance
-        renames; a source field through SOURCE_FIELDS)."""
+        renames; a source field through SOURCE_FIELDS; the multiplier m as $mfactor and a controlled
+        source's gain, gm or rm as gain, R-plan-4).  path: the instance's IR path (its name by default)."""
+        if self.spectre and param == "m":
+            return self.mfactor_param(inst, path or inst.name)
         if inst.kind in ("v", "i"):
             if param in SOURCE_FIELDS:
                 return SOURCE_FIELDS[param]
@@ -1241,22 +1270,120 @@ class _Deck:
                                "deck prints a derived value for it)" % (inst.name, inst.prim or inst.kind, param))
         if not self.spectre:
             return param
+        if param == _GAIN_PARAM.get(inst.kind):
+            return "gain"           # VACASK's vcvs/vccs/ccvs/cccs gain (dev-builtin-*.md): `'gm' ... not found' before
+        if inst.kind == "k" and param == "coupling":
+            return "k"              # VACASK's mutual k (dev-builtin-mutual.md; phase 2c2: 'coupling' was not found)
+        if inst.kind == "l" and param in ("l", "tc1", "tc2", "dtemp") and self.coupled_fold(inst, path or inst.name):
+            raise T.TableError("%s: a coupled inductor's multiplier and TCs are folded into its l on VACASK "
+                               "(tables.coupled_inductance): setting %s would drop the fold; a sweep or alter of it "
+                               "is not supported in v1" % (path or inst.name, param))
         scope = T.Scope(self.nl.body)
         card = scope.model(inst.master) if inst.kind in T.MODEL_KINDS_OF and inst.master else None
         master = T.spectre_master_of(inst, card)
         return _renamed(T.SPECTRE_MASTERS[master].instance if master in T.SPECTRE_MASTERS else (), param, ENGINE)
+
+    def mfactor_param(self, inst: Instance, path: str) -> str:
+        """The multiplier of an instance as a sweep or alter targets it (R-plan-4): VACASK's $mfactor, which
+        `parameter 'm' ... not found' asked for (raw VACASK swept and altered it on a resistor, a subckt
+        instance and an isource, X-emit 2c).  Inside a multiplied subckt instance the device's $mfactor also
+        carries the enclosing multiplier ($mfactor=$mfactor*m, §4.3.7), and a coupled inductor's is folded
+        into its l (tables.coupled_inductance): an error there in v1."""
+        if T.MULT[ENGINE].get(inst.kind) != "param":
+            raise T.TableError("%s: the multiplier of a %s is not a device parameter on VACASK (folded into the "
+                               "element, or without effect); a sweep or alter of m is not supported in v1"
+                               % (path, T.ELEMENT_NAME.get(inst.kind, inst.kind)))
+        scope, chain = _path_chain(self.nl, path)
+        if inst.kind == "l" and scope is not None and inst.name in scope.coupled:
+            raise T.TableError("%s: the multiplier of a coupled inductor is folded into its l on VACASK "
+                               "(tables.coupled_inductance); a sweep or alter of m is not supported in v1" % path)
+        for x in chain:
+            if "m" in x.params:
+                raise T.TableError("%s: VACASK sets the device's $mfactor, which also carries the multiplier of the "
+                                   "enclosing instance %s (m=%s): a sweep or alter of its m is not supported on "
+                                   "VACASK in v1 (Xyce runs it)" % (path, x.name, X.to_text(x.params["m"])))
+        return "$mfactor"
+
+    def coupled_fold(self, inst: Instance, path: str) -> bool:
+        """A coupled inductor printed with its multiplier and TCs folded into l (rcl, tables.coupled_inductance:
+        a multiplier of its own or of an enclosing subckt instance, or tc1/tc2): a sweep of its l at the nominal
+        gave another response than the analysis at the nominal on both engines (X-emit 2c)."""
+        if inst.kind != "l":
+            return False
+        scope, _chain = _path_chain(self.nl, path)
+        if scope is None or inst.name not in scope.coupled:
+            return False
+        return (T.multiplier(self.params_of(inst, scope).get("m"), scope.in_subckt, ENGINE) is not None
+                or any(k in inst.params for k in ("tc1", "tc2")))
+
+    def va_card_target(self, inst: Instance, path: str, param: str) -> Optional[str]:
+        """The deck name of the per-instance card (i_y, §4.4) that a sweep or alter of a Verilog-A instance's
+        parameter targets (R-plan-4): VACASK reported `parameter 'r' of instance 'X1' not found' for the
+        instance; raw VACASK swept model="X1__va" and, inside a subckt, the hierarchical model="X2:Y1__va" (the
+        local name is `model 'Y1__va' not found', X-emit 2c).  None for anything else, and for m (the
+        instance's $mfactor)."""
+        if not self.spectre or inst.kind != "y" or param == "m" or (inst.master or "") in T.VA_INSTANCE_MODULES:
+            return None
+        card = self.va_cards.get(id(inst))
+        if card is None:
+            raise T.TableError("%s: the Verilog-A instance is not printed in the deck" % path)
+        parent = path.rsplit(".", 1)[0] if "." in path else ""
+        return "%s:%s" % (parent.replace(".", ":"), card) if parent else card
+
+    def is_va_card(self, m: Model) -> bool:
+        return bool(m.prim) and m.prim.lower() in {k.lower() for k in self.nl.va_modules}
+
+    def va_card_cards(self, m: Model, param: str, origin: str) -> List[str]:
+        """The per-instance cards a mod= target on Verilog-A card m reaches (R-plan-4; `model 'm_vm' not found'
+        before, the card itself is never printed): spectre.parse merged the card's parameters into each of its
+        instances (§3.9), the same Expr objects, so an instance of m holds one of them; an instance whose own
+        value of param replaced the card's does not follow the card (Spectre's instance value wins).  The
+        instance paths are tables.path_envs' (the taken branches: a card in an untaken @if branch does not
+        exist at run time)."""
+        if not m.params:
+            raise T.TableError("%s: the instances of Verilog-A card %s cannot be told apart from those of another "
+                               "card of its module (it sets no parameter; §3.9 merges a card into its instances): a "
+                               "mod= target on it is not supported in v1 (target the instances with dev=)"
+                               % (origin, m.name))
+        want = param.lower()
+        mine = {k.lower(): v for k, v in m.params.items()}
+        try:
+            pes = list(T.path_envs(self.nl, strict=False, dialect=self.nl.dialect))
+        except (X.EvalError, T.TableError) as exc:
+            raise T.TableError("%s: the instances of Verilog-A card %s: %s" % (origin, m.name, exc))
+        out: List[str] = []
+        for pe in pes:
+            for it in pe.items:
+                if it.kind != "y" or (it.master or "").lower() != m.prim.lower() or id(it) not in self.va_cards:
+                    continue
+                own = {k.lower(): v for k, v in it.params.items()}       # the last spelling wins, as params_of's
+                if not any(own.get(k) is v for k, v in mine.items()):
+                    continue                                              # an instance of another card
+                if want in own and own[want] is not mine.get(want):
+                    continue                                              # its own value of param
+                path = it.name if not pe.path else pe.path + "." + it.name
+                card = self.va_card_target(it, path, param)
+                if card is not None and card not in out:
+                    out.append(card)
+        return out
 
     def card_param(self, card: str, param: str) -> str:
         m = self.nl.models().get(card)
         if m is None:
             bins = [b for b in _all_models(self.nl) if b.base == card]
             m = bins[0] if bins else None
+        if m is not None and self.spectre and self.is_va_card(m):
+            return param.lower()                     # openvaf-r's OSDI names (§4.5 item 12)
         if m is None or not self.spectre or m.prim not in T.SPECTRE_MASTERS:
             return param
         return _renamed(T.SPECTRE_MASTERS[m.prim].params, param, ENGINE)
 
-    def model_names(self, name: str, origin: str) -> List[str]:
-        """The deck names of a card, or of every entry of a model group (§5.3)."""
+    def model_names(self, name: str, origin: str, param: Optional[str] = None) -> List[str]:
+        """The deck names of a card, or of every entry of a model group (§5.3); for a Verilog-A card the
+        per-instance cards of the instances that read its value of param (va_card_cards)."""
+        m = self.nl.models().get(name)
+        if m is not None and param is not None and self.spectre and self.is_va_card(m):
+            return self.va_card_cards(m, param, origin)
         if name in self.mname:
             return [self.mname[name]]
         bins = [b for b in _all_models(self.nl) if b.base == name]
@@ -1401,9 +1528,18 @@ class _Deck:
             inst = _resolve(self.nl, name)
             if inst is None:
                 raise T.TableError("sweep %s: no instance %s" % (lv.id, name))
-            target = 'instance="%s" parameter="%s"' % (self.spath(name), self.instance_param(inst, param))
+            card = self.va_card_target(inst, name, param)
+            if card is not None:                          # a Verilog-A parameter: on the instance's card (R-plan-4)
+                target = 'model="%s" parameter="%s"' % (card, param.lower())
+            else:
+                target = 'instance="%s" parameter="%s"' % (self.spath(name), self.instance_param(inst, param, name))
         elif kind == "model":
-            cards = self.model_names(name, lv.id)
+            cards = self.model_names(name, lv.id, param)
+            m = self.nl.models().get(name)
+            if len(cards) != 1 and m is not None and self.spectre and self.is_va_card(m):
+                raise T.TableError("sweep %s: Verilog-A card %s has %d instances that read its %s on VACASK, one card "
+                                   "each (§4.4), and a VACASK sweep names one model: not supported in v1 (sweep an "
+                                   "instance with dev=, or alter the card)" % (lv.id, name, len(cards), param))
             if len(cards) != 1:
                 raise T.TableError("sweep %s: a model group (%s) cannot be swept on VACASK in v1" % (lv.id, name))
             target = 'model="%s" parameter="%s"' % (cards[0], self.card_param(name, param))
@@ -1525,12 +1661,43 @@ class _Skip(Exception):
     """An element whose error is already recorded; the walk moves on."""
 
 
-def _is_no(v: Expr) -> bool:
-    """isnoisy=no, as the parser may spell it: Str/Name no|false|0, or the number 0."""
+def _noise_switch(v: Expr):
+    """A resistor's isnoisy (§4.5 item 7, R-emit-6): True when it is off (the words no and false, any case, or
+    the number 0), False when it is on (yes, true, another number), else the expression to print as noisy=:
+    spectre.py keeps a bare identifier written for isnoisy as a word (a Str, §4.1 item 11), so a word that is
+    none of the four names a parameter (Spectre numbers an enumeration's values from 0, UG p.81: isnoisy=no is
+    0, ref5 p.629)."""
     if isinstance(v, Num):
         return v.value == 0.0
-    text = v.text if isinstance(v, Str) else v.name if isinstance(v, Name) else ""
-    return text.lower() in ("no", "false", "0")
+    word = v.text if isinstance(v, Str) else v.name if isinstance(v, Name) else None
+    if word is None:
+        return v
+    low = word.strip().lower()
+    if low in ("no", "false"):
+        return True
+    if low in ("yes", "true"):
+        return False
+    try:
+        return float(low) == 0.0
+    except ValueError:
+        return Name(word.strip())
+
+
+def _alter_noisy(value: object, path: str) -> str:
+    """The noisy= of an alter of a resistor's isnoisy (phase 2c2, R-plan-19): 0 when the plan's value turns the
+    noise off (the words no and false, any case, or the number 0, as _noise_switch reads the instance's), else
+    1; TableError for a value that is neither (plan.build refuses it first)."""
+    if isinstance(value, bool):
+        return "0" if not value else "1"
+    if isinstance(value, (int, float)):
+        return "0" if float(value) == 0.0 else "1"
+    if isinstance(value, str):
+        switch = _noise_switch(Str(value))
+        if switch is True:
+            return "0"
+        if switch is False:
+            return "1"
+    raise T.TableError("%s: isnoisy=%s is not yes, no, true, false or a number" % (path, value))
 
 
 def _numv(e: object) -> float:
@@ -1628,6 +1795,24 @@ def _fresh(want: str, taken: set) -> str:
         cand = "%s_%d" % (want, k)
     taken.add(cand)
     return cand
+
+
+def _path_chain(nl: Netlist, target: str) -> Tuple[Optional[T.Scope], List[Instance]]:
+    """The scope of the body that holds the element a hierarchical name (x1.x2.v1) names, and the X
+    instances on its path (x1, x1.x2); (None, the instances found) when the path does not resolve."""
+    parts = target.split(".")
+    items: Sequence[object] = nl.body
+    scope = T.Scope(nl.body)
+    chain: List[Instance] = []
+    for part in parts[:-1]:
+        found = next((it for it in flat_items(items) if isinstance(it, Instance) and it.name == part), None)
+        sub = scope.find_subckt(found.master or "") if found is not None and found.kind == "x" else None
+        if sub is None:
+            return None, chain
+        chain.append(found)                                   # type: ignore[arg-type]
+        scope = T.Scope(sub.body, scope, sub)
+        items = sub.body
+    return scope, chain
 
 
 def _resolve(nl: Netlist, target: str) -> Optional[Instance]:

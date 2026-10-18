@@ -202,7 +202,7 @@
      "I2.r3": "DNO(XI2:R3)",
      "I2.r4": "DNO(XI2:R4)",
      "out": "ONOISE",
-     "gain": "INOISE",
+     "gain": "VM(OUT)",
      "in": "INOISE"
     },
     "signals": [

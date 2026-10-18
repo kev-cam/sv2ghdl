@@ -21,15 +21,25 @@ writes is checked by psfcheck.
   TestErrors            the exception mapping (§2.7): NoteError, ToolError, the engine choice, OSError,
                         an internal error and where its traceback goes
   TestInput             stdin, +log/=log, cpp, the duplicate option note (§14 q.54), the inventory
+  TestScreen            (phase 2c, D1) a screen that goes away (EPIPE, EIO, a closed stream, sys.stdout None):
+                        the run goes on without it, the +log file whole; the SIGUSR1 line on the screen
+                        under =log too (UG p.235)
   TestSignals           (POSIX, a child python running flow.run) INT TERM HUP QUIT before an engine runs,
                         while a fake engine runs and during the conversion; USR1 and USR2; an ignored
-                        signal stays ignored (§2.7)
+                        signal stays ignored (§2.7); phase 2c: the conversion answers a first stop signal
+                        and SIGUSR1 at once from inside the rows (D3), an engine ended from outside leaves
+                        the user's first signal a first one, a nutmeg file a second signal drops is named
+  TestStartAndEnd       (POSIX, phase 2c) a signal while vamos starts (before flow.run's handlers: cli.py's
+                        early ones) and after the trailer, a closed stdout at start, a SIGUSR1 flood
+                        through bin/vamos
   TestIntegration       (WSL, needs_vacask/needs_xyce) the real runners and engines through bin/vamos: §7.3's
                         example on both engines, SIGINT and SIGUSR1 during a long VACASK tran (released by
                         the integration stage)
 """
 
 import contextlib
+import dataclasses
+import errno
 import glob
 import io
 import itertools
@@ -42,16 +52,21 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
+from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
+from unittest import mock
 
 from vamos_testlib import LAUNCHER, ROOT, TempDir  # noqa: E402
 from spectre_testlib import needs_cpp, needs_vacask, needs_xyce, spectre_fixture  # noqa: E402
 
 import psfcheck  # noqa: E402
-from vamos import VERSION, proc, tools  # noqa: E402
+from vamos import VERSION, banner, proc, tools  # noqa: E402
+from vamos.ams import engines  # noqa: E402
+from vamos.notes import WARNING, Note  # noqa: E402
 from vamos.netlist import rawfile, vacask, xyce  # noqa: E402
 from vamos.output import statefile  # noqa: E402
 from vamos.personalities import spectre as personality  # noqa: E402
@@ -217,11 +232,12 @@ def vacask_layout(st, names: Dict[tuple, str], points: int = 11) -> Tuple[List[s
 
 def synth_runner(rc: int = 0, status: Optional[Dict[str, str]] = None, failed_points: Optional[Dict[str, int]] = None,
                  missing: Sequence[str] = (), calls: Optional[list] = None, truncate: Optional[Dict[str, int]] = None,
-                 hook=None, absent: Sequence[str] = ()):
+                 hook=None, absent: Sequence[str] = (), tran_points: int = 11):
     """A fake run_vacask.run: every step's VACASK-layout rawfile in the run directory, named relative
     (the flow resolves EngineResult.files against the run directory).  status/failed_points/rc as given;
     `missing` steps get no file and status failed; `absent` steps no file and no status (the engine
-    never reached them, stop.py); `truncate` keeps that many rows of a step's file."""
+    never reached them, stop.py); `truncate` keeps that many rows of a step's file; a tran has
+    `tran_points` points."""
     def run(nl, plan, sigmap, run_dir, job, log):
         if calls is not None:
             calls.append(types.SimpleNamespace(nl=nl, plan=plan, sigmap=sigmap, run_dir=run_dir, job=job, log=log,
@@ -234,7 +250,7 @@ def synth_runner(rc: int = 0, status: Optional[Dict[str, str]] = None, failed_po
             if st.id in missing:
                 er.status[st.id] = "failed"
                 continue
-            variables, rows = vacask_layout(st, names.get(st.id, {}))
+            variables, rows = vacask_layout(st, names.get(st.id, {}), points=tran_points)
             if truncate and st.id in truncate:
                 rows = rows[:truncate[st.id]]
             write_rawfile(os.path.join(run_dir, st.id + ".raw"), variables, rows, cplx=st.kind in ("ac", "xf"),
@@ -342,18 +358,23 @@ class FlowCase(TempDir):
         cm.__enter__()
         self.addCleanup(cm.__exit__, None, None, None)
 
-    def spectre(self, argv: Sequence[str], opts: Optional[dict] = None, stdin: Optional[str] = None
-                ) -> Tuple[int, str, str]:
-        """build_job + flow.run in-process -> (rc, stdout, stderr); stdin is /dev/null unless given."""
-        job = personality.build_job(list(argv), os.environ, self.tmp, "spectre")
+    def spectre(self, argv: Sequence[str], opts: Optional[dict] = None, stdin: Optional[str] = None,
+                cwd: Optional[str] = None, screen=False) -> Tuple[int, str, str]:
+        """build_job + flow.run in-process -> (rc, stdout, stderr); stdin is /dev/null unless given; the
+        job (and the process) in `cwd` (the scratch directory by default); `screen` replaces stdout (a
+        stream, or None for a closed one: the returned stdout is then "")."""
+        where = cwd or self.tmp
+        job = personality.build_job(list(argv), os.environ, where, "spectre")
         personality.note_vamos_options(job, dict(opts or {}))
         out, err = io.StringIO(), io.StringIO()
         saved = sys.stdin
         sys.stdin = io.StringIO(stdin) if stdin is not None else open(os.devnull)
+        os.chdir(where)
         try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            with contextlib.redirect_stdout(out if screen is False else screen), contextlib.redirect_stderr(err):
                 rc = flow.run(job, dict(opts or {}))
         finally:
+            os.chdir(self.tmp)
             if stdin is None:
                 sys.stdin.close()
             sys.stdin = saved
@@ -538,6 +559,54 @@ class TestRunDirectory(FlowCase):
         self.assertEqual(os.path.dirname(calls[1].run_dir), os.path.join(self.tmp, "sub"))
         self.check_results(os.path.join(self.tmp, "sub", "out.raw"))
 
+    def test_raw_naming_the_cwd_keeps_the_run_directory_in_the_cwd(self):
+        # R-run-7 (phase 2c): -raw . (or the cwd spelled out) puts the results in the cwd [M ref19 p.27]; the
+        # run directory goes into the cwd as well, never into the cwd's parent (before: dirname(<cwd>))
+        self.deck(TWO)
+        for raw in (".", self.tmp + os.sep):
+            with self.subTest(raw=raw):
+                calls: list = []
+                self.use(synth_runner(calls=calls))
+                try:
+                    rc, out, _ = self.spectre(["rc.scs", "-raw", raw], {"keep": True})
+                finally:
+                    for c in calls:
+                        if os.path.dirname(c.run_dir) != self.tmp:     # outside the scratch directory
+                            shutil.rmtree(c.run_dir, ignore_errors=True)
+                self.assertEqual(rc, 0, out)
+                self.assertEqual(os.path.dirname(calls[0].run_dir), self.tmp)
+                self.assertIn("run directory kept: %s" % calls[0].run_dir, out)
+                self.assertEqual(psfcheck.check_logfile(os.path.join(self.tmp, "logFile")).keys(),
+                                 ["op1-dc", "op2-dc", "tr1-tran"])
+                shutil.rmtree(calls[0].run_dir)
+
+    @unittest.skipUnless(hasattr(os, "geteuid"), "POSIX permissions")
+    def test_an_unwritable_parent_puts_the_run_directory_in_the_cwd(self):
+        # R-run-7: a results directory whose parent cannot be written does not stop the run (before: exit 2,
+        # "cannot create the run directory in <parent>: Permission denied"): `-raw .` in a cwd under a
+        # read-only directory, and a -raw directory inside one, put the run directory in the cwd
+        ro = os.path.join(self.tmp, "ro")
+        work, res = os.path.join(ro, "work"), os.path.join(ro, "res")
+        os.makedirs(work)
+        os.makedirs(res)
+        self.write("ro/work/rc.scs", TWO)
+        os.chmod(ro, 0o555)
+        try:
+            if os.access(ro, os.W_OK):
+                self.skipTest("a mode 555 directory stays writable here (root)")
+            for raw, results in ((".", work), (res, res)):
+                with self.subTest(raw=raw):
+                    calls: list = []
+                    self.use(synth_runner(calls=calls))
+                    rc, out, _ = self.spectre(["rc.scs", "-raw", raw], {"keep": True}, cwd=work)
+                    self.assertEqual(rc, 0, out)
+                    self.assertEqual(os.path.dirname(calls[0].run_dir), work)
+                    self.assertEqual(psfcheck.check_logfile(os.path.join(results, "logFile")).keys(),
+                                     ["op1-dc", "op2-dc", "tr1-tran"])
+                    shutil.rmtree(calls[0].run_dir)
+        finally:
+            os.chmod(ro, 0o755)
+
 
 # =====================================================================================================
 # 2.5: where the results go
@@ -721,7 +790,7 @@ class TestRealEngineOutput(FlowCase):
 
     def test_xyce_outputs(self):
         self.deck(XY)
-        self.use(fixture_runner({"vamos_a1": ("opstep.raw", {}), "vamos_a2": ("nz0.prn", {})}, engine="xyce"),
+        self.use(fixture_runner({"vamos_a1": ("opstep.raw", {}), "vamos_a2": ("nz0vm.prn", {})}, engine="xyce"),
                  engine="xyce")
         rc, out, _ = self.spectre(["rc.scs"], {"analog": "xyce"})
         self.assertEqual(rc, 0, out)
@@ -736,16 +805,18 @@ class TestRealEngineOutput(FlowCase):
         self.assertIn("carry only `total' (DNO)", out)
 
     def test_noise_gain_and_in(self):
-        """§8.4: gain = sqrt(ONOISE/INOISE) = 0.5 and in = sqrt(INOISE) = out / gain on Xyce for the 1k/1k
-        divider.  results.collect picks the formula by the engine (phase 2's integration): the name
-        maps send ('gain',) and ('inoise',) to one column on each engine (VACASK `gain`, Xyce INOISE)."""
+        """§8.4: gain = |VM(out)| = 0.5 and in = out / gain on Xyce for the 1k/1k divider, as on VACASK.  Since
+        phase 2c (R-emit-13) the Xyce noise deck prints VM(<output>), the output's magnitude under the input's
+        AC 1, and the name map sends ('gain',) to it (sqrt(ONOISE/INOISE) was nan without a noisy device on the
+        output); results.collect picks the formula by the column the name map gives."""
         self.deck(XY)
-        self.use(fixture_runner({"vamos_a1": ("opstep.raw", {}), "vamos_a2": ("nz0.prn", {})}, engine="xyce"),
+        self.use(fixture_runner({"vamos_a1": ("opstep.raw", {}), "vamos_a2": ("nz0vm.prn", {})}, engine="xyce"),
                  engine="xyce")
         rc, out, _ = self.spectre(["rc.scs"], {"analog": "xyce"})
         self.assertEqual(rc, 0, out)
+        self.assertNotIn("has no column", out)
         nz = psfcheck.check(os.path.join(self.tmp, "rc.raw", "nz0.noise"))
-        self.assertAlmostEqual(nz.column("gain")[0], 0.5, places=4)
+        self.assertAlmostEqual(nz.column("gain")[0], 0.5, places=9)
         self.assertAlmostEqual(nz.column("in")[0], nz.column("out")[0] / 0.5, delta=1e-12)
 
 
@@ -1214,7 +1285,7 @@ class TestInput(FlowCase):
                                    "            vsource 1"])
 
     def test_e2e9_default_notes_and_maxnotes(self):
-        # §12 phase 2: e2e 9's 20 default notes (nrd/nrs on 8 devices, w/l on 2) are correct per §3.9 and read
+        # §12 phase 2: e2e 9's default notes (nrd/nrs on 8 devices; w/l on 2 before D4) are correct per §3.9 and read
         # in full by default: the options statement's maxnotes=5 is per analysis and "has no effect on notices
         # issued as part of parsing the netlist" (ref19 p.205), and v1 sets no default; -maxnotes N caps them
         # per message id (§8.7: the digits of M1..M8 and of the line numbers make one id) with one notice
@@ -1227,7 +1298,9 @@ class TestInput(FlowCase):
         self.assertEqual(rc, 0, out)
         self.assertEqual((out.count("nrd=0.0 written on the instance"), out.count("nrs=0.0 written on the instance")),
                          (8, 8))
-        self.assertEqual(out.count("master's default 5e-06 m is written"), 2)
+        # D4 (phase 2c): a model group's instance gets no master default (M6 now gives w and l itself, and the
+        # bare one is deck_nowl.scs's status 2), so no geometry default is noted
+        self.assertEqual(out.count("master's default 5e-06 m is written"), 0)
         rc, out, _ = self.spectre(["deck.scs", "-maxnotes", "2"])
         self.assertEqual(rc, 0, out)
         self.assertEqual((out.count("nrd=0.0 written on the instance"), out.count("nrs=0.0 written on the instance")),
@@ -1269,6 +1342,168 @@ class TestInput(FlowCase):
         self.assertNotIn("not found", out)
         step = [a.step for a in calls[0].plan.actions if a.step is not None and a.step.name == "op1"][0]
         self.assertEqual(step.args["readns"], os.path.join(self.tmp, "ns.ic"))
+
+
+# =====================================================================================================
+# D1 (phase 2c): a screen that goes away; the SIGUSR1 line under =log
+# =====================================================================================================
+
+class _GoneScreen(io.TextIOBase):
+    """A stdout whose reader went away after `ok` writes (`| head -1`, a terminal that hung up, a stream
+    closed under vamos): every later write raises `exc`.  It has no file descriptor (TextIOBase.fileno
+    raises), so the log never points this test process's fd 1 anywhere."""
+
+    def __init__(self, exc: BaseException, ok: int = 0) -> None:
+        super().__init__()
+        self.exc, self.ok, self.lines = exc, ok, []
+
+    def write(self, s: str) -> int:
+        if self.ok <= 0:
+            raise self.exc
+        self.ok -= 1
+        self.lines.append(s)
+        return len(s)
+
+    def flush(self) -> None:
+        pass
+
+
+class TestScreen(FlowCase):
+    """R-run-1, R-run-2 (D1, interim choice (a)): the run goes on without a screen that goes away and earns
+    its status; the +log file, the results and the state files are written, nothing raises, no traceback
+    file.  R-run-12: the SIGUSR1 status line is shown on the screen whatever the log mode (UG p.235)."""
+
+    GONE = (("EPIPE", lambda: BrokenPipeError(errno.EPIPE, "Broken pipe")),
+            ("EIO", lambda: OSError(errno.EIO, "Input/output error")),
+            ("closed", lambda: ValueError("I/O operation on closed file.")))
+
+    def log(self, *argv: str):
+        from vamos.spectre.log import SpectreLog
+        job = personality.build_job(list(argv), os.environ, self.tmp, "spectre")
+        return SpectreLog(job, banner.Banner(banner.load_profile("spectre"), "spectre"), datetime.now())
+
+    def tracebacks(self) -> set:
+        return set(glob.glob(os.path.join(tempfile.gettempdir(), "vamos-spectre-*.traceback")))
+
+    def test_the_log_file_stays_whole_when_the_screen_goes_away(self):
+        # R-run-1: a screen write that fails (EPIPE: the pipe's reader is gone; EIO: the terminal hung up; a
+        # closed stream) raises nothing; the screen is dropped and the +log file keeps every line
+        for name, exc in self.GONE:
+            with self.subTest(screen=name):
+                log = self.log("+log", "l.log", "x.scs")
+                screen = _GoneScreen(exc(), ok=1)
+                with contextlib.redirect_stdout(screen):
+                    log.line("hello")
+                    log.line("world")
+                    log.message(Note(WARNING, "", "w"), "setup")
+                    log.status_line("writing the results of `x'")
+                    log.finish(0)
+                self.assertEqual(screen.lines, ["hello\n"])
+                text = self.read("l.log")
+                self.assertTrue(text.startswith("hello\nworld\nWarning from spectre during setup.\n    w\n"
+                                                "spectre status: "), text)
+                self.assertTrue(text.endswith("spectre completes with 0 errors, 1 warnings, and 0 notices\n"), text)
+
+    def test_a_closed_stdout_prints_nothing_and_raises_nothing(self):
+        # R-run-1 (c): `>&-` leaves sys.stdout None
+        for mode in ("+log", "=log"):
+            with self.subTest(log=mode):
+                log = self.log(mode, "l.log", "x.scs")
+                with contextlib.redirect_stdout(None):
+                    log.line("hello")
+                    log.message(Note(WARNING, "", "w"), "setup")
+                    log.status_line()
+                    log.finish(2)
+                text = self.read("l.log")
+                self.assertTrue(text.startswith("hello\nWarning from spectre during setup.\n    w\nspectre status: "),
+                                text)
+                self.assertTrue(text.endswith(TRAILER_FATAL), text)
+
+    def test_a_run_whose_screen_goes_away_runs_to_the_end(self):
+        # R-run-2, D1 (a): `spectre rc.scs | head -1`: the run goes on without the screen and earns its status,
+        # 0 here: the results, the +log file and its trailer are written, the run directory is removed, and no
+        # traceback is written anywhere (before: BrokenPipeError out of flow.run, nothing converted)
+        self.deck(TWO)
+        self.use(synth_runner())
+        before = self.tracebacks()
+        screen = _GoneScreen(BrokenPipeError(errno.EPIPE, "Broken pipe"), ok=1)
+        rc, _, err = self.spectre(["rc.scs", "+log", "l.log"], screen=screen)
+        self.assertEqual((rc, err), (0, ""))
+        self.assertEqual(len(screen.lines), 1)
+        self.assertTrue(screen.lines[0].startswith("vamos %s (spectre personality)" % VERSION), screen.lines)
+        self.assertEqual(self.check_results(os.path.join(self.tmp, "rc.raw")).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
+        text = self.read("l.log")
+        self.assertTrailerOk(text)
+        self.assertNotIn("internal error", text)
+        self.assertEqual(self.run_dirs(), [])
+        self.assertEqual(self.tracebacks() - before, set())
+        rc, out, err = self.spectre(["rc.scs"], screen=None)              # `>&-`, no log file: status 0 all the same
+        self.assertEqual((rc, out, err), (0, "", ""))
+        self.assertEqual(self.check_results(os.path.join(self.tmp, "rc.raw")).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
+        self.assertEqual(self.tracebacks() - before, set())
+
+    def test_a_stopped_run_whose_screen_went_away_converts(self):
+        # R-run-1 (a, b): a hangup, or a Ctrl-C under tee: the engine run ends with status 3 and the screen is
+        # gone; the finished and the interrupted analyses are converted and the status is 3
+        self.deck(TWO)
+        self.use(synth_runner(rc=3, status={"vamos_a3": "interrupted"}, truncate={"vamos_a3": 4}))
+        for name, exc in self.GONE:
+            with self.subTest(screen=name):
+                rc, _, err = self.spectre(["rc.scs", "+log", "l.log"], screen=_GoneScreen(exc()))
+                self.assertEqual((rc, err), (3, ""))
+                d = os.path.join(self.tmp, "rc.raw")
+                self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
+                self.assertEqual(len(psfcheck.check(os.path.join(d, "tr1.tran.tran")).sweep_values()), 4)
+                text = self.read("l.log")
+                self.assertIn("run directory kept: ", text)
+                self.assertTrue(text.endswith(TRAILER_FATAL), text[-400:])
+                for run in self.run_dirs():
+                    self.assertFalse(os.path.exists(os.path.join(run, flow.TRACEBACK_NAME)))
+                    shutil.rmtree(run)
+
+    def test_an_internal_error_with_the_screen_gone_is_still_status_2(self):
+        # R-run-1: flow.internal's own message no longer raises again on a gone screen, nor does
+        # personalities.spectre._internal_error's (before: the exception left flow.run, then main)
+        self.deck(TWO)
+
+        def boom(nl, plan, sigmap, run_dir, job, log):
+            raise RuntimeError("boom")
+        self.use(boom)
+        rc, _, err = self.spectre(["rc.scs", "+log", "l.log"], screen=_GoneScreen(BrokenPipeError(errno.EPIPE, "x")))
+        self.assertEqual((rc, err), (2, ""))
+        text = self.read("l.log")
+        m = re.search(r"internal error: RuntimeError: boom \(the traceback is in (\S+)\)", text)
+        self.assertIsNotNone(m, text)
+        self.assertEqual(os.path.basename(m.group(1)), flow.TRACEBACK_NAME)
+        self.assertTrue(text.endswith(TRAILER_FATAL), text[-400:])
+        saved, before = personality.build_job, self.tracebacks()
+
+        def bad(*a, **k):
+            raise RuntimeError("early")
+        personality.build_job = bad
+        try:
+            with contextlib.redirect_stdout(_GoneScreen(OSError(errno.EIO, "Input/output error"))):
+                self.assertEqual(personality.main(["rc.scs"], {}), 2)
+        finally:
+            personality.build_job = saved
+            for p in self.tracebacks() - before:
+                os.remove(p)
+
+    def test_the_status_line_is_shown_on_the_screen_under_eq_log(self):
+        # R-run-12: UG p.235, the status reply is shown on the screen whatever the log mode: under =log too (and
+        # in the file, as before); once on each destination under +log and -log
+        line = "spectre status: no analysis running, writing the results of `tr1', elapsed = "
+        for argv, in_file in ((["=log", "l.log"], True), (["+log", "l.log"], True), (["-log"], False)):
+            with self.subTest(argv=argv):
+                log = self.log(*(argv + ["x.scs"]))
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    log.status_line("writing the results of `tr1'")
+                    log.close()
+                self.assertEqual(out.getvalue().count(line), 1, out.getvalue())
+                if in_file:
+                    self.assertEqual(self.read("l.log").count(line), 1)
+                    os.remove(os.path.join(self.tmp, "l.log"))
 
 
 # =====================================================================================================
@@ -1324,6 +1559,96 @@ def _wait_state(pid: int, states: str, timeout: float = 10.0) -> bool:
     return False
 
 
+def _default_signals() -> None:
+    """In a child: the signals vamos handles at their defaults, as from an interactive shell (a suite run
+    under nohup, or as a background job, inherits some of them ignored, and vamos keeps those ignored)."""
+    for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT", "SIGUSR1", "SIGUSR2"):
+        s = getattr(signal, name, None)
+        if s is not None:
+            signal.signal(s, signal.SIG_DFL)
+
+
+# the rows modes (phase 2c): a tran of ROWS points between two analyses, so a stop after tr1 shows
+FOUR = TWO + "op3 dc\n"
+ROWS = 20001
+PROGRESS_EVERY = 4096                # X-out's writers call progress= at least this often (D3)
+
+
+def _fire_plan() -> List[Tuple[int, int]]:
+    """VAMOS_TEST_FIRE="SIGINT@5000,SIGUSR1@9000": (row, signal) the child sends itself in the tran's rows."""
+    out = []
+    for item in os.environ.get("VAMOS_TEST_FIRE", "").split(","):
+        if item:
+            name, row = item.split("@")
+            out.append((int(row), getattr(signal, name)))
+    return out
+
+
+def _counted(res, plan: List[Tuple[int, int]], progress):
+    """res with its rows() wrapped as the writers' progress= contract has it (D3, X-out: called with the
+    rows written so far every PROGRESS_EVERY rows and after the last one); the tran's rows send the planned
+    signals to this process at their row numbers (no timing), and its last row prints "WRITER rows done
+    <key>", the point the flow's answer to a signal must come before."""
+    if res.rows is None:
+        return res
+    orig = res.rows
+    fire = dict(plan) if res.atype == "tran" else {}
+
+    def rows():
+        n = 0
+        for row in orig():
+            yield row
+            n += 1                                       # the writer asked for the next row: n are written
+            sig = fire.pop(n, None)
+            if sig is not None:
+                os.kill(os.getpid(), sig)
+            if progress is not None and n % PROGRESS_EVERY == 0:
+                progress(n)
+        if progress is not None:
+            progress(n)
+        if res.atype == "tran":
+            print("WRITER rows done %s" % res.key, flush=True)
+    return dataclasses.replace(res, rows=rows)
+
+
+def _writers_with_progress(plan: List[Tuple[int, int]], real: bool = False) -> None:
+    """psf.write_analysis and nutmeg.write with the progress= keyword (X-out's D3 interface), over the real
+    writers; the flow sees the keyword in their signatures and passes its callback.  The wrappers call it
+    as the contract says (every PROGRESS_EVERY rows), or with `real` hand it to the real writers (X-out's
+    own calls: the seam itself)."""
+    real_psf, real_nut = flow.psf.write_analysis, flow.nutmeg.write
+
+    def write_analysis(dirpath, res, head, escchars=False, notes=None, masters=None, progress=None):
+        if real:
+            real_psf(dirpath, _counted(res, plan, None), head, escchars=escchars, notes=notes, masters=masters,
+                     progress=progress)
+        else:
+            real_psf(dirpath, _counted(res, plan, progress), head, escchars=escchars, notes=notes, masters=masters)
+
+    def write(path, results, binary, notes=None, title="", date=None, progress=None):
+        if real:
+            real_nut(path, (_counted(r, plan, None) for r in results), binary, notes=notes, title=title, date=date,
+                     progress=progress)
+        else:
+            real_nut(path, (_counted(r, plan, progress) for r in results), binary, notes=notes, title=title,
+                     date=date)
+    flow.psf.write_analysis = write_analysis
+    flow.nutmeg.write = write
+
+
+def _signalled(inner):
+    """A runner that gets the user's SIGINT itself while its engine runs (proc.Interrupts holds the signals,
+    as the real runners' do), then returns `inner`'s EngineResult (rc 3)."""
+    def run(nl, plan, sigmap, run_dir, job, log):
+        with proc.Interrupts(stop.HANDLED, stop.FORWARD, flags=stop.FLAGS) as intr:
+            os.kill(os.getpid(), signal.SIGINT)
+            deadline = time.time() + 60
+            while intr.signum is None and time.time() < deadline:
+                time.sleep(0.01)
+        return inner(nl, plan, sigmap, run_dir, job, log)
+    return run
+
+
 def child_main(argv: List[str]) -> int:
     """The child of TestSignals: `mode marker sleep deck-args...`."""
     import time as _time
@@ -1368,10 +1693,25 @@ def child_main(argv: List[str]) -> int:
                 _marker(marker)
                 _time.sleep(sleep)
         flow.psf.write_analysis = slow_write
-        # convert-after-rc3: the engine run ended with status 3 (a signal stopped it), so the next stop
-        # signal is the second one (§2.7, X's seam): the conversion stops at once
-        runner = (synth_runner(rc=3, status={"vamos_a3": "interrupted"}, truncate={"vamos_a3": 3})
-                  if mode.startswith("convert-after-rc3") else synth_runner())
+        # convert-after-signal: vamos got a stop signal while the engine ran (status 3), so the next stop
+        # signal is the second one (§2.7): the conversion stops at once.  convert-after-rc3: status 3 with
+        # no signal to vamos (the engine was ended from outside, stop.py): the next one is a first (R-run-9)
+        interrupted = dict(rc=3, status={"vamos_a3": "interrupted"}, truncate={"vamos_a3": 3})
+        if mode.startswith("convert-after-signal"):
+            runner = _signalled(synth_runner(**interrupted))
+        elif mode.startswith("convert-after-rc3"):
+            runner = synth_runner(**interrupted)
+        else:
+            runner = synth_runner()
+    elif mode.startswith("rows"):                      # rows[-after-rc3|-after-signal|-real]: VAMOS_TEST_FIRE's
+        _writers_with_progress(_fire_plan(), real=mode == "rows-real")    # signals from inside the tran's rows
+        interrupted = dict(rc=3, status={"vamos_a3": "interrupted"}, tran_points=ROWS)
+        if mode == "rows-after-signal":
+            runner = _signalled(synth_runner(**interrupted))
+        elif mode == "rows-after-rc3":
+            runner = synth_runner(**interrupted)
+        else:
+            runner = synth_runner(tran_points=ROWS)
     else:
         raise SystemExit("unknown mode %r" % mode)
     sys.modules["vamos.spectre.run_vacask"] = types.SimpleNamespace(run=runner)
@@ -1410,6 +1750,17 @@ class TestSignals(FlowCase):
                 p.wait()
         return p.returncode, out.decode("utf-8", "replace")
 
+    def fired(self, mode: str, fire: str, args: Sequence[str] = ("rc.scs",)) -> Tuple[int, str]:
+        """child_main(mode) on FOUR with VAMOS_TEST_FIRE=fire: the child signals itself from inside the
+        tran's rows, so nothing depends on timing -> (exit status, output)."""
+        self.deck(FOUR)
+        code = CHILD % {"root": ROOT, "tests": TESTS, "tmp": self.tmp}
+        env = dict(os.environ, VAMOS_TEST_FIRE=fire)
+        p = subprocess.run([sys.executable, "-c", code, mode, os.path.join(self.tmp, "marker"), "0"] + list(args),
+                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+                           preexec_fn=_default_signals, timeout=600)
+        return p.returncode, p.stdout.decode("utf-8", "replace")
+
     def test_before_the_engine_each_stop_signal_is_status_3(self):
         for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"):
             with self.subTest(signal=name):
@@ -1429,7 +1780,9 @@ class TestSignals(FlowCase):
         rc, out = self.child("parse", 1.5, [signal.SIGUSR1, signal.SIGUSR2])
         self.assertEqual(rc, 0, out)
         self.assertIn("spectre status: no analysis running (setting up), elapsed = ", out)
-        self.assertIn("Notice from spectre during circuit read-in.\n    checkpoint not supported\n", out)
+        # R-run-14 (phase 2c): SIGUSR2's notice is one text, the flow's and both runners'
+        self.assertIn("Notice from spectre during circuit read-in.\n    checkpoint not supported: SIGUSR2 is ignored "
+                      "and the run continues\n", out)
         self.assertTrue(TRAILER_OK.search(out), out[-400:])
 
     def test_a_signal_while_the_engine_runs_converts_the_finished_and_the_interrupted(self):
@@ -1475,15 +1828,136 @@ class TestSignals(FlowCase):
         self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
 
     def test_after_an_engine_run_a_signal_stopped_the_next_one_is_the_second(self):
-        # §2.7 (X's seam, phase 2's integration): the engine run ended with status 3, its signal the first;
-        # one more stop signal during the conversion stops it at once, as a second one does (the
-        # file in hand not listed), where after a status-0 run one would end it before the next file
-        rc, out = self.child("convert-after-rc3", 30, [signal.SIGINT])
+        # §2.7: vamos got a stop signal while the engine ran (status 3), its signal the first; one more stop
+        # signal during the conversion stops it at once, as a second one does (the file in hand not listed),
+        # where after a status-0 run one would end it before the next file.  Phase 2c (R-run-9): the runner
+        # really gets the signal here; before, this test's runner returned rc 3 with no signal to vamos and
+        # pinned the defect that such a run counted as signalled
+        rc, out = self.child("convert-after-signal", 30, [signal.SIGINT])
         self.assertEqual(rc, 3, out)
         log = psfcheck.check_logfile(os.path.join(self.tmp, "rc.raw", "logFile"))
         self.assertEqual(log.keys(), [])
         self.assertIn("the conversion was stopped by SIGINT", out)
         self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+
+    def test_after_the_engine_was_ended_from_outside_the_first_signal_is_a_first_one(self):
+        # R-run-9 (phase 2c): the engine run ended with status 3 by a kill from outside vamos (stop.py) and vamos
+        # itself got no signal: the user's first SIGINT in the conversion finishes the file in hand, listed, and
+        # ends the conversion before the next one (before: it counted as a second and dropped tr1)
+        rc, out = self.fired("rows-after-rc3", "SIGINT@5000")
+        self.assertEqual(rc, 3, out)
+        d = os.path.join(self.tmp, "rc.raw")
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
+        self.assertEqual(len(psfcheck.check(os.path.join(d, "tr1.tran.tran")).sweep_values()), ROWS)
+        self.assertFalse(os.path.exists(os.path.join(d, "op3.dc")))
+        self.assertIn("the conversion was stopped by SIGINT: the analyses converted before it are written and listed "
+                      "in logFile", out)
+        # the converse, the signal really vamos's: the conversion's SIGINT is the second, tr1 is dropped
+        shutil.rmtree(d)
+        rc, out = self.fired("rows-after-signal", "SIGINT@5000")
+        self.assertEqual(rc, 3, out)
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc"])
+        self.assertEqual(sorted(os.listdir(d)), ["logFile", "op1.dc", "op2.dc"])
+
+    def test_a_first_signal_inside_a_file_is_answered_at_once(self):
+        # D3 (phase 2c): a first stop signal still lets the file in hand finish, but the flow says so at once,
+        # from inside its rows (before: nothing until the file was written): one notice, before tr1's last row
+        rc, out = self.fired("rows", "SIGINT@5000")
+        self.assertEqual(rc, 3, out)
+        notice = "stopping after `tr1' is written; a second interrupt drops it"
+        self.assertEqual(out.count(notice), 1, out)
+        self.assertIn("Notice from spectre during transient analysis `tr1'.\n    %s\n" % notice, out)
+        self.assertLess(out.index(notice), out.index("WRITER rows done tr1-tran"), out)
+        d = os.path.join(self.tmp, "rc.raw")
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
+        self.assertEqual(len(psfcheck.check(os.path.join(d, "tr1.tran.tran")).sweep_values()), ROWS)
+        self.assertFalse(os.path.exists(os.path.join(d, "op3.dc")))
+        self.assertIn("the conversion was stopped by SIGINT: the analyses converted before it are written and listed "
+                      "in logFile", out)
+        self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+
+    def test_a_second_signal_inside_a_file_drops_it(self):
+        # D3 keeps §2.7's rule: a second stop signal drops the file in hand at once
+        rc, out = self.fired("rows", "SIGINT@5000,SIGINT@9000")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("stopping after `tr1' is written; a second interrupt drops it", out)
+        self.assertNotIn("WRITER rows done", out)
+        d = os.path.join(self.tmp, "rc.raw")
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc"])
+        self.assertEqual(sorted(os.listdir(d)), ["logFile", "op1.dc", "op2.dc"])          # no tr1, no .vamos-tmp
+        self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+
+    def test_usr1_inside_a_file_is_answered_at_once(self):
+        # D3: SIGUSR1's status line comes from inside the rows, with the analysis being written and the points
+        # written so far (before: after the file, calling the finished file "being written")
+        rc, out = self.fired("rows", "SIGUSR1@5000")
+        self.assertEqual(rc, 0, out)
+        m = re.search(r"spectre status: no analysis running, writing the results of `tr1', (\d+) points written, "
+                      r"elapsed = \d+ s\.\n", out)
+        self.assertIsNotNone(m, out)
+        self.assertTrue(5000 <= int(m.group(1)) < ROWS, m.group(0))
+        self.assertLess(m.start(), out.index("WRITER rows done tr1-tran"), out)
+        self.assertEqual(self.check_results(os.path.join(self.tmp, "rc.raw")).keys(),
+                         ["op1-dc", "op2-dc", "tr1-tran", "op3-dc"])
+        self.assertTrue(TRAILER_OK.search(out), out[-400:])
+        rc, out = self.fired("rows", "SIGUSR2@5000")                    # SIGUSR2's notice as promptly
+        self.assertEqual(rc, 0, out)
+        notice = ("Notice from spectre during transient analysis `tr1'.\n    checkpoint not supported: SIGUSR2 is "
+                  "ignored and the run continues\n")
+        self.assertIn(notice, out)
+        self.assertLess(out.index(notice), out.index("WRITER rows done tr1-tran"), out)
+
+    def test_the_real_writers_call_the_flow_back(self):
+        # D3 through the writers' own progress= calls (X-out's psf.write_analysis and nutmeg.write, the seam
+        # itself): the status line and the notice come from inside tr1's rows, on both formats
+        rc, out = self.fired("rows-real", "SIGUSR1@3000,SIGINT@5000")
+        self.assertEqual(rc, 3, out)
+        m = re.search(r"spectre status: no analysis running, writing the results of `tr1', (\d+) points written, "
+                      r"elapsed = \d+ s\.\n", out)
+        self.assertIsNotNone(m, out)
+        self.assertTrue(3000 <= int(m.group(1)) < ROWS, m.group(0))
+        done = out.index("WRITER rows done tr1-tran")
+        self.assertLess(m.start(), done, out)
+        notice = "stopping after `tr1' is written; a second interrupt drops it"
+        self.assertEqual(out.count(notice), 1, out)
+        self.assertLess(out.index(notice), done, out)
+        d = os.path.join(self.tmp, "rc.raw")
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
+        shutil.rmtree(d)
+        rc, out = self.fired("rows-real", "SIGUSR2@3000,SIGINT@5000", args=("rc.scs", "-format", "nutbin"))
+        self.assertEqual(rc, 3, out)
+        done = out.index("WRITER rows done tr1-tran")
+        usr2 = ("Notice from spectre during transient analysis `tr1'.\n    checkpoint not supported: SIGUSR2 is ignored "
+                "and the run continues\n")
+        self.assertLess(out.index(usr2), done, out)
+        notice = "stopping after `tr1' is written; a second interrupt drops the results file %s" % d
+        self.assertLess(out.index(notice), done, out)
+        self.assertEqual([p.plotname.split("`")[1].split("'")[0] for p in rawfile.read_all(d)], ["op1", "op2", "tr1"])
+
+    def test_nutmeg_a_second_signal_drops_the_results_file_and_says_so(self):
+        # R-run-10 (phase 2c): nutmeg writes one file, which a second signal drops whole (op1's plot with it); the
+        # warning names that file instead of saying that the analyses converted before it are written
+        rc, out = self.fired("rows", "SIGINT@5000,SIGINT@9000", args=("rc.scs", "-format", "nutbin"))
+        self.assertEqual(rc, 3, out)
+        path = os.path.join(self.tmp, "rc.raw")
+        self.assertIn("the conversion was stopped by SIGINT: the results file %s is not written (§2.7)" % path, out)
+        self.assertNotIn("the analyses converted before it are written", out)
+        self.assertFalse(os.path.exists(path))
+        self.assertFalse(os.path.exists(path + ".vamos-tmp"))
+        self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+
+    def test_nutmeg_a_first_signal_ends_the_file_after_the_plot(self):
+        # R-run-10's first-signal case keeps its warning; D3's notice names what a second one would drop
+        rc, out = self.fired("rows", "SIGINT@5000", args=("rc.scs", "-format", "nutbin"))
+        self.assertEqual(rc, 3, out)
+        path = os.path.join(self.tmp, "rc.raw")
+        notice = "stopping after `tr1' is written; a second interrupt drops the results file %s" % path
+        self.assertEqual(out.count(notice), 1, out)
+        self.assertLess(out.index(notice), out.index("WRITER rows done tr1-tran"), out)
+        plots = rawfile.read_all(path)
+        self.assertEqual([p.plotname.split("`")[1].split("'")[0] for p in plots], ["op1", "op2", "tr1"])
+        self.assertEqual(len(plots[2].points), ROWS)
+        self.assertIn("the conversion was stopped by SIGINT: the analyses converted before it are written (§2.7)", out)
 
     @unittest.skipUnless(os.path.isdir("/proc") and hasattr(signal, "SIGTSTP"), "/proc/<pid>/stat and SIGTSTP")
     def test_ctrl_z_stops_vamos_before_the_engine_and_sigcont_resumes_it(self):
@@ -1512,6 +1986,258 @@ class TestSignals(FlowCase):
         rc, out = self.child("convert", 1.5, [signal.SIGUSR1])
         self.assertEqual(rc, 0, out)
         self.assertIn("spectre status: no analysis running, writing the results of `op1', elapsed = ", out)
+
+
+# =====================================================================================================
+# Phase 2c: while vamos starts, after the trailer, a closed stdout (R-tests-2, R-run-6, D1)
+# =====================================================================================================
+
+# a netlist with nothing to run: a run that completes without an engine, on both legs
+NOTHING = "// nothing\nsimulator lang=spectre\nR1 (a 0) resistor r=1k\n"
+
+# the launcher's `python3 -c` (bin/vamos): the signal is sent at the first import of `target` (inside
+# vamos.cli or personalities.spectre.main), or `late` after cli.main returns ("after:SIG"), at exit
+# ("atexit:SIG"), in the interpreter's teardown ("teardown:SIG"), or the standard descriptors are
+# recorded in fds.txt ("fds": 1 where one is /dev/null)
+CHILD_EARLY = r'''
+import builtins, os, signal, sys
+sys.path.insert(0, %(root)r)
+os.chdir(%(tmp)r)
+target, signame, late = sys.argv.pop(1), sys.argv.pop(1), sys.argv.pop(1)
+real_import = builtins.__import__
+fired = []
+
+
+def hook(name, *args, **kwargs):
+    if name == target and not fired:
+        fired.append(name)
+        for one in signame.split(","):
+            os.kill(os.getpid(), getattr(signal, one))
+    return real_import(name, *args, **kwargs)
+
+
+builtins.__import__ = hook
+import vamos.cli
+when, _, latesig = late.partition(":")
+
+
+class Late:
+    def __init__(self, sig):
+        self.kill, self.pid, self.sig = os.kill, os.getpid(), sig
+
+    def __del__(self):
+        self.kill(self.pid, self.sig)
+
+
+if when == "atexit":
+    import atexit
+    atexit.register(os.kill, os.getpid(), getattr(signal, latesig))
+elif when == "teardown":
+    _late = Late(getattr(signal, latesig))
+rc = vamos.cli.main(sys.argv[1:])
+if when == "after":
+    os.kill(os.getpid(), getattr(signal, latesig))
+    for _ in range(100000):
+        pass
+elif when == "fds":
+    null = os.stat(os.devnull)
+    marks = []
+    for fd in (0, 1, 2):
+        try:
+            marks.append(str(int(os.path.samestat(os.fstat(fd), null))))
+        except OSError:
+            marks.append("closed")
+    with open("fds.txt", "w") as fh:
+        fh.write(" ".join(marks))
+sys.exit(rc)
+'''
+
+
+def _flood(p: subprocess.Popen, sig: int, period: float) -> None:
+    """Send `sig` to p every `period` seconds until it has exited."""
+    while p.returncode is None:
+        try:
+            p.send_signal(sig)
+        except OSError:
+            return
+        time.sleep(period)
+
+
+@unittest.skipUnless(POSIX_SIGNALS, "POSIX signals")
+class TestStartAndEnd(FlowCase):
+    """R-tests-2, R-run-6 (phase 2c): cli.py's early handlers cover vamos's start (the imports before
+    flow.run installs its own handlers), flow.run takes over what they recorded (a stop signal ends the run
+    at once with status 3, USR1/USR2 reach the main loop), and after the trailer a signal neither kills
+    vamos nor prints a traceback.  D1: a stdout closed at start gets /dev/null on fd 1."""
+
+    def early(self, target: str, signame: str = "SIGTERM", late: str = "none", args: Sequence[str] = (),
+              close: Sequence[int] = ()) -> Tuple[int, str, str]:
+        """CHILD_EARLY running `-spectre rc.scs <args>` on NOTHING, the descriptors `close` closed at its
+        start -> (exit status, stdout, stderr)."""
+        self.deck(NOTHING)
+        tmpdir = os.path.join(self.tmp, "tmpdir")
+        os.makedirs(tmpdir, exist_ok=True)
+        env = dict(os.environ, TMPDIR=tmpdir)
+
+        def pre() -> None:
+            _default_signals()
+            for fd in close:
+                os.close(fd)
+        code = CHILD_EARLY % {"root": ROOT, "tmp": self.tmp}
+        p = subprocess.run([sys.executable, "-c", code, target, signame, late, "-spectre", "rc.scs"] + list(args),
+                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                           preexec_fn=pre, timeout=300)
+        return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+
+    def test_a_stop_signal_while_vamos_starts_is_status_3(self):
+        # R-tests-2: a Ctrl-C (or TERM, HUP, QUIT) while vamos.cli imports the personalities, or while
+        # personalities.spectre.main imports the flow: status 3, the warning and the trailer, nothing on stderr
+        # (before: a KeyboardInterrupt traceback, or death by the signal with nothing printed)
+        for target, names in (("vamos.personalities", ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT")),
+                              ("vamos.spectre.job", ("SIGINT", "SIGTERM"))):
+            for name in names:
+                with self.subTest(at=target, signal=name):
+                    rc, out, err = self.early(target, name)
+                    self.assertEqual((rc, err), (3, ""), out)
+                    self.assertIn("Warning from spectre during initial setup.\n    the run was stopped by %s (§2.7)\n"
+                                  % name, out)
+                    self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+        # a second stop signal before flow.run takes over (a start that hangs) ends vamos at once, status 3
+        rc, out, err = self.early("vamos.personalities", "SIGINT,SIGINT")
+        self.assertEqual((rc, out, err), (3, "", ""))
+
+    def test_usr1_and_usr2_while_vamos_starts_leave_the_run_going(self):
+        # R-tests-2, R-run-6: a status request at launch (UG p.235) is answered once the flow runs, and the
+        # run completes (before: killed by SIGUSR1 or SIGUSR2, nothing printed)
+        rc, out, err = self.early("vamos.personalities", "SIGUSR1")
+        self.assertEqual((rc, err), (0, ""), out)
+        self.assertIn("spectre status: no analysis running (setting up), elapsed = ", out)
+        self.assertTrue(TRAILER_OK.search(out), out[-400:])
+        rc, out, err = self.early("vamos.spectre.job", "SIGUSR2")
+        self.assertEqual((rc, err), (0, ""), out)
+        self.assertIn("\n    checkpoint not supported: SIGUSR2 is ignored and the run continues\n", out)
+        self.assertTrue(TRAILER_OK.search(out), out[-400:])
+
+    def test_a_signal_after_the_trailer_leaves_the_exit_status(self):
+        # R-run-6: once flow.run has restored the handlers it found (cli.py's early ones), and in the
+        # interpreter's teardown (where Python resets the handlers it runs to SIG_DFL), a status request or a
+        # stop signal neither kills vamos nor prints a traceback: the run's status stands (before: rc -10, -12
+        # or -15, or a KeyboardInterrupt traceback)
+        for late in ("after:SIGUSR1", "after:SIGUSR2", "after:SIGINT", "after:SIGTERM", "atexit:SIGUSR1",
+                     "teardown:SIGUSR1", "teardown:SIGUSR2"):
+            with self.subTest(late=late):
+                rc, out, err = self.early("none", late=late)
+                self.assertEqual((rc, err), (0, ""), out)
+                self.assertTrue(TRAILER_OK.search(out), out[-400:])
+
+    def test_a_closed_stdout_at_start(self):
+        # D1, R-run-1 (c): `spectre rc.scs >&-`: /dev/null goes on fd 1 before any file is opened (no file vamos
+        # opens, and no child's stdout, lands on fd 1) and the run goes on: status 0, the +log file whole, no
+        # traceback file (before: exit 2 and two traceback files)
+        rc, out, err = self.early("none", late="fds", args=("+log", "l.log"), close=(1,))
+        self.assertEqual((rc, out, err), (0, "", ""))
+        self.assertTrailerOk(self.read("l.log"))
+        self.assertEqual(self.read("fds.txt"), "1 1 0")          # stdin /dev/null, fd 1 /dev/null, stderr the pipe
+        self.assertEqual(glob.glob(os.path.join(self.tmp, "tmpdir", "*.traceback")), [])
+        # D1: and on 0 and 2 when they are closed too (`<&- >&- 2>&-`)
+        rc, out, _ = self.early("none", late="fds", args=("+log", "l.log"), close=(0, 1, 2))
+        self.assertEqual((rc, out), (0, ""))
+        self.assertTrailerOk(self.read("l.log"))
+        self.assertEqual(self.read("fds.txt"), "1 1 1")
+        self.assertEqual(glob.glob(os.path.join(self.tmp, "tmpdir", "*.traceback")), [])
+
+    def test_a_flood_of_status_requests_never_kills_a_run(self):
+        # R-run-6 (a): SIGUSR1 every 5 ms from the run's first line until vamos has exited, through bin/vamos:
+        # every run completes with status 0 and its trailer (before: killed by SIGUSR1 after the trailer)
+        self.deck(NOTHING)
+        env = dict(os.environ, TMPDIR=os.path.join(self.tmp, "tmpdir"))
+        os.makedirs(env["TMPDIR"], exist_ok=True)
+        for k in range(4):
+            with self.subTest(run=k):
+                # an unbuffered pipe (bufsize=0): readline() takes the first line alone, so communicate() reads the
+                # rest; a buffered reader could hold all of this quick run's output, which communicate() never sees
+                # (the phase-2c integration saw the trailer go missing that way under load)
+                p = subprocess.Popen([LAUNCHER, "-spectre", "rc.scs"], cwd=self.tmp, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, bufsize=0,
+                                     preexec_fn=_default_signals)
+                first = p.stdout.readline().decode()         # vamos runs (cli.py's handlers are in place)
+                t = threading.Thread(target=_flood, args=(p, signal.SIGUSR1, 0.005), daemon=True)
+                t.start()
+                rest, err = p.communicate(timeout=300)
+                rest, err = rest.decode(), err.decode()
+                t.join(timeout=30)
+                self.assertEqual((p.returncode, err), (0, ""), first + rest)
+                self.assertTrue(TRAILER_OK.search(first + rest), (first + rest)[-400:])
+
+
+# =====================================================================================================
+# Phase 2c's integration: the flow seams of X-plan (D9) and X-runners (R-run-13)
+# =====================================================================================================
+
+XYCE_LAUNCHER = "/usr/local/bin/Xyce"           # a launcher without an RPATH (X-runners' R-run-13 case)
+
+
+class TestSeams2c(FlowCase):
+    def test_state_files_compare_as_the_flow_resolves_them(self):
+        """D9 (R-plan-7, R-emit-1): plan.build compares a state file a later analysis reads with the ones the run
+        writes as the flow resolves them, the job's cwd and -outdir with its %-codes expanded (flow passes cwd=
+        and outdir=): tr2's readic= names the file tr1's writefinal= puts into -outdir out_%C:r, so the run stops
+        with status 2 before any engine runs (plan.build alone saw out_%C:r and let the stale file be read)."""
+        self.deck("// D9 under -outdir\nsimulator lang=spectre\nV1 (a 0) vsource dc=1\nR1 (a b) resistor r=1k\n"
+                  "C1 (b 0) capacitor c=1u\nic b=0\ntr1 tran stop=1m writefinal=\"chain.ic\" ic=node\n"
+                  "tr2 tran stop=1m readic=\"out_rc/chain.ic\"\nsave b\n")
+        self.use(never_called)
+        rc, out, _ = self.spectre(["rc.scs", "-outdir", "out_%C:r"])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("tran tr2: readic=out_rc/chain.ic is the file tran tr1 writes earlier in this run "
+                      "(writefinal=chain.ic)", out)
+        self.assertFatal(out)
+
+    def test_the_engine_rows_read_their_version_under_the_engines_environment(self):
+        """R-run-13 (and R-run-4): the provenance header ran `Xyce -v` and `vacask --version` under child_env(), so
+        a launcher without an RPATH named another build than the run loads, and OpenBLAS's pool spun in the probe;
+        the engine rows now read the version under engines.env_for with OpenBLAS bounded, as the runners run."""
+        self.deck(TWO)
+        seen: List[Tuple[str, Optional[dict]]] = []
+
+        def recording(name, path, env=None):
+            seen.append((name, None if env is None else dict(env)))
+            return "v-test"
+        for engine in ("vacask", "xyce"):
+            with self.subTest(engine=engine):
+                del seen[:]
+                self.use(synth_runner(), engine=engine)
+                with mock.patch.object(flow.tools, "version_of", recording):
+                    rc, out, _ = self.spectre(["rc.scs"], {"analog": engine})
+                self.assertEqual(rc, 0, out)
+                rows = [(n, e) for n, e in seen if n in ("VACASK", "OpenVAF-r", "Xyce")]
+                self.assertTrue(rows, seen)
+                want = tools.bound_blas_threads(engines.env_for(engine, None, tools.child_env()))
+                for n, e in rows:
+                    self.assertIsNotNone(e, n)
+                    self.assertEqual(e.get("LD_LIBRARY_PATH"), want["LD_LIBRARY_PATH"], n)
+                    self.assertEqual(e.get("OPENBLAS_NUM_THREADS"), "1", n)
+                self.assertTrue(all(e is None for n, e in seen if n == "vamos"), seen)
+
+    @unittest.skipUnless(os.access(XYCE_LAUNCHER, os.X_OK), "needs " + XYCE_LAUNCHER)
+    def test_the_xyce_row_names_the_build_the_run_loads(self):
+        """R-run-13 on the engine (WSL): with VAMOS_XYCE=/usr/local/bin/Xyce the header named the build child_env
+        finds (7.10.0-203 on this host) while the run loads env_for's (7.10.0-212); the row is `Xyce -v` under
+        env_for now."""
+        self.deck(TWO)
+        self.use(synth_runner(), engine="xyce")
+        os.environ["VAMOS_XYCE"] = XYCE_LAUNCHER
+        self.addCleanup(os.environ.pop, "VAMOS_XYCE", None)
+        rc, out, _ = self.spectre(["rc.scs"], {"analog": "xyce"})
+        self.assertEqual(rc, 0, out)
+        r = subprocess.run([XYCE_LAUNCHER, "-v"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True, timeout=60,
+                           env=tools.bound_blas_threads(engines.env_for("xyce", None, tools.child_env())))
+        want = tools.version_text(r.stdout)
+        head = out.split("\n\n", 1)[0]
+        row = [l for l in head.splitlines() if l.lstrip().startswith("Xyce ")]
+        self.assertEqual(len(row), 1, head)
+        self.assertIn(want, row[0])
 
 
 # =====================================================================================================

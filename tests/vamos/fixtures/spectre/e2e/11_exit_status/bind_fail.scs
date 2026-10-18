@@ -1,9 +1,10 @@
-// e2e 11: exit status 1 on VACASK, a bind failure: the sweep names a parameter the Verilog-A module
-// does not declare, which VACASK reports as "Failed to bind sweep parameters." with rc 0 (E28)
+// e2e 11: exit status 1 on VACASK, a bind failure: vres_unknown declares its parameter through a macro of a
+// header the module scan does not read (sec. 3.1), so vamos cannot check foo, and VACASK reports "Failed to bind
+// sweep parameters." with rc 0 (E28): op1 and op2 are written (bind_refused.scs: a module whose list is known)
 simulator lang=spectre
-ahdl_include "vres.va"
+ahdl_include "vres_unknown.va"
 V1 (a 0) vsource dc=1
-X1 (a b) vres
+X1 (a b) vres_unknown
 R2 (b 0) resistor r=1k
 op1 dc
 sw1 dc dev=X1 param=foo values=[1 2]

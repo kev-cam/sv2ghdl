@@ -467,6 +467,40 @@ def _strip_comment(text: str, quote: str) -> Tuple[str, str]:
     return text, quote
 
 
+def _star_comment(text: str) -> str:
+    """spectre-spice (VAMOS_SPECTRE_DESIGN.md §4.3): an element line without its '*' comment.  "The SPICE
+    Reader treats the * character as a math function if found inside of an expression and as a comment if
+    found outside of an expression" (UG p.52): a '*' that starts a field after the element's bare positional
+    fields begins a comment; never inside quotes, braces or parentheses, and never after a key=value field,
+    whose value it may continue (the line is then read as it is, and an error stays one)."""
+    if "*" not in text:
+        return text
+    quote, depth = "", 0
+    for i, c in enumerate(text):
+        if quote:
+            if c == quote:
+                quote = ""
+            continue
+        if c in "'\"":
+            quote = c
+        elif c in "({":
+            depth += 1
+        elif c in ")}":
+            depth -= 1
+        elif c == ";" or ((c == "$" or text.startswith("//", i)) and (i == 0 or text[i - 1] in " \t")):
+            return text                             # an earlier comment, _strip_comment's
+        elif c == "*" and depth == 0 and i > 0 and text[i - 1] in " \t":
+            prefix = text[:i].rstrip()
+            try:
+                fields = _lex(prefix)
+            except _LexError:
+                return text
+            if len(fields) >= 2 and fields[-1][0] is None and not prefix.endswith("="):
+                return prefix
+            return text
+    return text
+
+
 def _file_of(origin: str) -> str:
     """The file part of a 'file:line' origin ('' when there is none)."""
     name, sep, line = origin.rpartition(":")
@@ -525,6 +559,8 @@ def _logical(phys: Sequence[Tuple[str, str]], dialect: str = "hspice") -> Tuple[
             continue
         if parts is not None:
             stmts.append(_Stmt(" ".join(parts), first))
+        if sp and t[0] != ".":
+            t = _star_comment(t)
         body, quote = _strip_comment(t, "")
         parts, first = [body], origin
     if parts is not None:
@@ -3395,7 +3431,9 @@ class _Parser:
         return out
 
     def fragment(self) -> Fragment:
-        """A spectre-spice region's Fragment (§4.3): raw Params in source order, then the body."""
+        """A spectre-spice region's Fragment (§4.3): raw Params in source order, then the body.  The
+        controls' fields are folded to lower case outside quotes, as every other SPICE-mode name is
+        (UG p.52): .global names, .dc sources, .ic/.nodeset nodes, .print items."""
         frag = Fragment()
         frag.items = [Param(n, e, o) for n, e, o in self.top.params] + self.items(self.top)
         for canon, st in self.controls:
@@ -3408,6 +3446,7 @@ class _Parser:
                 fields = [("", fields[0][1])] + fields[1:]
             else:
                 fields = fields[1:]
+            fields = [(None if k is None else _fold_unquoted(k), _fold_unquoted(v)) for k, v in fields]
             frag.controls.append((canon, fields, st.origin))
         frag.notes = list(self.notes)
         frag.left_out = dict(self.left)
@@ -3443,7 +3482,9 @@ def parse(paths: Sequence[NetlistRef], extra: Sequence[Tuple[str, str]], cwd: st
 # SPICE model types -> Spectre masters (§4.3 Models): the level decides the MOS master.
 _SPICE_MASTERS = {"d": "diode", "npn": "bjt", "pnp": "bjt", "njf": "jfet", "pjf": "jfet",
                   "r": "resistor", "c": "capacitor", "l": "inductor"}
-_MOS_MASTERS = {1: "mos1", 2: "mos2", 3: "mos3", 49: "bsim3v3", 53: "bsim3v3", 54: "bsim4"}
+# level 11 is Spectre's own bsim3v3 selector, which its SPICE reader takes too (UG p.298's `.model N1 NMOS
+# +Level=11`; ref5 p.197: "The available level are 11, 49 and 53")
+_MOS_MASTERS = {1: "mos1", 2: "mos2", 3: "mos3", 11: "bsim3v3", 49: "bsim3v3", 53: "bsim3v3", 54: "bsim4"}
 _MASTER_LETTER = {"resistor": "r", "capacitor": "c", "inductor": "l", "diode": "d", "bjt": "q", "jfet": "j",
                   "mos1": "m", "mos2": "m", "mos3": "m", "bsim3v3": "m", "bsim4": "m"}
 _LETTER_KINDS = {"r": ("r",), "c": ("c",), "l": ("l",), "d": ("d",), "q": ("npn", "pnp"), "j": ("njf", "pjf"),
@@ -3489,7 +3530,7 @@ def _spice_master(mtype: str, level: Optional[float]) -> Tuple[Optional[str], Op
         lv = 1 if level is None else level
         if lv != int(lv) or int(lv) not in _MOS_MASTERS:
             return None, "level %s of a %s card has no Spectre master (mos1 mos2 mos3 are levels 1-3, " \
-                         "bsim3v3 49 and 53, bsim4 54)" % (level, mtype)
+                         "bsim3v3 11, 49 and 53, bsim4 54)" % (level, mtype)
         return _MOS_MASTERS[int(lv)], None
     if low == "d":
         if level is not None and level != 1:
@@ -3511,6 +3552,26 @@ def _level_text(fields: Sequence[Tuple[Optional[str], str]]) -> Tuple[Optional[f
             except ValueError:
                 return None, text
     return None, None
+
+
+def _fold_unquoted(text: str) -> str:
+    """text lower-cased outside '...' and "..." quotes: the SPICE Reader converts its input to lower case
+    except quoted strings (UG p.52; the spectre-spice dialect's controls, Fragment.controls)."""
+    if "'" not in text and '"' not in text:
+        return text.lower()
+    out: List[str] = []
+    quote = ""
+    for c in text:
+        if quote:
+            if c == quote:
+                quote = ""
+            out.append(c)
+        elif c in "'\"":
+            quote = c
+            out.append(c)
+        else:
+            out.append(c.lower())
+    return "".join(out)
 
 
 def _card_fields(fields: Sequence[Tuple[Optional[str], str]]) -> List[Tuple[Optional[str], str]]:
@@ -3610,9 +3671,10 @@ def parse_fragment(lines: List[Tuple[str, str]], cwd: str, opts: ParseOpts, reso
     resolved against resolver (spectre.py's complete table of both languages).  Returns the raw
     Params (unsorted, unevaluated; a subckt's header and body parameters on its Subckt), the
     Models with Model.prim, the Subckts and the Instances with Instance.prim in source order, the
-    dot statements other than definitions as controls (keyword, fields, origin), the notes (errors
-    included: spectre.py raises), the left-out subckts and the names defined nowhere (pending).
-    Files are never read here: spectre.py splices includes in before this phase."""
+    dot statements other than definitions as controls (keyword, fields folded to lower case outside
+    quotes, origin), the notes (errors included: spectre.py raises), the left-out subckts and the
+    names defined nowhere (pending).  Files are never read here: spectre.py splices includes in
+    before this phase."""
     if opts.dialect != "spectre-spice":
         raise ValueError("parse_fragment reads the spectre-spice dialect only, not %r" % (opts.dialect,))
     if opts.case != "lower" or not opts.parhier_local:

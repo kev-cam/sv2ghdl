@@ -1,0 +1,7 @@
+* a tran of a few seconds on Xyce, for its stdout into a file while it runs
+V1 in 0 SIN(0 1 1K)
+R1 in out 1000
+C1 out 0 1e-6
+.TRAN 1e-7 0.03 0 1e-7
+.PRINT TRAN FORMAT=RAW FILE=xlong.raw V(OUT)
+.end

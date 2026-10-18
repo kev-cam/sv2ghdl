@@ -1,0 +1,154 @@
+{
+ "row": "E117",
+ "experiment": "VACASK's failure messages (the VACASK runner, phase 2): a nested sweep (va in [1, 2], vb in [1, 2, 3]) whose op is singular at va = vb = 2; an alter of a parameter the instance lacks, after an analysis; an analysis whose op1.raw is a hard link to an earlier file; openvaf-r on a broken and on a good module, its output into a file",
+ "result": "a nested sweep's abort names every level: \"Sweep aborted @ 2/2 (2), 2/3 (2).\" after \"Analysis 'op1' aborted.\", rc 0, the rawfile holding the 4 complete points with No. Points: blank (strictoutput=0); a failing alter after an analysis: rc 1, a deck excerpt and \"Parameter 'bogus' not found.\" after that analysis's elapsed line, the later analysis not run; VACASK deletes an existing <analysis>.raw when it creates its output (outrawfile.cpp): the hard-linked earlier file keeps its text; openvaf-r prints ANSI colour codes into a file (not a terminal) and writes exactly the -o path",
+ "rules": [
+  "§7.1 Failures: run_vacask reads the failed sweep point from the `Sweep aborted @ k/n (v), ...` line, every level of it, and keeps the complete leading points",
+  "§7.1: a failing alter is a VACASK exit 1 after the analyses before it, which keep their status",
+  "§7.1 / §2.5: a stale <analysis>.raw is never mistaken for the run's own (VACASK replaces the file, never writes into it)",
+  "§7.1 step 10: run_vacask strips openvaf-r's ANSI codes from its messages (_ANSI) and compiles into a temporary -o path it renames (os.replace)"
+ ],
+ "runs": [
+  {
+   "name": "nested_sweep_abort",
+   "tool": "vacask",
+   "deck": "nest.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Factorization failed, size=3, rank=2, zero pivot @ node 'out'.",
+     "Analysis 'op1' aborted.",
+     "Sweep aborted @ 2/2 (2), 2/3 (2)."
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "fix_points": true,
+     "points": 4,
+     "col": "out",
+     "values": [
+      -0.3333333333333333,
+      -0.5,
+      -1.0,
+      -0.5
+     ],
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "failing_alter",
+   "tool": "vacask",
+   "deck": "alter.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "alter instance(\"R1\") bogus=1",
+     "Parameter 'bogus' not found."
+    ],
+    "regex": [
+     "Running analysis 'op1'\\.\\n\\s*Elapsed time: \\S+\\n[\\s\\S]*Parameter 'bogus' not found\\."
+    ]
+   },
+   "stderr": {
+    "empty": true
+   },
+   "files": {
+    "present": [
+     "op1.raw"
+    ],
+    "absent": [
+     "op2.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "out",
+     "value": 0.5,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "stale_rawfile_replaced",
+   "tool": "vacask",
+   "deck": "stale.sim",
+   "links": {
+    "op1.raw": "stale.txt"
+   },
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "out",
+     "value": 0.5,
+     "rel": 1e-09
+    },
+    {
+     "text": "stale.txt",
+     "contains": [
+      "an earlier run's op1.raw"
+     ],
+     "absent": [
+      "Plotname"
+     ]
+    }
+   ],
+   "note": "op1.raw is a hard link to stale.txt before the run: had VACASK written into the file, stale.txt would hold the rawfile"
+  },
+  {
+   "name": "openvaf_colours_into_a_file",
+   "tool": "openvaf",
+   "deck": "bad.va",
+   "args": [
+    "{deck}",
+    "-o",
+    "bad.osdi"
+   ],
+   "status": 65,
+   "output": {
+    "contains": [
+     "unexpected token 'analog'; expected ',' or ';'"
+    ],
+    "regex": [
+     "\u001b\\["
+    ]
+   },
+   "files": {
+    "absent": [
+     "bad.osdi"
+    ]
+   }
+  },
+  {
+   "name": "openvaf_writes_the_o_path",
+   "tool": "openvaf",
+   "deck": "good.va",
+   "args": [
+    "{deck}",
+    "-o",
+    "good.osdi.tmp-1234"
+   ],
+   "status": 0,
+   "output": {
+    "regex": [
+     "\u001b\\[[0-9;]*m\\s*Finished"
+    ]
+   },
+   "files": {
+    "present": [
+     "good.osdi.tmp-1234"
+    ],
+    "absent": [
+     "good.osdi"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /opt/openvaf-r-20260616/openvaf-r, through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored"
+ ]
+}

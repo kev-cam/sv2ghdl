@@ -1,0 +1,13 @@
+// e2e 7's deck with the transient's tmax at 1 us (.tran 1u 1m 0 1u): the engines' out(1 ms) then lies
+// within 5e-5 of the circuit's exact answer, -0.0981197, which deck.scs's expectation must hold too
+simulator lang=spice
+v1 in 0 dc 1 ac 1 sin(0 1 1k)
+r1 in out 1k
+c1 out 0 1u
+v2 x 0 dc 0.6
+d1 x 0 dm
+.include "models.scs"
+.op
+.ac dec 10 1 1meg
+.tran 1u 1m 0 1u
+.end

@@ -287,6 +287,18 @@ class TestFunctionsAndNames(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             E.parse("f(1)", funcs={"f": (["a"], Name("a"))})   # HSPICE: inline() stays its route (§4.3)
 
+    def test_user_function_without_arguments(self):
+        # R-lang-21: real myfunc( [real arg1, ...real argn] ) (ref19 p.481): a function declared without
+        # arguments is called with (); any other empty call stays an error
+        funcs = {"rdef": ([], Num(2000.0)), "dt": ([], P("temp-tnom")), "f1": (["x"], P("x"))}
+        self.assertEqual(P("rdef()", funcs=funcs), Num(2000.0))
+        self.assertEqual(P("1k*(1+0.001*dt())", funcs=funcs),
+                         Binary("*", Num(1000.0), Binary("+", Num(1.0), Binary("*", Num(0.001),
+                                                                                 Binary("-", Name("temper"), Name("$tnom"))))))
+        for text in ("f1()", "sin()", "nosuch()"):
+            with self.assertRaises(E.ExprError):
+                P(text, funcs=funcs)
+
     def test_spice_mode_groupings(self):
         self.assertEqual(SP("par'a*2'"), Binary("*", Name("a"), Num(2.0)))
         self.assertEqual(SP("par 'a*2'"), Binary("*", Name("a"), Num(2.0)))

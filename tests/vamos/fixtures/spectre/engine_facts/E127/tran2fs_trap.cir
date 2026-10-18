@@ -1,0 +1,65 @@
+* E127: the bench's transient with transres pulse edges (2 fs), TRAP
+* vamos's render of e2e 15's dmStepResponse (tests/vamos/fixtures/spectre/e2e/15_ug_opamp, deck_noxf.scs -E), 2026-10-17
+.global vdd vss
+.param VDD=5.0
+.param GAIN=0.5
+.model nmos nmos level=3 vto=1.26 gamma=1.62 phi=0.58 nsub=1000000000000000.0 cgso=3.7e-10 cgdo=3.7e-10 cgbo=2.5e-10 cj=0.0004 tox=7.5e-08 pb=0.914 js=0.0001 xj=1e-06 ld=8e-07 uo=717.0 mjsw=0.3333333333333333 badmos3=1.0
+.model pmos pmos level=3 vto=-1.11 gamma=0.39 phi=0.72 nsub=1.7e+16 cgso=2.2e-10 cgdo=2.2e-10 cgbo=2.5e-10 cj=0.0001 tox=7.5e-08 pb=0.605 js=0.0001 xj=6.5e-07 ld=5e-07 uo=206.0 mjsw=0.3333333333333333 badmos3=1.0
+.model dnp d level=1 is=3.1e-10 n=1.12 cjo=3.1e-08 vj=0.914 m=0.5 nbv=1.0 eg=1.124481
+.subckt opamp pout nout pin nin params: vamos_mfactor=1.0
+M1 4 pin 1 1 nmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M2 5 nin 1 1 nmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M18 1 12 vss vss nmos w=0.00024 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M3 4 11 vdd vdd pmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M4 5 11 vdd vdd pmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M5 nout 16 4 vdd pmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M6 pout 16 5 vdd pmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M7 nout 13 8 vss nmos w=7e-05 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M8 pout 13 9 vss nmos w=7e-05 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M9 8 12 vss vss nmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M10 9 12 vss vss nmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M11 10 nout vss vss nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M12 10 pout vss vss nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M13a 11 0 vss vss nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M13b 11 0 vss vss nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M14 10 10 vdd vdd pmos w=5e-05 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M15 11 10 vdd vdd pmos w=5e-05 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+Cc1 nout 11 1e-12 m={vamos_mfactor}
+Cc2 pout 11 1e-12 m={vamos_mfactor}
+M16 12 12 vss vss nmos w=2e-05 l=1.16e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M17 21 12 vss vss nmos w=2e-05 l=1.16e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M19 13 13 14 vss nmos w=2e-05 l=2.16e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M20 13 21 16 vdd pmos w=5e-05 l=7.6e-06 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M21 21 16 17 vdd pmos w=2.4e-05 l=1.16e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+M22 16 16 17 vdd pmos w=2.4e-05 l=1.16e-05 nrd=0.0 nrs=0.0 m={vamos_mfactor}
+D1 15 vss dnp AREA=4e-07 m={vamos_mfactor}
+D2 14 15 dnp AREA=4e-07 m={vamos_mfactor}
+D3 18 17 dnp AREA=4e-07 m={vamos_mfactor}
+D4 vdd 18 dnp AREA=4e-07 m={vamos_mfactor}
+Ib 0 12 DC {1e-05*vamos_mfactor}
+.ends opamp
+Vdd vdd 0 DC {VDD}
+Vss vss 0 DC {(-VDD)}
+Vcm cmin 0 DC 0.0
+Vdif in 0 DC 0.0 PULSE(0.0 2.0 1e-08 2e-15 2e-15 1e-06)
+Eicmp pin cmin in 0 {GAIN}
+Eicmn nin cmin in 0 {(-GAIN)}
+xA1 pout nout pvg nvg opamp
+Cf1 pout t1 8e-12
+Cf2 nout t2 8e-12
+Vt1 t1 nvg DC 0.0
+Vt2 t2 pvg DC 0.0
+Cl1 pout 0 8e-12
+Cl2 out 0 8e-12
+Ci1 pin pvg 2e-12
+Ci2 nin nvg 2e-12
+gRgp pvg 0 pvg 0 1e-12
+gRgn nvg 0 nvg 0 1e-12
+Edif out 0 pout nout 1.0
+Ecmp cmout mid pout 0 {GAIN}
+Ecmn mid 0 nout 0 {GAIN}
+.options device temp=27.0 tnom=27.0 gmin=1e-12
+.options timeint method=TRAP
+.TRAN 1.9999999999999997e-09 2e-06 0.0 2e-08
+.PRINT TRAN FORMAT=RAW FILE=tran2fs_trap.raw V(OUT)
+.end

@@ -1,0 +1,204 @@
+{
+ "row": "E127",
+ "experiment": "Xyce against VACASK on fast edges and on a bistable nodeset (e2e 15 and 18, phase 2): e2e 15's dmStepResponse (vamos's render of deck_noxf.scs -E, the differential pulse with transres edges, 1e-9 x stop = 2 fs, under GEAR and TRAP, and with 1 ns edges) on Xyce, the 2 fs edges on VACASK (the render trimmed to the tran); a vcvs Schmitt trigger at vin = 0 (gain 10, diode-limited output, vamos-authored: the row's own deck was not kept) with nodeset out=1.7 on VACASK, .NODESET V(OUT)=1.7, with V(P) and with V(X) on Xyce, and at gain 1000 on VACASK",
+ "result": "the bench's transient fails on Xyce with \"Time step too small near step number: 15\" (the row: 14 or 15), exit 1 and a header-only print file, under TRAP and GEAR when its pulse edges are 2 fs, and runs with 1 ns edges; VACASK takes the 2 fs edges; away from the edges the two agree within 3e-4 (0.2, 0.5 and 1.5 us); on the Schmitt trigger VACASK's nodeset={\"out\",1.7} gives the high state (1.7486 V here, 1.70127 V on the row's deck), while Xyce's .NODESET V(OUT)=1.7 converges to the metastable 0 V (adding V(P) changes nothing, and V(X) on the vcvs output gives \"Numerically singular matrix found by Amesos\"); at gain 1000 VACASK lands on 0 V too",
+ "rules": [
+  "§3.8.1 / §4.5: a pulse without rise and fall gets transres's edge (1e-9 x stop) on both engines, which stops Xyce's transient of a fast bench; e2e 15 writes its edges",
+  "§5.5 / §14: a nodeset is a hint the engines may honour differently; e2e 18 checks the nodeset on a circuit with one state only"
+ ],
+ "runs": [
+  {
+   "name": "xyce_2fs_edges_gear",
+   "tool": "xyce",
+   "deck": "tran2fs_gear.cir",
+   "status": 1,
+   "output": {
+    "regex": [
+     "Time step too small near step number: 1[45]"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tran2fs_gear.raw",
+     "points": 0,
+     "declared": null
+    }
+   ]
+  },
+  {
+   "name": "xyce_2fs_edges_trap",
+   "tool": "xyce",
+   "deck": "tran2fs_trap.cir",
+   "status": 1,
+   "output": {
+    "regex": [
+     "Time step too small near step number: 1[45]"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tran2fs_trap.raw",
+     "points": 0
+    }
+   ]
+  },
+  {
+   "name": "xyce_1ns_edges_run",
+   "tool": "xyce",
+   "deck": "tran1ns.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "tran1ns.raw",
+     "col": "TIME",
+     "row": -1,
+     "value": 2e-06,
+     "rel": 1e-09
+    },
+    {
+     "raw": "tran1ns.raw",
+     "col": "V(OUT)",
+     "at": 2e-07,
+     "value": 0.5042165,
+     "abs": 0.0003
+    },
+    {
+     "raw": "tran1ns.raw",
+     "col": "V(OUT)",
+     "at": 5e-07,
+     "value": 0.4998189,
+     "abs": 0.0003
+    },
+    {
+     "raw": "tran1ns.raw",
+     "col": "V(OUT)",
+     "at": 1.5e-06,
+     "value": 6.5e-05,
+     "abs": 0.0003
+    }
+   ]
+  },
+  {
+   "name": "vacask_2fs_edges_run",
+   "tool": "vacask",
+   "deck": "tran2fs.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "tr2fs.raw",
+     "col": "time",
+     "row": -1,
+     "value": 2e-06,
+     "rel": 1e-09
+    },
+    {
+     "raw": "tr2fs.raw",
+     "col": "out",
+     "at": 2e-07,
+     "value": 0.5042165,
+     "abs": 0.0003
+    },
+    {
+     "raw": "tr2fs.raw",
+     "col": "out",
+     "at": 5e-07,
+     "value": 0.4998189,
+     "abs": 0.0003
+    },
+    {
+     "raw": "tr2fs.raw",
+     "col": "out",
+     "at": 1.5e-06,
+     "value": 6.5e-05,
+     "abs": 0.0003
+    }
+   ],
+   "note": "the values are the two engines' midpoints (VACASK 0.5041244, 0.4998100, 5.80e-5; Xyce with 1 ns edges 0.5043085, 0.4998278, 7.20e-5)"
+  },
+  {
+   "name": "vacask_nodeset_high_state",
+   "tool": "vacask",
+   "deck": "schmitt.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "opns.raw",
+     "col": "out",
+     "value": 1.748625787650482,
+     "rel": 1e-06
+    },
+    {
+     "raw": "op0.raw",
+     "col": "out",
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "vacask_nodeset_gain_1000",
+   "tool": "vacask",
+   "deck": "schmitt1000.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "opns1000.raw",
+     "col": "out",
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "xyce_nodeset_metastable",
+   "tool": "xyce",
+   "deck": "schmitt.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "schmitt.raw",
+     "col": "V(OUT)",
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "xyce_nodeset_with_p",
+   "tool": "xyce",
+   "deck": "schmitt_p.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "schmitt_p.raw",
+     "col": "V(OUT)",
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "xyce_nodeset_on_the_vcvs_output",
+   "tool": "xyce",
+   "deck": "schmitt_x.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Numerically singular matrix found by Amesos"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "schmitt_x.raw",
+     "col": "V(OUT)",
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) and /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7, both through vamos.ams.engines and engines.env_for",
+  "decks: tran*.cir and tran2fs.sim are vamos's renders (2026-10-17) of tests/vamos/fixtures/spectre/e2e/15_ug_opamp/deck_noxf.scs -E, with the 1 ns edges removed for the 2 fs ones, the print lists cut to V(OUT) and the VACASK control block to the tran; the Schmitt trigger decks are vamos-authored"
+ ]
+}

@@ -1,0 +1,10 @@
+`include "disciplines.vams"
+// e2e 8: a Verilog-A resistor in the pattern of the ADMS example toys/resistor.va (xyceModelGroup Resistor,
+// level 6, an instance parameter R), vamos-authored
+(*xyceModelGroup="Resistor", xyceSpiceDeviceName="R", xyceLevelNumber="6"*)
+module vares (p,n);
+   electrical p,n;
+   inout p,n;
+   (*desc="Resistance", type="instance"*) parameter real R=1 from (0:inf);
+   analog I(p,n) <+ V(p,n)/R;
+endmodule

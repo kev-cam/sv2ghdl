@@ -1,0 +1,8 @@
+* .NOISE across two nodes, V(A,B), on a flat ladder
+V1 in 0 DC 0 AC 1
+R1 in a 1000.0
+R2 a b 1000.0
+R3 b 0 1000.0
+.NOISE V(A,B) V1 DEC 1 1K 10K
+.PRINT NOISE FILE=pair_ab.prn ONOISE INOISE
+.end

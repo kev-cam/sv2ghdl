@@ -1,0 +1,7 @@
+`include "disciplines.vams"
+// E119: a Verilog-A resistor whose module name has upper-case letters (vamos-authored)
+module MixRes(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = 1000.0;
+  analog I(a, b) <+ V(a, b) / r;
+endmodule

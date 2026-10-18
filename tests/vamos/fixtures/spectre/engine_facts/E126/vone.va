@@ -1,0 +1,6 @@
+`include "disciplines.vams"
+// E126: a single-terminal Verilog-A voltage source, V(a) = 1 (vamos-authored)
+module vone(a);
+  inout a; electrical a;
+  analog V(a) <+ 1.0;
+endmodule

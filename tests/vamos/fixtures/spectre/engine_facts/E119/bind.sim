@@ -1,0 +1,19 @@
+a sweep of a parameter the Verilog-A module does not declare (e2e 11's bind_fail)
+ground 0
+load "resistor.osdi"
+load "vres.va"
+model vamos_vsource vsource
+model vamos_resistor resistor
+model vres vres
+V1 (a 0) vamos_vsource type="dc" dc=1
+X1 (a b) vres
+R2 (b 0) vamos_resistor r=1000.0
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  save v(b)
+  analysis op1 op
+  sweep sw1 instance="X1" parameter="foo" values=[1, 2]
+    analysis dc1 op
+  analysis op2 op
+endc

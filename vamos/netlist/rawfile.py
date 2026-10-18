@@ -67,10 +67,13 @@ scan(path) -> List[RawPlot]
     (scan_raw), which re-exports it; cosim.check_raw reads through it.
 fix_scanned(path, plots) -> bool
     fix_points from a scan (cosim's _fix_points, moved; re-exported there).
-iter_rows(path, plot, columns) -> Iterator[tuple]
+iter_rows(path, plot, columns, start=None, first=0) -> Iterator[tuple]
     The given columns of plot number `plot` (0-based), row by row, with the
     values read_all gives (complex numbers in a complex plot), read from the
-    mapped file as the rows are consumed.
+    mapped file as the rows are consumed.  start: the plot's byte offset (the
+    next_start chain of scan), so the plots before it are not scanned again;
+    first: the first row (binary rows are seeked to): a reader of n plots or n
+    groups reads each once.
 read_prn(path) -> List[Raw]
     Xyce standard-format .PRINT tables (noise), one Raw per .STEP: the table
     is split where its Index column restarts at 0 (E33); the Index column is
@@ -661,15 +664,24 @@ def _count_points(mm, toks, nvars: int, cplx: bool, plot: RawPlot, path: str) ->
 
 # -- rows, streamed ---------------------------------------------------------------------
 
-def iter_rows(path: str, plot: int, columns: Sequence[int]) -> Iterator[tuple]:
+def iter_rows(path: str, plot: int, columns: Sequence[int], start: Optional[int] = None,
+              first: int = 0) -> Iterator[tuple]:
     """The given columns of plot number `plot` (0-based), row by row: for each point, a tuple
     of the values read_all would give for those columns (complex numbers in a complex
     plot), read from the mapped file as the rows are consumed, so a plot of any length
     takes O(1) memory (binary rows with struct.unpack_from, ASCII through the token walk
     of the scan).  The point count is found the way read finds it (a blank or wrong "No.
     Points:", a truncated last point).  RawError as read raises it, and for a plot number
-    the file does not have; IndexError for a column the plot does not have."""
+    the file does not have; IndexError for a column the plot does not have.
+
+    start: the byte offset of the plot's header (0 for the first plot, then each plot's
+    RawPlot.next_start from scan): the plot is read without scanning the plots before it, and
+    `plot` only names it in messages.  first: the first row yielded (0-based): binary rows are
+    read from it directly, ASCII rows before it are skipped by the token walk.  Reading n
+    plots by number alone scans n^2/2 plots, and n groups of one plot from row 0 n^2/2 groups
+    (docs/VAMOS_SPECTRE_DESIGN.md §4.6; R-emit-9)."""
     cols = [int(c) for c in columns]
+    first = max(0, int(first))
     with open(path, "rb") as fh:
         if os.fstat(fh.fileno()).st_size == 0:
             raise RawError("%s: empty rawfile" % path)
@@ -678,21 +690,26 @@ def iter_rows(path: str, plot: int, columns: Sequence[int]) -> Iterator[tuple]:
         try:
             if _NONBLANK.search(mm) is None:
                 raise RawError("%s: empty rawfile" % path)
-            pos, k = 0, 0
-            while k < plot:                         # the plots before it: header and data
-                before, _ = _scan_plot(mm, pos, path)
-                if before.next_start < 0:
-                    raise RawError("%s: no plot %d (the file holds %d)" % (path, plot, k + 1))
-                pos, k = before.next_start, k + 1
+            if start is not None:
+                pos = int(start)
+                if not 0 <= pos < len(mm):
+                    raise RawError("%s: no plot %d at byte %d (the file holds %d bytes)" % (path, plot, pos, len(mm)))
+            else:
+                pos, k = 0, 0
+                while k < plot:                     # the plots before it: header and data
+                    before, _ = _scan_plot(mm, pos, path)
+                    if before.next_start < 0:
+                        raise RawError("%s: no plot %d (the file holds %d)" % (path, plot, k + 1))
+                    pos, k = before.next_start, k + 1
             head, lay = _scan_header(mm, pos, path)
             bad = [c for c in cols if not 0 <= c < lay.nvars]
             if bad:
                 raise IndexError("%s: plot %d has no column %d (%d variables)"
                                  % (path, plot, bad[0], lay.nvars))
             if lay.binary:
-                rows = _binary_rows(mm, head, lay, cols)
+                rows = _binary_rows(mm, head, lay, cols, first)
             else:
-                rows = _ascii_rows(mm, lay, cols, path)
+                rows = _ascii_rows(mm, lay, cols, path, first)
             for row in rows:
                 yield row
         finally:
@@ -703,10 +720,10 @@ def iter_rows(path: str, plot: int, columns: Sequence[int]) -> Iterator[tuple]:
                 pass
 
 
-def _binary_rows(mm, plot: RawPlot, lay: _Layout, cols: List[int]) -> Iterator[tuple]:
+def _binary_rows(mm, plot: RawPlot, lay: _Layout, cols: List[int], first: int = 0) -> Iterator[tuple]:
     _scan_binary(mm, lay.data_start, lay.nvars, lay.cplx, plot)     # the count, as read finds it
     rowfmt = struct.Struct("<%dd" % (lay.nvars * (2 if lay.cplx else 1)))
-    for i in range(plot.n):
+    for i in range(first, plot.n):
         vals = rowfmt.unpack_from(mm, lay.data_start + i * rowfmt.size)
         if lay.cplx:
             yield tuple(complex(vals[2 * c], vals[2 * c + 1]) for c in cols)
@@ -714,9 +731,9 @@ def _binary_rows(mm, plot: RawPlot, lay: _Layout, cols: List[int]) -> Iterator[t
             yield tuple(vals[c] for c in cols)
 
 
-def _ascii_rows(mm, lay: _Layout, cols: List[int], path: str) -> Iterator[tuple]:
+def _ascii_rows(mm, lay: _Layout, cols: List[int], path: str, first: int = 0) -> Iterator[tuple]:
     toks = _TOKEN.finditer(mm, lay.data_start)
-    n = 0
+    n = 0                                                   # the complete rows read so far
     for tok in toks:
         if not tok.group(0).isdigit():
             if _PLOT_START.match(mm, tok.start()):
@@ -740,7 +757,8 @@ def _ascii_rows(mm, lay: _Layout, cols: List[int], path: str) -> Iterator[tuple]
         if len(vals) < lay.nvars:
             return                                          # a truncated last point
         n += 1
-        yield tuple(vals[c] for c in cols)
+        if n > first:
+            yield tuple(vals[c] for c in cols)
 
 
 # -- repair ---------------------------------------------------------------------

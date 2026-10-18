@@ -1,0 +1,8 @@
+* a vccs negative conductance kicked by a pulse (e2e 11's tran_abort) on Xyce: node a grows as exp(t / 1 us)
+I1 0 a PULSE(0 1e-06 0 1e-09 1e-09 1e-06 10)
+G1 0 a a 0 0.001
+C1 a 0 1e-09
+R1 a 0 1000000.0
+.TRAN 1e-06 0.001 0 2e-05
+.PRINT TRAN FORMAT=RAW FILE=kick.raw V(A)
+.end

@@ -5,7 +5,13 @@ Every line a spectre run prints goes through SpectreLog, to stdout and/or the +l
 per the log mode (`-log` the screen only, `+log f` both, `=log f` the file only, §2.5): the
 provenance header and other plain lines (line), vamos's notes, warnings and errors as Spectre
 messages (message), the analysis banners, the SIGUSR1 status line and the trailer (finish).
-Nothing goes to stderr.  The layout comes from the banner profile (banners/spectre.json), with
+The SIGUSR1 status line is shown on the screen under every log mode, =log too (UG p.235: the
+reply to the user's request goes to the screen).  Nothing goes to stderr.  A screen that goes
+away (phase 2c, D1: the reader of a pipe is gone, the terminal hung up, a stream closed, or
+`>&-` at start) is dropped for the rest of the run, which goes on and earns its status: the
+lines still go to the log file, nothing raises, and fd 1 becomes /dev/null so that the
+interpreter's last flush cannot fail.
+The layout comes from the banner profile (banners/spectre.json), with
 built-in text for every key: a profile may change the layout of version, subversion,
 error_block, warning_block, notice_block, trailer_ok and trailer_fatal but never suppress them
 (under --vamos-banner=none, for a missing key or an invalid template the built-in text is
@@ -129,6 +135,7 @@ class SpectreLog:
                         "file": (effective(job, "maxwarnstolog"), effective(job, "maxnotestolog"))}
         mode = effective(job, "log_mode")
         self.screen = mode != "file"
+        self.screen_gone = sys.stdout is None                    # D1: `>&-`, or a screen whose write failed
         path = effective(job, "log_path")
         if mode in ("both", "file") and path:
             codes = percent.codes(job, start)
@@ -147,12 +154,26 @@ class SpectreLog:
 
     def _emit(self, text: str, screen: bool = True, file: bool = True) -> None:
         if screen and self.screen:
-            out = sys.stdout
-            out.write(text + "\n")
-            out.flush()
+            self._to_screen(text)
         if file and self.file and not self._closed:
             self.file.write(text + "\n")
             self.file.flush()
+
+    def _to_screen(self, text: str) -> None:
+        """A line on stdout, unless the screen is gone (D1): a write or flush that fails (EPIPE, EIO, EBADF,
+        a closed stream) drops the screen for the rest of the run, and fd 1 becomes /dev/null."""
+        if self.screen_gone:
+            return
+        out = sys.stdout
+        if out is None:
+            self.screen_gone = True
+            return
+        try:
+            out.write(text + "\n")
+            out.flush()
+        except (OSError, ValueError):
+            self.screen_gone = True
+            _detach(out)
 
     def line(self, text: str) -> None:
         """A plain line: the provenance header, a --vamos-verbose command echo, the run-directory
@@ -315,7 +336,8 @@ class SpectreLog:
         """The SIGUSR1 status line, printed from the main loop (§2.7) [M UG p.235]: the running
         analysis and, where the engine reports it, its progress.  With no analysis running, a
         progress text names what vamos does (phase 2: "writing the results of `x'" during the
-        conversion), else it is setting up."""
+        conversion), else it is setting up.  "The Spectre simulator displays the status information
+        on the screen" [M UG p.235]: on stdout under every log mode, and in the log file as well."""
         elapsed = time.time() - self.start.timestamp()
         if self.analysis:
             what = "analysis `%s' running" % self.analysis
@@ -324,7 +346,10 @@ class SpectreLog:
         else:
             what = "no analysis running (setting up)"
         tail = (", " + progress) if progress else ""
-        self._emit("%s status: %s%s, elapsed = %.0f s." % (self.prog, what, tail, elapsed))
+        line = "%s status: %s%s, elapsed = %.0f s." % (self.prog, what, tail, elapsed)
+        self._emit(line)
+        if not self.screen:                              # =log: the screen as well (R-run-12)
+            self._to_screen(line)
 
     def audit(self) -> None:
         t = self.text("audit", time=spectre_time(datetime.now()), cpu=_cpu() - self._cpu0,
@@ -348,3 +373,26 @@ class SpectreLog:
 def _cpu() -> float:
     t = os.times()
     return t.user + t.system + t.children_user + t.children_system
+
+
+def _detach(out) -> None:
+    """/dev/null onto fd 1 when `out` (the stdout whose write failed) writes there (D1): the interpreter
+    flushes sys.stdout at exit, and a failure there is Python's exit status 120 and a line on stderr.
+    A stream with no file descriptor, or another one, is left alone."""
+    try:
+        if out.fileno() != 1:
+            return
+    except (AttributeError, OSError, ValueError):
+        return
+    try:
+        null = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        return
+    try:
+        if null == 1:                                    # fd 1 itself was closed: /dev/null took its place
+            os.set_inheritable(1, True)
+        else:
+            os.dup2(null, 1)
+            os.close(null)
+    except OSError:
+        pass

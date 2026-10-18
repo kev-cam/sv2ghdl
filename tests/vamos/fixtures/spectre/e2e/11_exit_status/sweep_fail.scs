@@ -6,7 +6,7 @@ R1 (in a) resistor r=1k
 C1 (a 0) capacitor c=1n
 E1 (out 0 out a) vcvs gain=g
 R2 (out 0) resistor r=1k
-sw sweep param=g values=[0.75 1 2] {
+sw sweep param=g values=[0.5 1 2] {
   op1 dc
 }
 op9 dc

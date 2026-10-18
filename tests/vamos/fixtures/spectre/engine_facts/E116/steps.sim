@@ -1,0 +1,21 @@
+stepped sweep counts: from/to/step grids whose floating-point steps miss the end, an exact one, a descending dec sweep
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+V1 (in 0) vamos_vsource type="dc" dc=0 mag=1
+R1 (in out) vamos_resistor r=1000.0
+R2 (out 0) vamos_resistor r=1000.0
+control
+  options rawfile="ascii"
+  save v(out)
+  sweep s1 instance="V1" parameter="dc" from=0 to=0.3 step=0.1
+    analysis dc1 op
+  sweep s2 instance="V1" parameter="dc" from=0 to=0.7 step=0.1
+    analysis dc2 op
+  sweep s3 instance="V1" parameter="dc" from=0 to=1 step=0.25
+    analysis dc3 op
+  sweep s4 instance="V1" parameter="dc" from=1 to=0.001 mode="dec" points=1
+    analysis dc4 op
+  analysis ac1 ac from=1M to=1k mode="dec" points=1
+endc

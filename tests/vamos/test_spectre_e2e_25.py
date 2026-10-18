@@ -24,7 +24,7 @@ import shutil
 import unittest
 
 import psfcheck
-from spectre_testlib import SPECTRE_FIXTURES, SpectreCase, needs_flow
+from spectre_testlib import SPECTRE_FIXTURES, SpectreCase, needs_engines, needs_flow
 
 CASE = os.path.join(SPECTRE_FIXTURES, "e2e", "25_ade_instance")
 FOURKT = 4.0 * 1.380649e-23 * 300.15
@@ -46,12 +46,10 @@ class TestE2e25(SpectreCase):
         return os.path.join(d, "deck.raw")
 
     def each_engine(self):
-        engines = self.engines()
-        if not engines:
-            self.skipTest("needs VACASK or Xyce (Linux/WSL)")
-        return engines
+        return self.engines()
 
     @needs_flow
+    @needs_engines
     def test_noise_structs_and_their_members(self):
         for engine in self.each_engine():
             with self.subTest(engine=engine):
@@ -75,6 +73,7 @@ class TestE2e25(SpectreCase):
                     self.assertIn("carry only `total'", self.output)
 
     @needs_flow
+    @needs_engines
     def test_ic_relaxation_and_an_untouched_op(self):
         for engine in self.each_engine():
             with self.subTest(engine=engine):

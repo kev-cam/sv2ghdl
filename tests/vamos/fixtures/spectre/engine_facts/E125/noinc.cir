@@ -1,0 +1,8 @@
+* E75's ires.va copied beside the deck without the file it `includes (ires_defs.include: r = 4000)
+.hdl "ires.va"
+V1 a 0 DC 1.0
+.model ires__vamos ires
+yires X1 a 0 ires__vamos
+.OP
+.PRINT DC FORMAT=RAW FILE=noinc.raw I(V1)
+.end

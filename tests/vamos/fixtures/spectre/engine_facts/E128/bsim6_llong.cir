@@ -1,0 +1,9 @@
+* E128: a model-typed BSIM6 parameter (LLONG) on the M line of the letter-device route, as the CMC decks' renders carry their cards' parameters
+.hdl "@CMC@/BSIM6.1.1/code/BSIM6.1.1.va"
+.model nch nmos level=77
+vdrain drain 0 DC 0.1
+vgate gate 0 DC 1.0
+MX1 drain gate 0 0 nch W=1e-05 L=1e-05 LLONG=1e-05
+.DC vgate 0 1 0.5
+.PRINT DC FORMAT=RAW FILE=bsim6_llong.raw I(vdrain)
+.end

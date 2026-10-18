@@ -1,0 +1,99 @@
+{
+ "row": "E121",
+ "experiment": "Xyce .NOISE with other AC sources, and .PRINT AC of a resistor current (the integration, phase 2): out = 0.6 V1 + 0.2 V2 (R1 = 1k, R2 = R3 = 3k) with V2 at AC 1 and with no AC value, the input V1, on Xyce and (V2 mag=1) on VACASK; `.PRINT AC V(OUT) I(R1)`",
+ "result": "the noise gain includes every source that carries an AC value: with the second AC 1 source it is 0.8 (INOISE = ONOISE / 0.64) where VACASK gives 0.6 (its power gain 0.36), and 0.6 without it (ONOISE / 0.36), ONOISE unchanged (9.945e-18 V^2/Hz); `.PRINT AC ... I(R1)` stops with \"Function or variable I(R1) is not defined\", rc 1",
+ "rules": [
+  "§8.4: on Xyce only the noise input carries AC 1 0 in a noise deck (the other sources' AC values are left out), so that INOISE is ONOISE over the input's gain",
+  "§6.4 / §7.2: a terminal current on Xyce prints through a probe source (vamos_tp), never I(<resistor>); the parameter check maps \"Function or variable ... is not defined\" to status 2"
+ ],
+ "runs": [
+  {
+   "name": "xyce_gain_with_a_second_ac_source",
+   "tool": "xyce",
+   "deck": "two_ac.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "two_ac.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 9.94545296e-18,
+     "rel": 1e-06
+    },
+    {
+     "prn": "two_ac.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 1.5539770250e-17,
+     "rel": 1e-06
+    }
+   ],
+   "note": "INOISE = ONOISE / 0.8^2 = 9.94545296e-18 / 0.64"
+  },
+  {
+   "name": "xyce_gain_without_it",
+   "tool": "xyce",
+   "deck": "one_ac.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "one_ac.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 9.94545296e-18,
+     "rel": 1e-06
+    },
+    {
+     "prn": "one_ac.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 2.762625822e-17,
+     "rel": 1e-06
+    }
+   ],
+   "note": "INOISE = ONOISE / 0.6^2"
+  },
+  {
+   "name": "vacask_gain_of_its_input_only",
+   "tool": "vacask",
+   "deck": "two_ac.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nz1.raw",
+     "col": "gain",
+     "row": 0,
+     "value": 0.36,
+     "rel": 1e-09
+    },
+    {
+     "raw": "nz1.raw",
+     "col": "onoise",
+     "row": 0,
+     "value": 9.94565250108e-18,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "xyce_print_ac_of_a_resistor_current",
+   "tool": "xyce",
+   "deck": "ac_current.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Function or variable I(R1) is not defined"
+    ]
+   },
+   "files": {
+    "absent": [
+     "ac_current.raw"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) and /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7, both through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored"
+ ]
+}

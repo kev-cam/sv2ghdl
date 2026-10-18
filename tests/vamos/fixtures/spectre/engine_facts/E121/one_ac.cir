@@ -1,0 +1,9 @@
+* .NOISE with the second source carrying no AC value: out = 0.6 V1 (R1 = 1k, R2 = R3 = 3k)
+V1 in1 0 DC 0 AC 1
+V2 in2 0 DC 0
+R1 in1 out 1000.0
+R2 in2 out 3000.0
+R3 out 0 3000.0
+.NOISE V(OUT) V1 DEC 1 1K 10K
+.PRINT NOISE FILE=one_ac.prn ONOISE INOISE
+.end

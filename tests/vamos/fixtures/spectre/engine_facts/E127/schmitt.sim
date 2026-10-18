@@ -1,0 +1,25 @@
+a vcvs Schmitt trigger at vin = 0 (gain 10, a diode-limited output): bistable near +-1.7 V, metastable at 0; nodeset out=1.7
+ground 0
+load "resistor.osdi"
+load "spice/diode.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+model vamos_vcvs vcvs
+model dl sp_diode level=1.0 is=1e-12
+Vin (in 0) vamos_vsource type="dc" dc=0
+R1 (in p) vamos_resistor r=1000.0
+R2 (p out) vamos_resistor r=1000.0
+E1 (x 0 p 0) vamos_vcvs gain=10
+R3 (x out) vamos_resistor r=1000.0
+D1 (out m1) dl
+D2 (m1 m2) dl
+D3 (m2 0) dl
+D4 (0 m3) dl
+D5 (m3 m4) dl
+D6 (m4 out) dl
+control
+  options rawfile="ascii"
+  save v(out) v(p) v(x)
+  analysis opns op nodeset={"out", 1.7}
+  analysis op0 op
+endc

@@ -1,0 +1,10 @@
+* two instances of a portless subckt, each feeding 1 A into its own resistor (7 and 9 ohm)
+.subckt s2 params: p3=1
+I1 0 M1 DC 1
+R1 M1 0 {p3}
+.ends s2
+X2 s2 params: p3=7
+X3 s2 params: p3=9
+.OP
+.PRINT DC FORMAT=RAW FILE=portless.raw V(M1)
+.end

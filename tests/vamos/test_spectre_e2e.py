@@ -20,6 +20,7 @@ TestCheckExpect    check_expect over synthetic results directories (psf.write_an
 """
 
 import json
+import math
 import os
 import shutil
 import types
@@ -176,6 +177,41 @@ class TestGates(unittest.TestCase):
                      "needs_vacask_rawread"):
             self.assertIn(name, T.GATES)
 
+    def test_every_gate_is_used(self):
+        """No dead gate: every GATES name gates some test, as a decorator or a name (`needs_x`,
+        `T.needs_x`, `[needs_x, ...]`), as `GATES["needs_x"]`, or in an expect.json's gates list (e2e
+        and engine_facts; an import is no use).  R-tests-6: needs_psf_utils gated nothing, so setting
+        VAMOS_PSF_UTILS ran no check."""
+        import ast
+        import glob
+        here = os.path.dirname(os.path.abspath(__file__))
+        used = {}
+        for path in sorted(glob.glob(os.path.join(here, "test_*.py"))) + [os.path.join(here, "spectre_testlib.py")]:
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read(), path)
+            for node in ast.walk(tree):
+                name = None
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                    name = node.id
+                elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                    name = node.attr
+                elif (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "GATES"
+                      and isinstance(node.slice, ast.Constant)):              # Python >= 3.9: the key itself
+                    name = node.slice.value
+                if name in T.GATES:
+                    used.setdefault(name, set()).add(os.path.basename(path))
+        facts = spectre_fixture("engine_facts")
+        for path in sorted(glob.glob(os.path.join(E2E, "*", "expect.json")) + glob.glob(os.path.join(facts, "*", "expect.json"))):
+            with open(path, encoding="utf-8") as fh:
+                exp = json.load(fh)
+            items = [exp] + (exp.get("also") if isinstance(exp.get("also"), list) else [exp["also"]] if exp.get("also") else [])
+            items += exp.get("runs", [])
+            for it in items:
+                for g in it.get("gates") or []:
+                    used.setdefault(g, set()).add(os.path.relpath(path, T.SPECTRE_FIXTURES))
+        unused = sorted(n for n in T.GATES if n not in used)
+        self.assertEqual(unused, [], "gates no test uses: %s" % ", ".join(unused))
+
     def test_gate_problems(self):
         self.assertEqual(T.gate_problems([]), [])
         with self.assertRaises(ValueError):
@@ -186,6 +222,239 @@ class TestGates(unittest.TestCase):
         finally:
             if old is not None:
                 os.environ["VAMOS_CMC"] = old
+
+
+def _environ(**values):
+    """Set (a string) or unset (None) environment variables; returns the old values for _restore."""
+    old = {k: os.environ.get(k) for k in values}
+    for k, v in values.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    return old
+
+
+def _restore(old):
+    _environ(**old)
+
+
+class TestVacaskSrcDefault(unittest.TestCase):
+    """D6: e2e 29 is a T2 deck, so needs_vacask_src defaults, when VAMOS_VACASK_SRC is unset, to the
+    source tree the VACASK in use was configured from (CMAKE_HOME_DIRECTORY in the CMakeCache.txt of
+    the build two levels above engines.vacask_bin()), when that tree holds benchmark/ring and
+    devices/psp103v4; otherwise the gate stays a reported skip."""
+
+    def tree(self, with_psp=True, with_ring=True):
+        """A fake build (<t>/build/simulator/vacask, <t>/build/CMakeCache.txt) and source tree <t>/src."""
+        import tempfile
+        t = tempfile.mkdtemp(prefix="vamos-d6-")
+        self.addCleanup(shutil.rmtree, t, True)
+        src, build = os.path.join(t, "src"), os.path.join(t, "build")
+        os.makedirs(os.path.join(build, "simulator"))
+        with open(os.path.join(build, "simulator", "vacask"), "w") as fh:
+            fh.write("")
+        with open(os.path.join(build, "CMakeCache.txt"), "w") as fh:
+            fh.write("# This is the CMakeCache file.\nCMAKE_PROJECT_NAME:STATIC=sim\n"
+                     "CMAKE_HOME_DIRECTORY:INTERNAL=%s\nsim_SOURCE_DIR:STATIC=%s\n" % (src, src))
+        for sub, made in ((("benchmark", "ring", "vacask"), with_ring), (("devices", "psp103v4"), with_psp)):
+            os.makedirs(os.path.join(src, *sub) if made else src, exist_ok=True)
+        return src, os.path.join(build, "simulator", "vacask")
+
+    def test_unset_defaults_to_the_build_tree(self):
+        src, exe = self.tree()
+        old = _environ(VAMOS_VACASK=exe, VAMOS_VACASK_SRC=None)
+        try:
+            self.assertEqual(T.vacask_src(), src)
+            self.assertTrue(T.have_vacask_src())
+            self.assertEqual(T.gate_problems(["needs_vacask_src"]), [])
+        finally:
+            _restore(old)
+
+    def test_the_variable_wins_and_an_empty_one_turns_the_default_off(self):
+        src, exe = self.tree()
+        old = _environ(VAMOS_VACASK=exe, VAMOS_VACASK_SRC=os.path.dirname(src))
+        try:
+            self.assertEqual(T.vacask_src(), os.path.dirname(src))
+            os.environ["VAMOS_VACASK_SRC"] = ""
+            self.assertEqual(T.vacask_src(), "")
+            self.assertFalse(T.have_vacask_src())
+        finally:
+            _restore(old)
+
+    def test_a_tree_without_the_ring_or_psp103_is_no_default(self):
+        for kw in ({"with_psp": False}, {"with_ring": False}):
+            with self.subTest(**kw):
+                src, exe = self.tree(**kw)
+                old = _environ(VAMOS_VACASK=exe, VAMOS_VACASK_SRC=None)
+                try:
+                    self.assertEqual(T.vacask_src(), "")
+                    self.assertEqual(T.gate_problems(["needs_vacask_src"]),
+                                     ["needs VAMOS_VACASK_SRC (VACASK's source tree)"])
+                finally:
+                    _restore(old)
+
+    def test_no_build_tree_is_no_default(self):
+        import tempfile
+        t = tempfile.mkdtemp(prefix="vamos-d6-")
+        self.addCleanup(shutil.rmtree, t, True)
+        old = _environ(VAMOS_VACASK=os.path.join(t, "simulator", "vacask"), VAMOS_VACASK_SRC=None)
+        try:
+            self.assertEqual(T.vacask_src(), "")
+        finally:
+            _restore(old)
+
+    def test_a_linked_binary_finds_its_build(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("no symbolic links")
+        src, exe = self.tree()
+        link = os.path.join(os.path.dirname(src), "vacask-link")
+        try:
+            os.symlink(exe, link)
+        except OSError as e:
+            self.skipTest("cannot make a symbolic link: %s" % e)
+        old = _environ(VAMOS_VACASK=link, VAMOS_VACASK_SRC=None)
+        try:
+            self.assertEqual(T.vacask_src(), src)
+        finally:
+            _restore(old)
+
+    def test_the_readme_names_the_gate_environment(self):
+        """D6: T3b and T3c stay opt-in, so the fixtures' README names all five variables a gate run sets."""
+        with open(spectre_fixture("README"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertTrue("Gate environment" in text, "fixtures/spectre/README has no Gate environment section")
+        section = text[text.index("Gate environment"):]
+        for var in ("VAMOS_CADNIP_VACASK", "SIM_MODULE_PATH", "VAMOS_CMC=1", "VAMOS_CMC_EXAMPLES", "VAMOS_VACASK_SRC"):
+            self.assertTrue(var in section, "the README's gate environment does not name %s" % var)
+
+    @T.needs_vacask
+    def test_e2e_29s_gate_holds_here_without_the_variable(self):
+        """WSL: the VACASK in use was built from a tree that holds the ring and PSP103 (§0's [E] row),
+        so e2e 29 runs without VAMOS_VACASK_SRC instead of being a reported skip."""
+        from vamos.ams import engines
+        cache = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(engines.vacask_bin()))), "CMakeCache.txt")
+        home = ""
+        if os.path.isfile(cache):
+            with open(cache, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if line.startswith("CMAKE_HOME_DIRECTORY:"):
+                        home = line.split("=", 1)[1].strip()
+        if not (home and os.path.isdir(os.path.join(home, "benchmark", "ring"))
+                and os.path.isdir(os.path.join(home, "devices", "psp103v4"))):
+            self.skipTest("the VACASK in use has no build tree with benchmark/ring and devices/psp103v4 (%s)" % cache)
+        old = _environ(VAMOS_VACASK_SRC=None)
+        try:
+            self.assertEqual(T.vacask_src(), home)
+            self.assertEqual(T.gate_problems(["needs_vacask_src"]), [])
+        finally:
+            _restore(old)
+
+
+def rc_sine(t, tau, f):
+    """out(t) of an RC low-pass (time constant tau) driven by sin(2 pi f t) from out(0) = 0."""
+    w = 2.0 * math.pi * f
+    x = w * tau
+    return (math.sin(w * t) - x * math.cos(w * t) + x * math.exp(-t / tau)) / (1.0 + x * x)
+
+
+def rc_ramp(t, tau, t0, tr):
+    """out(t) of an RC low-pass after a 0 -> 1 ramp from t0 over tr, for t >= t0 + tr."""
+    return 1.0 - (tau / tr) * (math.exp(tr / tau) - 1.0) * math.exp(-(t - t0) / tau)
+
+
+# the transient values of the e2e decks whose circuit has an exact answer: (case, file, signal, at) ->
+# that answer; e2e 1's pulse rises over 1 us at 1 ms into R C = 1 ms (rval 1k) and 2 ms (2k), e2e 7's
+# sin(0 1 1k) drives R C = 1 ms
+EXACT = {
+    ("01_rc", "swp-000_tr.tran.tran", "out", 5e-3): rc_ramp(5e-3, 1e-3, 1e-3, 1e-6),
+    ("01_rc", "swp-001_tr.tran.tran", "out", 5e-3): rc_ramp(5e-3, 2e-3, 1e-3, 1e-6),
+    ("07_spice_mode", "timeSweep.tran.tran", "out", 1e-3): rc_sine(1e-3, 1e-3, 1e3),
+}
+# engine_expect.json's names for them: (case, step, signal, at, the sweep point) -> the key of EXACT
+ENGINE_EXACT = {
+    ("01_rc", "vamos_a3", "out", 5e-3, 0): ("01_rc", "swp-000_tr.tran.tran", "out", 5e-3),
+    ("01_rc", "vamos_a3", "out", 5e-3, 1): ("01_rc", "swp-001_tr.tran.tran", "out", 5e-3),
+    ("07_spice_mode", "vamos_a3", "out", 1e-3, 0): ("07_spice_mode", "timeSweep.tran.tran", "out", 1e-3),
+}
+
+
+class TestAnalyticBands(unittest.TestCase):
+    """Both legs, no engine: every transient value e2e 1 and 7 expect, in expect.json (the main deck
+    and the also decks, every engine) and in engine_expect.json, holds the circuit's exact answer
+    within its own tolerance (§11 T2: analytic checks tighter than the engines' agreement, never
+    the engines' integration error: a run closer to the circuit's answer must pass too)."""
+
+    def test_the_exact_answers(self):
+        self.assertAlmostEqual(EXACT[("07_spice_mode", "timeSweep.tran.tran", "out", 1e-3)], -0.0981197, delta=1e-7)
+        self.assertAlmostEqual(EXACT[("01_rc", "swp-000_tr.tran.tran", "out", 5e-3)], 0.981675, delta=1e-6)
+        self.assertAlmostEqual(EXACT[("01_rc", "swp-001_tr.tran.tran", "out", 5e-3)], 0.864631, delta=1e-6)
+
+    def test_expect_json_bands_hold_the_exact_answer(self):
+        seen = set()
+        for case in sorted(set(k[0] for k in EXACT)):
+            with open(os.path.join(E2E, case, "expect.json"), encoding="utf-8") as fh:
+                exp = json.load(fh)
+            for label, item in [("main", exp)] + [("also%d" % k, it) for k, it in enumerate(T.also_items(exp), 1)]:
+                for engine in T.run_engines(item):
+                    for v in T.expectation_for(item, engine).get("values") or []:
+                        key = (case, v["file"], v["signal"], v.get("at"))
+                        if key not in EXACT:
+                            continue
+                        seen.add(key)
+                        with self.subTest(case=case, deck=label, engine=engine, file=v["file"]):
+                            why = T.compare_value(EXACT[key], v["value"], float(v.get("rel", 0.0)),
+                                                  float(v.get("abs", 0.0)))
+                            self.assertIsNone(why, "%s %s on %s: the exact %s(%r) = %r is outside the band: %s"
+                                              % (case, label, engine, v["signal"], v["at"], EXACT[key], why))
+        self.assertEqual(seen, set(EXACT))
+
+    def test_engine_expect_bands_hold_the_exact_answer(self):
+        seen = set()
+        for case in sorted(set(k[0] for k in EXACT)):
+            with open(os.path.join(E2E, case, "engine_expect.json"), encoding="utf-8") as fh:
+                exp = json.load(fh)
+            for engine in T.ENGINE_NAMES:
+                for c in (exp.get(engine) or {}).get("checks", []):
+                    point = c.get("plot", 0)
+                    if c.get("select"):
+                        point = {1000.0: 0, 2000.0: 1}[list(c["select"].values())[0]]
+                    key = ENGINE_EXACT.get((case, c.get("step"), c.get("signal"), c.get("at"), point))
+                    if key is None:
+                        continue
+                    seen.add(key)
+                    with self.subTest(case=case, engine=engine, step=c["step"], point=point):
+                        why = T.compare_value(EXACT[key], c["value"], float(c.get("rel", 0.0)), float(c.get("abs", 0.0)))
+                        self.assertIsNone(why, "%s engine_expect %s: the exact %s(%r) = %r is outside the band: %s"
+                                          % (case, engine, c["signal"], c["at"], EXACT[key], why))
+        self.assertEqual(seen, set(EXACT))
+
+
+class TestChildEnv(SpectreCase):
+    """The run's environment (§11 Layout; D7): TMPDIR and PYMS_CACHE under the test's scratch
+    directory, PyMS's evaluator libraries in the shared PYMS_VAE_CACHE (E125), and the docstring
+    saying which is which."""
+
+    def test_pyms_vae_cache_stays_shared(self):
+        saved = os.environ.pop("PYMS_VAE_CACHE", None)
+        try:
+            env = self.child_env()
+            self.assertNotIn("PYMS_VAE_CACHE", env)                          # PyMS's default, /tmp/pyms_vae_cache
+            os.environ["PYMS_VAE_CACHE"] = os.path.join(os.sep, "elsewhere", "vae")
+            self.assertEqual(self.child_env()["PYMS_VAE_CACHE"], os.path.join(os.sep, "elsewhere", "vae"))
+        finally:
+            os.environ.pop("PYMS_VAE_CACHE", None)
+            if saved is not None:
+                os.environ["PYMS_VAE_CACHE"] = saved
+        for var in ("TMPDIR", "PYMS_CACHE"):
+            self.assertEqual(os.path.dirname(env[var]), self.tmp, var)
+            self.assertTrue(os.path.isdir(env[var]), var)
+
+    def test_the_docstring_names_what_is_isolated(self):
+        doc = " ".join(SpectreCase.child_env.__doc__.split())
+        self.assertNotIn("the PyMS cache isolated", doc)
+        for word in ("TMPDIR", "PYMS_CACHE", "PYMS_VAE_CACHE", "/tmp/pyms_vae_cache", "shared"):
+            self.assertIn(word, doc)
 
 
 class TestExpectFiles(unittest.TestCase):
@@ -600,6 +869,47 @@ class TestCheckExpect(SpectreCase):
         empty = os.path.join(self.tmp, "empty")                       # a status-2 run's logFile lists nothing
         psf.write_logfile(empty, [], HEAD, stamp=STAMP)
         self.check_psf_parser(empty)
+
+    @T.needs_psf_utils
+    def test_psf_utils_reads_a_synthetic_directory(self):
+        """§11 Third-party PSF consumers: psf_utils reads every data file but logFile and the sweep
+        parent [E83], its values (assigned by position in TRACE order) equal psfcheck's, and it
+        leaves no cache file beside them; a reader that puts values on the wrong traces fails."""
+        d = self.make(escchars=True)
+        res = os.path.join(d, "deck.raw")
+        read = self.check_psf_utils(res, escchars=True)
+        self.assertEqual(sorted(read), sorted(f for f in FILES if f not in ("logFile", "swp_tr.sweep")))
+        self.assertEqual(sorted(os.listdir(res)), sorted(FILES))
+        pu = T.import_psf_utils()
+        saved = pu.PSF
+
+        def swapped(path, **kw):
+            p = saved(path, **kw)
+            names = list(p.signals)
+            if len(names) >= 2:                                        # the first and last values change places
+                a, b = p.signals[names[0]], p.signals[names[-1]]
+                a.ordinate, b.ordinate = b.ordinate, a.ordinate
+            return p
+        pu.PSF = swapped
+        try:
+            with self.assertRaises(AssertionError) as cm:
+                self.check_psf_utils(res, escchars=True)
+        finally:
+            pu.PSF = saved
+        self.assertIn("myop.dc: in: psf_utils reads 0.25, psfcheck 1.0", str(cm.exception))
+        self.assertIn("nz.noise: R1:rn: point 0: psf_utils reads 4e-09, psfcheck 4e-18", str(cm.exception))
+
+    @T.needs_psf_utils
+    def test_psf_utils_reads_the_goldens(self):
+        """The PSF writer's goldens (psf/golden/*/, read in place: nothing is written beside them)."""
+        golden = spectre_fixture("psf", "golden")
+        dirs = [n for n in sorted(os.listdir(golden)) if os.path.isfile(os.path.join(golden, n, "logFile"))]
+        self.assertGreaterEqual(len(dirs), 7, dirs)
+        for n in dirs:
+            with self.subTest(golden=n):
+                before = sorted(os.listdir(os.path.join(golden, n)))
+                self.assertTrue(self.check_psf_utils(os.path.join(golden, n)))
+                self.assertEqual(sorted(os.listdir(os.path.join(golden, n))), before)
 
 
 # -- the decks (WSL: needs_flow and an engine) ----------------------------------------------------------

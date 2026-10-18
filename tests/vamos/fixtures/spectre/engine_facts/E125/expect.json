@@ -1,0 +1,277 @@
+{
+ "row": "E125",
+ "experiment": "PyMS and the Verilog-A files beside a deck (the Xyce runner and the T3c owner, 2026-10-16, phase 2): E75's ires.va (r = `RDEF from ires_defs.include) copied beside the deck without its include, through a symbolic link to its real directory, and named in that directory; e2e 8's two modules named by relative .hdl paths, one directory each (vamos_va1/, vamos_va2/, run_xyce.place_va's layout) and both in one directory (mods/); E66's nan.va, which reads $abstime; the evaluator library's location under PYMS_VAE_CACHE; added in phase 2c (R-emit-19): a noisy Verilog-A resistor (white_noise) on the Y route in a 1k/1k divider, its .NOISE with and without DNO(X1), DNO(YNVR!X1)",
+ "result": "a .va copied without the file it `includes relative to itself compiles with \"preprocess: warning: 'ires_defs.include' not found (skipped)\", rc 0, and a silently wrong result (I = -1e-12 A for -2.5e-4 A); a symbolic link does not carry the include either (it is looked up beside the link); two modules named by relative .hdl paths that hold a directory keep their parameters when each has its own directory, and (2026-10-17) lose them when both sit in one directory: \"Unrecognized parameter R for device RX1\", \"Unrecognized parameter A for device YVRES!X2\", rc 1, as E104's absolute paths; PyMS has no $abstime (a BuildError naming it; the module builds without it and runs, rc 0); the evaluator libraries go to PYMS_VAE_CACHE (default /tmp/pyms_vae_cache, shared by every run whatever PYMS_CACHE says; utils/PyMS/vae/xyce_device_gen.py:828-829). Added in phase 2c (R-emit-19): a PyMS device defines no DNO (\"There was 1 undefined symbol in .PRINT command: device X1\"; DNO(YNVR!X1) \"is not defined\"), rc 1, and its white_noise adds nothing to ONOISE (4.144e-18 V^2/Hz, R2's alone)",
+ "rules": [
+  "\u00a77.2 / \u00a74.5 item 13: run_xyce.place_va copies every Verilog-A source with the files it `includes relative to itself, as files, and names each by its base name or under its own vamos_va<k>/ (never two modules in one directory)",
+  "\u00a77.2: run_xyce narrates PyMS's BuildError lines (_DIAG_HEAD) as warnings",
+  "\u00a711 Layout / D7: SpectreCase isolates PYMS_CACHE only; PYMS_VAE_CACHE stays shared",
+  "\u00a78.4 / R-emit-8 (phase 2c): on Xyce a Verilog-A device's noise is neither printed (no DNO) nor counted in ONOISE"
+ ],
+ "runs": [
+  {
+   "name": "va_without_its_include",
+   "tool": "xyce",
+   "deck": "noinc.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache",
+    "PYMS_VAE_CACHE": "{tmp}/vae"
+   },
+   "status": 0,
+   "output": {
+    "contains": [
+     "preprocess: warning: 'ires_defs.include' not found (skipped)"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "noinc.raw",
+     "col": "I(V1)",
+     "value": -1e-12,
+     "rel": 1e-06
+    }
+   ],
+   "note": "its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run"
+  },
+  {
+   "name": "symbolic_link_carries_no_include",
+   "tool": "xyce",
+   "deck": "symlink.cir",
+   "symlinks": {
+    "link/ires.va": "lib/ires.va"
+   },
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache",
+    "PYMS_VAE_CACHE": "{tmp}/vae"
+   },
+   "status": 0,
+   "output": {
+    "contains": [
+     "preprocess: warning: 'ires_defs.include' not found (skipped)"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "symlink.raw",
+     "col": "I(V1)",
+     "value": -1e-12,
+     "rel": 1e-06
+    }
+   ],
+   "note": "its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run"
+  },
+  {
+   "name": "va_with_its_include",
+   "tool": "xyce",
+   "deck": "withinc.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache",
+    "PYMS_VAE_CACHE": "{tmp}/vae"
+   },
+   "status": 0,
+   "output": {
+    "absent": [
+     "'ires_defs.include' not found"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "withinc.raw",
+     "col": "I(V1)",
+     "value": -0.00025,
+     "rel": 1e-06
+    }
+   ],
+   "note": "its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run"
+  },
+  {
+   "name": "two_modules_one_directory_each_keep_parameters",
+   "tool": "xyce",
+   "deck": "reldirs2.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "status": 0,
+   "output": {
+    "contains": [
+     "compiled and registered vares from vamos_va1/vares.va",
+     "compiled and registered vres from vamos_va2/vres.va"
+    ],
+    "absent": [
+     "Unrecognized"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "reldirs2.raw",
+     "col": "V(B)",
+     "value": 0.25,
+     "rel": 1e-06
+    },
+    {
+     "raw": "reldirs2.raw",
+     "col": "V(C)",
+     "value": 0.3333333333333333,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "two_modules_in_one_directory_lose_parameters",
+   "tool": "xyce",
+   "deck": "reldirs.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "status": 1,
+   "output": {
+    "contains": [
+     "compiled and registered vares from mods/vares.va",
+     "compiled and registered vres from mods/vres.va",
+     "Unrecognized parameter R for device RX1",
+     "Unrecognized parameter A for device YVRES!X2"
+    ]
+   },
+   "files": {
+    "absent": [
+     "reldirs.raw"
+    ]
+   },
+   "note": "measured 2026-10-17 with a fresh PYMS_CACHE: the row's \"relative .hdl paths that hold a directory keep their parameters\" holds for one directory per module only"
+  },
+  {
+   "name": "no_abstime",
+   "tool": "xyce",
+   "deck": "abstime.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache",
+    "PYMS_VAE_CACHE": "{tmp}/vae"
+   },
+   "status": 0,
+   "output": {
+    "contains": [
+     "BuildError:",
+     "was not declared in this scope"
+    ],
+    "regex": [
+     "\\$abstime\\W{0,3} was not declared in this scope"
+    ]
+   },
+   "files": {
+    "present": [
+     "abstime.raw"
+    ]
+   },
+   "note": "its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run"
+  },
+  {
+   "name": "evaluator_library_in_pyms_vae_cache",
+   "tool": "xyce",
+   "deck": "vae.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache",
+    "PYMS_VAE_CACHE": "{tmp}/vae"
+   },
+   "status": 0,
+   "output": {
+    "regex": [
+     "build_vae_so: built /\\S+/vae/vae_ires_[0-9a-f]+\\.so"
+    ]
+   },
+   "files": {
+    "present": [
+     "vae"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "vae.raw",
+     "col": "I(V1)",
+     "value": -0.00025,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "noisy_va_resistor_adds_no_output_noise",
+   "tool": "xyce",
+   "deck": "vanoise.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "status": 0,
+   "checks": [
+    {
+     "prn": "vanoise.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 4.14393873e-18,
+     "rel": 1e-06,
+     "note": "R2's thermal noise alone, 4kT/1k x 500^2; with the module's white_noise it would be twice that"
+    }
+   ]
+  },
+  {
+   "name": "noisy_va_resistor_has_no_dno",
+   "tool": "xyce",
+   "deck": "vanoise_dno.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "status": 1,
+   "output": {
+    "contains": [
+     "There was 1 undefined symbol in .PRINT command: device X1"
+    ]
+   }
+  },
+  {
+   "name": "noisy_va_resistor_has_no_dno_under_its_y_name",
+   "tool": "xyce",
+   "deck": "vanoise_dno_y.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "status": 1,
+   "output": {
+    "contains": [
+     "Function or variable DNO(YNVR!X1) is not defined"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) with PyMS under engines.env_for, every run with its own PYMS_CACHE",
+  "decks: vamos-authored; ires.va and lib/ copy E75's va/ (ires.va, ires_defs.include), mods/ and vamos_va1/, vamos_va2/ copy E104's vares.va and vres.va (e2e/08_include_ahdl), nan.va copies E66's; nvr.va after the 2b review's van1 (sp2b/S-emit)"
+ ]
+}

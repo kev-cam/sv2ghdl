@@ -108,9 +108,11 @@ tables.path_envs (every subckt's parameters with the X line's overrides;
 sky130's wrappers pass l={l} w={w} nf={nf}), and a subckt whose bindings or
 branch choices differ between paths is printed once per distinct binding, as
 <name>__vb<k> (the X lines name the copy; only the bin cards a copy uses are
-printed with it).  Geometry that is not a number even on its path (temper) is
-an error when nf is not 1.  A geometry no bin fits is an error at emit time,
-naming the evaluated l and w.
+printed with it).  On this HSPICE path, geometry that is not a number even on
+its path (temper) is an error when nf is not 1 (with nf absent or 1 Xyce bins
+natively).  A Spectre model group is bound per path whatever nf (below): its l
+and w must be numbers on the path.  A geometry no bin fits is an error at emit
+time, naming the evaluated l and w.
 
 Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, §4.5, §7.2):
     Cond    resolved per instance path by tables.path_envs; the printed body holds the taken
@@ -119,28 +121,56 @@ Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, �
     cards   tables.model_params(dialect="spectre"), MasterRow.instance through
             tables.spectre_instance_params (an instance_<name> rename prints without the prefix)
     bins    bin_rule="spectre": the instance is bound to its group entry per path (group order,
-            exact bounds on the total w); no native binning
+            exact bounds on the total w); no native binning, so an instance whose l or w is not a
+            number on its path (one reading temper) is an error whatever its nf (§4.5 item 3)
     sources a given dc prints DC <dc>; a derived one DC {<the t = 0 value of the waveform>}: Xyce's
             operating point for a waveform source without DC is 0 [E70]; a noise step's input source
-            prints AC 1 0 (§8.4) [E19]
+            prints AC 1 0 (§8.4) [E19]; a literal mag=0 (Spectre's default, ref5 p.685) prints no AC,
+            which Xyce would warn about ("AC magnitude is set to 0.0"); a hooked one keeps it
     isnoisy=no   G<name> a b a b {1/r}, the same current with no noise; with tc1/tc2 the resistor
-            stays an R, noisy, with a warning [E32]
+            stays an R, noisy, with a warning [E32].  The switch is evaluated on each instance path
+            (no/false off, yes/true on, a number or a parameter: 0 off; a parameter that is not a
+            number on its path is an error), and a subckt whose G forms differ between paths is
+            another __vb<k> variant
+    E, G    a gain that is not a number literal in a deck that sweeps a .param (a variable, a hook)
+            prints in the behavioral form E<name> n+ n- VALUE={<gain>*v(c+,c-)} (G with its
+            multiplier folded in, no m=): the linear form's gain is 0 at a first .STEP/.DC point equal
+            to the .param's nominal [E126]; F and H keep the linear form, which is right there
+    noise   a circuit holding a Verilog-A instance is an error in a noise deck: PyMS devices carry no
+            noise sources (no DNO, and ONOISE leaves the module's noise out); with an input probe the
+            .PRINT NOISE holds VM(<output>), the gain (the output's magnitude under the input's AC 1),
+            and ('gain',) maps to it: results takes in = out/gain, as on VACASK (R-emit-13)
+    grids   a descending dec or lin grid (start > stop) prints plan.grid_points' points: a .DC/.STEP
+            LIST, or the .AC/.NOISE DATA= table, a descending step one too, because Xyce's DEC with
+            start > stop runs one step and .AC refuses start > stop [E116] (R-emit-3)
+    tnom    an expression reading tnom (Name("$tnom")) reads the deck's tnom, Xyce having no tnom
+            expression variable (§3.5, R-lang-7; expr's PrintError stays the guard)
     paths   every .PRINT item, .IC/.NODESET node and DNO() is spelled through printed_path
             (V(XI2:MID) for IR I2.Mid) [E84]
     step    one deck per analysis (§7.2): .options device temp tnom [gmin]; .OP (or .DC vamos_op
             LIST 0 under two or more .STEPs [E20]) / .DC / .AC / .NOISE / .TRAN with .OPTIONS TIMEINT
             METHOD; the context sweeps as .STEP lines innermost first [E20]; a sub= or source-field
-            target through a generated .param vamos_x_<path>_<param> hook [E20, E71]; .IC only in a
-            tran deck whose ic is all or node, .NODESET in every other deck [E18]; the .PRINT with
-            exactly the SignalMap's columns (V(*) plus the currents for allpub)
+            target through a generated .param vamos_x_<path>_<param> hook [E20, E71], and so is every
+            target whose printed value folds something in or that the device does not take by name:
+            a controlled source's gain (gain, gm, rm), a JFET's area (its multiplier folded in), the m
+            of an isource, a cccs or a JFET, and the m of an instance inside a subckt (printed under
+            vamos_mfactor); the hooks are applied before the multiplier; .IC only in a tran deck
+            whose ic is all or node, .NODESET in every other deck [E18]; the .PRINT with exactly the
+            SignalMap's columns (V(*) plus the currents for allpub)
+    notes   the tolerance note of §0 (an option reltol/vabstol/iabstol/chargeabstol is not mapped)
+            only for the keys the step's user_options holds (AnalysisStep.user_options: what the
+            netlist, +paramdefault or the command line set; D2); a tran's "Xyce takes the method ...
+            only" note is plan.build's, under the same rule
 """
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import subprocess
 from collections import abc
+from dataclasses import replace
 from typing import TYPE_CHECKING, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from vamos.netlist import expr as X
@@ -176,6 +206,12 @@ _SOURCE_FIELD: Dict[str, Tuple[str, object]] = {
     "sinedc": ("args", "vo"), "ampl": ("args", "va"), "freq": ("args", "freq"), "damp": ("args", "theta"),
     "sinephase": ("args", "phase"), "mag": ("ac", 0), "phase": ("ac", 1),
 }
+# The Spectre name of a controlled source's gain, which the IR holds in Instance.value (ref5 pp.681, 679, 289,
+# 286): no Xyce E/G/F/H takes it by name (`Function or variable E1:GAIN is not defined', X-emit 2c), so a sweep
+# of it goes through a hook
+_GAIN_PARAM = {"e": "gain", "g": "gm", "h": "rm", "f": "gain"}
+# The kinds whose multiplier Xyce folds into a value (tables.MULT): a sweep of their m goes through a hook
+_FOLDED_M = ("i", "f", "j")
 
 
 def emit(nl: Netlist, path: str, osdi: Sequence[str] = (), notes: Optional[List[Note]] = None) -> None:
@@ -205,8 +241,10 @@ def names_for(nl: Netlist, plan: RunPlan, sigmap: SignalMap) -> Dict[str, Dict[R
     rendering (VAMOS_SPECTRE_DESIGN.md §4.5 item 6, §6.4)."""
     out: Dict[str, Dict[Ref, str]] = {}
     deck = _Deck(nl, (), False, None, sigmap, out)
+    steps = {a.step.id: a.step for a in getattr(plan, "actions", ()) if getattr(a, "step", None) is not None}
     for step_id in sigmap.per_step:
-        deck.name_map(step_id)
+        st = steps.get(step_id)
+        deck.name_map(step_id, st.kind if st is not None else "", st)    # a noise step's gain column (column)
     return out
 
 
@@ -246,7 +284,7 @@ class _Env(abc.Mapping):
 
 class _Variant:
     """One printed body: the top level (sub None) or a subckt under the name it is printed with."""
-    __slots__ = ("sub", "name", "bind", "models", "special", "taken")
+    __slots__ = ("sub", "name", "bind", "models", "special", "taken", "quiet")
 
     def __init__(self, sub: Optional[Subckt], name: str):
         self.sub, self.name = sub, name
@@ -254,6 +292,7 @@ class _Variant:
         self.models: Set[int] = set()                # ids of the model cards this body prints
         self.special: List[Tuple[str, str]] = []     # (instance, master) differing from the plain subckt
         self.taken: Set[int] = set()                 # ids of the instances on this body's path (Cond resolved)
+        self.quiet: Set[int] = set()                 # ids of the resistors printed in the noise-free G form
 
 
 class _Deck:
@@ -278,11 +317,19 @@ class _Deck:
         self.hooks: Dict[Tuple[str, str], Tuple[str, Expr]] = {}   # (IR path, Spectre param) -> (.param, nominal)
         self.noise_input = step.noise_input if step is not None and step.kind == "noise" else None
         self.once_seen: Set[Tuple[str, str]] = set()
+        self.quiet_paths: Set[str] = set()      # IR paths of the resistors printed in the noise-free G form
+        self.noise_off: Set[int] = set()        # ids of the resistors whose isnoisy is off on some path
+        # (body path, resistor, isnoisy, off) for a switch that reads a parameter (swept_switches)
+        self.switches: List[Tuple[str, Instance, Expr, bool]] = []
+        levels = (list(step.context) + ([step.own] if step.own is not None else [])) if step is not None else []
         if step is not None:
             self._hooks(step)
+        # the deck sweeps a .param (a variable, or a hook): E126's trigger for a linear E/G gain that reads one
+        self.param_sweep = bool(self.hooks) or any(lv.target[0] == "variable" for lv in levels)
         self.elaborate()
         if step is not None:
             self._one_path(step)
+            self.swept_switches(step)
 
     def err(self, origin: str, msg: str) -> None:
         self.notes.append(error(origin, msg))
@@ -303,7 +350,12 @@ class _Deck:
     # -- the step's sweep hooks (§7.2) -----------------------------------------------------
     def _hooks(self, step: AnalysisStep) -> None:
         """A sub= target (an X-line override) or an independent source's field swept by this step
-        prints through a generated .param, which .STEP/.DC sweep [E20, E71]."""
+        prints through a generated .param, which .STEP/.DC sweep [E20, E71].  So does every target
+        whose printed value folds something in, or that the device does not take by name (X-emit 2c):
+        a controlled source's gain (no E/G/F/H takes a named gain), a JFET's area (its multiplier is
+        folded into it), the m of an isource, a cccs or a JFET (folded into the values, the gain, the
+        area), and the m of an instance inside a subckt (printed as vamos_mfactor*m: a direct .DC of
+        X1:R9:M would drop the enclosing multiplier)."""
         levels = list(step.context) + ([step.own] if step.own is not None else [])
         for lv in levels:
             kind, name, param = lv.target
@@ -321,6 +373,29 @@ class _Deck:
                 if nominal is None:
                     nominal = Num(0.0)
                 self.hooks[(name, param)] = (hook, nominal)
+            elif self.spectre and inst.kind == "l" and param in ("l", "m", "tc1", "tc2", "dtemp") \
+                    and _coupled(self.nl, name, inst):
+                # Xyce's K pass keeps only L of a coupled inductor, its multiplier and TCs folded into it (rcl,
+                # tables.coupled_inductance): a direct .DC L1:L drops the fold and L1:M is ignored (X-emit 2c)
+                if param in ("l", "m"):
+                    m = inst.params.get("m")
+                    nominal = inst.value if param == "l" else (m if m is not None else Num(1.0))
+                    self.hooks[(name, param)] = (hook, nominal if nominal is not None else Num(0.0))
+                else:
+                    self.err(inst.origin, "%s: the %s of a coupled inductor is folded into its value on Xyce "
+                             "(tables.coupled_inductance), so a sweep of it is not supported in v1" % (name, param))
+            elif param == "m" and self.spectre and (inst.kind in _FOLDED_M or (
+                    "." in name and T.MULT[ENGINE].get(inst.kind) == "param" and inst.kind not in ("x", "y"))):
+                m = inst.params.get("m")
+                self.hooks[(name, param)] = (hook, m if m is not None else Num(1.0))
+            elif self.spectre and param == _GAIN_PARAM.get(inst.kind) and inst.value is not None:
+                self.hooks[(name, param)] = (hook, inst.value)
+            elif self.spectre and inst.kind == "k" and param == "coupling" and inst.value is not None:
+                # phase 2c2: a K line's coupling is positional, so a .DC/.STEP K1:COUPLING is "Function or
+                # variable K1:COUPLING is not defined"; the hook it prints sweeps (i_k)
+                self.hooks[(name, param)] = (hook, inst.value)
+            elif self.spectre and inst.kind == "j" and param == "area":
+                self.hooks[(name, param)] = (hook, inst.value if inst.value is not None else Num(1.0))
             elif inst.kind in ("v", "i"):
                 src = inst.source or Source()
                 where = _SOURCE_FIELD.get(param)
@@ -375,8 +450,9 @@ class _Deck:
         distinct binding, as <name>__vb<k>.  A Spectre model group is bound per path always.
         """
         self.variants: Dict[int, List[_Variant]] = {}       # id(subckt) -> printed variants
-        self.memo: Dict[Tuple[int, Tuple[Tuple[str, str], ...], Tuple[int, ...]], _Variant] = {}
-        self.sig_first: Dict[int, Tuple[int, ...]] = {}     # id(subckt) -> the branch signature first seen
+        self.memo: Dict[Tuple[int, Tuple[Tuple[str, str], ...], Tuple[Tuple[int, ...], Tuple[int, ...]]], _Variant] = {}
+        # id(subckt) -> the signature first seen: (the instances its branch choices take, its G-form resistors)
+        self.sig_first: Dict[int, Tuple[Tuple[int, ...], Tuple[int, ...]]] = {}
         self.vstack: List[_Variant] = []
         self.taken = {s.name.lower() for s in T.all_subckts(self.nl)}
         self.top = _Variant(None, "")
@@ -422,13 +498,82 @@ class _Deck:
                         self.need(pe.scope, card)
                     elif bins:
                         self.bin_choice(var, it, pe.scope, bins, pe.env)
+                if it.kind == "r" and self.spectre and "isnoisy" in it.params:
+                    self.noise_switch(var, it, pe, path)
         finally:
             self.vstack.pop()
+
+    def noise_switch(self, var: _Variant, inst: Instance, pe: T.PathEnv, path: str) -> None:
+        """A resistor's isnoisy on this path (§4.5 item 7, R-emit-6): evaluated with the path's values, so
+        isnoisy=nflag (a netlist parameter) and isnoisy=nz (a subckt parameter an X line sets) count; when it
+        is off and the resistor takes the G form (rcl), it goes into var.quiet (a body whose G forms differ
+        between paths is another variant) and its IR path into quiet_paths (column's probe guard)."""
+        params = self.params_of(inst, pe.scope)
+        v = params.get("isnoisy")
+        if v is None:
+            return
+        try:
+            off = noise_off(v, pe.env, self.nl.dialect)
+        except X.EvalError as exc:
+            self.once(inst.origin, "%s: isnoisy=%s is not a number on its path (%s): %s"
+                      % (inst.name, v.text if isinstance(v, Str) else X.to_text(v), pe.path or "top level", exc))
+            return
+        if _g_form(inst, params) and not _literal_switch(v):
+            self.switches.append((pe.path, inst, v, off))     # a parameter: checked against the sweeps (swept_switches)
+        if not off:
+            return
+        self.noise_off.add(id(inst))
+        if _g_form(inst, params):
+            var.quiet.add(id(inst))
+            self.quiet_paths.add(inst.name if not path else path + "." + inst.name)
+
+    def swept_switches(self, step: AnalysisStep) -> None:
+        """The G form is chosen once per deck, while a .STEP/.DC of a .param the switch reads would flip it at a
+        point: an error, so that no point runs with the nominal's form silently (R-emit-6).  Each swept variable
+        is set to each of its grid values (the top-level parameters re-evaluated, tables.path_envs walked again);
+        a resistor under an X line whose parameter a sub= hook sweeps is refused outright.  An alter needs no
+        check: the state replay renders each deck from its own values (§7.2)."""
+        if not self.switches:
+            return
+        levels = list(step.context) + ([step.own] if step.own is not None else [])
+        for lv in levels:
+            kind, name, param = lv.target
+            hit: Optional[Tuple[str, Instance, Expr]] = None
+            if kind == "instance" and (name, param) in self.hooks:
+                target = _resolve(self.nl, name)
+                if target is not None and target.kind == "x":
+                    hit = next(((p, it, v) for p, it, v, _off in self.switches
+                                if p == name or p.startswith(name + ".")), None)
+            elif kind == "variable":
+                for value in _grid_points(lv.spec):
+                    try:
+                        envs = {pe.path: pe for pe in T.path_envs(self.nl, values=_top_values(self.nl, name, value),
+                                                                   strict=False, dialect=self.nl.dialect)}
+                    except (X.EvalError, T.TableError):
+                        continue
+                    for p, it, v, off in self.switches:
+                        pe = envs.get(p)
+                        try:
+                            flipped = pe is not None and noise_off(v, pe.env, self.nl.dialect) != off
+                        except X.EvalError:
+                            flipped = True
+                        if flipped:
+                            hit = (p, it, v)
+                            break
+                    if hit is not None:
+                        break
+            if hit is not None:
+                p, it, v = hit
+                self.once(it.origin, "%s: isnoisy=%s of %s reads a parameter that %s %s sweeps (%s): Xyce has no "
+                          "resistor noise switch, and the deck's noise-free G form would stay the nominal's at every "
+                          "point; not supported on Xyce in v1 (VACASK runs it)"
+                          % (it.name, v.text if isinstance(v, Str) else X.to_text(v),
+                             it.name if not p else p + "." + it.name, step.kind, step.name or step.id, lv.name or lv.id))
 
     def variant(self, sub: Subckt, path: str) -> _Variant:
         v = _Variant(sub, sub.name)
         self.visit(path, v)
-        sig = tuple(sorted(v.taken))
+        sig = (tuple(sorted(v.taken)), tuple(sorted(v.quiet)))
         key = (id(sub), tuple(v.special), sig)
         old = self.memo.get(key)
         if old is not None:
@@ -542,6 +687,7 @@ class _Deck:
         """A parameter-context value: a number literal as is, anything else in {}."""
         if isinstance(e, Num) and e.value == e.value and abs(e.value) != float("inf"):
             return fmt(e.value)
+        e = self.deck_tnom(e, origin)
         try:
             t = X.to_xyce(e, "param")
         except (X.PrintError, X.ExprError) as exc:
@@ -550,11 +696,25 @@ class _Deck:
         return t if _LITERAL.match(t) else "{%s}" % t
 
     def bx(self, e: Expr, scope: T.Scope, origin: str, what: str) -> str:
+        e = self.deck_tnom(e, origin)
         try:
             return X.to_xyce(e, "behavioral", node=lambda kind, name: self.ref(kind, name, scope))
         except (X.PrintError, X.ExprError) as exc:
             self.err(origin, "%s: %s" % (what, exc))
             raise _Skip()
+
+    def deck_tnom(self, e: Expr, origin: str) -> Expr:
+        """§3.5 (R-lang-7): Xyce has temp but no tnom, so on a Spectre netlist an expression reading tnom
+        (Name("$tnom")) reads the deck's tnom, the value its .options device line prints (a step's options,
+        else the netlist's, 27 by default); expr's PrintError for an unsubstituted $tnom stays the guard.
+        plan.build refuses a sweep of tnom on Xyce, and an alter of it is the later steps' options."""
+        if not self.spectre or not any(isinstance(n, Name) and n.name == "$tnom" for n in X.walk(e)):
+            return e
+        if self.step is not None:
+            t = self.step.options.get("tnom", 27.0 if self.nl.tnom is None else self.nl.tnom)
+        else:
+            t = 27.0 if self.nl.tnom is None else self.nl.tnom
+        return X.substitute(e, {"$tnom": Num(self.num(t, origin, "tnom"))})
 
     def num(self, v: object, origin: str, what: str) -> float:
         if isinstance(v, (int, float)) and not isinstance(v, bool):
@@ -785,7 +945,19 @@ class _Deck:
         self.body.append(" ".join([printed(inst, self.va)] + [f for f in fields if f]))
 
     def mult(self, inst: Instance, scope: T.Scope) -> Optional[Expr]:
-        return T.multiplier(self.params_of(inst, scope).get("m"), scope.in_subckt, ENGINE)
+        """The effective multiplier (tables.multiplier); a swept m reads its hook (_hooks)."""
+        m = self.params_of(inst, scope).get("m")
+        hook = self.hook_of(inst, scope, "m")
+        if hook is not None:
+            m = Name(hook)
+        return T.multiplier(m, scope.in_subckt, ENGINE)
+
+    def hook_of(self, inst: Instance, scope: Optional[T.Scope], param: str) -> Optional[str]:
+        """The .param hook of one of inst's parameters this step sweeps (_hooks), or None."""
+        if not self.hooks or not param or scope is None:
+            return None
+        path = self.path_of(inst, scope)
+        return self.hook_name(path, param) if path is not None else None
 
     def mparam(self, inst: Instance, scope: T.Scope) -> List[str]:
         m = self.mult(inst, scope)
@@ -847,14 +1019,18 @@ class _Deck:
         master = card.name if card is not None else ""
         if self.spectre and inst.kind == "r" and "isnoisy" in params_in:
             skip = skip + ("isnoisy",)
-            if _is_no(params_in["isnoisy"]):
+            # the switch as the elaboration evaluated it on this body's path(s) (noise_switch, R-emit-6)
+            if id(inst) in self.noise_off:
                 if any(k in params_in for k in ("tc1", "tc2")):
                     self.add([warning(inst.origin or inst.name, "%s: isnoisy=no with tc1/tc2: Xyce has no resistor "
                                       "noise switch, and the noise-free G form has no temperature coefficient; "
                                       "the resistor stays an R and noisy" % inst.name)])
                 elif isinstance(val, Num) and val.value == 0.0:
                     pass                                # r = 0: a short has no noise; R=0 is Xyce's short [E22]
-                elif val is not None and card is None:
+                elif val is None or card is not None:
+                    self.add([warning(inst.origin or inst.name, "%s: isnoisy=no on a resistor with a model card: "
+                                      "Xyce has no resistor noise switch; the resistor stays noisy" % inst.name)])
+                elif id(inst) in self.var.quiet:
                     # the same current with no noise: G<name> a b a b {1/r} (§4.5 item 7) [E32]
                     g = Binary("/", Num(1.0), val)
                     m = self.mult(inst, scope)
@@ -863,15 +1039,17 @@ class _Deck:
                     self.body.append(" ".join(["g" + inst.name] + inst.nodes + inst.nodes
                                               + [self.xv(X.fold(g), inst.origin, "conductance of " + inst.name)]))
                     return
-                else:
-                    self.add([warning(inst.origin or inst.name, "%s: isnoisy=no on a resistor with a model card: "
-                                      "Xyce has no resistor noise switch; the resistor stays noisy" % inst.name)])
+                # else: noisy on this body's path (another variant of the body prints the G form)
         if inst.kind == "l" and inst.name in scope.coupled:
             # Xyce's K pass keeps only L and IC of a coupled inductor: its multiplier and TCs are
-            # folded into the value (tables.coupled_inductance)
-            folded = T.coupled_inductance(inst, self.mult(inst, scope), card, *T.run_temps(self.nl))
+            # folded into the value (tables.coupled_inductance); a swept l or m reads its hook (_hooks)
+            hook = self.hook_of(inst, scope, "l")
+            folded = T.coupled_inductance(inst if hook is None else replace(inst, value=Name(hook)),
+                                          self.mult(inst, scope), card, *T.run_temps(self.nl))
             if folded is not None:
                 val, skip, mparam = folded, T.COUPLED_FOLDED + (("ic",) if "ic" in skip else ()), []
+            elif hook is not None:
+                val = Name(hook)
         if val is None and not master:
             self.err(inst.origin, "%s has no value" % inst.name)
             return
@@ -883,9 +1061,13 @@ class _Deck:
         if len(inst.ctrl) != 2 or inst.value is None:
             self.err(inst.origin, "mutual inductance %s needs two inductors and a coupling" % inst.name)
             return
+        coupling: Expr = inst.value
+        hook = self.hook_of(inst, scope, "coupling")
+        if hook is not None:
+            coupling = Name(hook)                      # a dev= sweep of the coupling (_hooks, phase 2c2)
         self.line(inst, [printed_path(self.nl, inst.ctrl[0], scope, self.va),
                          printed_path(self.nl, inst.ctrl[1], scope, self.va),
-                         self.xv(inst.value, inst.origin, "coupling of " + inst.name)])
+                         self.xv(coupling, inst.origin, "coupling of " + inst.name)])
 
     def i_v(self, inst: Instance, scope: T.Scope) -> None:
         self.line(inst, inst.nodes + self.source(inst, inst.source or Source(), scope))
@@ -894,8 +1076,20 @@ class _Deck:
         src = inst.source or Source()
         m = self.mult(inst, scope)
         if m is not None and not src.code_uri:
-            src = T.scale_source(src, m)              # Xyce ignores m= on current sources
+            # Xyce ignores m= on current sources: the multiplier is folded into the values, after the swept
+            # fields became their hooks, so that a swept value is multiplied too (R-emit-7)
+            src = self.hooked(inst, src, scope)
+            if self.spectre and _zero_ac(src):
+                src = replace(src, ac=None)           # a literal mag=0 prints no AC (source), multiplied or not
+            self.line(inst, inst.nodes + self.source(inst, T.scale_source(src, m), scope, prehooked=True))
+            return
         self.line(inst, inst.nodes + self.source(inst, src, scope))
+
+    def hooked(self, inst: Instance, src: Source, scope: Optional[T.Scope]) -> Source:
+        """src with the fields this step sweeps replaced by their .param hooks [E71] (a copy)."""
+        path = self.path_of(inst, scope) if scope is not None else None
+        hooked = {p: h[0] for (ipath, p), h in self.hooks.items() if ipath == path} if path is not None else {}
+        return _hooked_source(src, hooked) if hooked else src
 
     def i_e(self, inst: Instance, scope: T.Scope) -> None:
         self.controlled(inst, scope)
@@ -914,10 +1108,26 @@ class _Deck:
             self.err(inst.origin, "%s has no gain" % inst.name)
             return
         gain = inst.value
+        hook = self.hook_of(inst, scope, _GAIN_PARAM.get(inst.kind, ""))
+        if hook is not None:
+            gain = Name(hook)                          # a dev= sweep of the gain (_hooks)
         if inst.kind == "f":
             m = self.mult(inst, scope)
             if m is not None:
                 gain = T.times(gain, m)                # Xyce ignores m= on F lines
+        if inst.kind in ("e", "g") and self.spectre and self.param_sweep and not isinstance(gain, Num):
+            # E126: a .DC or .STEP of a .param that a linear E/G gain reads gives gain 0 at a first point equal
+            # to the .param's nominal; the behavioral form is right there (R-plan-5, R-tests-1), the G's
+            # multiplier folded in (Xyce's behavioral G takes no m=)
+            cp, cn = inst.nodes[2], inst.nodes[3]
+            ctl = Call("v", (Name(cp),) if cn == "0" else (Name(cp), Name(cn)))
+            if inst.kind == "g":
+                m = self.mult(inst, scope)
+                if m is not None:
+                    gain = T.times(gain, m)
+            text = self.bx(Binary("*", gain, ctl), scope, inst.origin, "gain of " + inst.name)
+            self.line(inst, list(inst.nodes[:2]) + ["VALUE={%s}" % text])
+            return
         fields = list(inst.nodes)
         if inst.kind in ("f", "h"):
             if len(inst.ctrl) != 1:
@@ -965,6 +1175,9 @@ class _Deck:
     def i_j(self, inst: Instance, scope: T.Scope) -> None:
         m = self.card(inst, scope)
         area: Optional[Expr] = inst.value
+        hook = self.hook_of(inst, scope, "area")
+        if hook is not None:
+            area = Name(hook)                          # a dev= sweep of the area: its hook, times the multiplier
         k = self.mult(inst, scope)
         if k is not None:
             area = T.times(area if area is not None else Num(1.0), k)   # J takes no m=: area is equivalent
@@ -1112,7 +1325,9 @@ class _Deck:
         self.body.append(" ".join([printed(inst, self.va), nd, n, "I={%s}" % text] + self.mparam(inst, scope)))
 
     # -- sources (§4.3.8; Spectre: VAMOS_SPECTRE_DESIGN.md §4.5 item 8)
-    def source(self, inst: Instance, src: Source, scope: Optional[T.Scope] = None) -> List[str]:
+    def source(self, inst: Instance, src: Source, scope: Optional[T.Scope] = None,
+               prehooked: bool = False) -> List[str]:
+        """The fields of a V or I line; prehooked: src already reads this step's hooks (i_i)."""
         o = inst.origin
         if src.code_uri is not None:
             if src.dc is not None or src.ac is not None or src.wave is not None:
@@ -1130,9 +1345,8 @@ class _Deck:
             return ['PWL FILE "%s"' % src.code_uri]
         xv = lambda e, what: self.xv(e, o, "%s %s" % (inst.name, what))   # noqa: E731
         path = self.path_of(inst, scope) if scope is not None else None
-        hooked = {p: h[0] for (ipath, p), h in self.hooks.items() if ipath == path} if path is not None else {}
-        if hooked:                                 # the swept fields read their .param hooks [E71]
-            src = _hooked_source(src, hooked)
+        if not prehooked:                          # the swept fields read their .param hooks [E71]
+            src = self.hooked(inst, src, scope)
         out: List[str] = []
         if src.dc is not None:
             out.append("DC " + xv(src.dc, "dc"))
@@ -1149,7 +1363,9 @@ class _Deck:
             # (measured in phase 2: gain 0.8 for 0.6 with a second source of mag=1); the noise deck is the
             # step's own (§7.2), so the other sources print no AC (ONOISE does not depend on them)
             pass
-        elif src.ac is not None:
+        elif src.ac is not None and not (self.spectre and _zero_ac(src)):
+            # a literal mag=0 (Spectre's default, ref5 p.685) prints no AC: Xyce warns "AC magnitude is set to
+            # 0.0", which Spectre does not (R-emit-12); a hooked magnitude is a Name and stays
             out.append("AC %s %s" % (xv(src.ac[0], "ac magnitude"), xv(src.ac[1], "ac phase")))
         w = src.wave
         if w is not None:
@@ -1292,30 +1508,39 @@ class _Deck:
     def element_text(self, path: str) -> str:
         return printed_path(self.nl, path, T.Scope(self.nl.body), self.va).upper()
 
-    def column(self, ref: Ref, step_kind: str) -> Optional[str]:
-        """The .PRINT column of a Ref (§6.4), None for one Xyce has no column for."""
+    def column(self, ref: Ref, step_kind: str, step: Optional[AnalysisStep] = None) -> Optional[str]:
+        """The .PRINT column of a Ref (§6.4), None for one Xyce has no column for.  step: the noise step
+        whose gain is its output's VM (render's own step when None)."""
         kind = ref[0]
         if kind == "v":
             return "V(%s)" % self.node_text(ref[1])
         if kind == "i":
-            inst = _resolve(self.nl, ref[1])
-            if inst is not None and inst.kind == "r" and self.spectre and _is_no(inst.params.get("isnoisy", Num(1.0))) \
-                    and not any(k in inst.params for k in ("tc1", "tc2")) \
-                    and not (isinstance(inst.value, Num) and inst.value.value == 0.0):   # r=0 stays an R (rcl)
+            if ref[1] in self.quiet_paths:              # the G form of rcl, decided per path (noise_switch)
                 raise T.TableError("%s: the current of the noise-free G form of %s needs a probe (signals.resolve)"
                                    % (ref[1], ref[1]))
             return "I(%s)" % self.element_text(ref[1])
         if kind == "noise":
+            if ref[1] in self.quiet_paths:
+                return None                             # the noise-free G form has no noise source: no DNO
             return "DNO(%s)" % self.element_text(ref[1])
         if kind == "onoise":
             return "ONOISE"
+        st = step if step is not None else self.step
+        if kind == "gain" and st is not None and st.kind == "noise" and isinstance(st.args.get("p"), str) \
+                and st.args.get("p"):
+            # the gain is the output's magnitude under the input's AC 1, every other source printing no AC in a
+            # noise deck (§8.4): sqrt(ONOISE/INOISE) is nan when ONOISE = 0 and wrong where Xyce clamps a zero
+            # transfer (INOISE = ONOISE/1e-20); in = out/gain then (results, R-emit-13) [E120: VM is accepted]
+            p, n = st.args["p"], st.args.get("n", "0")
+            out = [p] if n in ("0", None, "") else [p, n]
+            return "VM(%s)" % ",".join(self.node_text(x) for x in out)    # type: ignore[arg-type]
         if kind in ("inoise", "gain"):
-            return "INOISE"                        # gain = sqrt(ONOISE/INOISE) (§8.4)
+            return "INOISE"                        # gain = sqrt(ONOISE/INOISE) without an output node (§8.4)
         if kind == "tf":
             raise T.TableError("xf (%s) runs on VACASK only (§3.11)" % (ref,))
         return None
 
-    def name_map(self, step_id: str, step_kind: str = "") -> List[str]:
+    def name_map(self, step_id: str, step_kind: str = "", step: Optional[AnalysisStep] = None) -> List[str]:
         """Fill names[step_id] from the SignalMap and return the .PRINT items in order."""
         sm = self.sigmap
         if sm is None:
@@ -1323,8 +1548,8 @@ class _Deck:
         out = self.names.setdefault(step_id, {})
         cols: List[str] = []
         for ref, _spectre_name, _psf in sm.per_step.get(step_id, []):
-            col = self.column(ref, step_kind)
-            if col is None or ref[0] == "gain":
+            col = self.column(ref, step_kind, step)
+            if col is None or (ref[0] == "gain" and col == "INOISE"):
                 if col is not None:
                     out[ref] = col
                 continue
@@ -1386,6 +1611,10 @@ class _Deck:
         if spec.mode == "dec":
             if spec.count is None:
                 raise T.TableError("sweep %s: dec without a point count" % lv.id)
+            if start > stop:
+                # Xyce's DEC with start > stop computes one step at start [E116]: the plan's descending grid
+                # is printed as a LIST (plan.grid_points' points, as results.grid_values counts them; R-emit-3)
+                return "%s %s LIST %s" % (keyword, target, " ".join(fmt(v) for v in _grid_points(spec)))
             return "%s DEC %s %s %s %d" % (keyword, target, fmt(start), fmt(stop), int(spec.count))
         if spec.mode == "step":
             return "%s %s %s %s %s" % (keyword, target, fmt(start), fmt(stop), fmt(_numv(spec.step)))
@@ -1399,11 +1628,18 @@ class _Deck:
         """The frequency grid of .AC/.NOISE: DEC n f1 f2, LIN N+1 f1 f2, or DATA=<table> with a .DATA
         block appended to lines [E21]."""
         spec = lv.spec
-        if spec.mode == "dec" and spec.count:
+        # Xyce's .AC/.NOISE refuse start > stop ("End frequency must not be less than start frequency")
+        # under DEC and LIN alike [E116]: a descending grid, a step one included, goes in the DATA= table
+        # with plan.grid_points' points (R-emit-3)
+        descending = (spec.mode in ("dec", "lin") and bool(spec.count) and _numv(spec.start) > _numv(spec.stop)) \
+            or (spec.mode == "step" and _numv(spec.step) < 0)
+        if spec.mode == "dec" and spec.count and not descending:
             return "DEC %d %s %s" % (int(spec.count), fmt(_numv(spec.start)), fmt(_numv(spec.stop)))
-        if spec.mode == "lin" and spec.count:
+        if spec.mode == "lin" and spec.count and not descending:
             return "LIN %d %s %s" % (int(spec.count) + 1, fmt(_numv(spec.start)), fmt(_numv(spec.stop)))
-        if spec.mode in ("values", "log"):             # log: the values plan.build computed (§5.2)
+        if descending:
+            values = _grid_points(spec)
+        elif spec.mode in ("values", "log"):           # log: the values plan.build computed (§5.2)
             values = [_numv(v) for v in spec.values]
         elif spec.mode == "step":
             start, stop, step = _numv(spec.start), _numv(spec.stop), _numv(spec.step)
@@ -1428,8 +1664,11 @@ class _Deck:
         dev = ["temp=" + fmt(self.num(temp, o, "temp")), "tnom=" + fmt(self.num(tnom, o, "tnom"))]
         if "gmin" in so:
             dev.append("gmin=" + fmt(self.num(so["gmin"], o, "gmin")))
+        # §0's tolerance notes, for the keys the netlist, +paramdefault or the command line set only (D2):
+        # plan.build's defaults fill every key of AnalysisStep.options
+        user = getattr(step, "user_options", set()) or set()
         for key in ("reltol", "vabstol", "iabstol", "chargeabstol"):
-            if key in so:
+            if key in so and key in user:
                 self.add([note(o, "option %s=%s is not mapped on Xyce: its tolerances do not have SPICE's "
                                   "meaning, so the engine runs with its defaults (§0, §3.10)"
                                % (key, self.setting_text(so[key], o, key)))])
@@ -1441,6 +1680,9 @@ class _Deck:
                 if row is None:
                     raise T.TableError("%s: tran method %s has no Xyce equivalent" % (o, method))
                 lines.append(".options timeint method=%s%s" % (row[0], "" if row[1] is None else " maxord=%d" % row[1]))
+            # the tran's "Xyce takes the method ... only" note is plan.build's, under the same D2 rule
+        if step.kind == "noise":
+            self.no_va_noise(step)
         for (path, param), (hook, nominal) in self.hooks.items():
             lines.append(".param %s=%s" % (hook, self.xv(nominal, o, "hook of %s %s" % (path, param))))
         ics = ""
@@ -1539,6 +1781,21 @@ class _Deck:
         lines.append(".end")
         return lines
 
+    def no_va_noise(self, step: AnalysisStep) -> None:
+        """R-emit-8: PyMS devices carry no noise sources on Xyce.  The noise deck printed DNO(<inst>) for a
+        Verilog-A instance, which Xyce does not define (`Function or variable DNO(RX1) is not defined' on the
+        letter route, `undefined symbol in .PRINT command: device X1' on the Y route; status 2 after the earlier
+        analyses ran), and without the DNO, ONOISE leaves the module's noise out (4.14e-18 for 8.29e-18 V^2/Hz);
+        VACASK runs it.  An error at render time, so before any engine run (§7.2)."""
+        for path, pe in self.by_path.items():
+            for it in pe.items:
+                if it.kind == "y" and it.master != T.GCOND_MODULE:
+                    raise T.TableError(
+                        "noise %s: the Verilog-A instance %s (module %s) carries no noise sources on Xyce (PyMS "
+                        "devices define no DNO, and ONOISE would leave the module's noise out); not supported in v1 "
+                        "(VACASK runs it)" % (step.name or step.id, it.name if not path else path + "." + it.name,
+                                              it.master))
+
     def source_paths(self, kinds: Sequence[str]) -> List[str]:
         """The IR paths of every instance of these kinds over the elaborated instance paths, in
         path order (the full-solution currents of §5.4); vamos's own probes are left out."""
@@ -1562,11 +1819,85 @@ class _Deck:
 WAVE = T.WAVE_FIELDS
 
 
-def _is_no(v: Expr) -> bool:
+def noise_off(v: Expr, env: Mapping[str, float], dialect: str = "spectre") -> bool:
+    """True when a resistor's isnoisy is off (VAMOS_SPECTRE_DESIGN.md §4.5 item 7, R-emit-6): the words no
+    and false are off, yes and true on (any case); a number or a parameter expression is evaluated with
+    env, 0 being off (Spectre numbers an enumeration's values from 0, UG p.81: isnoisy=no is 0, ref5
+    p.629).  spectre.py keeps a bare identifier written for isnoisy as a word (a Str, §4.1 item 11), so a
+    word that is none of the four names a parameter.  X.EvalError when the value is not a number with env."""
+    word = v.text if isinstance(v, Str) else v.name if isinstance(v, Name) else None
+    if word is not None:
+        low = word.strip().lower()
+        if low in ("no", "false"):
+            return True
+        if low in ("yes", "true"):
+            return False
+        try:
+            return float(low) == 0.0
+        except ValueError:
+            v = Name(word.strip())
+    return X.evaluate(v, env, dialect=dialect) == 0.0
+
+
+def _literal_switch(v: Expr) -> bool:
+    """An isnoisy that reads no parameter: a number, or the word no, false, yes, true or a number."""
     if isinstance(v, Num):
-        return v.value == 0.0
-    text = v.text if isinstance(v, Str) else v.name if isinstance(v, Name) else ""
-    return text.lower() in ("no", "false", "0")
+        return True
+    word = v.text if isinstance(v, Str) else v.name if isinstance(v, Name) else None
+    if word is None:
+        return not X.names(v)
+    if word.strip().lower() in ("no", "false", "yes", "true"):
+        return True
+    try:
+        float(word)
+        return True
+    except ValueError:
+        return False
+
+
+def _grid_points(spec) -> List[float]:
+    """The points of a SweepSpec after plan.build (every field a Num; plan.grid_points' grid)."""
+    if spec.mode in ("values", "log") or spec.values:
+        return [_numv(v) for v in spec.values]
+    start, stop = _numv(spec.start), _numv(spec.stop)
+    n = int(spec.count or 0)
+    if spec.mode == "step":
+        step = _numv(spec.step)
+        if step == 0.0 or (stop - start) * step < 0:
+            return [start]
+        return [start + k * step for k in range(int((stop - start) / step + 1e-9) + 1)]
+    if spec.mode == "lin" and n >= 1:
+        return [start + (stop - start) * k / n for k in range(n)] + [stop]
+    if spec.mode == "dec" and n >= 1 and start > 0 and stop > 0:
+        total = int(round(abs(n * math.log10(stop / start))))
+        sign = 1.0 if stop >= start else -1.0
+        return [start * 10.0 ** (sign * k / float(n)) for k in range(total)] + [stop]
+    return [start, stop]
+
+
+def _top_values(nl: Netlist, name: str, value: float) -> Dict[str, float]:
+    """Netlist.values with the top-level parameter `name` at value and every other top-level parameter
+    evaluated again in netlist order (twice, for a forward reference), as a sweep point sets them (§3.5)."""
+    vals = dict(nl.values)
+    vals[name] = value
+    params = [p for p in nl.body if isinstance(p, Param) and p.name != name]
+    for _ in range(2):
+        for p in params:
+            try:
+                vals[p.name] = X.evaluate(p.expr, vals, dialect=nl.dialect)
+            except X.EvalError:
+                pass
+    return vals
+
+
+def _g_form(inst: Instance, params: Mapping[str, Expr]) -> bool:
+    """Whether rcl prints a resistor whose isnoisy is off as the noise-free G form (§4.5 item 7) [E32]: a
+    plain resistor, with no model card, no tc1/tc2 and a value that is neither 0 (Xyce's R=0 short [E22])
+    nor infinite (not printed, §3.8)."""
+    val = inst.value
+    if val is None or inst.master is not None or any(k in params for k in ("tc1", "tc2")):
+        return False
+    return not (isinstance(val, Num) and (val.value == 0.0 or abs(val.value) == float("inf")))
 
 
 def _numv(e: object) -> float:
@@ -1585,6 +1916,11 @@ def _renamed(rules: Sequence[T.ParamRule], param: str, engine: str) -> str:
                 name = name[len("instance_"):]
             return name
     return param
+
+
+def _zero_ac(src: Source) -> bool:
+    """A source whose AC magnitude is the number 0 (Spectre's default mag, ref5 p.685)."""
+    return src.ac is not None and isinstance(src.ac[0], Num) and src.ac[0].value == 0.0
 
 
 def _hooked_source(src: Source, hooked: Dict[str, str]) -> Source:
@@ -1669,6 +2005,21 @@ def _multiplied(nl: Netlist) -> Set[str]:
             out.add(n)
             todo.extend(calls.get(n, ()))
     return out
+
+
+def _coupled(nl: Netlist, target: str, inst: Instance) -> bool:
+    """Whether the inductor that a hierarchical name (x1.l1) names is coupled: a K element of the body that
+    holds it names it (Scope.coupled)."""
+    items: Sequence[object] = nl.body
+    scope = T.Scope(nl.body)
+    for part in target.split(".")[:-1]:
+        found = next((it for it in flat_items(items) if isinstance(it, Instance) and it.name == part), None)
+        sub = scope.find_subckt(found.master or "") if found is not None and found.kind == "x" else None
+        if sub is None:
+            return False
+        scope = T.Scope(sub.body, scope, sub)
+        items = sub.body
+    return inst.name in scope.coupled
 
 
 def _resolve(nl: Netlist, target: str) -> Optional[Instance]:

@@ -1,0 +1,11 @@
+// e2e 11: exit status 2 on both engines, a sweep naming a parameter the Verilog-A module does not declare: vres
+// declares only r, and plan.build refuses foo as the instance line does (sec. 3.9), before any analysis runs
+simulator lang=spectre
+ahdl_include "vres.va"
+V1 (a 0) vsource dc=1
+X1 (a b) vres
+R2 (b 0) resistor r=1k
+op1 dc
+sw1 dc dev=X1 param=foo values=[1 2]
+op2 dc
+save b

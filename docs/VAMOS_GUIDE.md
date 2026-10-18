@@ -1065,7 +1065,7 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 |---|---|
 | docs/VAMOS_PLAN.md | the overall plan, phases and decisions (installation, use-vamos, provenance), as of 2026-09-27. Its AMS parts (§6 and phase 4) predate VACASK, the default engine; they are marked superseded and point to docs/VAMOS_AMS_DESIGN.md and this guide |
 | docs/VAMOS_AMS_DESIGN.md | the `vcs-ams` contract: every control-file command, key and disposition; the runtime; the open items |
-| docs/VAMOS_SPECTRE_DESIGN.md | the `spectre` personality's contract: the command line, the Spectre language, the engine mappings, the outputs and the work breakdown (its §12: phases 0, 1 and 2 are built; the review and guide trial of phases 2b-2f follow) |
+| docs/VAMOS_SPECTRE_DESIGN.md | the `spectre` personality's contract: the command line, the Spectre language, the engine mappings, the outputs and the work breakdown (its §12: phases 0, 1 and 2 are built, with phase 2b's review and phase 2c's fixes and follow-up rounds; the guide trial and the final commit of phases 2e-2f follow) |
 | docs/TODO-uvm-translator.md | the planned UVM route |
 | docs/vamos-manuals.html | links to the vendor manuals vamos follows |
 | tests/vamos/ | working examples. `test_vamos.py` and `test_vamos_driver.py` cover digital; `test_ams_e2e_*.py` cover AMS end to end; `test_r6_*.py` cover the latest fixes, such as file I/O (`test_r6_F.py`) and waves (`test_r6_W.py`) (each item is described in docs/VAMOS_AMS_DESIGN.md §9). Run them from `tests/vamos`: `python3 -m unittest test_vamos` (about 10 s), `python3 -m unittest test_ams_e2e_basics` (2 to 3 minutes). Tests that need a tool or engine the machine lacks are skipped |
@@ -1151,7 +1151,7 @@ vamos 0.1.0 (spectre personality) - tools used:
   vamos      git-<commit>         GPL-3.0-or-later           /usr/local/src/sv2ghdl/bin/vamos
   VACASK     0.3.4-91-g64489cf7   AGPL-3.0-only              /opt/build.VACASK/Release/simulator/vacask
   OpenVAF-r  20260616-3-g0e83f1ed GPL-3.0-only               /opt/openvaf-r-20260616/openvaf-r
-Simulating `rc.scs' on myhost at 3:37:03 AM, Sat Oct 17, 2026.
+Simulating `rc.scs' on myhost at 10:46:51 AM, Sat Oct 17, 2026.
 
 Circuit inventory:
               nodes 2
@@ -1173,8 +1173,8 @@ Transient Analysis `tr': time = (0 s -> 5 ms)
 *********************************************
 Total time required for tran analysis `tr' was 0.00 s.
 
-Aggregate audit (3:37:04 AM, Sat Oct 17, 2026):
-Time used: CPU = 0.69 s, elapsed = 0 s.
+Aggregate audit (10:46:51 AM, Sat Oct 17, 2026):
+Time used: CPU = 0.13 s, elapsed = 1 s.
 spectre completes with 0 errors, 0 warnings, and 0 notices
 $ ls rc.raw
 logFile
@@ -1201,7 +1201,7 @@ HEADER
 "PSFversion" "1.00"
 "simulator" "spectre"
 "version" "0.1.0"
-"date" "3:37:03 AM, Sat Oct 17, 2026"
+"date" "10:46:51 AM, Sat Oct 17, 2026"
 "design" "// RC Low-Pass Filter"
 "analysis type" "ac"
 "analysis name" "myac"
@@ -1240,7 +1240,7 @@ VALUE
 "out" (9.999605231408795e-01 -6.282937266758386e-03)
 "V1:p" (-3.947685912062196e-08 -6.282937266758386e-06)
 ...
-"freq" 9.999999999999995e+05
+"freq" 1.000000000000000e+06
 "in" (1.000000000000000e+00 -0.000000000000000e+00)
 "out" (2.533029526896061e-08 -1.591549390604537e-04)
 "V1:p" (-9.999999746697047e-04 -1.591549390604538e-07)
@@ -1282,26 +1282,18 @@ $ spectre --vamos-analog=xyce rc.scs
 vamos 0.1.0 (spectre personality) - tools used:
   vamos     git-<commit>         GPL-3.0-or-later           /usr/local/src/sv2ghdl/bin/vamos
   Xyce      7.10.0-212-g7cd78110 GPL-3.0-or-later           /usr/local/src/xyce-build/src/Xyce
-Simulating `rc.scs' on myhost at 3:37:06 AM, Sat Oct 17, 2026.
+Simulating `rc.scs' on myhost at 10:46:53 AM, Sat Oct 17, 2026.
 
 Circuit inventory:
 ...
-Notice from spectre during initial setup.
-    /work/spectre/rc.scs:14: tran tr: Xyce takes the method (traponly) only; reltol=0.001 relref=sigglobal lteratio=3.5 are Spectre's settings, not Xyce's (§5.4)
-Notice from spectre during circuit read-in.
-    option reltol=0.001 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
-Notice from spectre during circuit read-in.
-    option vabstol=1e-06 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
-Notice from spectre during circuit read-in.
-    option iabstol=1e-12 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
 ******************
 DC Analysis `myop'
 ******************
-Total time required for dc analysis `myop' was 0.12 s.
+Total time required for dc analysis `myop' was 0.21 s.
 ...
-Aggregate audit (3:37:06 AM, Sat Oct 17, 2026):
-Time used: CPU = 5.92 s, elapsed = 1 s.
-spectre completes with 0 errors, 0 warnings, and 4 notices
+Aggregate audit (10:46:54 AM, Sat Oct 17, 2026):
+Time used: CPU = 0.42 s, elapsed = 1 s.
+spectre completes with 0 errors, 0 warnings, and 0 notices
 $ PYTHONPATH=$SV2GHDL/tests/vamos python3 -c 'import psfcheck; p = psfcheck.check("rc.raw/swp-000_tr.tran.tran"); print(p.names(), p.points, p.at("out", 5e-3)); print(psfcheck.check("rc.raw/myac.ac").at("out", 1.0))'
 ['in', 'out', 'V1:p'] 84 0.9817251209780554
 (0.9999605231408796-0.006282937266758386j)
@@ -1309,17 +1301,45 @@ $ PYTHONPATH=$SV2GHDL/tests/vamos python3 -c 'import psfcheck; p = psfcheck.chec
 
 Xyce writes the same six files, with its own time steps (84 points where VACASK took 71). The values agree to
 about 1e-5: `out` at 5 ms is 0.981735 on VACASK and 0.981725 on Xyce for `rval` = 1k (0.864690 and 0.864685
-for 2k), and `out` at 1 Hz is 0.99996 - j0.00628 on both. The notices are Xyce's standing differences:
-Spectre's tolerance settings (`reltol`, `vabstol`, `iabstol`, and a `tran`'s `relref` and `lteratio`) are not
-passed to Xyce, whose tolerances have other meanings; only the integration method is. Every Xyce run prints
-the three option notices.
+for 2k), and `out` at 1 Hz is 0.99996 - j0.00628 on both.
+
+Spectre's tolerance settings (`reltol`, `vabstol`, `iabstol`, and a `tran`'s `relref`, `lteratio` and
+`errpreset`) are not passed to Xyce, whose tolerances have other meanings; only the integration method is.
+`rc.scs` sets none of them, so the run above prints no notice. A tolerance option that an `options` statement
+sets (`reltol`, `vabstol`, `iabstol`) gets a notice of its own, and a `tran` gets one when the run sets its
+tolerances or method: an `options` `reltol`, the `tran`'s own `reltol`, `relref`, `lteratio`, `errpreset` or
+`method`, `+errpreset`, `+aps`, or a `+paramdefault` file that sets them. `rctol.scs` is `rc.scs` with an
+`options` line:
+
+```
+$ grep options rctol.scs
+opts options reltol=1e-4 vabstol=1e-7
+$ spectre --vamos-analog=xyce rctol.scs
+...
+Notice from spectre during initial setup.
+    /work/spectre/rctol.scs:15: tran tr: Xyce takes the method (traponly) only; reltol=0.0001 relref=sigglobal lteratio=3.5 are Spectre's settings, not Xyce's (§5.4)
+Notice from spectre during circuit read-in.
+    option reltol=0.0001 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
+Notice from spectre during circuit read-in.
+    option vabstol=1e-07 is not mapped on Xyce: its tolerances do not have SPICE's meaning, so the engine runs with its defaults (§0, §3.10)
+...
+spectre completes with 0 errors, 0 warnings, and 3 notices
+```
 
 VACASK is the default; `--vamos-analog=vacask|xyce` beats `VAMOS_ANALOG`. Xyce runs one deck per analysis. On
 Xyce, v1 refuses `xf`, the parameters of a Verilog-A instance or of its model card, a noise output whose second
-node is not ground, an instance of a subckt without ports, and two names that differ only in case (`A` and
-`a`, which Xyce would merge): each is an error naming the construct, with exit status 2 (Troubleshooting,
-below). A noise analysis on Xyce writes each instance's `total` noise only, without its contributions (a
-notice). VACASK runs all of these.
+node is not ground, an instance of a subckt without ports, two names that differ only in case (`A` and `a`,
+which Xyce would merge), a noise analysis of a circuit that holds a Verilog-A instance (PyMS devices have no
+noise sources), a resistor's `isnoisy` that reads a parameter a sweep of the noise analysis changes, a
+Verilog-A module that PyMS cannot build (one that uses `$abstime`), and a Verilog-A `` `include `` that PyMS
+would not find beside the file that includes it (it does not search `CDS_VLOGA_INCLUDE` or `-I`): each is an
+error naming the construct, with exit status 2 (Troubleshooting, below). A noise analysis on Xyce writes each
+instance's `total` noise only, without its contributions (a notice). VACASK runs all of these.
+
+The other way round, some sweeps and alters are refused on VACASK and run on Xyce, among them a `dev=` sweep of
+an instance parameter that the netlist binds to an expression (`gain=g`), an alter of a resistor that prints as
+a short (`r=0`), and an alter of a parameter bound to an expression that VACASK would evaluate again at the
+next analysis (Troubleshooting, below).
 
 ### Outputs
 
@@ -1330,7 +1350,7 @@ notice). VACASK runs all of these.
 | `<raw>/<name>.dc`, `.ac`, `.noise`, `.xf`, `.tran.tran` | one file per analysis |
 | `<raw>/<sweep>_<child>.sweep`, `<raw>/<sweep>-<NNN>_<child>.<ext>` | a sweep's parent file, and one file per point, counted from `000` |
 | `<netlist>.ahdlSimDB/` | the Verilog-A that a VACASK run compiled (`<module>_<sha1>.osdi`), in the current directory (in `-outdir` when one is given), unless `-ahdllibdir` or `CDS_AHDLCMI_SIMDB_DIR` names another |
-| `<netlist>.run.<random>/` | the run directory, beside the results: the engine's decks, rawfiles and logs. Removed after exit status 0 unless `--vamos-keep` is given; kept after 1, 2 or 3 |
+| `<netlist>.run.<random>/` | the run directory, beside the results (in the current directory when the results path is the current directory or its directory cannot be written): the engine's decks, rawfiles and logs. Removed after exit status 0 unless `--vamos-keep` is given; kept after 1, 2 or 3 |
 | the `+log` or `=log` file | the screen's lines (below) |
 | state files | `write=`, `writefinal=` (below) |
 
@@ -1365,11 +1385,11 @@ $ cat rc.raw/logFile
 HEADER
 "PSFversion" "1.00"
 "Log Generator" "drlLog rev. 1.0"
-"Log Time Stamp" "Sat Oct 17 03:37:06 2026"
+"Log Time Stamp" "Sat Oct 17 10:46:54 2026"
 "psfversion" "1.4.0"
 "simulator" "spectre"
 "version" "0.1.0"
-"date" "3:37:06 AM, Sat Oct 17, 2026"
+"date" "10:46:53 AM, Sat Oct 17, 2026"
 "design" "// RC Low-Pass Filter"
 ...
 VALUE
@@ -1418,7 +1438,7 @@ $ spectre -format nutascii -raw rc.nut rc.scs
 ...
 $ head -14 rc.nut
 Title: // RC Low-Pass Filter
-Date: Sat Oct 17 03:37:14 2026
+Date: Sat Oct 17 10:47:01 2026
 Plotname: DC Analysis `myop'
 Flags: real
 No. Variables: 3
@@ -1487,13 +1507,8 @@ and `-log`, the default, to the screen only. The name takes percent codes, and a
 
 ```
 $ spectre =log %C:r.%D.log rc.scs
-$ ls
-legacy.raw
-out
+$ ls *.log
 rc.26-10-17.log
-rc.log
-rc.raw
-rc.scs
 $ tail -1 rc.26-10-17.log
 spectre completes with 0 errors, 0 warnings, and 0 notices
 ```
@@ -1516,12 +1531,12 @@ $ spectre state.scs
 ...
 $ cat op1.ns tr1.fin
 # State file generated by Spectre from circuit file 'state.scs'
-# during 'op1' at 3:39:13 AM, oct 17, 2026.
+# during 'op1' at 10:47:05 AM, oct 17, 2026.
 in 0
 out 0
 V1:p 0
 # State file generated by Spectre from circuit file 'state.scs'
-# during 'tr1' at 3:39:13 AM, oct 17, 2026.
+# during 'tr1' at 10:47:05 AM, oct 17, 2026.
 in 1
 out 0.523987994943507
 V1:p -0.000476012005056493
@@ -1542,17 +1557,44 @@ spectre completes with 0 errors, 1 warnings, and 0 notices
 ```
 
 `tr2` starts with `out` at 0.524 V. A state file's source currents (`V1:p`) are not applied: a warning for
-`readic`, a notice for `readns`. A relative name is relative to the current directory, or to `-outdir` when it
-has no `/` (`spectre -outdir st state.scs` writes `st/op1.ns`, `st/tr1.fin` and `st/state.raw`).
+`readic`, a notice for `readns`. A relative name that an analysis writes is relative to the current
+directory, or to `-outdir` when it has no `/` (`spectre -outdir st state.scs` writes `st/op1.ns`, `st/tr1.fin`
+and `st/state.raw`); a name it reads is relative to the current directory.
+
+vamos reads every state file before the engine runs, so one run cannot hand a state from one analysis to the
+next. A `readic=` (or `read=`) of a file that an earlier analysis of the same run writes is an error naming
+both analyses (exit status 2, before any analysis runs); a `readns=` of such a file is a warning, and the file
+is not read (the netlist's own nodesets apply). Here `tr1.fin` is the one the run of `state.scs` left:
+
+```
+$ cat chain.scs
+// one run cannot chain the state: tr2 would read the file tr1 writes
+simulator lang=spectre
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.1m rise=1u fall=1u width=10m period=20m
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=3k
+C1 (out 0) capacitor c=1u
+tr1 tran stop=1m writefinal="tr1.fin"
+tr2 tran stop=1m readic="tr1.fin"
+$ spectre chain.scs
+...
+Error from spectre during initial setup.
+    /work/spectre/chain.scs:8: tran tr2: readic=tr1.fin is the file tran tr1 writes earlier in this run (writefinal=tr1.fin): vamos reads state files before the run, so it would read a previous run's file or none; not supported in v1 (§0, §5.4)
+spectre terminated prematurely due to fatal error.
+```
+
+Run the two analyses as two runs, as `state.scs` and `state2.scs` do. An analysis that reads and writes the
+same file (`readns="op1.ns" write="op1.ns"`) is not affected, and a file that a later analysis of the run
+writes is read as the previous run left it.
 
 **The run directory.** `--vamos-keep` keeps it after a successful run as well:
 
 ```
 $ spectre --vamos-keep rc.scs
 ...
-run directory kept: /work/spectre/rc.run.fmyqdqz9
-Aggregate audit (3:37:19 AM, Sat Oct 17, 2026):
-Time used: CPU = 0.84 s, elapsed = 0 s.
+run directory kept: /work/spectre/rc.run.3isk93t8
+Aggregate audit (10:47:09 AM, Sat Oct 17, 2026):
+Time used: CPU = 0.10 s, elapsed = 0 s.
 spectre completes with 0 errors, 0 warnings, and 0 notices
 $ ls rc.run.*
 vacask.log
@@ -1586,7 +1628,15 @@ vamos_a3.raw
 
 The sweep is one Xyce deck: `vamos_a3.cir` holds `.STEP rval LIST 1000.0 2000.0` and
 `.TRAN 5e-06 0.005 0.0 0.0001`. `--vamos-verbose` prints each engine command as it starts
-(`vamos: + cd /work/spectre/rc.run.crlpfhkh && /opt/build.VACASK/Release/simulator/vacask vamos.sim`).
+(`vamos: + cd /work/spectre/rc.run.bxewzexi && /opt/build.VACASK/Release/simulator/vacask vamos.sim`).
+
+With Verilog-A, a Xyce run directory also holds the modules' files, at the paths that the decks' `.hdl` lines
+give: a module named by a base name sits beside the decks (`.hdl "vres.va"`), and one named with a directory
+keeps that path, with the files it includes. PyMS gives a module without Xyce's attributes those of another
+`.va` file in the directory of its `.hdl` path, so no directory below the run directory holds two modules'
+files: a module that would share one with another module gets a directory of its own, `vamos_va<k>/`, with its
+include tree. Two modules of one `lib/` that include `../inc/rdefs.vams` run as `.hdl "lib/vares.va"` and
+`.hdl "vamos_va1/lib/vres.va"`.
 
 ### How a run ends
 
@@ -1599,8 +1649,9 @@ The sweep is one Xyce deck: `vamos_a3.cir` holds `.STEP rval LIST 1000.0 2000.0`
 
 The last line names the program you ran (The names, above). Status 1 means what it means to Spectre, an
 analysis stopped by an error; every problem vamos finds itself is 2, so that it never looks like a partial
-result. After every status the analyses that finished are written and listed in `logFile`. The run directory
-is kept after status 1, 2 or 3 (`run directory kept: <dir>`), unless it is empty.
+result. After every status the analyses that finished are written and listed in `logFile`, unless a second
+stop signal cut the run short (Stopping a run, below). The run directory is kept after status 1, 2 or 3
+(`run directory kept: <dir>`), unless it is empty.
 
 An analysis that fails:
 
@@ -1649,9 +1700,9 @@ AC Analysis `ac1': freq = (1 kHz -> 1 MHz)
 ******************************************
 Total time required for ac analysis `ac1' was 0.00 s.
 
-run directory kept: /work/spectre/fail.run.5ls8dc6i
-Aggregate audit (3:39:00 AM, Sat Oct 17, 2026):
-Time used: CPU = 0.76 s, elapsed = 0 s.
+run directory kept: /work/spectre/fail.run.x2dmfr3o
+Aggregate audit (10:48:55 AM, Sat Oct 17, 2026):
+Time used: CPU = 0.11 s, elapsed = 1 s.
 spectre completes with 1 errors, 0 warnings, and 0 notices
 $ echo $?
 1
@@ -1669,7 +1720,8 @@ Failed DC sweep steps: DC Step # 1 ``. When a sweep point fails, the points befo
 parent lists only those; VACASK's run adds the warning `` sweep `sw' of analysis `op1' failed at point 2 of
 3: the results of point 1 are written, the later points have none ``.
 
-An error in the netlist stops the run before any analysis, and leaves no results and no run directory:
+An error in the netlist stops the run before any analysis and leaves no results; the run directory, still
+empty, is removed:
 
 ```
 $ cat typo.scs
@@ -1683,19 +1735,21 @@ vamos 0.1.0 (spectre personality) - tools used:
   vamos      git-<commit>         GPL-3.0-or-later           /usr/local/src/sv2ghdl/bin/vamos
   VACASK     0.3.4-91-g64489cf7   AGPL-3.0-only              /opt/build.VACASK/Release/simulator/vacask
   OpenVAF-r  20260616-3-g0e83f1ed GPL-3.0-only               /opt/openvaf-r-20260616/openvaf-r
-Simulating `typo.scs' on myhost at 3:39:03 AM, Sat Oct 17, 2026.
+Simulating `typo.scs' on myhost at 10:49:02 AM, Sat Oct 17, 2026.
 
 Error from spectre during circuit read-in.
     /work/spectre/typo.scs:4: unclosed '('
 spectre terminated prematurely due to fatal error.
 $ echo $?
 2
+$ ls -d typo.*
+typo.scs
 ```
 
 **Stopping a run.** Ctrl-C (SIGINT), SIGTERM, SIGHUP or SIGQUIT stops the engine. vamos then writes the
 analyses that finished and, from the engine's partial output, the one it interrupted, which a warning names,
-and exits 3. `long.scs` runs a 10 s transient; a Ctrl-C (here `kill -INT` of vamos from another shell, 3 s
-after the start) gives:
+and exits 3. `long.scs` runs a 10 s transient; a Ctrl-C (here `kill -INT` of vamos from another shell, 0.8 s
+into the transient) gives:
 
 ```
 $ cat long.scs
@@ -1713,10 +1767,10 @@ $ spectre long.scs
 Transient Analysis `tr1': time = (0 s -> 10 s)
 **********************************************
 Warning from spectre during transient analysis `tr1'.
-    analysis `tr1' was interrupted at time = 9.02125 s (vamos got SIGINT and stopped VACASK); its partial results are written
-Total time required for tran analysis `tr1' was 1.57 s.
+    analysis `tr1' was interrupted at time = 4.78701 s (vamos got SIGINT and stopped VACASK); its partial results are written
+Total time required for tran analysis `tr1' was 0.81 s.
 
-run directory kept: /work/spectre/long.run.5jr3soq4
+run directory kept: /work/spectre/long.run.2qnd_k5d
 spectre terminated prematurely due to fatal error.
 $ echo $?
 3
@@ -1727,35 +1781,83 @@ tr1.tran.tran
 ```
 
 `tr1.tran.tran` holds the points up to the time the warning names, and `logFile` lists it. On Xyce the
-warning reads `` analysis `tr1' was interrupted at time = 1.66064 s (SIGINT); its partial results
-(vamos_a2.raw) are written, and the analyses after it are not run ``. Where `./simv` exits 130 after a Ctrl-C
-(§5), spectre exits 3, Spectre's status. Writing a long transient takes a while; a Ctrl-C while vamos writes
-the results stops the writing, keeps the analyses already written (`the conversion was stopped by SIGINT: the
-analyses converted before it are written and listed in logFile (§2.7)`), and exits 3 as well. Ctrl-Z
-suspends vamos and the engine together, and `fg` resumes both. A run started in the background of a script
-(`spectre x.scs &`) has SIGINT ignored, as the shell sets it up; stop it with SIGTERM (`kill <pid>`), which
-also ends it with status 3.
+warning reads `` analysis `tr1' was interrupted at time = 1.31434 s (SIGINT); its partial results
+(vamos_a2.raw) are written, and the analyses after it are not run ``. An engine that does not stop within 5 s
+is killed, and the warning says so (`VACASK did not stop within 5 s and was killed`); a second Ctrl-C kills it
+at once, and then nothing is converted
+(`stopped by a second SIGINT: the engine was killed and nothing is converted (§2.7)`). Where `./simv` exits
+130 after a Ctrl-C (§5), spectre exits 3, Spectre's status. A Ctrl-C right after the start, before vamos has
+printed anything, ends the run too, with status 3: the screen shows the warning
+`the run was stopped by SIGINT (§2.7)` and the last line.
 
-SIGUSR1 prints a status line, and the run goes on (here `kill -USR1`, 1.5 s after the start of `short.scs`,
-`long.scs` with a 1 s transient):
+Writing a long transient takes a while: here about 2.5 s for the million points of `tr1`, after VACASK's
+1.7 s. A Ctrl-C while vamos writes the results lets the file being written finish, says so at once, keeps the
+analyses written, and exits 3 (here 0.5 s after the transient ended):
 
 ```
-$ spectre short.scs
+$ spectre long.scs
 ...
-*********************************************
-Transient Analysis `tr1': time = (0 s -> 1 s)
-*********************************************
-spectre status: analysis `tr1' running, time = 778.051 ms of 1 s (78 %), 77810 points written, elapsed = 1 s.
-Total time required for tran analysis `tr1' was 0.19 s.
+**********************************************
+Transient Analysis `tr1': time = (0 s -> 10 s)
+**********************************************
+Total time required for tran analysis `tr1' was 1.69 s.
 
-Aggregate audit (3:39:11 AM, Sat Oct 17, 2026):
-Time used: CPU = 2.68 s, elapsed = 1 s.
+Notice from spectre during transient analysis `tr1'.
+    stopping after `tr1' is written; a second interrupt drops it
+Warning from spectre during initial setup.
+    the conversion was stopped by SIGINT: the analyses converted before it are written and listed in logFile (§2.7)
+run directory kept: /work/spectre/long.run.si82jjcn
+spectre terminated prematurely due to fatal error.
+$ echo $?
+3
+```
+
+`tr1.tran.tran` is complete, and `logFile` lists it. A second Ctrl-C drops the file being written: it is
+neither written nor listed. Ctrl-Z suspends vamos and the engine together, and `fg` resumes both. A run
+started in the background of a script (`spectre x.scs &`) has SIGINT ignored, as the shell sets it up; stop it
+with SIGTERM (`kill <pid>`), which also ends it with status 3.
+
+The screen going away does not stop a run. When the reader of vamos's output is gone
+(`spectre x.scs | head -1`, a pager quit early) or the output is closed (`>&-`), the run goes on without the
+screen, writes its results, its `+log` file and its state files, and exits with the status it earns; nothing
+goes to stderr:
+
+```
+$ spectre rc.scs | head -1; echo ${PIPESTATUS[0]}
+vamos 0.1.0 (spectre personality) - tools used:
+0
+$ spectre rc.scs >&-; echo $?
+0
+```
+
+A terminal that hangs up sends SIGHUP, which stops the run as a Ctrl-C does: status 3, with the analyses that
+finished and the interrupted one written, and the screen's lines in the `+log` file.
+
+SIGUSR1 prints a status line, and the run goes on (here `kill -USR1` from another shell, 0.8 s into the
+transient of `long.scs` and again while vamos writes its results):
+
+```
+$ spectre long.scs
+...
+**********************************************
+Transient Analysis `tr1': time = (0 s -> 10 s)
+**********************************************
+spectre status: analysis `tr1' running, time = 5.63181 s of 10 s (56 %), 563186 points written, elapsed = 1 s.
+Total time required for tran analysis `tr1' was 1.69 s.
+
+spectre status: no analysis running, writing the results of `tr1', 196608 points written, elapsed = 3 s.
+Aggregate audit (10:49:36 AM, Sat Oct 17, 2026):
+Time used: CPU = 4.37 s, elapsed = 5 s.
 spectre completes with 0 errors, 0 warnings, and 0 notices
 $ echo $?
 0
 ```
 
-SIGUSR2 prints the notice `SIGUSR2: checkpoint not supported`, and the run goes on.
+The status line goes to the screen under `=log` too, and into the log file. Before the engine starts it reads
+`spectre status: no analysis running (setting up), elapsed = 0 s.`; on Xyce it names the deck and Xyce's
+progress (`` spectre status: analysis `tr1' running, Xyce deck vamos_a2.cir (2 of 2), 12.0006 % complete,
+elapsed = 4 s. ``). SIGUSR2 prints the notice
+`checkpoint not supported: SIGUSR2 is ignored and the run continues`, whenever it comes, and the run goes on.
 
 ### The defaults variable
 
@@ -1804,7 +1906,7 @@ three options are usage errors (exit 2): `+top`, `+interactive` and `-format uwi
 | `+error -error +warn -warn +note -note +info -info +debug -debug` | whether that class of message is printed; the counts in the last line are unaffected |
 | `-maxwarns`/`-maxw N`, `-maxnotes`/`-maxn N`, `-maxwarnstolog`/`-maxwtl N`, `-maxnotestolog`/`-maxntl N` | how often one kind of warning or notice is printed per analysis, on the screen and in the log file; at the limit one notice says the rest are suppressed |
 | `+%X string`, `-%X` | define or undefine the percent code `%X` (below) |
-| `-E`, `-D<x>[=<y>]`, `-U<x>`, `-I<dir>`, `-disableCPP` | the C preprocessor (`cpp -traditional-cpp -nostdinc -undef`, found as `VAMOS_CPP`, then on PATH): `-E` always runs it, `-D`/`-U`/`-I` run it unless `-disableCPP` is given; a missing cpp is an error; `-I` also names search directories for `include`, PWL `file=`, `ahdl_include` and Verilog-A `` `include`` |
+| `-E`, `-D<x>[=<y>]`, `-U<x>`, `-I<dir>`, `-disableCPP` | the C preprocessor (`cpp -traditional-cpp -nostdinc -undef`, found as `VAMOS_CPP`, then on PATH): `-E` always runs it, `-D`/`-U`/`-I` run it unless `-disableCPP` is given; a missing cpp is an error; `-I` also names search directories for `include`, PWL `file=`, `ahdl_include` and Verilog-A `` `include `` (VACASK; on Xyce a Verilog-A header found only there is an error) |
 | `+config <f>`, `=config <f>`, `-config`, `+pre_config <f>`, `-pre_config <f>` | netlist fragments appended (`config`) or prepended after the title (`pre_config`); `=config` drops every `+config`, `-config` drops every `+config` and every preceding `=config`, `-pre_config` drops every `+pre_config` |
 | `+paramdefault <f>`, `=paramdefault <f>`, `-paramdefault` | defaults for analysis and `options` parameters the netlist does not set (lines `primitive parameter value`); the same `+`/`=`/`-` rules |
 | `+errpreset=<p>`, `+aps=<p>`, `++aps=<p>` | the errpreset of every `tran` that sets none; `+aps=`/`++aps=` override every `tran`'s |
@@ -1842,7 +1944,7 @@ after 2 or 3. `<prog>` is the name you ran. An internal error of vamos is one li
 | `VAMOS_SPECTRE_NAMES` | `:`-separated alias names of the personality |
 | `VAMOS_ANALOG`, `VAMOS_BANNER`, `VAMOS_VERBOSE`, `VAMOS_<TOOL>` | as for every personality (§7); `VAMOS_CPP` names the C preprocessor |
 | `CDS_AHDLCMI_SIMDB_DIR` | where compiled Verilog-A is kept when `-ahdllibdir` is not given (an error when it is missing or not writable) |
-| `CDS_VLOGA_INCLUDE` | the Verilog-A include directories (before `-I`); noted on Xyce, whose `.hdl` compile takes none |
+| `CDS_VLOGA_INCLUDE` | the Verilog-A include directories (before `-I`); noted on Xyce, whose `.hdl` compile takes none, and a header found only there (or through `-I`) is an error on Xyce (Troubleshooting) |
 | `CDS_AHDL_FINISH_MODE`, `CDS_AHDL_DDT_SCALE`, `CDS_AHDL_IDT_SCALE`, `CDS_AHDL_IGNORE_HIDDEN_STATE`, `CDS_AHDL_IGNORE_OPPOINT`, `CDS_AHDL_AUTOGDEV_SUPPORT`, `CDS_AHDL_LRM_COMPATIBILITY` | a warning when set to a non-default value; not applied (they change results) |
 | `CDS_AHDLCMI_SHIPDB_COPY`, `CDS_AHDLCMI_SHIPDB_DIR`, `CDS_AHDL_COMPILEC_MAX_LOAD`, `CDS_AHDL_REUSE_LIB`, `CDS_CMI_COMPLEVEL` | ignored (caches and performance) |
 
@@ -1880,7 +1982,18 @@ file and line. A construct that v1 does not run is an error that names it, with 
 | `nodes A and a differ only in case; Xyce would merge them` (exit 2) | Spectre names are case-sensitive and Xyce's are not. Rename one of them, or use VACASK |
 | `` analysis `nz1': noise nz1: the output across two nodes (a, b) is not supported on Xyce in v1 (Xyce aborts on .NOISE V(a,b)); VACASK runs it `` (exit 2) | a noise output whose second node is not ground, on Xyce. Use VACASK |
 | `X1: subckt bias has no ports: on Xyce the instances of a portless subckt share its internal nodes; not supported in v1 on Xyce (VACASK runs it)` (exit 2) | an instance of a subckt without ports, on Xyce. Use VACASK |
-| `option reltol=0.001 is not mapped on Xyce: ...` (also `vabstol`, `iabstol`), `tran tr: Xyce takes the method (traponly) only; ...`, `` nz1: noise analysis `nz1' on Xyce: the per-instance STRUCTs carry only `total' (DNO), no contributions `` (notices) | information: Xyce's differences (Quick start, Choosing the engine) |
+| `` analysis `nz1': noise nz1: the Verilog-A instance X1 (module vres) carries no noise sources on Xyce (PyMS devices define no DNO, and ONOISE would leave the module's noise out); not supported in v1 (VACASK runs it) `` (exit 2) | a noise analysis of a circuit that holds a Verilog-A instance, on Xyce. Use VACASK |
+| `R2: isnoisy=nflag of R2 reads a parameter that noise nz1 sweeps (sw): Xyce has no resistor noise switch, ...` (exit 2) | a resistor's `isnoisy` that reads a parameter a sweep of the noise analysis changes, on Xyce: the deck's noise-free form is fixed. Use VACASK |
+| `` <file>: `include "rdefs.vams" is not found beside the file that includes it, where Xyce's PyMS looks for it [E75], ... `` (exit 2) | a Verilog-A header that Xyce's PyMS would not find, so it would build the module without it: it looks beside the file that includes it (and in `PYMS_INCLUDE_PATH`), not in `CDS_VLOGA_INCLUDE` or `-I` (the message names the directory that holds the header). Put the header beside the `.va` file, or use VACASK |
+| `` Xyce, the deck of analysis `op1' (vamos_a1.cir): PyMS could not build Verilog-A module vramp (<file>), which Xyce would run as a device that contributes nothing, so the run stops (§4.5 item 13): ... `` (exit 2) | a Verilog-A module that PyMS cannot build, for example one that uses `$abstime` (the message ends `PyMS has no $abstime [E125], VACASK runs the module`), or any module when `PYMS_VAE_CACHE` holds a space (the message says so). Use VACASK, or a cache path without a space |
+| `dc dc1 at rv=0: resistor R1 on path top level: r=rv evaluates to 0, and vamos prints a short only for the constant r=0: ...`, `dc op2 (after alter a1): resistor R1 on path top level: its r, set by a sweep or alter, is 0, ...` (exit 2) | a resistance that a sweep or an alter drives to 0 where an analysis runs: a sweep of a parameter that its `r` reads (`r=rv` and `dc1 dc param=rv start=0 stop=2k step=1k`), or a `dev=` sweep or an alter of the `r` itself. Spectre would make it a short, while VACASK's resistor fails with NaN at r=0 and Xyce's turns into an open circuit, so v1 refuses it on both engines. Start the sweep above 0 (`start=1k`), or alter to a value above 0. For a short, give the resistor the constant `r=0`, or a constant expression equal to 0 (`r=1k-1k`): both engines run it as one (VACASK as a 0 V source, with the notice `R1: r=0 printed as a 0 V vamos_vsource (VACASK's resistor masters cannot take r=0)`). `r=0*rv` reads a parameter, so it is this error |
+| `dc dc1: R1 prints as a short (its r is the constant 0, §3.8, §4.5 item 10: a 0 V source on VACASK, R=0 on Xyce); a sweep of its r is not supported in v1`, `alter a1: R1 prints as a short (...); an alter of its r is not supported in v1 on VACASK (Xyce runs it)` (exit 2) | a sweep of a parameter of a resistor printed as a short (its `r` is the constant 0), on both engines, or an alter of one on VACASK, whose 0 V source has none of the resistor's parameters. Xyce runs the alter (`r` altered to 1k: `out` goes from 1 to 0.5). To sweep the resistor, give it a value other than 0 in the netlist: with `r=1k`, `dc dev=R1 param=r start=1k stop=3k step=1k` runs on both engines. Run the alter with `--vamos-analog=xyce`, or each value as a netlist of its own |
+| `sweep sw1: a sweep of the isnoisy of R1 is not supported in v1: the switch chooses the resistor's form (VACASK's noisy, Xyce's noise-free G form, §4.5 item 7) per deck, not per point; alter it between analyses instead`, `alter a1: isnoisy=maybe of R1 is not yes, no, true, false or a number (§4.5 item 7)` (exit 2) | a sweep of a resistor's noise switch (`dev=R1 param=isnoisy`), on both engines, or an alter of it to a word it does not take. Alter it between analyses instead: with `a1 alter dev=R1 param=isnoisy value=no` between two noise analyses the run goes through on both engines, and the second analysis lists `R2` alone, with the noise of a netlist that gives `R1` `isnoisy=no` |
+| `dc dc1: on VACASK gain of E1 is bound to the expression g, which reads g: VACASK cannot sweep such a parameter ('is bound to an expression'); sweep what it reads instead (sub= for a subckt parameter, param= for a netlist parameter) [E, phase 1b]` (exit 2) | a `dev=` sweep, on VACASK, of an instance parameter that the netlist binds to an expression reading a parameter: any value parameter (`r=rv`, `c=cv`, `gain=g`, `gm=gg`, `coupling=kk`, `area=ar`) or a source's field (`dc=vv`). Sweep the netlist parameter the expression reads (`dc1 dc param=g values=[1 2 3]`), or run it on Xyce, which sweeps the instance parameter |
+| `V1: the multiplier of a v is not a device parameter on VACASK (folded into the element, or without effect); a sweep or alter of m is not supported in v1` (exit 2); for a sweep on Xyce, `V1: the vsource field m cannot be swept on Xyce in v1 (the deck prints a derived value for it)` (exit 2) | a sweep or an alter of a voltage source's multiplier `m`: VACASK has no such device parameter, and Xyce refuses the sweep. Xyce runs the alter (a 1 V source across 1k: `V1:p` = -1 mA at m=1 and at m=2). Leave `m` out of the sweep or alter, or run the alter on Xyce |
+| `dc dc1 at rv=2000: alter a1 set r of R1, which the netlist binds to the expression rv (it reads rv), and dc dc1 (its sweep of rv) changes rv after the alter: whether Spectre keeps the altered value or re-evaluates the expression is not known (VACASK re-evaluates it, Xyce keeps the alter): not supported in v1 (§5.3; alter what the expression reads instead)` (exit 2) | an alter of an instance or model card parameter that the netlist binds to an expression (`R1 (in out) resistor r=rv`, `model dmod diode is=isv`), and later a sweep or an alter of what the expression reads. The manuals do not say which of the two values Spectre takes, and the engines differ, so v1 refuses it on both. Alter what the expression reads (`a1 alter param=rv value=3k`), so that `R1` follows the sweep, or give `R1` a constant `r` if it must keep the altered value: both run on both engines |
+| `dc op2: on VACASK, alter a1 set r of R1, which the netlist binds to the expression rv (it reads rv); alter a2 changes other, and VACASK re-evaluates such a binding at the next analysis after a change of a netlist parameter, temp or tnom, so the alter's value is lost (Xyce keeps it, as Spectre does while nothing the expression reads changes): not supported on VACASK in v1 (Xyce runs it)` (exit 2) | the same kind of alter, on VACASK, with a change of something the expression does not read, made after the alter or between the previous analysis and the alter: another netlist parameter (`alter param=other`), temp or tnom (`alter a2 changes temp`), and for an instance inside a subckt a parameter of the subckt instance that holds it (the message adds `or of a parameter of the subckt instance X1 that holds it`). VACASK evaluates the binding again at the next analysis and loses the alter. Run it on Xyce, alter what the expression reads (`a1 alter param=rv value=3k`), or make the other change first, with an analysis between it and the alter |
+| `option reltol=0.0001 is not mapped on Xyce: ...` (also `vabstol`, `iabstol`), `tran tr: Xyce takes the method (traponly) only; ...`, `` nz1: noise analysis `nz1' on Xyce: the per-instance STRUCTs carry only `total' (DNO), no contributions `` (notices) | information: Xyce's differences, the first two for the settings the run makes (Quick start, Choosing the engine) |
 | `<dir>/code/bsimcmg.va: openvaf-r failed (exit status 65):` followed by openvaf-r's errors, the first `error: unexpected token '(*'; expected ';'` at `` module bsimcmg(d, g, s, e) `attr(...) `` (exit 2) | a CMC Verilog-A model (the benchmark decks under xyce's `utils/ADMS/examples`, run as `spectre -I../code gummel_n.sp`) on VACASK: openvaf-r does not compile these trees yet (the design's phase 3 runs them on VACASK once it does) |
 | `` Xyce, the deck of analysis `srcSweep' (vamos_a1.cir): Netlist error in file vamos_a1.cir at or near line 9 Unrecognized parameter BULKMOD for device MX1 `` (also `Unrecognized fields for device MX1`) (exit 2) | the same CMC model on Xyce: Xyce's check of the first deck (`Xyce -norun`) rejects the model card's parameters on the Verilog-A device; v1 does not run Verilog-A model-card parameters on Xyce (docs/VAMOS_SPECTRE_DESIGN.md §0) |
 | `model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108; using it is an error` (a notice at the card), then `X1: model nmos1 is left out: ...` (exit 2) | the BSIM-CMG 108 and 110 benchmark cards name `bsimcmg`, while their `.hdl` files declare `bsimcmg_108` and `bsimcmg_110`, and v1 has no built-in `bsimcmg` (§0) |
@@ -1888,11 +2001,20 @@ file and line. A construct that v1 does not run is an error that names it, with 
 | `.print ids=par'-i(vdrain)': an output expression is not written (§0)` (warning); `.hdl is read as ahdl_include`, `.option post ignored (output and listing control)`, `a SPICE-mode netlist saves allpub (...)` (notices) | a SPICE-mode netlist's output requests: the saved signals are written, output expressions are not |
 | `` Error from spectre during DC analysis `op2'. `` with the engine's messages (exit 1) | the engine could not solve the analysis; the other analyses ran (How a run ends) |
 | `` sweep `sw' of analysis `op1' failed at point 2 of 3: the results of point 1 are written, the later points have none `` (warning) | a sweep point failed (How a run ends) |
-| `` analysis `tr1' was interrupted at time = ... s (vamos got SIGINT and stopped VACASK); its partial results are written `` (warning, exit 3); `the conversion was stopped by SIGINT: ...` | a signal stopped the run (How a run ends) |
+| `` analysis `tr1' was interrupted at time = ... s (vamos got SIGINT and stopped VACASK); its partial results are written `` (warning, exit 3); `` stopping after `tr1' is written; a second interrupt drops it `` (notice), then `the conversion was stopped by SIGINT: ...` (warning, exit 3); `the run was stopped by SIGINT (§2.7)` (warning, exit 3) | a signal stopped the run: during an analysis, while vamos wrote the results, or before the engine ran (How a run ends) |
 | `run directory kept: <dir>` | after exit status 1, 2 or 3, or with `--vamos-keep`: the engine's decks, output and logs, for a look or a report. Remove it when done |
 | `<raw> is a directory: the nutascii results are written to <raw>/<netlist>.raw (§8.5)` (notice) | a nutmeg run whose results path is an earlier PSF run's directory; give `-raw` |
 | `op2 readns: 1 current entries of <file> not applied` (notice; a warning for `readic`) | a state file's source currents are not applied (Outputs) |
+| `tran tr2: readic=tr1.fin is the file tran tr1 writes earlier in this run (writefinal=tr1.fin): ...` (exit 2); `dc op2: readns=op1.ns is the file dc op1 writes earlier in this run (write=op1.ns): ...` (warning) | one run cannot hand a state file from one analysis to the next: vamos reads state files before the engine runs (Outputs). Run the analyses as two runs |
 | `internal error: <exception>: <text> (the traceback is in <file>)` (exit 2) | a bug in vamos. The traceback is in the run directory (`<dir>/vamos-spectre.traceback`, and the directory is kept), or, when the run stopped before it made one, in the `+log`/`=log` file, or else in a temporary file (`/tmp/vamos-spectre-<random>.traceback`). Report it with that file |
+
+One more case of an alter of a parameter bound to an expression is not refused yet, and it gives a wrong value
+on VACASK with exit status 0 and no message: such an alter made before the first analysis, when the netlist's
+temp or tnom is not 27 at that point (an `options temp=50` or `tnom=25`, or an alter or `set` of temp before
+the alter). VACASK then evaluates the binding again at the first analysis. In a divider of
+`R1 (in out) resistor r=rv` (`rv=1k`) and a 1k `R2`, `options temp=50` and `alter dev=R1 param=r value=3k`
+before an `op` give `out` = 0.5 on VACASK and 0.25 on Xyce. Put an analysis before the alter, alter what the
+expression reads, or run it on Xyce: each gives 0.25.
 
 To see what vamos runs, add `--vamos-verbose`; `--vamos-keep` keeps the run directory, with the decks the
 engine ran.

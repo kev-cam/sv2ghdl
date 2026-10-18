@@ -1,0 +1,54 @@
+{
+ "row": "E131",
+ "experiment": "the PSF and rawfile readers (the vendored psf-parser 05021e6 under WSL Python; VACASK's python/rawfile.py from VAMOS_VACASK_SRC; e2e 13, 15 and 23, phase 2): a PSF file vamos's psf.py writes with a section sign in its design title, read by psf-parser; a binary rawfile of two plots (time, a) and (time, b) read by rawread",
+ "result": "psf.py writes PSF strings in latin-1 (the sign is the byte 0xa7) and psf-parser decodes UTF-8, so a section sign in a title is a UnicodeDecodeError, on every file of the run; rawread keeps one header dict for every plot of a file, giving each plot the last plot's names (both plots named time, b), the arrays each plot's own. Not harvested: the two legs on one tree (a golden written on the Cygwin leg reported missing by a WSL run seconds later, DrvFs), a platform race no single run reproduces",
+ "rules": [
+  "§11 Third-party PSF consumers: the T2 decks keep their titles ASCII (e2e 15's title), psf-parser being a consumer check",
+  "§8.5 / e2e 13: test_spectre_e2e_cli splits a multi-plot nutbin file into one file per plot before rawread (split_plots)"
+ ],
+ "runs": [
+  {
+   "name": "psf_parser_on_latin1",
+   "tool": "python",
+   "args": [
+    "psf_latin1.py",
+    "{repo}",
+    "{psf_parser}",
+    "{tmp}/out"
+   ],
+   "gates": [
+    "needs_psf_parser"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "the section sign as latin-1 0xa7: True; as UTF-8: False",
+     "psf-parser: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xa7"
+    ]
+   }
+  },
+  {
+   "name": "rawread_last_plots_names",
+   "tool": "python",
+   "args": [
+    "rawread_names.py",
+    "{vacask_src}",
+    "{tmp}/out"
+   ],
+   "gates": [
+    "needs_vacask_rawread"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "plot 0 names ['time', 'b'] data [[0.0, 1.0], [1.0, 2.0]]",
+     "plot 1 names ['time', 'b'] data [[0.0, 3.0], [1.0, 4.0]]"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL Python 3.14.4 with tests/vamos/third_party/psf_parser (05021e6) and /usr/local/src/VACASK/python/rawfile.py (numpy 2.3.5)",
+  "scripts: vamos-authored; the PSF file is written at test time by vamos/output/psf.py, the rawfile by the script"
+ ]
+}

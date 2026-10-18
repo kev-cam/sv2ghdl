@@ -5,13 +5,17 @@
 
 Both legs, no engine:
   TestCounts        vacask_count against the grids VACASK runs (measured on the 2026-10 build)
-  TestCheckStep     check_step on synthetic VACASK rawfiles: the four rules of §7.1, the kept units
+  TestCheckStep     check_step on synthetic VACASK rawfiles: the four rules of §7.1, the kept units; a
+                    frequency grid that does not increase split by its count (R-emit-4, phase 2c)
   TestAhdlCache     §2.5's Verilog-A directory, CDS_VLOGA_INCLUDE, the include list, the .osdi key
   TestFakeVacask    run() end to end with scripted stand-ins for VACASK and openvaf-r (VAMOS_VACASK,
                     VAMOS_OPENVAF): the statuses, files, failed_points and rc of §7.1 and stop.py, the
                     messages, the pseudo-terminal and the pipe, the Verilog-A cache, and the signals
                     of §2.7 (forwarded, a second one -> stop.Stop, the grace-period kill, kills from
-                    outside, SIGUSR1, SIGUSR2), each sent by the stand-in at a chosen row
+                    outside, SIGUSR1, SIGUSR2), each sent by the stand-in at a chosen row; phase 2c:
+                    the forwarded signal reaches the children of VACASK and of openvaf-r (R-run-5),
+                    SIGUSR2's notice is stop.CHECKPOINT (R-run-14), OpenBLAS's threads are bounded
+                    unless the user set a thread count (R-run-4)
 WSL (needs_vacask):
   TestVacaskE2E     e2e 1-10 through parse -> build -> resolve -> run(), against the vacask parts of
                     engine_expect.json (test_spectre_chain's checks)
@@ -20,9 +24,11 @@ WSL (needs_vacask):
                     a failing alter in the deck (rc 2), the Verilog-A cache with openvaf-r
   TestVacaskSignals    SIGTERM, SIGINT and a kill from outside during a long tran (rc 3, the partial
                     rows readable), a second signal (stop.Stop), SIGUSR1 (a status line, the run goes
-                    on), a crash (rc 2)
+                    on), a crash (rc 2), the grace-period kill of the real VACASK (stopped first with
+                    SIGSTOP; R-tests-13)
 """
 
+import glob
 import json
 import os
 import re
@@ -33,6 +39,7 @@ import sys
 import threading
 import time
 import unittest
+import uuid
 from datetime import datetime
 from unittest import mock
 
@@ -320,6 +327,34 @@ class TestCheckStep(TempDir):
         self.assertTrue(RV.check_step(step("ac", own=freq(start=1, stop=10, count=1)),
                                       self.raw(["frequency", "out"], [[1, 1], [10, 1]], cplx=True)).complete)
 
+    def test_a_frequency_grid_that_does_not_increase_is_split_by_its_count(self):
+        """R-emit-4 (the run_vacask seam of phase 2c's integration): a frequency axis was split wherever the frequency
+        did not increase, so a spot noise (lin=1 with start = stop: two rows at 1 kHz), values=[1M 1k 10k] or a
+        descending dec under a sweep block held more groups than planned and the step failed (`its rawfile holds 4
+        of the 2 planned sweep groups'); render prints the plan's grid, so a frequency axis is split by its grid's
+        count, as results._groups splits it, and a short last group is cut short."""
+        ctx = [level("vamos_w1", "values", values=[1000, 2000])]
+        names = ["vamos_w1", "frequency", "out"]
+        spot = step("noise", context=ctx, own=freq(mode="lin", start=1e3, stop=1e3, count=1))
+        rows = [[1000, 1e3, 1], [1000, 1e3, 1], [2000, 1e3, 1], [2000, 1e3, 1]]
+        c = RV.check_step(spot, self.raw(names, rows, cplx=True))
+        self.assertTrue(c.complete, c.reason)
+        self.assertEqual((c.groups, c.planned, c.done), (2, 2, 2))
+        unsorted = step("ac", context=ctx, own=freq(mode="values", values=[1e6, 1e3, 1e4]))
+        rows = [[v, f, 1] for v in (1000, 2000) for f in (1e6, 1e3, 1e4)]
+        c = RV.check_step(unsorted, self.raw(names, rows, cplx=True))
+        self.assertTrue(c.complete, c.reason)
+        desc = step("ac", context=ctx, own=freq(start=1e6, stop=1e3, count=1))
+        rows = [[v, f, 1] for v in (1000, 2000) for f in (1e6, 1e5, 1e4, 1e3)]
+        c = RV.check_step(desc, self.raw(names, rows, cplx=True))
+        self.assertTrue(c.complete, c.reason)
+        c = RV.check_step(desc, self.raw(names, rows[:6], cplx=True, complete=False))
+        self.assertEqual((c.complete, c.groups, c.done), (False, 2, 1))
+        c = RV.check_step(desc, self.raw(names, rows[:7], cplx=True))         # filled, the last group short
+        self.assertFalse(c.complete)
+        self.assertEqual((c.groups, c.done), (2, 1))
+        self.assertIn("a group of its rawfile holds 3 of the 4 points of its frequency grid", c.reason)
+
 
 # -- the Verilog-A directory and cache key ---------------------------------------------------------------
 
@@ -401,9 +436,14 @@ fd0 = "/proc/self/fd/0"
 seen = {"argv": sys.argv[1:], "cwd": os.getcwd(), "pid": os.getpid(),
         "pgid": os.getpgid(0) if hasattr(os, "getpgid") else None, "stdout_tty": os.isatty(1),
         "stdin": os.readlink(fd0) if os.path.islink(fd0) else None,
-        "env": {k: os.environ.get(k) for k in ("SIM_MODULE_PATH", "SIM_OPENVAF", "LD_LIBRARY_PATH")}}
+        "env": {k: os.environ.get(k) for k in ("SIM_MODULE_PATH", "SIM_OPENVAF", "LD_LIBRARY_PATH",
+                                               "OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")}}
 with open(spec_path + ".seen", "w") as fh:
     json.dump(seen, fh)
+if spec.get("spawn"):                        # a child in VACASK's process group, whose argv holds the marker
+    import subprocess                        # (its own stdio: the terminal's end stays VACASK's alone)
+    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)", spec["spawn"]],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 if spec.get("ignore_term"):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
@@ -483,8 +523,15 @@ src, out = args[0], args[args.index("-o") + 1]
 log = os.environ.get("VAMOS_FAKE_OPENVAF_LOG")
 if log:
     with open(log, "a") as fh:
-        fh.write(json.dumps({"argv": args, "cwd": os.getcwd()}) + "\n")
+        fh.write(json.dumps({"argv": args, "cwd": os.getcwd(),
+                             "env": {k: os.environ.get(k) for k in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS",
+                                                                    "OMP_NUM_THREADS")}}) + "\n")
 text = open(src).read()
+if "fake_spawn" in text:                     # a child in openvaf-r's process group (a linker, say)
+    import subprocess
+    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)", os.environ["VAMOS_FAKE_MARKER"]],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.3)
 if "fake_signal_parent" in text:
     os.kill(os.getppid(), signal.SIGTERM)
     end = time.time() + 30
@@ -1078,7 +1125,7 @@ class TestFakeVacask(FakeCase):
         text = self.log_text()
         self.assertRegex(text, r"spectre status: analysis `tr1' running, time = 500 us of 1 ms \(50 %\), "
                                r"6 points written, elapsed = \d+ s\.")
-        self.assertIn("Notice from spectre during transient analysis `tr1'.\n    SIGUSR2: checkpoint not supported", text)
+        self.assertIn("Notice from spectre during transient analysis `tr1'.\n    %s\n" % stop.CHECKPOINT, text)
 
     @needs_signals
     def test_signal_during_the_verilog_a_compile(self):
@@ -1092,6 +1139,129 @@ class TestFakeVacask(FakeCase):
         self.assertEqual(self.seen(), {})                                 # VACASK never ran
         self.assertEqual(os.listdir(os.path.join(self.tmp, "ahdl")), [])
         self.assertIn("the run was stopped before VACASK ran (vamos got SIGTERM and stopped openvaf-r)", self.log_text())
+
+    @needs_signals
+    @unittest.skipUnless(LINUX, "the processes are read from /proc (Linux/WSL)")
+    def test_the_stop_signal_reaches_vacask_s_process_group(self):
+        """R-run-5: the forwarded SIGTERM reached VACASK's pid only, so a child of VACASK outlived the run
+        (§2.7: the engine never outlives vamos); its whole process group gets it now."""
+        deck, steps = self.setup_deck()
+        spec = self.all_ok(steps)
+        marker = "vamos-test-marker-" + uuid.uuid4().hex
+        spec["spawn"] = marker
+        spec["steps"][1]["raw"] = tran_raw(complete=False, events=[{"at": 5, "before": 0.3, "sig": "SIGINT",
+                                                                    "sleep": 20}])
+        self.fake(spec)
+        try:
+            with QuietSignals():
+                er, *_ = self.run_deck(deck)
+            self.assertEqual(er.rc, 3, self.log_text())
+            self.assertEqual(er.status, {steps[0].id: "ok", steps[1].id: "interrupted"})
+            self.assertTrue(gone(marker, 2.0), "VACASK's child outlived the run")
+        finally:
+            kill_marked(marker)
+
+    @needs_signals
+    @unittest.skipUnless(LINUX, "the processes are read from /proc (Linux/WSL)")
+    def test_the_stop_signal_reaches_openvaf_r_s_process_group(self):
+        """R-run-5 for the Verilog-A compile: openvaf-r's children get the forwarded SIGTERM too."""
+        deck, _steps = self.setup_deck(VA_DECK, {"vr.va": VR_VA.replace("endmodule", "// fake_spawn fake_signal_parent\n"
+                                                                                     "endmodule")})
+        self.fake({"steps": [{"id": "vamos_a1", "raw": op_raw()}]})
+        marker = "vamos-test-marker-" + uuid.uuid4().hex
+        os.environ["VAMOS_FAKE_MARKER"] = marker
+        try:
+            with QuietSignals():
+                er, *_ = self.run_deck(deck)
+            self.assertEqual((er.rc, er.status), (3, {}), self.log_text())
+            self.assertTrue(gone(marker, 2.0), "openvaf-r's child outlived the run")
+        finally:
+            kill_marked(marker)
+
+    @needs_signals
+    def test_usr2_prints_stop_s_checkpoint_notice(self):
+        """R-run-14: SIGUSR2's notice is stop.CHECKPOINT, the one text the flow and run_xyce print too
+        (it was `SIGUSR2: checkpoint not supported' here)."""
+        self.assertEqual(stop.CHECKPOINT, "checkpoint not supported: SIGUSR2 is ignored and the run continues")
+        deck, steps = self.setup_deck()
+        spec = self.all_ok(steps)
+        spec["steps"][1]["raw"] = tran_raw(events=[{"at": 6, "before": 0.3, "sig": "SIGUSR2", "sleep": 0.6}])
+        self.fake(spec)
+        with mock.patch.object(stop, "CHECKPOINT", "a sentinel for stop.CHECKPOINT"):
+            with QuietSignals():
+                er, *_ = self.run_deck(deck)
+        self.assertEqual(er.rc, 0, self.log_text())
+        self.assertIn("Notice from spectre during transient analysis `tr1'.\n    a sentinel for stop.CHECKPOINT\n",
+                      self.log_text())
+
+    def test_openblas_is_bounded_unless_the_user_sets_a_thread_count(self):
+        """R-run-4: VACASK and openvaf-r run with OPENBLAS_NUM_THREADS=1: VACASK caps OpenBLAS at one CPU
+        itself (its default -b 1), but only after OpenBLAS has started one spinning thread per CPU
+        (about 2 s of CPU per run on 32 CPUs, no wall time gained); a thread count the user set
+        (OPENBLAS_NUM_THREADS, or GOTO_NUM_THREADS or OMP_NUM_THREADS, which OpenBLAS falls back on)
+        is left as it is, and vamos's own environment is not changed."""
+        deck, _steps = self.setup_deck(VA_DECK, {"vr.va": VR_VA})
+        self.fake({"steps": [{"id": "vamos_a1", "raw": op_raw()}]})
+        for v in THREAD_VARS:
+            os.environ.pop(v, None)
+
+        def threads(env):
+            return {k: env.get(k) for k in THREAD_VARS}
+        er, *_ = self.run_deck(deck)
+        self.assertEqual(er.rc, 0, self.log_text())
+        bounded = {"OPENBLAS_NUM_THREADS": "1", "GOTO_NUM_THREADS": None, "OMP_NUM_THREADS": None}
+        self.assertEqual(threads(self.seen()["env"]), bounded)
+        self.assertEqual([threads(c["env"]) for c in self.openvaf_calls()], [bounded])
+        self.assertFalse([v for v in THREAD_VARS if v in os.environ])
+        for var, val in (("OPENBLAS_NUM_THREADS", "8"), ("GOTO_NUM_THREADS", "2"), ("OMP_NUM_THREADS", "4")):
+            with self.subTest(var=var):
+                for v in THREAD_VARS:
+                    os.environ.pop(v, None)
+                os.environ[var] = val
+                with open(os.path.join(self.tmp, "vr.va"), "a") as fh:     # a new source: a new compile
+                    fh.write("// %s\n" % var)
+                er, *_ = self.run_deck(deck, run_dir=os.path.join(self.tmp, "run_" + var))
+                self.assertEqual(er.rc, 0, self.log_text())
+                want = {v: None for v in THREAD_VARS}
+                want[var] = val
+                self.assertEqual(threads(self.seen()["env"]), want)
+                self.assertEqual(threads(self.openvaf_calls()[-1]["env"]), want)
+
+
+# the variables that bound the engines' OpenBLAS (and OpenMP) threads (R-run-4)
+THREAD_VARS = ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
+
+
+def marker_pids(marker: str) -> list:
+    """The processes whose command line holds `marker` (from /proc; [] where there is none)."""
+    out = []
+    for p in glob.glob("/proc/[0-9]*/cmdline"):
+        try:
+            with open(p, "rb") as fh:
+                if marker.encode() in fh.read():
+                    out.append(int(p.split("/")[2]))
+        except (OSError, ValueError):
+            continue
+    return [pid for pid in out if pid != os.getpid()]
+
+
+def gone(marker: str, timeout: float = 5.0) -> bool:
+    """Whether every process holding `marker` is gone (or a zombie) within `timeout` seconds."""
+    end = time.time() + timeout
+    while True:
+        alive = [pid for pid in marker_pids(marker) if _state(pid) not in ("Z", "")]
+        if not alive or time.time() > end:
+            return not alive
+        time.sleep(0.05)
+
+
+def kill_marked(marker: str) -> None:
+    """SIGKILL to every process holding `marker` (one that outlived its fake engine)."""
+    for pid in marker_pids(marker):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
 
 
 def _state(pid: int) -> str:
@@ -1383,6 +1553,30 @@ class TestVacaskSignals(RunnerCase):
                                                  signal.SIGINT], self.job(deck), plan, nl2, sigmap)
         self.assertIsInstance(got, stop.Stop, self.log_text())
         self.assertEqual(got.signum, signal.SIGINT)
+        self.assertEqual(procs_under(run_dir), [])
+
+    def test_grace_period_kill_of_the_real_engine(self):
+        """R-tests-13: the grace-period kill on the real VACASK, not a stand-in.  VACASK ends at once on
+        the forwarded SIGTERM [E81], so it is stopped (SIGSTOP) first, which keeps that SIGTERM pending:
+        INTERRUPT_GRACE (0.5 s) after the SIGINT its process group gets SIGKILL, and the run is converted
+        as status 3 (stop.py), the warning naming the kill."""
+        RV.INTERRUPT_GRACE = 0.5
+        deck, plan, nl2, sigmap, (op1, tr, op2) = self.long_tran()
+        run_dir = os.path.join(self.tmp, "run")
+        sent = []
+        got = self.run_signalled(run_dir, tr.id, [self.to_engine(run_dir, signal.SIGSTOP),
+                                                  lambda: sent.append(time.time()), signal.SIGINT],
+                                 self.job(deck), plan, nl2, sigmap)
+        ended = time.time()
+        self.assertNotIsInstance(got, stop.Stop, self.log_text())
+        self.assertEqual(got.rc, 3, self.log_text())
+        self.assertEqual(got.status, {op1.id: "ok", tr.id: "interrupted"})
+        self.assertIn("(vamos got SIGINT and stopped VACASK; VACASK did not stop within 0.5 s and was killed)",
+                      self.log_text())
+        self.assertGreater(ended - sent[0], 0.4)
+        self.assertLess(ended - sent[0], 4.0)                                # 0.5 s, not the 5 s default
+        plot = rawfile.read(got.files[tr.id])
+        self.assertEqual(plot.declared_points, len(plot.points))           # fix_points (E40)
         self.assertEqual(procs_under(run_dir), [])
 
     def test_usr1_prints_a_status_line_and_the_run_goes_on(self):

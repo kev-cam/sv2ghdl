@@ -26,9 +26,14 @@ Families of TYPES (§8.3 names no keys; these are S4's, recorded in the phase-1 
 All from psf-parser's tests/data/ascii (Spectre 23.1.0.242) except "noise", whose only sample is
 psf_utils' 15.1 noiva.noise (its fixed entries carry no reals, so the layout is version independent).
 
-Notes (a non-finite value, a rejected `precision`) are appended to the `notes` list the caller
-passes (vamos.notes.Note); the flow prints them through SpectreLog.  With `notes=None` nothing is
-recorded, so the flow always passes its list.
+Notes (a non-finite value, a rejected `precision`, a STRUCT type suffixed for its member set) are
+appended to the `notes` list the caller passes (vamos.notes.Note); the flow prints them through
+SpectreLog.  With `notes=None` nothing is recorded, so the flow always passes its list.
+
+Progress (D3): `write_analysis(..., progress=f)` calls f(rows written so far) at least every
+PROGRESS_ROWS rows (sooner for wide rows: every PROGRESS_VALUES values) and once after the last row
+(an operating point: f(1), a parent: f(its points)); an exception f raises ends the write at once,
+leaving `<file>.vamos-tmp` for the caller to remove (the flow does, §2.7).
 """
 
 from __future__ import annotations
@@ -39,9 +44,9 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
-from vamos.notes import Note, warning
+from vamos.notes import Note, note, warning
 from vamos.spectre.results import AnalysisResult, Signal
 
 # §8.2: data-format fields that readers may key on, so they keep Spectre's values
@@ -54,6 +59,8 @@ PSF_VERSION = "1.00"                 # the "PSFversion" header of every file [S]
 DEFAULT_PRECISION = "%.15e"          # VALUE reals [S 23.1.0.242]
 HEADER_PRECISION = "%.15e"           # header and TYPE PROP reals [S 23.1.0.242]
 ISTEP = 1e-3                         # the tran header's "istep", 1e-3 in every sample [S]
+PROGRESS_ROWS = 4096                 # `progress` is called at least every this many rows (D3) ...
+PROGRESS_VALUES = 65536              # ... and every this many values of wide rows (well under 0.5 s of writing)
 
 # `options precision`: a C conversion for VALUE reals (§8.3); `#` is added for g/G so a `.` or an
 # exponent always appears (psf-parser rejects an integer token where FLOAT is declared [E83])
@@ -212,17 +219,25 @@ def _header_value(v: object) -> str:
     return psf_string(str(v))
 
 
+def progress_period(width: int) -> int:
+    """The rows between two `progress` calls for rows of `width` values (D3): PROGRESS_ROWS, fewer
+    for wide rows, so that a call comes at least every PROGRESS_VALUES values written."""
+    return max(1, min(PROGRESS_ROWS, PROGRESS_VALUES // max(1, width)))
+
+
 # -- data files (§8.3) -----------------------------------------------------------------------------
 
 class _Writer:
     """Writes one data file; keeps the per-signal non-finite warnings to one each."""
 
     def __init__(self, fh, res: AnalysisResult, head: PsfHead, escchars: bool,
-                 notes: Optional[List[Note]], masters: Optional[Dict[str, str]]) -> None:
+                 notes: Optional[List[Note]], masters: Optional[Dict[str, str]],
+                 progress: Optional[Callable[[int], object]] = None) -> None:
         self.fh, self.res, self.head, self.esc = fh, res, head, escchars
-        self.notes, self.masters = notes, masters or {}
+        self.notes, self.masters, self.progress = notes, masters or {}, progress
         self.fmt = precision(head.precision, notes, res.file)
         self.warned: set = set()
+        self.tnames: List[str] = [sig.ptype for sig in res.signals]   # each trace's TYPE name (types())
 
     def s(self, text: str) -> str:
         return psf_string(text, self.esc)
@@ -284,30 +299,59 @@ class _Writer:
                     declared_c.add(sig.ptype)
         if family == "noise":
             declared = set(["sweep", "V/sqrt(Hz)", "V^2/Hz"])
-            structs: set = set()
-            for sig in res.signals:
+            structs: Dict[str, Tuple[str, Tuple[str, ...]]] = {}     # STRUCT type -> (first trace, members)
+            variants: Dict[Tuple[str, Tuple[str, ...]], str] = {}    # (type, members) -> the declared name
+            taken = set(s.ptype for s in res.signals) | FIXED_TYPE_NAMES
+            for i, sig in enumerate(res.signals):
                 if sig.members is not None and sig.ptype in FIXED_TYPE_NAMES:
                     raise ValueError("%s: STRUCT type %r of trace %r collides with a fixed type name; "
                                      "signals.resolve suffixes such names (design §8.4)"
                                      % (res.file, sig.ptype, sig.name))
-                if sig.ptype in declared:
-                    if (sig.members is not None) != (sig.ptype in structs):
-                        raise ValueError("%s: type %r is both a STRUCT and a scalar type" % (res.file, sig.ptype))
-                    continue
                 if sig.members is None:
+                    if sig.ptype in declared:
+                        if sig.ptype in structs:
+                            raise ValueError("%s: type %r is both a STRUCT and a scalar type" % (res.file, sig.ptype))
+                        continue
                     extra = NOISE_EXTRA_TYPES.get(sig.ptype)
                     if extra is None:
                         raise ValueError("%s: trace %r has type %r, which is neither a noise type nor a STRUCT"
                                          % (res.file, sig.name, sig.ptype))
                     self.line(extra)
-                else:
-                    master = self.masters.get(sig.ptype, sig.ptype)
-                    body = "".join('%s FLOAT DOUBLE PROP(\n"units" %s\n)\n'
-                                   % (self.s(m), psf_string(STRUCT_MEMBER_UNITS)) for m, _ in sig.members)
-                    self.line('%s STRUCT(\n%s) PROP(\n"key" "inst"\n"master" %s\n)'
-                              % (psf_string(sig.ptype), body, self.s(master)))
-                    structs.add(sig.ptype)
-                declared.add(sig.ptype)
+                    declared.add(sig.ptype)
+                    continue
+                mset = tuple(m for m, _ in sig.members)
+                if (sig.ptype, mset) in variants:
+                    self.tnames[i] = variants[(sig.ptype, mset)]
+                    continue
+                if sig.ptype in declared and sig.ptype not in structs:
+                    raise ValueError("%s: type %r is both a STRUCT and a scalar type" % (res.file, sig.ptype))
+                name = sig.ptype
+                if name in structs:                 # each distinct member set is a type of its own (§8.4)
+                    k = 2
+                    while "%s_%d" % (sig.ptype, k) in taken | declared:
+                        k += 1
+                    name = "%s_%d" % (sig.ptype, k)
+                    self.struct_note(sig, mset, name, *structs[sig.ptype])
+                master = self.masters.get(sig.ptype, sig.ptype)
+                body = "".join('%s FLOAT DOUBLE PROP(\n"units" %s\n)\n'
+                               % (self.s(m), psf_string(STRUCT_MEMBER_UNITS)) for m in mset)
+                self.line('%s STRUCT(\n%s) PROP(\n"key" "inst"\n"master" %s\n)'
+                          % (psf_string(name), body, self.s(master)))
+                structs[name] = (sig.name, mset)
+                variants[(sig.ptype, mset)] = name
+                declared.add(name)
+                self.tnames[i] = name
+
+    def struct_note(self, sig: Signal, mset: Tuple[str, ...], name: str, first: str,
+                    first_set: Tuple[str, ...]) -> None:
+        """One note per run (the same text is not repeated for a sweep's next leaf) for a STRUCT type
+        written under a suffixed name because its member set differs from the first one's (R-emit-5)."""
+        if self.notes is None:
+            return
+        text = ("noise STRUCT type `%s' of `%s' has the members (%s), not those of `%s' (%s); written as `%s' "
+                "(§8.4)" % (sig.ptype, sig.name, " ".join(mset), first, " ".join(first_set), name))
+        if not any(n.message == text for n in self.notes):
+            self.notes.append(note(self.res.file, text))
 
     def sweep(self) -> None:
         res = self.res
@@ -326,34 +370,48 @@ class _Writer:
         if res.sweep is None or res.atype in PARENT_KINDS:
             return
         self.line("TRACE")
-        for sig in res.signals:
-            self.line("%s %s%s" % (self.s(sig.name), psf_string(sig.ptype), _current_prop(sig)))
+        for sig, tname in zip(res.signals, self.tnames):
+            self.line("%s %s%s" % (self.s(sig.name), psf_string(tname), _current_prop(sig)))
 
     def values(self) -> None:
         res = self.res
         self.line("VALUE")
         if res.sweep is None:                                   # an operating point
-            for sig in res.signals:
+            for sig, tname in zip(res.signals, self.tnames):
                 if len(sig.values) != 1:
                     raise ValueError("%s: operating-point signal %r carries %d values, not one"
                                      % (res.file, sig.name, len(sig.values)))
-                self.line("%s %s %s%s" % (self.s(sig.name), psf_string(sig.ptype),
+                self.line("%s %s %s%s" % (self.s(sig.name), psf_string(tname),
                                           self.value(sig.values[0], sig), _current_prop(sig)))
+            self.done(1)
             return
         sname = self.s(res.sweep[0])
         if res.atype in PARENT_KINDS:
             for x in res.sweep[3]:
                 self.line("%s %s" % (sname, self.real(x, res.sweep[0])))
+            self.done(len(res.sweep[3]))
             return
         if res.rows is None:
             raise ValueError("%s: a swept result without rows" % res.file)
         sigs = res.signals
+        progress, n = self.progress, 0
+        period = progress_period(1 + sum(1 if s.members is None else len(s.members) + 2 for s in sigs))
         for x, vals in res.rows():
             if len(vals) != len(sigs):
                 raise ValueError("%s: a row carries %d values for %d traces" % (res.file, len(vals), len(sigs)))
             self.line("%s %s" % (sname, self.real(x, res.sweep[0])))
             for sig, v in zip(sigs, vals):
                 self.line("%s %s" % (self.s(sig.name), self.value(v, sig)))
+            n += 1
+            if progress is not None and n % period == 0:
+                progress(n)
+        if n == 0 or n % period:
+            self.done(n)
+
+    def done(self, n: int) -> None:
+        """The `progress` call after the last row (D3)."""
+        if self.progress is not None:
+            self.progress(n)
 
     def write(self) -> None:
         self.header()
@@ -392,21 +450,26 @@ def type_family(res: AnalysisResult) -> str:
 
 
 def write_analysis(dirpath: str, res: AnalysisResult, head: PsfHead, escchars: bool = False,
-                   notes: Optional[List[Note]] = None, masters: Optional[Dict[str, str]] = None) -> None:
+                   notes: Optional[List[Note]] = None, masters: Optional[Dict[str, str]] = None,
+                   progress: Optional[Callable[[int], object]] = None) -> None:
     """Write `<dirpath>/<res.file>` (§8.3): the header table for its kind (res.header, built by
     results.collect), the fixed TYPE list of its family plus the noise STRUCTs, SWEEP, TRACE and the
     VALUEs streamed from res.rows() (an operating point from Signal.values).  A result whose status
     is "failed" has no data and is not written (§2.7: the analyses that finished are converted).
     `masters` maps a noise STRUCT type name to the master it is written with (PROP "master", §8.4);
-    a type absent from it is its own master.  `notes` collects the warnings (non-finite values, a
-    rejected precision)."""
+    a type absent from it is its own master.  STRUCT traces of one type name with different member
+    sets get one type each, the later ones `<type>_<k>` with a note (§8.4).  `notes` collects the
+    warnings and notes (non-finite values, a rejected precision, a suffixed type).  `progress` (D3):
+    called with the rows written so far at least every PROGRESS_ROWS rows and after the last row; an
+    exception it raises ends the write at once, `<file>.vamos-tmp` left for the caller to remove and
+    the file itself untouched."""
     if res.status == "failed":
         return
     os.makedirs(dirpath, exist_ok=True)
     path = os.path.join(dirpath, res.file)
     tmp = path + ".vamos-tmp"
     with open(tmp, "w", encoding="latin-1", newline="\n") as fh:
-        _Writer(fh, res, head, escchars, notes, masters).write()
+        _Writer(fh, res, head, escchars, notes, masters, progress).write()
     os.replace(tmp, path)
 
 
@@ -480,5 +543,5 @@ def _log_props(res: AnalysisResult, head: PsfHead, escchars: bool) -> Optional[L
 
 __all__ = ["SIMULATOR", "LOG_GENERATOR", "SIM_MODE", "SIGNAL_NAME_TYPE", "PSF_VERSION", "TYPES",
            "NOISE_EXTRA_TYPES", "XF_EXTRA_TYPES", "FIXED_TYPE_NAMES", "XVEC_SORTED", "DATA_TYPE",
-           "PARENT_KINDS", "PsfHead", "psf_string", "psf_date", "precision", "analysis_name", "type_family",
-           "write_analysis", "write_logfile"]
+           "PARENT_KINDS", "PROGRESS_ROWS", "PROGRESS_VALUES", "PsfHead", "psf_string", "psf_date", "precision",
+           "progress_period", "analysis_name", "type_family", "write_analysis", "write_logfile"]

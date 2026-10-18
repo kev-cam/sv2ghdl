@@ -32,7 +32,7 @@ import unittest
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from vamos_testlib import ROOT, TempDir, fixture
-from spectre_testlib import (RC_OMIT_KEYS, compare_results_dir, import_psf_parser,
+from spectre_testlib import (RC_OMIT_KEYS, compare_results_dir, have_psf_parser, import_psf_parser,
                              needs_psf_parser, spectre_fixture)
 
 import psfcheck
@@ -211,6 +211,13 @@ def close_lists(a, b, rel=1e-14) -> bool:
 def read_text(path: str) -> str:
     with open(path, encoding="latin-1") as fh:
         return fh.read()
+
+
+def psf_parser_reads(path: str):
+    """The vendored psf-parser's reading of a file (WSL, Python >= 3.10), None where it is absent."""
+    if not have_psf_parser():
+        return None
+    return import_psf_parser().PsfFile(path)
 
 
 # -- the RC low-pass run of psf-parser's tests/data, rebuilt from synthetic engine output (e2e 28) --
@@ -417,6 +424,8 @@ engine/   the engine outputs the sweep-splitting and noise tests read (§7.1 "Re
   xyce/   Xyce DEVELOPMENT-202610100047-(Release-7.10.0-212-g7cd78110), /usr/local/src/xyce-build/src/Xyce
           under engines.env_for, one run per deck, a 1 kOhm / 1 kOhm divider:
           nz0.prn     .NOISE without .STEP: the standard table `Index FREQ ONOISE INOISE DNO(R1) DNO(R2)`
+          nz0vm.prn   the same, printed as render prints it since phase 2c (R-emit-13; recorded 2026-10-17):
+                      `Index FREQ DNO(R1) DNO(R2) ONOISE VM(OUT) INOISE`, VM(OUT) the gain (0.5)
           nz1.prn     .NOISE under one .STEP (2 points): the Index restarts at 0 per step, no separator (E33)
           nz2.prn     .NOISE under two .STEPs (2 x 3 points), LIN 3: six tables of three rows
           opstep.raw  .OP + .PRINT DC FORMAT=RAW under one .STEP: one plot per step point, `sweep` first
@@ -566,6 +575,19 @@ class TestNumbers(unittest.TestCase):
         self.assertEqual(results.grid_of(level("", "", spec_values(1, 2), "dc", "V1:dc", "V")), 1)
         self.assertEqual(results.grid_of(None), 1)
 
+    def test_descending_dec_grid_is_the_plans(self):
+        """R-emit-3: a dec sweep whose start is above its stop has the plan's descending grid
+        (plan.grid_points: start*10^(-k/N), the last point exactly stop), not [start]; the results
+        read the same grid as the plan for every engine-ready spec (§5.2)."""
+        desc = SweepSpec("dev", "", "", "dec", start=num(1e-3), stop=num(1e-6), count=1)
+        g = results.grid_values(desc)
+        self.assertTrue(close_lists(g, [1e-3, 1e-4, 1e-5, 1e-6], rel=1e-12), g)
+        self.assertEqual((g[0], g[-1]), (1e-3, 1e-6))
+        for spec in (desc, SweepSpec("dev", "", "", "dec", start=num(1e4), stop=num(100.0), count=2),
+                     spec_dec(1.0, 1e6, 10), spec_dec(1e3, 1e3, 3), spec_lin(0.0, 2.0, 4), spec_lin(2.0, 0.0, 4),
+                     spec_step(0.0, 2.0, 0.1), spec_step(2.0, 0.0, -0.5), spec_values(3, 1, 2), spec_log(1.0, 1e3, 7)):
+            self.assertEqual(results.grid_values(spec), P.grid_points(spec), spec)
+
 
 # -- the writer's rules ----------------------------------------------------------------------------
 
@@ -679,6 +701,44 @@ class TestWriterRules(TempDir):
         f = psfcheck.check(os.path.join(self.tmp, "nz.noise"))
         self.assertEqual(f.types["V_1"].props, {"key": "inst", "master": "resistor"})
         self.assertEqual(f.column("R1"), [{"rn": 1e-18, "total": 1e-18}])
+
+    def test_struct_member_sets_get_their_own_type(self):
+        """R-emit-5: STRUCT traces of one type name whose member sets differ are declared as one type
+        per member set (§8.4): the first set keeps the name, another gets `<type>_<k>` (a name no other
+        type or trace of the file has) with the first one's master and one note per run, so TYPE, TRACE
+        and VALUE agree and every reader can read the file."""
+        hdr = {"tolerance.relative": 1e-3, "operating point producer": "n1", "output": "pair of nodes", "ground": "0",
+               "positive output signal": "out", "negative output signal": "0"}
+        two, three = [("rn", []), ("total", [])], [("rn", []), ("fn", []), ("total", [])]
+        rows = [(1e3, [[1e-18, 1e-18], [2e-18, 0.0, 2e-18], [3e-18, 3e-18], [4e-18, 5e-18, 9e-18], [1e-19], 3.9e-9])]
+        res = AnalysisResult("n1-noise", "noise", "n1.noise", sweep=("freq", "Hz", 1, []),
+                             signals=[Signal("R1", "rcard", "", members=two), Signal("R2", "rcard", "", members=three),
+                                      Signal("R3", "rcard", "", members=two), Signal("R4", "rcard", "", members=three),
+                                      Signal("R5", "rcard_2", "", members=[("total", [])]),
+                                      Signal("out", "V/sqrt(Hz)", "V/sqrt(Hz)")],
+                             header=hdr, description="Noise Analysis `n1': freq = (1 kHz -> 1 kHz)", rows=lambda: iter(rows))
+        notes: list = []
+        psf.write_analysis(self.tmp, res, HEAD, notes=notes, masters={"rcard": "resistor", "rcard_2": "resistor"})
+        p = os.path.join(self.tmp, "n1.noise")
+        f = psfcheck.check(p)
+        self.assertEqual([(t.name, t.type) for t in f.traces],
+                         [("R1", "rcard"), ("R2", "rcard_3"), ("R3", "rcard"), ("R4", "rcard_3"), ("R5", "rcard_2"),
+                          ("out", "V/sqrt(Hz)")])
+        self.assertEqual([n for n, _, _ in f.types["rcard"].members], ["rn", "total"])
+        self.assertEqual([n for n, _, _ in f.types["rcard_3"].members], ["rn", "fn", "total"])
+        self.assertEqual(f.types["rcard_3"].props, {"key": "inst", "master": "resistor"})
+        self.assertEqual(f.column("R2"), [{"rn": 2e-18, "fn": 0.0, "total": 2e-18}])
+        self.assertEqual(f.column("R4"), [{"rn": 4e-18, "fn": 5e-18, "total": 9e-18}])
+        self.assertEqual([n.severity for n in notes], ["note"])
+        self.assertIn("rcard_3", notes[0].message)
+        self.assertIn("R2", notes[0].message)
+        psf.write_analysis(self.tmp, res, HEAD, notes=notes, masters={"rcard": "resistor"})   # a sweep's next leaf
+        self.assertEqual(len(notes), 1)
+        parsed = psf_parser_reads(p)
+        if parsed is not None:
+            theirs = {t.name: t.data for t in parsed.traces}
+            self.assertEqual(dict(theirs["R2"][0]), {"rn": 2e-18, "fn": 0.0, "total": 2e-18})
+            self.assertEqual(dict(theirs["R3"][0]), {"rn": 3e-18, "total": 3e-18})
 
     def test_failed_result_is_not_written_and_not_listed(self):
         ok = AnalysisResult("a-dc", "dc", "a.dc", signals=[Signal("out", "V", "V", [1.0])], header=_op_header(),
@@ -1076,6 +1136,120 @@ class TestSweepSplitting(TempDir):
         self.assertEqual(log.by_key["a-001_b_tr-sweep"].props, {"sweep_tree_type": "sweepNode", "A:p": 2.0})
         self.assertEqual(psfcheck.check(os.path.join(self.tmp, "a-001_b_tr.sweep")).sweep.props["units"], "")
 
+    def test_descending_dec_sweeps(self):
+        """R-emit-3: a sweep block over a descending dec (rv 10k -> 100, dec=1: three points) has three
+        leaves, and a dc analysis's own descending dec (I1:dc 1 mA -> 1 uA, dec=1) four points described
+        (1 mA -> 1 uA): the results plan the grid the engine ran (VACASK's layout here, §7.1)."""
+        own = level("", "vamos_w1", SweepSpec("dev", "", "", "dec", start=num(1e-3), stop=num(1e-6), count=1),
+                    "dc", "I1:dc", "A", target=("instance", "i1", "dc"))
+        d4 = step("vamos_a1", "d4", "dc", own=own)
+        q = write_raw(os.path.join(self.tmp, "d4.raw"), [("vamos_w1", "notype"), ("out", "notype")],
+                      [(i, i * 1e3) for i in (1e-3, 1e-4, 1e-5, 1e-6)], plotname="DC Analysis")
+        sw = level("swd", "vamos_w2", SweepSpec("param", "", "", "dec", start=num(1e4), stop=num(100.0), count=1),
+                   "rv", "rv", "", target=("variable", "rv", ""))
+        op1 = step("vamos_a2", "op1", "op", context=[sw])
+        p = write_raw(os.path.join(self.tmp, "op1.raw"), [("vamos_w2", "notype"), ("out", "notype")],
+                      [(1e4, 10.0), (1e3, 1.0), (100.0, 0.1)], plotname="Operating Point")
+        sm = sigmap({"vamos_a1": [(("v", "out"), "out", "V")], "vamos_a2": [(("v", "out"), "out", "V")]})
+        nm = {"vamos_a1": {("v", "out"): "out"}, "vamos_a2": {("v", "out"): "out"}}
+        res, notes = convert(self.tmp, make_plan([d4, op1]), sm, EngineResult(files={"vamos_a1": q, "vamos_a2": p}, names=nm))
+        self.assertEqual(notes, [])
+        log = check_dir(self.tmp)
+        self.assertEqual(log.keys(), ["d4-dc", "swd_op1-sweep", "swd-000_op1-dc", "swd-001_op1-dc", "swd-002_op1-dc"])
+        f = psfcheck.check(os.path.join(self.tmp, "d4.dc"))
+        self.assertEqual(f.points, 4)
+        self.assertEqual(f.header["analysis description"], "DC Analysis `d4': I1:dc = (1 mA -> 1 uA)")
+        self.assertTrue(close_lists(f.column("out"), [1.0, 0.1, 0.01, 0.001]))
+        self.assertEqual([psfcheck.check(os.path.join(self.tmp, "swd-%03d_op1.dc" % i)).value("out") for i in range(3)],
+                         [10.0, 1.0, 0.1])
+        self.assertTrue(close_lists(psfcheck.check(os.path.join(self.tmp, "swd_op1.sweep")).sweep_values(),
+                                    [1e4, 1e3, 100.0], rel=1e-12))
+        self.assertEqual(log.by_key["swd-002_op1-dc"].props["rv"], 100.0)
+
+    def test_frequency_grid_split_by_its_count(self):
+        """R-emit-4: VACASK's frequency axis is split by the plan's count of frequencies, not where it
+        does not increase (the restart rule stays the time axis's, §7.1): a spot noise (lin=1, start =
+        stop: two equal frequencies) and an unsorted ac (values=[1M 1k 10k]) under a two-point sweep
+        have two leaves each, of their own rows, with no warning."""
+        sw1 = level("sw", "vamos_w1", spec_values(1000, 2000), "rv", "rv", "", target=("variable", "rv", ""))
+        sw2 = level("sw", "vamos_w2", spec_values(1000, 2000), "rv", "rv", "", target=("variable", "rv", ""))
+        n1 = step("vamos_a1", "n1", "noise", context=[sw1], own=freq_level(spec_lin(1e3, 1e3, 1)),
+                  args={"start": 1e3, "stop": 1e3, "p": "out", "n": "0"}, noise_input="v1")
+        a1 = step("vamos_a2", "a1", "ac", context=[sw2], own=freq_level(spec_values(1e6, 1e3, 1e4)), args={})
+        pn = write_raw(os.path.join(self.tmp, "n1.raw"), [("vamos_w1", "notype"), ("frequency", "notype"),
+                                                          ("onoise", "notype"), ("gain", "notype")],
+                       [(rv, 1e3, 8e-18 * k, 0.25 / k) for k, rv in ((1, 1e3), (1, 1e3), (2, 2e3), (2, 2e3))],
+                       plotname="Small-Signal Noise Analysis")
+        pa = write_raw(os.path.join(self.tmp, "a1.raw"), [("vamos_w2", "notype"), ("frequency", "notype"), ("out", "notype")],
+                       [(rv, f, complex(rv / 1e3, f / 1e6)) for rv in (1e3, 2e3) for f in (1e6, 1e3, 1e4)], cplx=True,
+                       plotname="AC Small Signal Analysis")
+        sm = sigmap({"vamos_a1": [(("onoise",), "out", "V/sqrt(Hz)"), (("gain",), "gain", "V/V"), (("inoise",), "in", "V/sqrt(Hz)")],
+                     "vamos_a2": [(("v", "out"), "out", "V")]})
+        nm = {"vamos_a1": {("onoise",): "onoise", ("gain",): "gain"}, "vamos_a2": {("v", "out"): "out"}}
+        notes: list = []
+        res = list(results.collect(make_plan([n1, a1]), sm, EngineResult(files={"vamos_a1": pn, "vamos_a2": pa}, names=nm),
+                                   "modern", notes=notes))
+        self.assertEqual(notes, [])
+        self.assertEqual([(r.key, r.status) for r in res],
+                         [("sw_n1-sweep", "ok"), ("sw_a1-sweep", "ok"), ("sw-000_n1-noise", "ok"), ("sw-000_a1-ac", "ok"),
+                          ("sw-001_n1-noise", "ok"), ("sw-001_a1-ac", "ok")])
+        leaves = {r.key: list(r.rows()) for r in res if r.rows is not None}
+        self.assertEqual([x for x, _ in leaves["sw-001_n1-noise"]], [1e3, 1e3])
+        self.assertEqual([round(v[0] ** 2 * 1e18, 9) for _, v in leaves["sw-001_n1-noise"]], [16.0, 16.0])   # out^2
+        self.assertEqual([x for x, _ in leaves["sw-000_a1-ac"]], [1e6, 1e3, 1e4])
+        self.assertEqual([v[0] for _, v in leaves["sw-001_a1-ac"]], [complex(2, 1), complex(2, 1e-3), complex(2, 1e-2)])
+        # the spot noise leaves pass the oracle (their frequencies do not decrease)
+        for r in res:
+            if r.atype in ("noise", "sweep"):
+                psf.write_analysis(self.tmp, r, HEAD)
+        f = psfcheck.check(os.path.join(self.tmp, "sw-000_n1.noise"))
+        self.assertEqual((f.points, f.sweep_values()), (2, [1e3, 1e3]))
+        self.assertAlmostEqual(f.column("gain")[0], 0.5)
+
+    def test_last_point_is_exactly_stop(self):
+        """R-emit-11: the last point of a sweep or a tran is written exactly at its stop when the
+        engine's lies within the runners' 1e-9 (relative) of it, as Spectre writes it [S myac.ac,
+        noiva.noise, mytran.tran.tran]; the points before it stay the engine's (Spectre's own interior
+        decades are not exact either), and a point short of stop (an interrupted run) stays as it is."""
+        ac_x = [1.0, 9.999999999999998, 99.99999999999997, 999.9999999999998, 9999.999999999995,
+                99999.99999999997, 999999.9999999995]                       # VACASK's dec=1 grid from 1 Hz to 1 MHz
+        st = step("vamos_a1", "myac", "ac", own=freq_level(spec_dec(1.0, 1e6, 1)), args={"start": 1.0, "stop": 1e6})
+        sm = sigmap({"vamos_a1": [(("v", "out"), "out", "V")]})
+        for engine, xs, nm in (("vacask", ac_x, {("v", "out"): "out"}),
+                               ("xyce", ac_x[:-1] + [1000000.000000003], {("v", "out"): "V(OUT)"})):
+            d = os.path.join(self.tmp, engine)
+            os.makedirs(d)
+            first = ("frequency", "notype") if engine == "vacask" else ("FREQUENCY", "frequency")
+            p = write_raw(os.path.join(d, "a.raw"), [first, (nm[("v", "out")], "notype")],
+                          [(x, complex(1.0 / (1 + x / 1e3), 0.0)) for x in xs], cplx=True, plotname="AC Small Signal Analysis")
+            convert(d, make_plan([st], engine), sm, EngineResult(files={"vamos_a1": p}, names={"vamos_a1": nm}))
+            path = os.path.join(d, "myac.ac")
+            f = psfcheck.check(path)
+            self.assertEqual(f.sweep_values()[-1], 1e6, engine)
+            self.assertEqual(f.sweep_values()[:-1], xs[:-1], engine)
+            self.assertAlmostEqual(abs(f.at("out", 1e6)), 1.0 / 1001.0, places=12)
+            text = read_text(path)
+            self.assertIn('"freq" 1.000000000000000e+06\n', text)
+            self.assertIn('"freq" 9.999999999999998e+02\n', text)
+        # a tran under a sweep (VACASK ends a 10 us tran at 9.999999999999999e-06) and a top-level one
+        sw = level("sw", "vamos_w1", spec_values(1000, 2000), "rv", "rv", "", target=("variable", "rv", ""))
+        targs = dict(TRAN_ARGS, stop=1e-5, step=1e-8, maxstep=2e-7)
+        tr = step("vamos_a1", "tr", "tran", context=[sw], args=targs)
+        tt = step("vamos_a2", "tt", "tran", args=targs)
+        times = [0.0, 2.5e-6, 5e-6, 7.5e-6, 9.999999999999999e-06]
+        p = write_raw(os.path.join(self.tmp, "tr.raw"), [("vamos_w1", "notype"), ("time", "notype"), ("out", "notype")],
+                      [(rv, t, t * 1e5) for rv in (1e3, 2e3) for t in times])
+        q = write_raw(os.path.join(self.tmp, "tt.raw"), [("time", "notype"), ("out", "notype")], [(t, t * 1e5) for t in times])
+        d = os.path.join(self.tmp, "tran")
+        os.makedirs(d)
+        convert(d, make_plan([tr, tt]), sigmap({"vamos_a1": [(("v", "out"), "out", "V")], "vamos_a2": [(("v", "out"), "out", "V")]}),
+                EngineResult(files={"vamos_a1": p, "vamos_a2": q}, names={"vamos_a1": {("v", "out"): "out"}, "vamos_a2": {("v", "out"): "out"}}))
+        for name in ("sw-000_tr.tran.tran", "sw-001_tr.tran.tran", "tt.tran.tran"):
+            f = psfcheck.check(os.path.join(d, name))
+            self.assertEqual(f.sweep_values(), times[:-1] + [1e-5], name)
+            self.assertAlmostEqual(f.column("out")[-1], 1.0, places=12)
+        check_dir(d)
+
     def test_point_index_width(self):
         self.assertEqual(results._count_width(3), 3)
         self.assertEqual(results._count_width(1000), 3)
@@ -1141,12 +1315,98 @@ class TestNoise(TempDir):
         f = psfcheck.check(os.path.join(self.tmp, "nz.noise"))
         self.assertEqual([n for n, _, _ in f.types["res_va"].members], ["flicker", "thermal", "total"])
         self.assertEqual(f.column("X")[0], {"flicker": 1e-18, "thermal": 2e-18, "total": 3e-18})
-        # the same columns under a resistor master are renamed rn / fn
-        sm = sigmap({"vamos_a1": [(("noise", "x"), "X", "resistor"), (("onoise",), "out", "V/sqrt(Hz)")]})
+        # the same columns under a resistor master are renamed rn / fn (a resistor card: a card-less
+        # resistor has no flicker member, R-emit-5, test_cardless_resistor_has_no_flicker_member)
+        sm = sigmap({"vamos_a1": [(("noise", "x"), "X", "rcard"), (("onoise",), "out", "V/sqrt(Hz)")]})
         d = os.path.join(self.tmp, "r")
         os.makedirs(d)
-        convert(d, make_plan([st]), sm, EngineResult(files={"vamos_a1": p}, names={"vamos_a1": {("noise", "x"): "n(x)", ("onoise",): "onoise"}}))
-        self.assertEqual([n for n, _, _ in psfcheck.check(os.path.join(d, "nz.noise")).types["resistor"].members], ["fn", "rn", "total"])
+        convert(d, make_plan([st]), sm, EngineResult(files={"vamos_a1": p}, names={"vamos_a1": {("noise", "x"): "n(x)", ("onoise",): "onoise"}}),
+                masters={"rcard": "resistor"})
+        self.assertEqual([n for n, _, _ in psfcheck.check(os.path.join(d, "nz.noise")).types["rcard"].members], ["fn", "rn", "total"])
+
+    def test_cardless_resistor_has_no_flicker_member(self):
+        """R-emit-5: VACASK prints a card-less resistor with tc1, w or l through spice/resistor.osdi,
+        whose flicker contribution is always zero; a Spectre resistor without a card has none (kf is a
+        card parameter [M ref5 pp.629-630]; [S noiva] "resistor" STRUCT(rn total)), so it is dropped
+        and both card-less resistors share the one type; a card's flicker stays `fn'."""
+        vars_ = [("frequency", "notype"), ("onoise", "notype"), ("n(r1)", "notype"), ("n(r1,thermal)", "notype"),
+                 ("n(r2)", "notype"), ("n(r2,thermal)", "notype"), ("n(r2,flicker)", "notype"),
+                 ("n(r3)", "notype"), ("n(r3,thermal)", "notype"), ("n(r3,flicker)", "notype")]
+        p = write_raw(os.path.join(self.tmp, "n.raw"), vars_,
+                      [(1e3, 7.4e-18, 1.8e-18, 1.8e-18, 1.8e-18, 1.8e-18, 0.0, 3.8e-18, 1.8e-18, 2.0e-18)],
+                      plotname="Small-Signal Noise Analysis")
+        st = step("vamos_a1", "n1", "noise", own=freq_level(spec_values(1e3)), args={"start": 1e3, "stop": 1e3, "p": "out", "n": "0"})
+        sm = sigmap({"vamos_a1": [(("noise", "r1"), "R1", "resistor"), (("noise", "r2"), "R2", "resistor"),
+                                  (("noise", "r3"), "R3", "rcard"), (("onoise",), "out", "V/sqrt(Hz)")]})
+        nm = {("noise", "r1"): "n(r1)", ("noise", "r2"): "n(r2)", ("noise", "r3"): "n(r3)", ("onoise",): "onoise"}
+        masters = {"resistor": "resistor", "rcard": "resistor"}           # as the flow builds it from the IR
+        d = os.path.join(self.tmp, "d")
+        os.makedirs(d)
+        res, notes = convert(d, make_plan([st]), sm, EngineResult(files={"vamos_a1": p}, names={"vamos_a1": nm}), masters=masters)
+        self.assertEqual(notes, [])
+        path = os.path.join(d, "n1.noise")
+        f = psfcheck.check(path)
+        self.assertEqual([(t.name, t.type) for t in f.traces], [("R1", "resistor"), ("R2", "resistor"), ("R3", "rcard"),
+                                                                ("out", "V/sqrt(Hz)")])
+        self.assertEqual([n for n, _, _ in f.types["resistor"].members], ["rn", "total"])
+        self.assertEqual([n for n, _, _ in f.types["rcard"].members], ["rn", "fn", "total"])
+        self.assertEqual(f.column("R2"), [{"rn": 1.8e-18, "total": 1.8e-18}])
+        self.assertEqual(f.column("R3"), [{"rn": 1.8e-18, "fn": 2.0e-18, "total": 3.8e-18}])
+        parsed = psf_parser_reads(path)
+        if parsed is not None:
+            self.assertEqual(dict({t.name: t.data for t in parsed.traces}["R2"][0]), {"rn": 1.8e-18, "total": 1.8e-18})
+        q = os.path.join(d, "n.raw")
+        nutmeg.write(q, res, True)
+        self.assertEqual(rawfile.read_all(q)[0].names()[:6], ["frequency", "R1:rn", "R1:total", "R2:rn", "R2:total", "R3:rn"])
+
+    def test_xyce_gain_is_the_output_magnitude(self):
+        """R-emit-13: on Xyce, gain is the output's magnitude VM(<p>) under the input's AC 1 (the name map
+        sends ('gain',) to that column; every other source prints no AC in a noise deck, §8.4) and in =
+        out/gain, as on VACASK: an output with no noisy device (ONOISE = INOISE = 0) keeps its gain 0.5
+        and in 0, and an output with no path from the input has gain 0 and in nan (a warning), not
+        Xyce's clamp (INOISE = ONOISE/1e-20: gain 1e-10, in 40.7)."""
+        st = step("vamos_a1", "n1", "noise", own=freq_level(spec_values(1e3, 1e4)),
+                  args={"start": 1e3, "stop": 1e4, "p": "out", "n": "0"}, noise_input="v1")
+        sm = sigmap({"vamos_a1": [(("onoise",), "out", "V/sqrt(Hz)"), (("gain",), "gain", "V/V"), (("inoise",), "in", "V/sqrt(Hz)")]})
+        nm = {"vamos_a1": {("onoise",): "ONOISE", ("inoise",): "INOISE", ("gain",): "VM(OUT)"}}
+        head = "Index       FREQ             ONOISE            INOISE            VM(OUT)     \n"
+        cases = {"quiet": ("0.00000000e+00", "0.00000000e+00", "5.00000000e-01"),       # every resistor isnoisy=no
+                 "cut": ("1.65757549e-17", "1.65757549e+03", "0.00000000e+00"),         # no path from V1
+                 "divider": ("8.28787747e-18", "3.31515099e-17", "5.00000000e-01")}
+        got = {}
+        for case, (on, inn, vm) in cases.items():
+            text = head + "".join("%d        %s    %s    %s    %s\n" % (k, f, on, inn, vm)
+                                  for k, f in enumerate(("1.00000000e+03", "1.00000000e+04"))) + "End of Xyce(TM) Simulation\n"
+            prn = self.write("%s/vamos_a1.prn" % case, text)
+            res, notes = convert(os.path.dirname(prn), make_plan([st], "xyce"), sm, EngineResult(files={"vamos_a1": prn}, names=nm))
+            f = psfcheck.check(os.path.join(os.path.dirname(prn), "n1.noise"))
+            got[case] = (f.column("out"), f.column("gain"), f.column("in"), [(n.severity, n.message) for n in notes])
+        self.assertEqual(got["quiet"], ([0.0, 0.0], [0.5, 0.5], [0.0, 0.0], []))
+        out, gain, inn, notes = got["cut"]
+        self.assertEqual(gain, [0.0, 0.0])
+        self.assertTrue(all(math.isnan(v) for v in inn), inn)
+        self.assertEqual([s for s, _ in notes], ["warning"])
+        self.assertIn("'in'", notes[0][1])
+        self.assertAlmostEqual(out[0], math.sqrt(1.65757549e-17))
+        out, gain, inn, notes = got["divider"]
+        self.assertEqual((gain, notes), ([0.5, 0.5], []))
+        self.assertAlmostEqual(inn[0], math.sqrt(8.28787747e-18) / 0.5)
+        self.assertAlmostEqual(inn[0] / math.sqrt(3.31515099e-17), 1.0, places=8)       # = sqrt(INOISE) here
+
+    def test_noise_header_names_the_probe_nodes(self):
+        """D8 (R-emit-14): with oprobe= the header's output signals are the probe's nodes, the step's
+        args p and n that plan.build fills from the probe's terminals (§14 q.35); the probe's name is
+        never written there."""
+        p = write_raw(os.path.join(self.tmp, "n.raw"), [("frequency", "notype"), ("onoise", "notype")], [(1e3, 8e-18)],
+                      plotname="Small-Signal Noise Analysis")
+        sm = sigmap({"vamos_a1": [(("onoise",), "out", "V/sqrt(Hz)")]})
+        er = EngineResult(files={"vamos_a1": p}, names={"vamos_a1": {("onoise",): "onoise"}})
+        heads = []
+        for args in ({"p": "out", "n": "0", "oprobe": "Rl"}, {"oprobe": "Rl"}):
+            st = step("vamos_a1", "nr", "noise", own=freq_level(spec_values(1e3)), args=dict(args, start=1e3, stop=1e3))
+            [res] = list(results.collect(make_plan([st]), sm, er, "modern"))
+            heads.append((res.header["positive output signal"], res.header["negative output signal"]))
+        self.assertEqual(heads, [("out", "0"), ("", "0")])
 
     def test_xyce_total_only_with_a_note_and_gain_from_onoise_inoise(self):
         sw = level("sw", "w1", spec_values(1000, 2000), "R2:r", "R2:r", "Ohm")
@@ -1410,6 +1670,29 @@ class TestNutmeg(TempDir):
         self.assertEqual(plot.variables, [("a", "voltage"), ("V1:p", "current")])
         self.assertEqual(plot.points, [(1.0, -1e-3)])
 
+    def test_parameter_sweep_x_is_its_label(self):
+        """R-emit-10: the x of an ac, xf or noise sweeping a parameter at a fixed frequency holds the
+        parameter's values, so it is the SWEEP label typed by its units, as for a dc sweep (§8.5);
+        freq/frequency name only the frequency axis."""
+        def res(key, atype, sweep, rows):
+            sig = Signal("out", "V", "V") if atype != "noise" else Signal("out", "V/sqrt(Hz)", "V/sqrt(Hz)")
+            return AnalysisResult(key, atype, key.replace("-", "."), sweep=sweep, signals=[sig],
+                                  description="%s `%s'" % (atype, key), rows=lambda: iter(rows))
+        cx = [(1000.0, [complex(0.9, -0.1)]), (5000.0, [complex(0.5, -0.4)])]
+        nz = [(1000.0, [1e-9]), (5000.0, [2e-9])]
+        plots_in = [res("acp-ac", "ac", ("rx", "", 1, []), cx), res("xfp-xf", "xf", ("R1:r", "Ohm", 1, []), cx),
+                    res("nzp-noise", "noise", ("rx", "", 1, []), nz), res("nzt-noise", "noise", ("temp", "C", 1, []), nz),
+                    res("acf-ac", "ac", ("freq", "Hz", 3, []), cx), res("nzf-noise", "noise", ("freq", "Hz", 3, []), nz)]
+        for binary in (True, False):
+            p = os.path.join(self.tmp, "p_%d.raw" % binary)
+            nutmeg.write(p, plots_in, binary)
+            plots = rawfile.read_all(p)
+            self.assertEqual([pl.variables[0] for pl in plots],
+                             [("rx", "notype"), ("R1:r", "notype"), ("rx", "notype"), ("temp", "notype"),
+                              ("freq", "frequency"), ("frequency", "frequency")])
+            self.assertEqual([complex(v).real for v in plots[0].column("rx")], [1000.0, 5000.0])
+            self.assertEqual(plots[2].column("rx"), [1000.0, 5000.0])
+
 
 # -- state files (§8.6) ----------------------------------------------------------------------------
 
@@ -1441,14 +1724,138 @@ class TestStateFile(TempDir):
             statefile.read(self.write("bad2.ic", "out x\n"))
 
 
+# -- progress (D3: the writers' side of R-run-16) ---------------------------------------------------
+
+class TestProgress(TempDir):
+    """D3 (R-run-16): psf.write_analysis and nutmeg.write take `progress`, a callable given the number
+    of rows written so far (nutmeg: of the plot being written) at least every 4096 rows, sooner for
+    wide rows, and after the last row; a callback that raises ends the write at once (the caller
+    removes the partial file, as the flow does on a second signal, §2.7)."""
+
+    def tran(self, n, width=1, key="tr", pulled=None):
+        def rows():
+            for k in range(n):
+                if pulled is not None:
+                    pulled.append(k)
+                yield k * 1e-6, [float(k % 9)] * width
+        hdr = {"tolerance.relative": 1e-3, "start": 0.0, "outputstart": 0.0, "stop": 1.0, "step": 1e-3, "istep": 1e-3,
+               "maxstep": 0.02, "ic": "all", "useprevic": "no", "skipdc": "no", "reltol": 1e-3, "abstol(V)": 1e-6,
+               "abstol(I)": 1e-12, "temp": 27.0, "tnom": 27.0, "tempeffects": "all", "errpreset": "moderate",
+               "method": "traponly", "lteratio": 3.5, "relref": "sigglobal", "cmin": 0.0, "gmin": 1e-12}
+        return AnalysisResult("%s-tran" % key, "tran", "%s.tran.tran" % key, sweep=("time", "s", 1, []),
+                              signals=[Signal("v%d" % k, "V", "V") for k in range(width)], header=hdr,
+                              description="Transient Analysis `%s': time = (0 s -> 1 s)" % key, data_type="swept_scalar",
+                              rows=rows)
+
+    def test_psf_progress(self):
+        calls: list = []
+        psf.write_analysis(self.tmp, self.tran(10000), HEAD, progress=calls.append)
+        self.assertEqual(calls, [4096, 8192, 10000])
+        f = psfcheck.check(os.path.join(self.tmp, "tr.tran.tran"))
+        self.assertEqual(f.points, 10000)
+        with open(os.path.join(self.tmp, "tr.tran.tran"), "rb") as fh:
+            with_progress = fh.read()
+        psf.write_analysis(self.tmp, self.tran(10000), HEAD)                     # progress=None: the same bytes
+        with open(os.path.join(self.tmp, "tr.tran.tran"), "rb") as fh:
+            self.assertEqual(fh.read(), with_progress)
+        calls = []
+        psf.write_analysis(self.tmp, self.tran(3000, width=300, key="w"), HEAD, progress=calls.append)
+        gaps = [b - a for a, b in zip([0] + calls, calls)]
+        self.assertEqual(calls[-1], 3000)
+        self.assertTrue(all(0 < g <= 300 for g in gaps), gaps)                   # wide rows: sooner than 4096
+        calls = []
+        op = AnalysisResult("op-dc", "dc", "op.dc", signals=[Signal("out", "V", "V", [1.0])], header=_op_header(),
+                            description="DC Analysis `op'", data_type="scalar")
+        psf.write_analysis(self.tmp, op, HEAD, progress=calls.append)
+        parent = AnalysisResult("s_a-sweep", "sweep", "s_a.sweep", tree="sweepNode", sweep=("R1:r", "Ohm", 1, [1.0, 2.0, 3.0]),
+                                header={"tolerance.relative": 1e-3}, description="Sweep parent")
+        psf.write_analysis(self.tmp, parent, HEAD, progress=calls.append)
+        self.assertEqual(calls, [1, 3])
+        psf.write_analysis(self.tmp, self.tran(0, key="e"), HEAD, progress=calls.append)
+        self.assertEqual(calls, [1, 3, 0])                                       # no rows: the one call after them
+
+    def test_psf_raising_callback_ends_the_write(self):
+        class Stop(Exception):
+            pass
+
+        def cb(n):
+            if n >= 4096:
+                raise Stop(n)
+        pulled: list = []
+        path = os.path.join(self.tmp, "tr.tran.tran")
+        with open(path, "w") as fh:
+            fh.write("an earlier run's file\n")
+        with self.assertRaises(Stop):
+            psf.write_analysis(self.tmp, self.tran(100000, pulled=pulled), HEAD, progress=cb)
+        self.assertEqual(len(pulled), 4096)                                      # at once: no further row read
+        self.assertEqual(read_text(path), "an earlier run's file\n")             # the destination untouched
+        self.assertTrue(os.path.isfile(path + ".vamos-tmp"))                     # the caller removes it (flow)
+
+    def test_nutmeg_progress_per_plot(self):
+        op = AnalysisResult("op-dc", "dc", "op.dc", signals=[Signal("out", "V", "V", [1.0])], description="DC Analysis `op'")
+        for binary in (True, False):
+            calls: list = []
+            p = os.path.join(self.tmp, "n%d.raw" % binary)
+            nutmeg.write(p, [self.tran(5000, key="a"), self.tran(3, key="b"), op, self.tran(0, key="c")], binary,
+                         progress=calls.append)
+            self.assertEqual(calls, [4096, 5000, 3, 1, 0])
+            self.assertEqual([len(pl.points) for pl in rawfile.read_all(p)], [5000, 3, 1, 0])
+            calls = []
+            nutmeg.write(p, [self.tran(2000, width=300, key="w")], binary, progress=calls.append)
+            gaps = [b - a for a, b in zip([0] + calls, calls)]
+            self.assertEqual(calls[-1], 2000)
+            self.assertTrue(all(0 < g <= 300 for g in gaps), gaps)
+
+    def test_nutmeg_raising_callback_ends_the_write(self):
+        class Stop(Exception):
+            pass
+
+        def cb(n):
+            raise Stop(n)
+        pulled: list = []
+        p = os.path.join(self.tmp, "n.raw")
+        with self.assertRaises(Stop):
+            nutmeg.write(p, [self.tran(10000, pulled=pulled)], True, progress=cb)
+        self.assertEqual(len(pulled), 4096)
+        self.assertFalse(os.path.exists(p))
+        self.assertTrue(os.path.isfile(p + ".vamos-tmp"))
+
+
 # -- streaming (§4.6, §11.1; E85) -------------------------------------------------------------------
 
 STREAM_SCRIPT = r'''
-import os, struct, sys, resource
+import os, struct, sys, resource, threading
 sys.path.insert(0, %(root)r)
 from vamos.output import psf, nutmeg
 from vamos.spectre import results
 from vamos.netlist import plan as P, signals as S
+# The process's own peak.  Linux: /proc VmHWM, which is reset at exec, while ru_maxrss on Linux keeps the
+# peak of the forked parent (the test runner, hundreds of MB late in a whole-suite run) across fork and exec.
+# Cygwin's /proc has no VmHWM and its ru_maxrss is the current resident size, not a peak (R-tests-8), so
+# there a thread samples VmRSS while the conversion runs.
+def status(key):
+    try:
+        with open("/proc/self/status") as fh:
+            for line in fh:
+                if line.startswith(key + ":"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+def maxrss():
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)
+hwm = status("VmHWM") is not None
+peak, done = [0], threading.Event()
+def sample():
+    while True:
+        v = status("VmRSS")
+        peak[0] = max(peak[0], v if v is not None else maxrss())
+        if done.wait(0.002):
+            return
+sampler = None if hwm else threading.Thread(target=sample)
+if sampler is not None:
+    sampler.daemon = True
+    sampler.start()
 n, d = %(n)d, %(dir)r
 p = os.path.join(d, "a.raw")
 with open(p, "wb") as fh:
@@ -1468,31 +1875,37 @@ head = psf.PsfHead("0.1.0", "1:07:28 PM, Tue Feb 2, 2021", "s")
 res = list(results.collect(pl, sm, er, "modern"))
 psf.write_analysis(d, res[0], head)
 nutmeg.write(os.path.join(d, "n.raw"), res, True)
-# The process's own peak: /proc VmHWM is reset at exec, while ru_maxrss on Linux keeps the peak of the
-# forked parent (the test runner, hundreds of MB late in a whole-suite run) across fork and exec.
-rss = None
-try:
-    with open("/proc/self/status") as fh:
-        for line in fh:
-            if line.startswith("VmHWM:"):
-                rss = int(line.split()[1]) * 1024
-except OSError:
-    pass
-if rss is None:
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)
-print("RSS", rss)
+if sampler is not None:
+    done.set()
+    sampler.join()
+print("RSS", status("VmHWM") if hwm else peak[0])
 '''
 
 
 class TestStreaming(TempDir):
-    def test_a_million_points_under_200_mb(self):
-        n = 1000000
-        script = STREAM_SCRIPT % {"root": ROOT, "n": n, "dir": self.tmp}
+    ROW_BYTES = 16          # STREAM_SCRIPT's rawfile row: two binary doubles, which the reader maps (§4.6)
+
+    def peak(self, n: int, d: str) -> Tuple[int, str]:
+        script = STREAM_SCRIPT % {"root": ROOT, "n": n, "dir": d}
         r = subprocess.run([sys.executable, "-B", "-c", script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            universal_newlines=True, timeout=1500)
         self.assertEqual(r.returncode, 0, r.stdout)
-        rss = int(r.stdout.strip().rsplit(" ", 1)[1])
-        self.assertLess(rss, 200 * 1024 * 1024, r.stdout)
+        return int(r.stdout.strip().rsplit(" ", 1)[1]), r.stdout
+
+    def test_a_million_points_under_200_mb(self):
+        """§11.1 [E85], and the peak does not grow with the rows (R-tests-8): the conversion of 10^6 and
+        of 2*10^5 points peak within 10 MB of each other, plus the extra rows' 16 bytes each (rawfile.scan
+        and iter_rows map the file, so its pages are resident while it is read).  A conversion that holds
+        a plot's rows grows by over 100 MB and stays under 200 MB (on WSL 60 MB -> 178 MB)."""
+        n, small_n = 1000000, 200000
+        small_dir = os.path.join(self.tmp, "small")
+        os.makedirs(small_dir)
+        small, _ = self.peak(small_n, small_dir)
+        shutil.rmtree(small_dir)
+        rss, out = self.peak(n, self.tmp)
+        self.assertLess(rss, 200 * 1024 * 1024, out)
+        self.assertLess(rss - small, 10 * 1024 * 1024 + (n - small_n) * self.ROW_BYTES,
+                        "peak %d B at %d points, %d B at %d points" % (small, small_n, rss, n))
         plots = rawfile.scan(os.path.join(self.tmp, "n.raw"))
         self.assertEqual((plots[0].n, plots[0].declared), (n, n))
         psf_path = os.path.join(self.tmp, "tr.tran.tran")

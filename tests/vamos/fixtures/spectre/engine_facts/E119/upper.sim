@@ -1,0 +1,15 @@
+a model card naming the module as Verilog-A spells it (MixRes), as runme.sim's psp103va would be PSP103VA
+ground 0
+load "resistor.osdi"
+load "MixRes.va"
+model vamos_vsource vsource
+model vamos_resistor resistor
+model m__va MixRes
+V1 (a 0) vamos_vsource type="dc" dc=1
+X1 (a b) m__va
+R2 (b 0) vamos_resistor r=1000.0
+control
+  options rawfile="ascii"
+  save v(b)
+  analysis op1 op
+endc

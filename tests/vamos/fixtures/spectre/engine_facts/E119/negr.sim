@@ -1,0 +1,13 @@
+a negative resistor (e2e 11): VACASK's resistor.osdi bounds r
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+V1 (in 0) vamos_vsource type="dc" dc=1
+R1 (in out) vamos_resistor r=-1000.0
+R2 (out 0) vamos_resistor r=2000.0
+control
+  options rawfile="ascii"
+  save v(out)
+  analysis op1 op
+endc

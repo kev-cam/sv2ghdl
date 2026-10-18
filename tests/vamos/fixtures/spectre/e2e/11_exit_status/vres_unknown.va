@@ -1,0 +1,9 @@
+`include "disciplines.vams"
+`include "vres_unknown.vams"
+// e2e 11: vres with its parameter declared by the macro of vres_unknown.vams, a header the module scan does not
+// read (sec. 3.1): the parameter list is unknown to vamos, r = 2000 by default (vamos-authored)
+module vres_unknown(a, b);
+  inout a, b; electrical a, b;
+  `VRES_UNKNOWN_PARAMS
+  analog I(a, b) <+ V(a, b) / r;
+endmodule

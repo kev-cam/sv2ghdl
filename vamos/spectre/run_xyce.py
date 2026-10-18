@@ -11,19 +11,25 @@ run(nl, plan, sigmap, run_dir, job, log, strict=False) -> EngineResult
     rendered before Xyce runs: a deck that does not render is an error (exit status 2) before
     any engine run; render's warnings and notes are printed once each (circuit read-in), and
     under strict (--vamos-strict, the additive keyword run_vacask takes and flow passes) its
-    warnings are errors.  Then:
+    warnings are errors.  A Verilog-A `include that PyMS would not find (missing_includes) is an
+    error too (AHDL read-in, status 2, Xyce not run): PyMS would build the module without it.
+    Then:
       - the parameter check: `<xyce> -norun` on the first deck, and xyce.output_problems and
         xyce.device_summary_problems over its output and over every deck's output; a match is
         status 2, naming the alter or sweep that introduced it (the alters applied since the
         previous deck ran and the deck's own sweeps are the candidates: earlier ones were
-        checked by the earlier decks), else the netlist or the analysis;
+        checked by the earlier decks), else the netlist or the analysis; so is a PyMS build of a
+        module that failed for good (pyms_failures: Xyce would run it as a device that
+        contributes nothing) and an include PyMS skipped that is not a standard header;
       - the decks run one after another in run_dir as engines.xyce_bin() (else
         tools.find_real("Xyce")) vamos_a<k>.cir, with engines.env_for("xyce", None,
-        dict(os.environ)), stdin /dev/null, proc.child_setup, the output in vamos_a<k>.log (the
-        -norun check's in vamos_a<k>.norun.log), all under one proc.Interrupts(stop.HANDLED,
-        stop.FORWARD, stop.FLAGS) whose flags are polled while Xyce runs: SIGUSR1 prints
-        log.status_line naming the running deck and Xyce's last "Percent complete", SIGUSR2 the
-        notice "checkpoint not supported" (§2.7); each deck runs between its log.analysis_banner
+        dict(os.environ)) and tools.bound_blas_threads, stdin /dev/null, proc.child_setup, the
+        output in vamos_a<k>.log (the -norun check's in vamos_a<k>.norun.log), all under one
+        proc.Interrupts(stop.HANDLED, stop.FORWARD, stop.FLAGS, group=True), every signal to Xyce's
+        whole process group (its PyMS compile included), whose flags are polled while Xyce runs:
+        SIGUSR1 prints log.status_line naming the running deck and Xyce's last "Percent complete"
+        (during the -norun check, that check; and the file PyMS compiles, when it does), SIGUSR2
+        the notice stop.CHECKPOINT (§2.7); each deck runs between its log.analysis_banner
         and its log.analysis_done line (Xyce's time; `dc` for an op, as run_vacask), so
         log.analysis names the running analysis meanwhile (the status line and the per-analysis
         message limits read it), and Xyce's messages of that deck are printed in between: its
@@ -47,8 +53,9 @@ run(nl, plan, sigmap, run_dir, job, log, strict=False) -> EngineResult
         dropped, so that read_prn reads the complete rows), later decks are not run, status 3;
         Xyce ended by SIGKILL, SIGTERM, SIGINT or SIGHUP from outside
         vamos is the same; Xyce ended by any other signal is a crash, status 2; a second
-        handled signal kills Xyce and raises stop.Stop (vamos exits 3 without converting),
-        while the grace-period kill (proc.INTERRUPT_GRACE) is converted as status 3;
+        handled signal kills Xyce and raises stop.Stop as soon as Xyce has ended, before its
+        output is classified (vamos exits 3 without converting), while the grace-period kill
+        (proc.INTERRUPT_GRACE) is converted as status 3, the warning naming the kill;
       - xf is refused (plan.build refuses it on Xyce already; this is the guard).
     EngineResult: rc (stop.py's convention), status per step id (ok | failed | interrupted;
     absent for a deck that never ran), files (step id -> the absolute path of the print file,
@@ -61,7 +68,8 @@ run(nl, plan, sigmap, run_dir, job, log, strict=False) -> EngineResult
 replay(nl, act, dependents=None) -> Netlist
     §7.2's state replay of one alter action, on a copy (the keys are §5.1's: Action.args
     target, value and source): an instance parameter in its IR spelling (SPECTRE_MASTERS'
-    renames reversed, for the master tables.spectre_master_of names), an r/c/l value into
+    renames reversed, for the master tables.spectre_master_of names), a master's value
+    parameter (VALUE_KEY: r, c, l, a gain, gm or rm, a coupling, an area) into
     Instance.value, a source field as the re-resolved Source; a model parameter on the card or
     on every card of a group (by base name); temp/tnom on the Netlist; a variable into
     Netlist.values and its top-level Param's expression, its dependents re-evaluated.
@@ -73,18 +81,31 @@ render_decks(nl, plan, sigmap, hdl=None, notes=None) -> (List[Deck], names)
     every deck's errors when one does not render.
 place_va(hdl, run_dir) -> List[str]
     Copy the Verilog-A sources into run_dir, each with the files it `includes relative to
-    itself (PyMS resolves an include beside the .va file [E75]; a copy without them compiles
-    with the include skipped and a wrong result, measured), and return the names the .hdl
-    lines use: the base name; a relative path from the common directory of the source and its
-    includes when an include climbs out of the source's directory; under vamos_va<k>/ when
-    two sources need the same name for different files (relative names with a directory work
-    for two modules on PyMS, measured 2026-10-16).
+    itself (PyMS resolves an include beside the including file, then beside the top file [E75];
+    a copy without them compiles with the include skipped and a wrong result, measured), and
+    return the names the .hdl lines use: the base name; a relative path from the common
+    directory of the source and its includes when an include climbs out of the source's
+    directory; under vamos_va<k>/ when two sources need the same name for different files.
+    No directory but run_dir holds two modules' files (phase 2c2): PyMS gives a module without
+    xyce* attributes those of a .va beside it, so two modules of one library side by side in
+    lib/ lost their parameters [E125]; a module that needs a directory gets one of its own
+    (its layout under run_dir when that is free, else its own vamos_va<k>/), while base names
+    in run_dir have no directory PyMS looks in [E104].
+missing_includes(hdl) -> List[(source, including file, name)]
+    The `includes PyMS would not find (beside the including file, beside the top file, in
+    PYMS_INCLUDE_PATH or in its own directory) and that are not STANDARD_HEADERS; only those
+    outside `ifdef blocks, whose conditions vamos does not evaluate.
+pyms_failures(text) -> List[PymsFailure]
+    The PyMS builds in a Xyce output that failed for good: a Python traceback through
+    build_vae_so.py (its retry failed too, a step timed out, or the build raised), each with
+    the module its library names and the compiler's first error, else the exception's line.
 """
 
 from __future__ import annotations
 
 import copy
 import filecmp
+import glob
 import os
 import posixpath
 import re
@@ -113,19 +134,33 @@ if TYPE_CHECKING:                                  # the run plan and the log (�
     from vamos.spectre.log import SpectreLog
 
 ENGINE = "xyce"
-VALUE_KEY = {"resistor": "r", "capacitor": "c", "inductor": "l"}   # the r/c/l value in Instance.value
+# the value parameter spectre.parse moves into Instance.value, per master (plan.VALUE_PARAMS): r, c, l, a controlled
+# source's gain, gm or rm, a mutual inductor's coupling, a diode's, bjt's or jfet's area.  Phase 2c2: the replay of an
+# alter of a gain wrote params["gain"], which render refuses ("E1: parameter gain not supported on a E element")
+VALUE_KEY = {"resistor": "r", "capacitor": "c", "inductor": "l", "vcvs": "gain", "vccs": "gm", "ccvs": "rm",
+             "cccs": "gain", "mutual_inductor": "coupling", "diode": "area", "bjt": "area", "jfet": "area"}
 POLL = 0.1                      # seconds between two looks at the flags while Xyce runs
 STOP_REL = 1e-9                 # a tran's last time equals stop to this relative tolerance (§7.1, §7.2)
 ENGINE_LINES = 30               # Xyce messages printed per deck (§8.7: never raw floods; as run_vacask)
 VA_SUBDIR = "vamos_va%d"        # a Verilog-A source that cannot sit in run_dir under its base name
 PHASE_READIN = "circuit read-in"    # the phase of render's notes (§8.7; as run_vacask)
+PHASE_AHDL = "AHDL read-in"         # the phase of the Verilog-A checks before Xyce runs (as run_vacask's compile)
 PHASE_SETUP = "initial setup"       # the phase of the -norun check
 PHASE_WORDS = {"op": "DC analysis", "dc": "DC analysis", "ac": "AC analysis", "noise": "noise analysis",
                "xf": "XF analysis", "tran": "transient analysis"}
+# the standard headers, Verilog-AMS's and Spectre's (the ones openvaf-r 20260616 provides itself): PyMS
+# ships constants.vams and does without the others (it knows the disciplines and the constants), so a
+# module that includes one runs when PyMS skips it (measured 2026-10-17: discipline.h and constants.h,
+# ref19's examples pp.452 and 541, and disciplines.h, b = 1/3 V); any other `include it does not find
+# leaves the module wrong, or dead (§4.5 item 13)
+STANDARD_HEADERS = ("disciplines.vams", "constants.vams", "discipline.h", "disciplines.h", "constants.h")
+# PyMS's own directory, where its preprocessor looks last (utils/PyMS/vae/preprocess.py: its own
+# directory, then the installed one; $PYMS_DIR/vae when PYMS_DIR names the PyMS that builds)
+PYMS_VAE_DIRS = ("/usr/local/share/xyce/PyMS/vae", "/usr/local/src/xyce/utils/PyMS/vae")
 # Xyce's messages that say nothing about the run: PyMS registering a module, its preprocessor
-# skipping a standard header it provides itself (§4.5 item 13); they stay in the deck's log
-_QUIET = re.compile(r"\.HDL: compiled and registered |^preprocess: warning: '(?:disciplines|constants)\.vams' "
-                    r"not found")
+# skipping a standard header it does without (§4.5 item 13); they stay in the deck's log
+_QUIET = re.compile(r"\.HDL: compiled and registered |^preprocess: warning: '(?:[^']*/)?(?:disciplines\.vams|"
+                    r"constants\.vams|disciplines?\.h|constants\.h)' not found")
 # the signals that, sent to Xyce by someone other than vamos, make status 3 (§2.7's table)
 OUTSIDE_STOPS: Tuple[int, ...] = tuple(getattr(signal, n) for n in ("SIGKILL", "SIGTERM", "SIGINT", "SIGHUP")
                                        if hasattr(signal, n))
@@ -136,8 +171,9 @@ _VA_INCLUDE = re.compile(r'^[ \t]*`include[ \t]+"([^"\n]+)"', re.M)
 _DIAG_HEAD = re.compile(r"^(?:(?:Netlist|Simulation|User|Device|Analysis)\s+)?(?:warning|error|fatal)\b"
                         r"|^Simulation aborted|^\*\*\* Xyce Abort|^Time step too small"
                         r"|^function \S+::\S+:|^preprocess: |^Failed DC sweep steps"
-                        # PyMS compiling a module: a failed build it retries in a reduced form (measured
-                        # 2026-10-16: `$abstime' is not declared, the module then runs without it)
+                        # PyMS compiling a module: a failed build it retries without the zero-valued
+                        # parameters; when the retry fails too (an undeclared `$abstime', measured
+                        # 2026-10-17) the module has no evaluator at all, which pyms_failures reports
                         r"|^build_vae_so: |^BuildError: |^\S+\.(?:cpp|hpp|h):\d+:\d+: error: ", re.I)
 _DIAG_ERROR = re.compile(r"error|abort|fatal|too small|maximum number of failures|failed dc sweep|exiting|singular",
                          re.I)
@@ -147,6 +183,16 @@ _PROBLEM_PARAM = (re.compile(r"No model parameter (\S+) found for model"),
                   re.compile(r"Unrecognized parameter (\S+) for device"),
                   re.compile(r"Function or variable (\S+) is not defined"),
                   re.compile(r"Unable to find parameter (\S+)"))
+# a PyMS build in Xyce's output (pyms_failures): a Python traceback whose frames run through
+# build_vae_so.py, the evaluator library it names (vae_<module>_<hash>.so), the compiler's error
+_TRACEBACK = "Traceback (most recent call last):"
+_CHAINED = ("During handling of the above exception, another exception occurred:",
+            "The above exception was the direct cause of the following exception:")
+_PYMS_FRAME = re.compile(r'^\s+File "[^"]*build_vae_so\.py", line \d+')
+_PYMS_LIB = re.compile(r"\bvae_(\w+)_[0-9a-f]+\.so\b")
+_ERROR_TEXT = re.compile(r"\berror: (.+)$")
+_PYMS_SKIPPED = re.compile(r"^preprocess: warning: '([^']+)' not found \(skipped\)", re.M)
+_VA_COND = re.compile(r"^[ \t]*`(ifdef|ifndef|endif)\b")
 
 
 # -- the decks ------------------------------------------------------------------------------------
@@ -367,8 +413,11 @@ def _reads(e: object) -> Set[str]:
 # -- the Verilog-A sources (§4.5 item 13) --------------------------------------------------------------
 
 def va_closure(path: str) -> List[str]:
-    """path and the files it `includes, transitively, where Xyce's PyMS reads them: relative to the
-    including file [E75] (an absolute name is read where it is and needs no copy)."""
+    """path and the files it `includes, transitively, that Xyce's PyMS reads relative to a file:
+    beside the including file, else beside path itself, the top file (PyMS's first two places
+    [E75]); an absolute name, or one only PyMS's own directories hold, is read where it is and needs
+    no copy."""
+    top = os.path.dirname(os.path.abspath(path))
     seen: List[str] = []
     todo = [os.path.abspath(path)]
     while todo:
@@ -376,25 +425,216 @@ def va_closure(path: str) -> List[str]:
         if p in seen:
             continue
         seen.append(p)
-        try:
-            with open(p, encoding="utf-8", errors="replace") as fh:
-                text = fh.read()
-        except OSError:
+        text = _read(p)
+        if text is None:
             continue
         for name in _VA_INCLUDE.findall(text):
             if os.path.isabs(name):
                 continue
-            cand = os.path.normpath(os.path.join(os.path.dirname(p), name))
-            if os.path.isfile(cand) and cand not in seen:
-                todo.append(cand)
+            for d in (os.path.dirname(p), top):
+                cand = os.path.normpath(os.path.join(d, name))
+                if os.path.isfile(cand):
+                    if cand not in seen:
+                        todo.append(cand)
+                    break
     return seen
+
+
+def _read(path: str) -> Optional[str]:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def standard_header(name: str) -> bool:
+    """Whether an `include names one of STANDARD_HEADERS (by its base name)."""
+    return posixpath.basename(name.replace("\\", "/")) in STANDARD_HEADERS
+
+
+def pyms_search_dirs(env: Optional[Dict[str, str]] = None) -> List[str]:
+    """Where PyMS's preprocessor looks for an `include after the including file's directory and the
+    top file's (utils/PyMS/vae/preprocess.py): each PYMS_INCLUDE_PATH entry and its subdirectories,
+    four levels down, then its own directory ($PYMS_DIR/vae, PYMS_VAE_DIRS)."""
+    env = os.environ if env is None else env           # type: ignore[assignment]
+    out: List[str] = []
+    for entry in env.get("PYMS_INCLUDE_PATH", "").split(os.pathsep):
+        entry = entry.strip()
+        if not entry:
+            continue
+        out.append(entry)
+        if os.path.isdir(entry):
+            for root, dirs, _files in os.walk(entry):
+                out.extend(os.path.join(root, d) for d in dirs)
+                if root[len(entry):].count(os.sep) >= 4:
+                    dirs.clear()
+    if env.get("PYMS_DIR"):
+        out.append(os.path.join(env["PYMS_DIR"], "vae"))
+    out.extend(PYMS_VAE_DIRS)
+    return out
+
+
+def _includes(text: str) -> List[Tuple[str, bool]]:
+    """The `include names of a Verilog-A text, in order, each with whether it sits in an `ifdef or
+    `ifndef block (a line comment hides an include, as from PyMS's preprocessor)."""
+    out: List[Tuple[str, bool]] = []
+    depth = 0
+    for line in text.splitlines():
+        m = _VA_COND.match(line)
+        if m:
+            depth = max(depth - 1, 0) if m.group(1) == "endif" else depth + 1
+            continue
+        m = _VA_INCLUDE.match(line)
+        if m:
+            out.append((m.group(1), depth > 0))
+    return out
+
+
+def missing_includes(hdl: Sequence[str], env: Optional[Dict[str, str]] = None) -> List[Tuple[str, str, str]]:
+    """(source, the including file, the name), in order, for each `include of the Verilog-A sources and
+    of the files they include that PyMS would not find (beside the including file, beside the source,
+    then pyms_search_dirs) and that is not a standard header.  PyMS skips such an include and builds
+    the module without it: rc 0 and a wrong device, on a cold cache with one warning that the -norun
+    check's output alone holds, on a warm one with none (measured 2026-10-17).  Only an include outside
+    `ifdef blocks (and not reached through one) is judged: vamos does not evaluate the conditions, and
+    PyMS's own warning in Xyce's output covers the others (_Runner.problems).  A source that does not
+    exist is left to Xyce."""
+    extra = pyms_search_dirs(env)
+    out: List[Tuple[str, str, str]] = []
+    done: Set[str] = set()
+    for h in hdl:
+        src = os.path.abspath(h)
+        if src in done or not os.path.isfile(src):
+            continue
+        done.add(src)
+        top = os.path.dirname(src)
+        seen: Dict[str, bool] = {}                       # a file read -> whether only through an `ifdef
+        todo: List[Tuple[str, bool]] = [(src, False)]
+        while todo:
+            p, cond = todo.pop(0)
+            if p in seen and (cond or not seen[p]):
+                continue
+            seen[p] = cond
+            text = _read(p)
+            if text is None:
+                continue
+            for name, inner in _includes(text):
+                cands = [os.path.join(os.path.dirname(p), name), os.path.join(top, name)] + \
+                    [os.path.join(d, name) for d in extra]
+                found = next((os.path.normpath(c) for c in cands if os.path.isfile(c)), None)
+                if found is not None:
+                    todo.append((found, cond or inner))
+                elif not (cond or inner) and not standard_header(name):
+                    out.append((src, p, name))
+    return out
+
+
+# -- PyMS's builds in Xyce's output (§4.5 item 13) -------------------------------------------------------
+
+@dataclass
+class PymsFailure:
+    """A PyMS build that failed for good: the module its evaluator library names ("" when the output
+    names none), why (the compiler's first error, else the exception's line), whether that is a
+    compiler error, and the output lines that belong to it (left out of the narration)."""
+    module: str
+    detail: str
+    lines: List[str] = field(default_factory=list)
+    compiler: bool = False
+
+
+def pyms_failures(text: str) -> List[PymsFailure]:
+    """The PyMS builds in one Xyce output that failed for good.  build_vae_so.py prints a Python
+    traceback only when it gives up: its retry without the zero-valued parameters failed too (two
+    chained tracebacks), a step timed out (it allows 900 s), or the build raised; Xyce then registers
+    the module and runs it with no evaluator, a device that contributes nothing (measured 2026-10-17:
+    $abstime, a space in PYMS_VAE_CACHE).  A retry that builds prints no traceback."""
+    lines = text.splitlines()
+    out: List[PymsFailure] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip() != _TRACEBACK:
+            i += 1
+            continue
+        block: List[str] = []
+        through = False
+        exc: List[str] = []
+        while True:                                  # one traceback, then each one chained to it
+            block.append(lines[i])
+            i += 1
+            while i < len(lines) and lines[i][:1].isspace():         # the frames
+                through = through or bool(_PYMS_FRAME.match(lines[i]))
+                block.append(lines[i])
+                i += 1
+            start = len(block)
+            while i < len(lines) and not _exception_ends(lines[i]) and len(block) - start < 400:
+                block.append(lines[i])
+                i += 1
+            exc = block[start:]
+            j = i
+            while j < len(lines) and lines[j].strip() in _CHAINED + ("",):
+                j += 1
+            if j < len(lines) and j > i and lines[j].strip() == _TRACEBACK and \
+                    any(ln.strip() in _CHAINED for ln in lines[i:j]):
+                block.extend(lines[i:j])
+                i = j
+                continue
+            break
+        if not through:
+            continue
+        m = _PYMS_LIB.search("\n".join(block))
+        err = next((_ERROR_TEXT.search(ln) for ln in exc if _ERROR_TEXT.search(ln)), None)
+        head = next((ln.strip() for ln in exc if ln.strip()), "the build raised")
+        out.append(PymsFailure(m.group(1) if m else "", err.group(1).strip() if err else head,
+                               [ln for ln in block if ln.strip()], err is not None))
+    return out
+
+
+def _exception_ends(line: str) -> bool:
+    """Where a traceback's exception text ends: the next traceback or a chain line, or a line of Xyce
+    (its banner) or of PyMS's other steps."""
+    s = line.strip()
+    return s == _TRACEBACK or s in _CHAINED or line.startswith(("*****", "build_vae_so: ", "preprocess: "))
+
+
+def pyms_compiling(pgid: int) -> List[str]:
+    """The Verilog-A files that build_vae_so.py processes of a process group compile now (from /proc;
+    [] where there is none): what Xyce's PyMS does while a deck or the -norun check seems idle."""
+    out: List[str] = []
+    for stat in glob.glob("/proc/[0-9]*/stat"):
+        try:
+            with open(stat) as fh:
+                fields = fh.read().rsplit(")", 1)[1].split()
+            if int(fields[2]) != pgid:
+                continue
+            with open(stat[:-len("stat")] + "cmdline", "rb") as fh:
+                argv = [a.decode("utf-8", "replace") for a in fh.read().split(b"\0") if a]
+        except (OSError, IndexError, ValueError):
+            continue
+        for k, a in enumerate(argv[:-1]):
+            if a.endswith("build_vae_so.py"):
+                out.append(argv[k + 1])
+                break
+    return out
 
 
 def place_va(hdl: Sequence[str], run_dir: str) -> List[str]:
     """Copy the Verilog-A sources into run_dir (see the module docstring); the .hdl names, in order,
-    each source once.  OSError when a copy fails."""
+    each source once.  OSError when a copy fails.
+
+    Phase 2c2 (F4): no directory but run_dir itself holds two modules' files.  PyMS builds a module whose
+    source carries no xyceModelGroup/xyceLevelNumber attributes with the attributes of the first .va file
+    beside it that does (its sibling-directory fallback, utils/PyMS/vae/xyce_device_gen.py, which reads
+    os.path.dirname of the .hdl name): two modules of one library sharing ../inc, placed side by side in
+    lib/, lost their parameters (rc 1, "Unrecognized parameter", status 2 for a valid deck [E125]).  A base
+    name has no directory to look in, so run_dir holds any number of modules [E104]; a module that needs a
+    directory (an include that climbs out of its own, or a base name another file holds) sits in one no
+    other module's file shares, run_dir/<its layout> when that is free, else its own vamos_va<k>/ with its
+    include tree (a vamos_va<k>/ holds one module)."""
     names: List[str] = []
     placed: Dict[str, str] = {}
+    users: Dict[str, Set[str]] = {}         # a directory of run_dir ("" itself) -> the module names with files there
+    module_dirs: Dict[str, str] = {}        # a directory other than run_dir holding a module's file -> its name
     for h in hdl:
         src = os.path.abspath(h)
         if src in placed:
@@ -410,19 +650,35 @@ def place_va(hdl: Sequence[str], run_dir: str) -> List[str]:
         while True:
             sub = VA_SUBDIR % k if k else ""
             dests = [os.path.join(run_dir, sub, r) for r in rels]
+            name = posixpath.join(*(([sub] if sub else []) + rels[0].split(os.sep)))
+            dirs = [posixpath.dirname(posixpath.join(*(([sub] if sub else []) + r.split(os.sep)))) for r in rels]
             if all(not os.path.exists(d) or (os.path.isfile(d) and filecmp.cmp(f, d, shallow=False))
-                   for f, d in zip(files, dests)):
+                   for f, d in zip(files, dests)) and _apart(name, dirs, sub, users, module_dirs):
                 break
             k += 1
         for f, d in zip(files, dests):
             if not os.path.exists(d):
                 os.makedirs(os.path.dirname(d), exist_ok=True)
                 shutil.copyfile(f, d)
-        parts = ([sub] if sub else []) + rels[0].split(os.sep)
-        name = posixpath.join(*parts)
+        for dname in dirs:
+            users.setdefault(dname, set()).add(name)
+        if dirs[0]:
+            module_dirs[dirs[0]] = name
         placed[src] = name
         names.append(name)
     return names
+
+
+def _apart(name: str, dirs: Sequence[str], sub: str, users: Dict[str, Set[str]], module_dirs: Dict[str, str]) -> bool:
+    """place_va's rule: the module `name` (its file's directory dirs[0], its tree's files in dirs, relative to
+    run_dir) shares no directory but run_dir with another module's file: its own directory holds no other
+    module's file, none of its files lands in another module's directory, and a vamos_va<k>/ (sub) is one
+    no other module uses.  The same name is the same module (one file, its identical copy, already placed)."""
+    if sub and any(d == sub or d.startswith(sub + "/") for d, who in users.items() if who - {name}):
+        return False
+    if dirs[0] and users.get(dirs[0], set()) - {name}:
+        return False
+    return all(module_dirs.get(d, name) == name for d in dirs if d)
 
 
 # -- the print files ----------------------------------------------------------------------------------
@@ -450,10 +706,12 @@ def planned(step: "AnalysisStep") -> Tuple[int, int, Optional[int]]:
 
 def _freq_count(lv: "SweepLevel") -> int:
     """The frequencies of an .AC/.NOISE grid as xyce's freq_text prints them: DEC and LIN as the
-    grid, a step grid as the .DATA table it writes."""
+    grid, a step grid as the .DATA table it writes (a descending one: the plan's points, R-emit-3)."""
     spec = lv.spec
     if spec.mode == "step":
         start, stop_, step = (float(getattr(e, "value", e)) for e in (spec.start, spec.stop, spec.step))
+        if step < 0:
+            return len(grid_values(spec))
         n, f = 0, start
         while f <= stop_ * (1 + 1e-12) and step > 0:
             n += 1
@@ -591,13 +849,14 @@ def trim_partial_line(path: str) -> bool:
 # -- the engine runs ---------------------------------------------------------------------------------
 
 class Signals(proc.Interrupts):
-    """proc.Interrupts with spectre's signals (stop.py), which also tells a second handled signal
+    """proc.Interrupts with spectre's signals (stop.py), sent to Xyce's process group (its PyMS compile
+    runs in children of Xyce: sh, python3, g++, cc1plus), which also tells a second handled signal
     (`second`, stop.Stop) from the grace-period kill (`expired`, converted as status 3): the two
     set the same `killed` flag."""
 
     def __init__(self, grace: Optional[float] = None) -> None:
         super().__init__(stop.HANDLED, stop.FORWARD, stop.FLAGS,
-                         grace=proc.INTERRUPT_GRACE if grace is None else grace)
+                         grace=proc.INTERRUPT_GRACE if grace is None else grace, group=True)
         self.second: Optional[int] = None
         self.expired = False
 
@@ -609,6 +868,13 @@ class Signals(proc.Interrupts):
     def _on_alarm(self, signum, frame) -> None:
         self.expired = True
         proc.Interrupts._on_alarm(self, signum, frame)
+
+
+def _second_stop(signum: int) -> stop.Stop:
+    """stop.Stop for a second handled signal (§2.7): raised once Xyce has ended, before its output is
+    classified, so nothing says that results are written."""
+    return stop.Stop(signum, "stopped by a second signal (%s): Xyce was killed and nothing is converted"
+                     % proc.signal_name(signum))
 
 
 def ended_by(rc: int) -> Optional[int]:
@@ -689,6 +955,7 @@ class _Runner:
             elif a.kind == "sweep" and a.name:
                 self.sweeps_at.setdefault(a.name, a.origin)
         self.running: Optional[Deck] = None
+        self.checking: Optional[Deck] = None          # the deck the -norun check runs on, while it runs
         self.told: Set[str] = set()                   # Xyce messages already printed (once per run)
 
     # -- messages
@@ -744,6 +1011,9 @@ class _Runner:
         if has_errors(notes):
             er.rc = 2
             return er
+        if self.include_errors():
+            er.rc = 2
+            return er
         er.names = names
         try:
             for d in self.decks:
@@ -767,12 +1037,33 @@ class _Runner:
                 self.flags()
             finally:
                 self.intr = None
-            if intr.second is not None:
-                raise stop.Stop(intr.second, "stopped by a second signal (%s): Xyce was killed and nothing is "
-                                             "converted" % proc.signal_name(intr.second))
+            if intr.second is not None:                 # a second signal while no Xyce ran
+                raise _second_stop(intr.second)
         if intr.signum is not None:
             er.rc = 3
         return er
+
+    def include_errors(self) -> bool:
+        """The `includes PyMS would not find (missing_includes), each an error in AHDL read-in before
+        Xyce runs; True when there is one.  A header that CDS_VLOGA_INCLUDE or -I finds is named with
+        its directory: Xyce's compile searches none (§2.8)."""
+        missing = missing_includes(self.nl.hdl)
+        if not missing:
+            return False
+        from vamos.spectre.run_vacask import va_search        # §2.8's list, as the VACASK compile gets it
+        search = va_search(self.job) if self.job is not None else []
+        for src, inc, name in missing:
+            text = ("`include \"%s\" is not found beside the file that includes it, where Xyce's PyMS looks for it "
+                    "[E75], nor in PYMS_INCLUDE_PATH: PyMS would build the module without it, a wrong device, so "
+                    "Xyce does not run (§4.5 item 13)" % name)
+            where = next((d for d in search if os.path.isfile(os.path.join(d, name))), None)
+            if where is not None:
+                text += ("; it is in %s (CDS_VLOGA_INCLUDE or -I), which Xyce's compile does not search (§2.8): "
+                         "put it beside %s, or run on VACASK" % (where, os.path.basename(inc)))
+            if inc != src:
+                text += " (a header of %s)" % src
+            self.say(error(inc, text), PHASE_AHDL)
+        return True
 
     def engine(self, args: List[str], logname: str, deck: Deck) -> Tuple[int, str, float]:
         """One Xyce process in run_dir under the run's Signals; (exit status, its output, seconds).
@@ -798,9 +1089,7 @@ class _Runner:
                     except subprocess.TimeoutExpired:
                         self.flags()
             finally:
-                if p.poll() is None:                    # an exception above: never leave Xyce behind
-                    p.kill()
-                    p.wait()
+                proc.kill_group(p)                      # an exception above: never leave Xyce (or its compile) behind
         seconds = time.time() - t0
         try:
             with open(logpath, encoding="utf-8", errors="replace") as fh:
@@ -821,12 +1110,17 @@ class _Runner:
             if sig == usr1 and self.log is not None:
                 self.log.status_line(self.progress())
             elif sig == usr2:
-                self.say(note("", "checkpoint not supported: SIGUSR2 is ignored and the run continues"),
+                self.say(note("", stop.CHECKPOINT),
                          self.phase(self.running) if self.running is not None else PHASE_SETUP)
 
     def progress(self) -> str:
+        """The SIGUSR1 text: the deck Xyce runs and its last `Percent complete', or the -norun check
+        (which on a cold PyMS cache compiles every Verilog-A module, about 15 s for e2e 8 [E125]),
+        and the file PyMS compiles when it does."""
         d = self.running
         if d is None:
+            if self.checking is not None:
+                return "Xyce checks the netlist (-norun on %s)%s" % (self.checking.file, self.compiling())
             return "Xyce not running"
         k = self.decks.index(d) + 1
         text = "Xyce deck %s (%d of %d)" % (d.file, k, len(self.decks))
@@ -841,7 +1135,16 @@ class _Runner:
                 text += ", %s %% complete" % found[-1]
         except OSError:
             pass
-        return text
+        return text + self.compiling()
+
+    def compiling(self) -> str:
+        """", PyMS compiles <file>" while a build_vae_so.py process runs in the running Xyce's process
+        group (pyms_compiling); "" otherwise."""
+        p = self.intr.proc if self.intr is not None else None
+        if p is None or p.poll() is not None or not os.path.isdir("/proc"):
+            return ""
+        files = pyms_compiling(p.pid)
+        return ", PyMS compiles %s" % ", ".join(sorted(set(os.path.basename(f) for f in files))) if files else ""
 
     def narrate(self, text: str, deck: Deck, skip: Sequence[str] = ()) -> None:
         """Xyce's messages of one deck (§8.7's filtered narration): its warnings as warnings, any other
@@ -864,9 +1167,16 @@ class _Runner:
 
     # -- the parameter check (§7.2)
     def norun(self, deck: Deck) -> int:
-        """`<xyce> -norun` on the first deck: 0 when it passes, 2 for a problem, 3 for a signal."""
-        rc, text, _ = self.engine(["-norun", deck.file], deck.step.id + ".norun.log", deck)
+        """`<xyce> -norun` on the first deck: 0 when it passes, 2 for a problem, 3 for a signal;
+        stop.Stop after a second signal."""
+        self.checking = deck
+        try:
+            rc, text, _ = self.engine(["-norun", deck.file], deck.step.id + ".norun.log", deck)
+        finally:
+            self.checking = None
         assert self.intr is not None
+        if self.intr.second is not None:
+            raise _second_stop(self.intr.second)
         if rc == -1000:
             self.say(error("", text), PHASE_SETUP)
             return 2
@@ -890,15 +1200,22 @@ class _Runner:
         return 0
 
     def stop_reason(self, sig: Optional[int]) -> str:
-        """The signal that stopped Xyce: the one vamos got and passed on, else Xyce's own."""
+        """The signal that stopped Xyce: the one vamos got and passed on (and, after the grace, that
+        Xyce was killed), else Xyce's own."""
         assert self.intr is not None
         if self.intr.signum is not None:
-            return proc.signal_name(self.intr.signum)
+            text = proc.signal_name(self.intr.signum)
+            if self.intr.expired:
+                text += "; Xyce did not stop within %g s and was killed" % self.intr.grace
+            return text
         return "%s from outside vamos" % proc.signal_name(sig) if sig is not None else "a signal"
 
     def problems(self, text: str, deck: Deck) -> List[Note]:
         """output_problems and device_summary_problems over one Xyce output, each named by the
-        alter or sweep that introduced it where one matches its parameter."""
+        alter or sweep that introduced it where one matches its parameter; then the PyMS builds that
+        failed for good (pyms_failures: Xyce runs such a module as a device that contributes
+        nothing) and the includes PyMS skipped that are not standard headers (it built the module
+        without them)."""
         found = list(xyce.output_problems(text, self.nl)) + list(xyce.device_summary_problems(text, self.nl))
         out = []
         seen: Set[str] = set()
@@ -914,7 +1231,45 @@ class _Runner:
             else:
                 out.append(error(n.origin if n.origin != "Xyce" else "",
                                  "Xyce, the deck of analysis `%s' (%s): %s" % (deck.step.name, deck.file, n.message)))
+        where = "Xyce, the deck of analysis `%s' (%s)" % (deck.step.name, deck.file)
+        modules = {k.lower(): m for k, m in self.nl.va_modules.items()}
+        for f in pyms_failures(text):
+            m = modules.get(f.module.lower()) if f.module else None
+            if m is not None:
+                who = "Verilog-A module %s (%s)" % (f.module, m.path)
+            elif f.module:
+                who = "Verilog-A module %s" % f.module
+            else:
+                files = sorted(set(m.path for m in modules.values()))
+                who = "a Verilog-A module" + (" of %s" % ", ".join(files) if files else "")
+            why = ("the C++ compile of its evaluator failed: %s" % f.detail) if f.compiler else f.detail
+            if "$abstime" in f.detail:
+                why += "; PyMS has no $abstime [E125], VACASK runs the module"
+            cache = self.env.get("PYMS_VAE_CACHE", "")
+            if any(c.isspace() for c in cache):
+                why += "; PYMS_VAE_CACHE=%s holds a space, which PyMS's build cannot take" % cache
+            msg = ("%s: PyMS could not build %s, which Xyce would run as a device that contributes nothing, so the "
+                   "run stops (§4.5 item 13): %s" % (where, who, why))
+            if msg not in seen:
+                seen.add(msg)
+                out.append(error("", msg))
+        for name in _PYMS_SKIPPED.findall(text):
+            msg = ("%s: PyMS did not find the Verilog-A include \"%s\" and built the module without it (its "
+                   "preprocessor's warning: '%s' not found (skipped)): it looks for an include beside the file "
+                   "that includes it [E75], so the run stops (§4.5 item 13)" % (where, name, name))
+            if not standard_header(name) and msg not in seen:
+                seen.add(msg)
+                out.append(error("", msg))
         return out
+
+    @staticmethod
+    def pyms_lines(text: str) -> List[str]:
+        """The output lines of the PyMS failures that problems() reports, which the narration leaves out."""
+        out = [ln.strip() for f in pyms_failures(text) for ln in f.lines]
+        if out:
+            out.append("build_vae_so: full build failed")
+        return out + ["preprocess: warning: '%s' not found" % name for name in _PYMS_SKIPPED.findall(text)
+                      if not standard_header(name)]
 
     def introducer(self, message: str, deck: Deck) -> Optional[Tuple[str, str]]:
         """(origin, label) of the alter or sweep whose parameter a problem message names: the
@@ -957,6 +1312,8 @@ class _Runner:
         finally:
             self.running = None
         try:
+            if self.intr is not None and self.intr.second is not None:
+                raise _second_stop(self.intr.second)     # nothing is converted: nothing is classified
             return self.classify(deck, rc, text)
         finally:
             if self.log is not None:
@@ -1005,7 +1362,7 @@ class _Runner:
         problems = self.problems(text, deck)
         if problems:
             er.status[step.id] = "failed"
-            self.narrate(text, deck, [n.message for n in problems])
+            self.narrate(text, deck, [n.message for n in problems] + self.pyms_lines(text))
             for n in problems:
                 self.say(n, phase)
             return 2
@@ -1048,9 +1405,10 @@ def xyce_exe() -> str:
 
 
 def engines_env() -> Dict[str, str]:
-    """The environment of every Xyce run (§7.1, §7.2: E68, E96)."""
+    """The environment of every Xyce run (§7.1, §7.2: E68, E96), OpenBLAS's threads bounded unless the
+    user set a thread count (tools.bound_blas_threads)."""
     from vamos.ams import engines
-    return engines.env_for(ENGINE, None, dict(os.environ))
+    return tools.bound_blas_threads(engines.env_for(ENGINE, None, dict(os.environ)))
 
 
 def run(nl: ir.Netlist, plan: "RunPlan", sigmap: "SignalMap", run_dir: str, job: "SpectreJob",

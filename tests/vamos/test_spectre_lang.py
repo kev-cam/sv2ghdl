@@ -131,6 +131,61 @@ class TestFiles(Case):
         self.fails('// t\ninclude "lib.scs"\n', "sections: tt ff")
         self.fails('// t\ninclude "lib.scs" section=ss\n', "has no section ss")
 
+    def test_library_sections_across_language_switches(self):
+        # R-lang-8: "Spectre automatically switches to SPICE input mode when it opens a library file. Thus, all
+        # files that use the Spectre native language must contain a simulator lang=spectre statement within each
+        # section of the library or the file can have a .scs filename extension" (ref19 p.498): library, section,
+        # endsection and endlibrary are read in either language, and each section starts in the file's language
+        deck = '// t\ninclude "%s" section=ss\nv1 (a 0) vsource dc=1\nr1 (a 0) resistor r=rval\n'
+        self.write("corners.lib", "library corners\nsection tt\nsimulator lang=spectre\nparameters rval=1k\nendsection tt\n"
+                                  "section ss\nsimulator lang=spectre\nparameters rval=2k\nendsection ss\nendlibrary corners\n")
+        self.assertEqual(self.parse(deck % "corners.lib").values, {"rval": 2000.0})
+        self.write("mixed.scs", "// a .scs library whose sections hold SPICE text\nlibrary corners\nsection tt\n"
+                                "simulator lang=spice\n.param rval=1k\nsimulator lang=spectre\nendsection tt\nsection ss\n"
+                                "simulator lang=spice\n.param rval=2k\nsimulator lang=spectre\nendsection ss\nendlibrary corners\n")
+        self.assertEqual(self.parse(deck % "mixed.scs").values, {"rval": 2000.0})
+        self.write("plain.lib", "library p\nsection tt\n.param rval=3k\nendsection tt\nsection ss\n.param rval=4k\n"
+                                "endsection ss\nendlibrary p\n")
+        self.assertEqual(self.parse(deck % "plain.lib").values, {"rval": 4000.0})
+        self.write("reset.lib", "library r\nsection tt\nsimulator lang=spectre\nparameters rval=1k\nendsection tt\n"
+                                "section ss\n.param rval=5k\nendsection ss\nendlibrary r\n")
+        self.assertEqual(self.parse(deck % "reset.lib").values, {"rval": 5000.0})       # ss starts in SPICE mode
+        self.write("top_switch.lib", "simulator lang=spectre\nlibrary corners\nsection tt\nparameters rval=1k\n"
+                                     "endsection tt\nsection ss\nparameters rval=2k\nendsection ss\nendlibrary corners\n")
+        self.assertEqual(self.parse(deck % "top_switch.lib").values, {"rval": 2000.0})
+        # a switch inside a subckt or an if of a section is still an error (§3.1)
+        self.write("bad.lib", "library b\nsection ss\nsimulator lang=spectre\nsubckt s (a b)\nsimulator lang=spice\n"
+                              "r1 a b 1k\nsimulator lang=spectre\nends s\nendsection ss\nendlibrary b\n")
+        self.fails(deck % "bad.lib", "inside subckt s")
+        self.write("bad2.lib", "library b\nsection ss\nsimulator lang=spectre\nparameters rval=1\nif (rval) {\n"
+                               "simulator lang=spice\nr1 a b 1k\nsimulator lang=spectre\n}\nendsection ss\nendlibrary b\n")
+        self.fails(deck % "bad2.lib", "inside a { } block")
+        self.write("open.lib", "library o\nsection ss\nsimulator lang=spectre\nparameters rval=1\nendlibrary o\n")
+        self.fails(deck % "open.lib", "section ss has no endsection")
+
+    def test_comment_after_a_language_switch(self):
+        # R-lang-17: a ' //' comment may end any line (UG p.59), a simulator lang= line too
+        nl = self.parse("// a comment after a language switch\nsimulator lang=spectre // native mode from here\n"
+                        "v1 (a 0) vsource dc=1\nsimulator lang=spice // SPICE mode from here\nr1 a 0 1k\n"
+                        "simulator lang=spectre insensitive=yes   // and back\nop1 dc\n")
+        i = self.insts(nl)
+        self.assertEqual((sorted(i), i["r1"].prim, [a.name for a in nl.analyses]), (["r1", "v1"], "resistor", ["op1"]))
+        nl = self.parse("SPICE deck: switch with a trailing comment\nv1 a 0 1\nsimulator lang=spectre // to Spectre\n"
+                        "r1 (a 0) resistor r=1k\nop1 dc\n", name="lc3.sp")
+        self.assertEqual(sorted(self.insts(nl)), ["r1", "v1"])
+
+    def test_spice_region_origins_after_blank_lines(self):
+        # R-lang-20: a SPICE region's origin is the line of its first statement, not of the blank lines before it
+        for name, text, line in (("or1.cir", "origin test\n\n\nV1 a 0 1\nR1 a 0 1k\nQ9 a b\n.op\n.end\n", 6),
+                                 ("or3.scs", "// t\nv1 (a 0) vsource dc=1\nsimulator lang=spice\n\n\nr1 a 0 1k\nq9 a b\n"
+                                             "simulator lang=spectre\nop1 dc\n", 7)):
+            with self.assertRaises(NoteError) as cm:
+                self.parse(text, name=name)
+            errs = [n for n in cm.exception.notes if n.severity == ERROR]
+            self.assertTrue(errs and errs[0].origin.endswith("%s:%d" % (name, line)), [n.text() for n in errs])
+        nl = self.parse("* t\n\nV1 a 0 1\n\nR1 a 0 1k\n.end\n", name="or4.sp")
+        self.assertEqual([self.insts(nl)[k].origin.rsplit(":", 1)[1] for k in ("v1", "r1")], ["3", "5"])
+
     def test_spice_lib_sections_and_includes_inside_a_subckt(self):
         self.write("models.lib", ".lib tt\n.model nch nmos level=49\n.endl\n.lib ff\n.model nch nmos level=1\n.endl\n")
         self.write("body.sp", "r1 a b 1k\n")
@@ -175,6 +230,22 @@ class TestFiles(Case):
         self.assertEqual(i["r2"].origin, os.path.join(self.tmp, "inc", "deep", "more.scs") + ":1")
         self.assertEqual((i["c1"].origin, i["v1"].origin), ("inc/only.scs:1", top + ":5"))
 
+    def test_cpp_resumed_chunk_restores_the_includers_mode(self):
+        # R-lang-11: after an #include, flag 2 returns to the includer in the mode it was in (§2.6; ref19 p.493),
+        # not in the mode §3.1 detects from the resumed chunk's own first line (a non-.scs Spectre netlist
+        # resumed in SPICE mode, a .scs one that had switched to SPICE in Spectre mode)
+        out = ('# 1 "t.net"\n# 1 "<built-in>"\n# 1 "<command-line>"\n# 1 "t.net"\n// t\nsimulator lang=spectre\n'
+               '# 1 "m.inc" 1\n.param rmod=2k\n# 4 "t.net" 2\nr1 (a 0) resistor r=rmod\nv1 (a 0) vsource dc=1\n')
+        nl = self.parse(out, name="cpp.out", cpp_markers=True, title="// t")
+        r1 = self.insts(nl)["r1"]
+        self.assertEqual((r1.prim, r1.nodes, r1.value, r1.origin), ("resistor", ["a", "0"], Name("rmod"), "t.net:4"))
+        self.assertEqual(nl.values, {"rmod": 2000.0})
+        out = ('# 1 "t.scs"\n# 1 "<built-in>"\n# 1 "<command-line>"\n# 1 "t.scs"\n// t\nsimulator lang=spice\n'
+               '# 1 "m.inc" 1\n.param rmod=2k\n# 4 "t.scs" 2\nr1 a 0 rmod\nv1 a 0 1\n')
+        nl = self.parse(out, name="cpp2.out", cpp_markers=True, title="// t")
+        r1 = self.insts(nl)["r1"]
+        self.assertEqual((r1.prim, r1.nodes, r1.value, r1.origin), ("resistor", ["a", "0"], Name("rmod"), "t.scs:4"))
+
     def test_cpp_markers_of_a_stdin_copy(self):
         # §1: a netlist on stdin is copied to <run>/stdin and cpp's markers name that copy; its statements
         # read stdin:<line> and its relative includes resolve against top_dir (the cwd), not the run
@@ -202,6 +273,30 @@ class TestFiles(Case):
         self.assertEqual(self.insts(nl)["m1"].master, "NCH")
         self.fails('// t\ninclude "marked.scs"\nmodel PCH bsim3v3 type=p\nm2 (d g s b) pch w=1u l=1u\n',
                    "master pch is not a primitive, a model")
+
+    def test_spice_end_ends_the_file(self):
+        # R-lang-12: ".end ... is treated like the end of file; and the SPICE Reader does not read beyond the .end"
+        # (UG p.50): a later Spectre region of the same file is not read either; an included file's .end ends
+        # only that file
+        nl = self.parse("statements after .end, then a Spectre region\nV1 a 0 1\nR1 a 0 1k\n.op\n.end\n"
+                        "simulator lang=spectre\nr2 (a 0) resistor r=1k\n", name="ae1.sp")
+        self.assertEqual(sorted(self.insts(nl)), ["r1", "v1"])
+        self.assertTrue(self.notes(nl, NOTE, "ignored after .end"))
+        self.write("inc2.scs", "simulator lang=spice\nR8 a 0 8k\n.end\nsimulator lang=spectre\nr9 (a 0) resistor r=9k\n")
+        nl = self.parse('// t\ninclude "inc2.scs"\nv1 (a 0) vsource dc=1\nr7 (a 0) resistor r=7k\n')
+        self.assertEqual(sorted(self.insts(nl)), ["r7", "r8", "v1"])
+        self.write("inc.sp", "R5 a 0 5k\n.end\nR6 a 0 6k\n")
+        nl = self.parse('// t\ninclude "inc.sp"\nv1 (a 0) vsource dc=1\nr7 (a 0) resistor r=7k\n')
+        self.assertEqual(sorted(self.insts(nl)), ["r5", "r7", "v1"])
+
+    def test_slash_comment_line_inside_a_continued_statement(self):
+        # R-lang-19: a '//' comment line is a comment line like a '*' one (UG p.59), so a '+' line after it still
+        # continues the statement before it
+        nl = self.parse("// title\nv1 (in 0) vsource dc=1\nr1 (in 0) resistor\n// the value follows on a continuation "
+                        "line\n+ r=2k\nop1 dc\n")
+        self.assertEqual(self.insts(nl)["r1"].value, Num(2000.0))
+        nl = self.parse("// t\nmodel dm diode\n+ is=1e-14\n//+ n=1.1\n+ rs=10\ni1 (0 a) isource dc=1m\nd1 (a 0) dm\n")
+        self.assertEqual(sorted(nl.models()["dm"].params), ["is", "rs"])
 
     def test_protect_and_encrypted(self):
         nl = self.parse("// t\nprotect\nr1 (a 0) resistor r=1k\nUNPROT\n")
@@ -285,6 +380,22 @@ class TestParameters(Case):
         self.fails("// t\nparameters a=b b=a\n", "cycle")
         self.fails("// t\nx1 (a 0) s zz=1\nsubckt s (p n)\nparameters k=1\nends s\n", "zz is not a parameter of subckt s")
 
+    def test_subckt_parameter_without_a_default(self):
+        # R-lang-9: "When parameters are declared within subcircuits, their default values are optionally
+        # specified" (ref19 p.506, p.533): a bare name on a subckt's parameters line is a parameter every instance
+        # must give; a top-level parameter needs a value
+        deck = ("// t\nsubckt rdiv (a b)\nparameters r1 r2=1k\nra (a b) resistor r=r1\nrb (b 0) resistor r=r2\nends rdiv\n"
+                "v1 (in 0) vsource dc=1\nx1 (in out) rdiv r1=3k\n")
+        nl = self.parse(deck)
+        self.assertEqual([p.name for p in nl.subckts()["rdiv"].params], ["r1", "r2"])
+        self.assertEqual(self.insts(nl)["x1"].params, {"r1": Num(3000.0)})
+        nl = self.parse(deck.replace("parameters r1 r2=1k", "parameters r2=1k r1"))
+        self.assertEqual(sorted(p.name for p in nl.subckts()["rdiv"].params), ["r1", "r2"])
+        msgs = self.fails(deck.replace(" r1=3k", ""), "x1: subckt rdiv's parameter r1 has no default value")
+        self.assertEqual(len(msgs), 1)
+        self.fails(deck.replace("x1 (in out) rdiv r1=3k", "simulator lang=spice\nx1 in out rdiv"), "x1: subckt rdiv's parameter r1")
+        self.fails("// t\nparameters a b=1\n", "a top-level parameter needs a value: a")
+
     def test_cross_language_reference_is_warned(self):
         nl = self.parse("// t\nparameters a=1\nsimulator lang=spice\n.param b='a*2' c=3\nsimulator lang=spectre\n"
                         "parameters d=c+1\nr1 (n 0) resistor r=b\nv1 (n 0) vsource dc=1\n")
@@ -292,9 +403,25 @@ class TestParameters(Case):
         self.assertEqual(len(self.notes(nl, WARNING, "two language sections")), 2)
 
     def test_reserved_parameter_names(self):
-        for name in ("temp", "tnom", "temper", "time", "hertz"):
+        # R-lang-15: "The following parameters are reserved and must not be declared as either top-level parameters
+        # or subcircuit parameters: temp, tnom, scale, scalem, freq, time" (ref19 p.508), in either language
+        for name in ("temp", "tnom", "temper", "time", "hertz", "scale", "scalem", "freq"):
             self.fails("// t\nparameters %s=5 r=%s*1k\n" % (name, name), "a parameter named %s is an error" % name)
         self.fails("// t\nparameters M_PI=3\n", "built-in constant")
+        self.fails("// t\nsubckt s (a)\nparameters freq=1k\nr1 (a 0) resistor r=1k\nends s\n", "a parameter named freq")
+        self.fails("// t\nsimulator lang=spice\n.param scale=2\n", "a parameter named scale is an error")
+        self.fails("// t\nsimulator lang=spice\n.subckt s a scalem=2\nr1 a 0 1k\n.ends\n", "a parameter named scalem")
+
+    def test_m_cannot_be_declared_on_a_subckt_parameters_line(self):
+        # R-lang-14: "Any attempt to explicitly define m on a parameters line results in an error" (ref19 p.533)
+        self.fails("// t\nsubckt cell (a)\nparameters m=2\nr1 (a 0) resistor r=1k*m\nends cell\nv1 (in 0) vsource dc=1\n"
+                   "x1 (in) cell m=3\n", "m is every subckt's implicit multiplicity")
+        self.fails("* t\n.subckt cell a m=2\nr1 a 0 '1k*m'\n.ends\nx1 in cell m=3\nv1 in 0 1\n.end\n",
+                   "m is every subckt's implicit multiplicity", name="mp3.sp")
+        self.fails("* t\n.subckt cell a\n.param m=2\nr1 a 0 '1k*m'\n.ends\nx1 in cell\nv1 in 0 1\n.end\n",
+                   "m is every subckt's implicit multiplicity", name="mp4.sp")
+        nl = self.parse("// t\nparameters m=2\nr1 (a 0) resistor r=1k*m\nv1 (a 0) vsource dc=1\n")
+        self.assertEqual(nl.values, {"m": 2.0})                              # a top-level m is a parameter
 
     def test_user_functions(self):
         nl = self.parse("// t\nreal myfunc( real a, real b ) {\n    return a+b*2+sqrt(a*sin(b));\n}\n"
@@ -308,6 +435,22 @@ class TestParameters(Case):
         nl = self.parse("// t\nreal sqrt(real x) { return x*x; }\nparameters a=sqrt(3)\n")
         self.assertEqual(nl.values, {"a": 9.0})
         self.assertTrue(self.notes(nl, WARNING, "named like the built-in"))
+
+    def test_equality_written_with_blanks(self):
+        # R-lang-18: `a == b` with blanks around == continues the value, as `a != b` does (ref19 p.475)
+        nl = self.parse("// t\nparameters a=1 b=2\nparameters ne=a != b\nparameters eq=a == b\nparameters t2=a == 1 ? 10 : 30\n"
+                        "v1 (x 0) vsource dc=a == 2 ? 1 : 3\n")
+        self.assertEqual((nl.values["eq"], nl.values["ne"], nl.values["t2"]), (0.0, 1.0, 10.0))
+        self.assertEqual(E.evaluate(self.insts(nl)["v1"].source.dc, nl.values, "spectre"), 3.0)
+
+    def test_user_function_without_arguments(self):
+        # R-lang-21: a function declared with an empty argument list (ref19 p.481) is called as rdef()
+        nl = self.parse("// t\nreal rdef() { return 2k; }\nreal dt() { return temp-tnom; }\nv1 (a 0) vsource dc=1\n"
+                        "r1 (a 0) resistor r=rdef()\nr2 (a 0) resistor r=1k*(1+0.001*dt())\n")
+        i = self.insts(nl)
+        self.assertEqual(i["r1"].value, Num(2000.0))
+        self.assertEqual(E.names(i["r2"].value), set())
+        self.assertIn(Name("$tnom"), list(E.walk(i["r2"].value)))
 
     def test_vectors_and_strings(self):
         self.fails("// t\nparameters v=[1 2]\n", "vector-valued netlist parameter")
@@ -354,6 +497,36 @@ class TestStructure(Case):
         self.assertEqual([x.name for x in ir.flat_items(c2.default) if isinstance(x, ir.Instance)], ["r2", "c2", "gp2"])
         self.assertEqual(c2.branches[0][1][1].branches[0][0], Binary("!=", Name("gparallel"), Num(0.0)))
 
+    def test_dangling_else_binds_to_the_closest_unmatched_if(self):
+        # R-lang-3: "When if-statements are nested without braces, an else matches the closest previous unmatched
+        # if at the same level" (ref19 p.491); the { } of `if (a) if (b) {` belongs to the inner if, and the inner
+        # if of `else if (b) if (c) {` keeps its condition
+        def names(items):
+            return [x.name for x in items if isinstance(x, ir.Instance)]
+        head = "// t\nparameters a=1 b=0 c=0\nv1 (x 0) vsource dc=1\n"
+        nl = self.parse(head + "if (a) if (b) r1 (x 0) resistor r=1k\nelse r2 (x 0) resistor r=2k\n")
+        c = [it for it in nl.body if isinstance(it, ir.Cond)][0]
+        self.assertEqual((c.branches[0][0], c.default), (Name("a"), []))
+        inner = c.branches[0][1][0]
+        self.assertIsInstance(inner, ir.Cond)
+        self.assertEqual((inner.branches[0][0], names(inner.branches[0][1]), names(inner.default)), (Name("b"), ["r1"], ["r2"]))
+        nl = self.parse(head + "if (a) if (b) r1 (x 0) resistor r=1k\nelse r2 (x 0) resistor r=2k\nelse r3 (x 0) resistor r=4k\n")
+        c = [it for it in nl.body if isinstance(it, ir.Cond)][0]
+        self.assertEqual((names(c.branches[0][1][0].default), names(c.default)), (["r2"], ["r3"]))
+        nl = self.parse(head + "if (a) if (b) {\nr1 (x 0) resistor r=1k\n}\n")
+        c = [it for it in nl.body if isinstance(it, ir.Cond)][0]
+        inner = c.branches[0][1][0]
+        self.assertIsInstance(inner, ir.Cond)
+        self.assertEqual((inner.branches[0][0], names(inner.branches[0][1])), (Name("b"), ["r1"]))
+        nl = self.parse(head + "if (a) r0 (x 0) resistor r=1k\nelse if (b) if (c) {\nr1 (x 0) resistor r=1k\n}\n")
+        c = [it for it in nl.body if isinstance(it, ir.Cond)][0]
+        elif_ = c.default[0]
+        self.assertEqual((names(c.branches[0][1]), elif_.branches[0][0]), (["r0"], Name("b")))
+        inner = elif_.branches[0][1][0]
+        self.assertIsInstance(inner, ir.Cond)
+        self.assertEqual((inner.branches[0][0], names(inner.branches[0][1])), (Name("c"), ["r1"]))
+        self.fails(head + "if (a) r1 (x 0) resistor r=1k {\nr2 (x 0) resistor r=2k\n}\n", "does not take a { } block")
+
     def test_if_contents(self):
         self.fails("// t\nparameters s=1\nif (s) {\nmodel m mos1 type=n\n}\n", "a model statement inside an if")
         self.fails("// t\nparameters s=1\nif (s) {\nparameters q=1\n}\n", "parameters statement inside an if")
@@ -388,6 +561,22 @@ class TestStructure(Case):
         self.assertEqual(self.insts(nl)["r1"].nodes, ["if", "0"])
         self.assertEqual(nl.values, {"save": 1.0})
 
+    def test_parentheses_are_field_separators(self):
+        # R-lang-10: "you can place optional parentheses around parameter specifications ... For example,
+        # (c=10E-12)" (UG p.63), and parentheses are significant field separators (UG p.59), so r1(a 0) is the
+        # name r1 and the node group (a 0); a function call in a value is not split
+        nl = self.parse("// t\nv1 (2 0) vsource dc=1\nc1 (2 3) capacitor (c=10E-12)\nr1 (3 0) resistor (r=1k)\n"
+                        "r2 (2 4) resistor (r=2k) m=2\nr3 (4 0) resistor (r=1k w=1u)\nop1 dc\n")
+        i = self.insts(nl)
+        self.assertEqual((i["c1"].value, i["r1"].value, i["r2"].value, i["r3"].value),
+                         (Num(1e-11), Num(1000.0), Num(2000.0), Num(1000.0)))
+        self.assertEqual((i["r2"].params, i["r3"].params, i["c1"].nodes), ({"m": Num(2.0)}, {"w": Num(1e-6)}, ["2", "3"]))
+        nl = self.parse("// t\nreal myfunc(real x, real y) { return x*y; }\nv1 (a 0) vsource dc=1\nr1(a 0) resistor r=1k\n"
+                        "r2 (a 0)resistor r=myfunc(2.0, 4.5)\nsubckt s (p n)\nr9 (p n) resistor r=1k\nends s\nx1(a 0) s\n")
+        i = self.insts(nl)
+        self.assertEqual((i["r1"].nodes, i["r1"].value, i["r2"].nodes, i["r2"].value, i["x1"].nodes),
+                         (["a", "0"], Num(1000.0), ["a", "0"], Binary("*", Num(2.0), Num(4.5)), ["a", "0"]))
+
     def test_escaped_names_and_spelling(self):
         nl = self.parse("// t\nmodel \\2N2222 bjt type=npn\nq1 (c b e) \\2N2222\nr\\2 (c 0) resistor r=1k\nv1 (c 0) vsource dc=1\n")
         i = self.insts(nl)
@@ -395,6 +584,21 @@ class TestStructure(Case):
         self.assertIn("r2", i)
         self.assertEqual(nl.spelling["2N2222"], "\\2N2222")
         self.assertEqual(nl.spelling["r2"], "r\\2")
+
+    def test_node_names_follow_the_name_rule(self):
+        # R-lang-5: a Spectre-mode node name holds letters, digits, _ and ! unless escaped (UG p.60, §3.2); 'a,'
+        # silently became a node of its own on VACASK
+        self.fails("// t\nv1 (a 0) vsource dc=1\nr1 (a, 0) resistor r=1k\n", "node a,")
+        self.fails("// t\nsubckt div (top, mid)\nr1 (top mid) resistor r=1k\nends div\nx1 (b c) div\n", "node top,")
+        self.fails("// t\nr1 (a; 0) resistor r=1k\n", "node a;")
+        self.fails("// t\nr2 (a# 0) resistor r=1k\n", "node a#")
+        self.fails("// t\nglobal 0 vdd,\n", "node vdd,")
+        msgs = self.fails("// t\nr1 (a, 0) resistor r=1k\n")
+        self.assertTrue(any("letters, digits, _ and !" in m for m in msgs), msgs)
+        nl = self.parse("// t\nr1 (vdd! n\\-1) resistor r=1k\nr2 (007 _x) resistor r=1k\nv1 (vdd! 0) vsource dc=1\n"
+                        "subckt s (p)\nr3 (p 0) resistor r=1k\nends s\nx1 (m) s\nnz (x1.p 0) noise start=1 stop=10 dec=1\n")
+        self.assertEqual((self.insts(nl)["r1"].nodes, self.insts(nl)["r2"].nodes), (["vdd!", "n-1"], ["007", "_x"]))
+        self.assertEqual(nl.analyses[0].nodes, ["x1.p", "0"])
 
     def test_namespaces_and_node_names(self):
         nl = self.parse("// t\nparameters res=1k\nres (c10 0) resistor r=res\nr2 (007 7) resistor r=1\nr3 (vdd! 00) resistor r=1\n"
@@ -592,6 +796,12 @@ class TestAnalyses(Case):
         self.fails("// t\nsubckt s (a b)\ntr1 tran stop=1u\nends s\n", "inside subckt s")
         self.fails("// t\nac1 (a b c) ac start=1 stop=2\n", "takes no node list")
 
+    def test_every_analysis_keyword_is_an_analysis(self):
+        # R-lang-23: the ref19 analyses outside v1 (§0's list) are refused as analyses, not as unknown masters
+        for kw in ("hbstb", "cosim", "loadpull", "reliability", "stress", "thermal", "uti"):
+            self.fails("// t\nan1 %s\n" % kw, "the %s analysis is not supported in v1" % kw)
+        self.fails("// t\nrel1 reliability {\n}\n", "the reliability analysis is not supported in v1")
+
     def test_center_span_keeps_its_shape_without_a_step_parameter(self):
         # §5.2: center/span with a step parameter folds to start/stop; without one the shape c -/+ s/2 stays,
         # so that plan.build can refuse the logarithmic grid the ratio rule would select (phase 1b)
@@ -618,6 +828,20 @@ class TestAnalyses(Case):
         nl = spectre.parse(path, os.path.dirname(path), spectre.SpectreParseOpts())
         sw = nl.analyses[0].sweep
         self.assertEqual((nl.analyses[0].name, sw.target, sw.name, sw.param, sw.mode), ("mysweepname", "dev", "ia", "dc", "step"))
+
+    def test_point_counts_may_be_expressions(self):
+        # R-lang-16: "Expressions can be used when specifying device or analysis instance parameter values"
+        # (ref19 p.474): lin=/dec=/log= may read parameters; the value is a positive integer no sweep or alter changes
+        nl = self.parse("// t\nparameters npts=10 fstop=1M\nv1 (in 0) vsource dc=0 mag=1\nr1 (in out) resistor r=1k\n"
+                        "c1 (out 0) capacitor c=1u\nac1 ac start=1 stop=fstop dec=npts\ndc1 dc dev=v1 start=0 stop=1 lin=2*2\n")
+        a = {x.name: x for x in nl.analyses}
+        self.assertEqual((a["ac1"].sweep.mode, a["ac1"].sweep.count), ("dec", 10))
+        self.assertEqual((a["dc1"].sweep.mode, a["dc1"].sweep.count), ("lin", 4))
+        self.fails("// t\nparameters npts=2.5\nac1 ac start=1 stop=10 dec=npts\n", "dec=npts must be a positive integer")
+        self.fails("// t\nparameters npts=10\nsw sweep param=npts values=[5 10] {\n ac1 ac start=1 stop=10 dec=npts\n}\n",
+                   "dec=npts reads npts, which a sweep or alter changes")
+        self.fails("// t\nparameters npts=10\nac1 ac start=1 stop=10 dec=npts\nal alter param=npts value=20\n",
+                   "dec=npts reads npts, which a sweep or alter changes")
 
     def test_valuesfile(self):
         self.write("vals.txt", "1 2\n3\n")
@@ -664,6 +888,23 @@ class TestSpiceMode(Case):
         self.assertEqual((j["esource"].value, j["f1"].ctrl, j["f1"].value), (Num(-1.0), ["vs"], Num(2.0)))
         self.fails("// t\nesource (out 0 in 0) vcvs\n", "esource vcvs needs gain=")                 # Spectre: gain= is required
         self.fails("// t\nf1 (o3 0) cccs gain=2\n", "needs probe=")
+
+    def test_spice_mode_coupled_inductors(self):
+        # R-lang-6: the SPICE2G K line `K1 L1 L2 0.5` carries its coupling and inductors positionally (spice.py's
+        # value and ctrl, §4.3 "as spice.py"); it was refused as "needs coupling= ind1= ind2="
+        nl = self.parse("SPICE-mode coupled inductors\nV1 a 0 AC 1\nR1 a b 50\nL1 b 0 1u\nL2 c 0 4u\nK1 L1 L2 0.5\n"
+                        "R2 c 0 50\n.ac dec 10 1meg 100meg\n.end\n", name="k1.sp")
+        k1 = self.insts(nl)["k1"]
+        self.assertEqual((k1.kind, k1.prim, k1.value, k1.ctrl, k1.params), ("k", "mutual_inductor", Num(0.5), ["l1", "l2"], {}))
+        sp = self.parse("// t\nv1 (a 0) vsource mag=1\nr1 (a b) resistor r=50\nl1 (b 0) inductor l=1u\nl2 (c 0) inductor l=4u\n"
+                        "k1 mutual_inductor coupling=0.5 ind1=l1 ind2=l2\nr2 (c 0) resistor r=50\n")
+        k2 = self.insts(sp)["k1"]
+        self.assertEqual((k2.kind, k2.prim, k2.value, k2.ctrl, k2.params), (k1.kind, k1.prim, k1.value, k1.ctrl, k1.params))
+        self.fails("* t\nL1 b 0 1u\nK1 L1 L9 0.5\n.end\n", "l9 is not an inductor of the same scope", name="k2.sp")
+        nl = self.parse("* t\n.subckt xf p s\nL1 p 0 1u\nL2 s 0 1u\nK1 L1 L2 0.9\n.ends\nX1 a b xf\nV1 a 0 1\n.end\n",
+                        name="k3.sp")
+        k = [it for it in nl.subckts()["xf"].body if isinstance(it, ir.Instance) and it.kind == "k"][0]
+        self.assertEqual((k.value, k.ctrl), (Num(0.9), ["l1", "l2"]))
 
     def test_a_spice_mode_netlist_saves_allpub(self):
         # the SPICE Reader inserts `sppSaveOptions options save=allpub` into every converted netlist (UG p.47; §4.3)
@@ -723,6 +964,27 @@ class TestSpiceMode(Case):
         self.fails("// t\nsimulator lang=spice\n.subckt cell a b\n.param body=2\nr1 a b body\n.ends\nx1 n 0 cell body=3\n", "body is not a parameter")
         self.fails("// t\nsimulator lang=spice\nv2 b 0 sin(0 1)\n", "SIN without a frequency")
 
+    def test_definitions_are_defined_once_whatever_the_language(self):
+        # R-lang-13: a second model or subckt of a name in the top level is an error in either order of the two
+        # languages, and across two SPICE regions (the later one silently won)
+        self.fails("// t\nsubckt load (a)\nr1 (a 0) resistor r=1k\nends load\nsimulator lang=spice\n.subckt load a\n"
+                   "r1 a 0 3k\n.ends\nsimulator lang=spectre\nv1 (n 0) vsource dc=1\nx1 (n) load\n",
+                   "subckt load is defined twice")
+        self.fails("// t\nsimulator lang=spice\n.subckt load a\nr1 a 0 3k\n.ends\nsimulator lang=spectre\nsubckt load (a)\n"
+                   "r1 (a 0) resistor r=1k\nends load\nv1 (n 0) vsource dc=1\nx1 (n) load\n", "subckt load is defined twice")
+        self.fails("// t\nmodel dm diode is=1e-14\nsimulator lang=spice\n.model dm d is=1e-12\nsimulator lang=spectre\n"
+                   "i1 (0 a) isource dc=1m\nd1 (a 0) dm\n", "model dm is defined twice")
+        self.fails("// t\nsimulator lang=spice\n.model dm d is=1e-14\nsimulator lang=spectre\ni1 (0 a) isource dc=1m\n"
+                   "simulator lang=spice\n.model dm d is=1e-12\nsimulator lang=spectre\nd1 (a 0) dm\n",
+                   "model dm is defined twice")
+
+    def test_star_comment_after_an_element(self):
+        # R-lang-22: a '*' outside an expression is a comment in SPICE mode (UG p.52); `.param x = 2 * 3` stays an
+        # error (never x=2)
+        nl = self.parse("star comment test\nv1 1 0 1\nr1 1 0 1k * load resistor\nr2 1 0 2k\n.op\n.end\n", name="st1.cir")
+        self.assertEqual((self.insts(nl)["r1"].value, self.insts(nl)["r2"].value), (Num(1000.0), Num(2000.0)))
+        self.fails("star comment test\n.param x = 2 * 3\nv1 1 0 x\n.op\n.end\n", "* has no value", name="st4.cir")
+
     def test_spice_uses_a_spectre_subckt_defined_later(self):
         nl = self.parse("// t\nsimulator lang=spice\nx1 n 0 scell k=3\nv1 n 0 1\nsimulator lang=spectre\nsubckt scell (a b)\n"
                         "parameters k=1\nr1 (a b) resistor r=k*1k\nends scell\n")
@@ -734,6 +996,32 @@ class TestSpiceMode(Case):
         self.assertEqual(nl.values["r0"], 1000.0 * math.pow(0.5, 1.5))
         p = {it.name: it.expr for it in nl.body if isinstance(it, ir.Param)}
         self.assertEqual(E.to_xyce(p["r0"]), "1000.0*pow(x, 1.5)")
+
+    def test_upper_case_global_is_folded(self):
+        # R-lang-1: SPICE mode lower-cases everything outside quotes (UG p.52), the .GLOBAL names too, so the
+        # global vdd is the subckt's vdd (it was 'VDD', and every instance of load got a private floating vdd)
+        nl = self.parse("UPPER-CASE .GLOBAL IN SPICE MODE\n.GLOBAL VDD\nVDD VDD 0 DC 1\nX1 OUT LOAD\nR2 OUT 0 1K\n"
+                        ".SUBCKT LOAD A\nR1 VDD A 1K\n.ENDS\n.OP\n.END\n", name="uglobal.sp")
+        self.assertEqual(nl.globals, ["vdd"])
+        self.assertEqual(nl.subckts()["load"].body[0].nodes, ["vdd", "a"])
+        self.write("cells.sp", ".GLOBAL VDD VSS\n.SUBCKT INV A Y\nR1 VDD Y 1K\nR2 Y VSS 1K\n.ENDS\n")
+        nl = self.parse('// t\ninclude "cells.sp"\nv1 (vdd 0) vsource dc=1\nv2 (vss 0) vsource dc=0\nxu (a y) inv\n')
+        self.assertEqual(nl.globals, ["vdd", "vss"])
+
+    def test_upper_case_control_names_are_folded(self):
+        # R-lang-4: .dc source names, .ic/.nodeset nodes and .print items are folded like every other SPICE-mode
+        # name (UG p.52; the UG's own `.DC VDR 0 5 0.1 VG 0 2 0.1`, p.47)
+        nl = self.parse("* t\nVIN IN 0 DC 0\nR1 IN OUT 1K\nC1 OUT 0 1N\n.IC V(OUT)=0.5\n.NODESET V(IN)=0\n"
+                        ".PRINT TRAN V(OUT) I(VIN)\n.TRAN 10N 2U UIC\n.END\n", name="upper.sp")
+        self.assertEqual(nl.ics, {"out": Num(0.5)})
+        self.assertEqual(nl.nodesets, {"in": Num(0.0)})
+        self.assertEqual(nl.saves[0].items, ["out", "vin:1"])
+        nl = self.parse("* t\nV1 a 0 0\nR1 a 0 1k\n.dc V1 0 1 0.5\n.end\n", name="dcu.sp")
+        sw = nl.analyses[0].sweep
+        self.assertEqual((sw.target, sw.name, sw.param), ("dev", "v1", "dc"))
+        nl = self.parse("* t\n.param RV=1k\nV1 a 0 1\nR1 a 0 RV\n.dc RV 1k 2k 1k\n.end\n", name="dcp.sp")
+        sw = nl.analyses[0].sweep
+        self.assertEqual((sw.target, sw.param), ("param", "rv"))
 
 
 # -- §3.8-§3.9 instances and cards ---------------------------------------------------------------------------
@@ -807,6 +1095,26 @@ class TestMasters(Case):
         self.fails("// t\nmodel nch bsim3v3 type=n\nm1 (d g s) nch\n", "needs 4 terminals")
         self.fails("// t\nmodel nch mos1 type=n\nm1 (d g s b) mos1\n", "model master; instantiate a model")
 
+    def test_spectre_level_values(self):
+        # R-plan-12: the masters' own level selectors: bsim3v3 level=11, 49 or 53 ("The available level are 11, 49
+        # and 53", ref5 p.197), bsim4 level=14 (ref5 p.224), each the DISPATCH level; in SPICE mode the card's
+        # level chose the master (§4.3; .MODEL N1 NMOS +Level=11 is UG p.298's BSIM3v3 card)
+        nl = self.parse("// t\nmodel n1 bsim3v3 type=n level=11\nmodel n2 bsim3v3 type=n level=53\nmodel n3 bsim3v3 type=n "
+                        "level=49\nmodel n4 bsim4 type=n level=14\n")
+        m = nl.models()
+        self.assertEqual([(m[k].level, "level" in m[k].params) for k in ("n1", "n2", "n3", "n4")],
+                         [(49.0, False), (49.0, False), (49.0, False), (54.0, False)])
+        self.fails("// t\nmodel n bsim3v3 type=n level=12\n", "level=12.0 is not one of Spectre's levels 11 49 53 of bsim3v3",
+                   "unknown bsim3v3 level")
+        self.fails("// t\nmodel n bsim4 type=n level=54\n", "level=54.0 is not Spectre's level 14 of bsim4", "unknown bsim4 level")
+        nl = self.parse("* t\n.model a nmos level=11\n.model b nmos level=53\n.model c pmos level=54\n.model e nmos level=49\n"
+                        "m1 d g 0 0 a w=1u l=1u\nm2 d g 0 0 b w=1u l=1u\nm3 d g 0 0 c w=1u l=1u\nm4 d g 0 0 e w=1u l=1u\n"
+                        ".end\n", name="lv.sp")
+        m = nl.models()
+        self.assertEqual([(m[k].prim, m[k].level, "level" in m[k].params) for k in "abce"],
+                         [("bsim3v3", 49.0, False), ("bsim3v3", 49.0, False), ("bsim4", 54.0, False),
+                          ("bsim3v3", 49.0, False)])
+
     def test_model_groups(self):
         nl = self.parse("// t\nmodel nch bsim3v3 {\n 1: type=n lmin=1u lmax=2u wmin=1u wmax=10u vtho=0.4\n"
                         " 2: type=n lmin=2u lmax=10u vtho=0.45\n}\nm1 (d g s b) nch w=2u l=1.5u\nm2 (d g s b) nch\nv1 (d 0) vsource dc=1\n")
@@ -816,7 +1124,10 @@ class TestMasters(Case):
                          ("nch", 1, "spectre", "bsim3v3", "nmos"))
         self.assertEqual(set(m["nch.2"].params), {"lmin", "lmax", "vtho"})          # type is folded into kind
         self.assertEqual(self.insts(nl)["m1"].master, "nch")
-        self.assertEqual(self.insts(nl)["m2"].params["w"], Num(5e-6))
+        # D4 (phase 2c): an instance of a model group without w or l gets no master default; plan.build refuses it
+        # (test_spectre_plan.TestParsedDecks).  This assertion read the default w=5u the parser wrote before.
+        self.assertFalse({"w", "l"} & set(self.insts(nl)["m2"].params), self.insts(nl)["m2"].params)
+        self.assertFalse(self.notes(nl, NOTE, "m2: w not given"))
         self.fails("// t\nmodel nch bsim3v3 {\n 1: type=n w=1u lmin=1u lmax=2u\n}\nm1 (d g s b) nch\n",
                    "model-group card gives w for an instance without w")
 
@@ -842,10 +1153,66 @@ class TestMasters(Case):
         self.fails("// t\nmodel nch bsimsoi type=n\n", "master bsimsoi is not a v1 primitive")
         self.fails("// t\ne1 (o 0 i 0) vcvs gain=2 type=and\n", "type=and")
 
+    def test_local_models_are_scoped(self):
+        # R-lang-2: a model defined in a subckt is local to it (ref19 pp.533-536): each instance takes the folds,
+        # the master and the prim of the card its own scope sees (they came from the last same-named card)
+        def body(nl, sub):
+            return {it.name: it for it in nl.subckts()[sub].body if isinstance(it, ir.Instance)}
+        nl = self.parse("// t\nsubckt sa (a)\nmodel rm resistor r=1k\nr1 (a 0) rm\nends sa\nsubckt sb (a)\n"
+                        "model rm resistor r=2k\nr1 (a 0) rm\nends sb\nva (na 0) vsource dc=1\nvb (nb 0) vsource dc=1\n"
+                        "x1 (na) sa\nx2 (nb) sb\n")
+        self.assertEqual((body(nl, "sa")["r1"].value, body(nl, "sb")["r1"].value), (Num(1000.0), Num(2000.0)))
+        nl = self.parse("// t\nmodel rm resistor r=1k\nsubckt sb (a)\nmodel rm resistor r=2k\nr1 (a 0) rm\nends sb\n"
+                        "va (na 0) vsource dc=1\nr0 (na 0) rm\nx2 (nb) sb\n")
+        self.assertEqual((self.insts(nl)["r0"].value, body(nl, "sb")["r1"].value), (Num(1000.0), Num(2000.0)))
+        nl = self.parse("// t\ninline subckt rpoly (a b)\nparameters sq=1\nmodel rm resistor r=200*sq\nrpoly (a b) rm\n"
+                        "ends rpoly\ninline subckt rdiff (a b)\nparameters sq=1\nmodel rm resistor r=50*sq\nrdiff (a b) rm\n"
+                        "ends rdiff\nx1 (na 0) rpoly sq=5\nx2 (nb 0) rdiff sq=5\n")
+        self.assertEqual(body(nl, "rpoly")["rpoly"].value, Binary("*", Num(200.0), Name("sq")))
+        self.assertEqual(body(nl, "rdiff")["rdiff"].value, Binary("*", Num(50.0), Name("sq")))
+        nl = self.parse("// t\nsubckt sa (a)\nmodel rm resistor r=1k\nr1 (a 0) rm\nends sa\nsubckt sb (a)\n"
+                        "model rm capacitor c=1p\nc1 (a 0) rm\nends sb\nx1 (na) sa\nx2 (nb) sb\n")
+        c1, r1 = body(nl, "sb")["c1"], body(nl, "sa")["r1"]
+        self.assertEqual((c1.kind, c1.prim, c1.value), ("c", "capacitor", Num(1e-12)))
+        self.assertEqual((r1.kind, r1.prim, r1.value), ("r", "resistor", Num(1000.0)))
+        nl = self.parse("// t\nsubckt sa (d g s b)\nmodel nch mos1 type=n w=2u l=1u\nm1 (d g s b) nch\nends sa\n"
+                        "subckt sb (d g s b)\nmodel nch mos1 type=n w=4u l=2u\nm1 (d g s b) nch\nends sb\n")
+        self.assertEqual([(body(nl, s)["m1"].params["w"], body(nl, s)["m1"].params["l"]) for s in ("sa", "sb")],
+                         [(Num(2e-6), Num(1e-6)), (Num(4e-6), Num(2e-6))])
+
     def test_card_parameter_dispositions_stay_on_the_card(self):
         nl = self.parse("// t\nmodel d1 diode hcomp=1 cjo=1p\nmodel m3 mos3 type=n capmod=none\n")
         self.assertEqual(nl.models()["d1"].params["hcomp"], Num(1.0))          # S3's model_params decides the error rows
         self.assertEqual(nl.models()["m3"].params["capmod"], Str("none"))        # an enumeration (§4.1 item 11)
+
+
+class TestTnomOnXyce(Case):
+    """R-lang-7 (§3.5): Xyce has temp but no tnom, so the Xyce emitter substitutes the deck's tnom for
+    Name("$tnom") before printing (the printer's PrintError stays the guard).  The parse is S1's; the
+    substitution is the emitter's (vamos/netlist/xyce.py _Deck.deck_tnom, applied in xv and bx)."""
+
+    def decks(self, text):
+        from vamos.netlist import plan as PL, signals as SG
+        from vamos.spectre import run_xyce
+        from vamos.spectre.job import Settings
+        nl = self.parse(text)
+        pl = PL.build(nl, "xyce", Settings())
+        nl2, sm, _notes = SG.resolve(nl, pl)
+        decks, _names = run_xyce.render_decks(nl2, pl, sm)
+        return decks
+
+    def test_tnom_is_the_decks_tnom_on_xyce(self):
+        # UG p.93's example, ref19 p.507: r=(temp-tnom)*15+10k under options TEMP=55; a parameter and a user
+        # function reading tnom too (ref19 p.481)
+        decks = self.decks("simulator lang=spectre\nmodel res resistor\nreal tk(real x) { return x+temp-tnom; }\n"
+                           "parameters rt=1k*(1+0.01*(temp-tnom))\nv1 (1 0) vsource dc=1\n"
+                           "r1 1 0 res r=(temp-tnom)*15+10k\nr2 1 0 resistor r=rt\nr3 1 0 resistor r=tk(1k)\n"
+                           "o1 options TEMP=55\nop1 dc\n")
+        text = decks[0].text
+        for name in ("r1", "r2", "r3"):
+            line = [l for l in text.splitlines() if l.lower().startswith(name + " ")][0]
+            self.assertNotIn("tnom", line.lower())
+        self.assertIn("27", [l for l in text.splitlines() if l.lower().startswith("r1 ")][0])
 
 
 class TestSources(Case):

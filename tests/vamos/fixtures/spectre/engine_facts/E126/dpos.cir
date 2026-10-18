@@ -1,0 +1,8 @@
+* a diode line with a positional area alone
+.model dm d is=1e-14
+V1 in 0 DC 0.6
+R1 in a 10.0
+D1 a 0 dm 4e-07
+.OP
+.PRINT DC FORMAT=RAW FILE=dpos.raw V(A)
+.end

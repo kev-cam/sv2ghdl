@@ -11,7 +11,12 @@ TestExitStatus (11)     one failing analysis among good ones, a failing sweep po
                         data file, the "terminated prematurely" trailer); SIGINT during a long tran
                         (status 3: op1 and the partial tr1 written and listed, the warning, the
                         trailer); SIGUSR1 (the status line naming the running analysis; the run
-                        completes) (§2.7, §7.1, §7.2, §8.2, §8.7)
+                        completes) (§2.7, §7.1, §7.2, §8.2, §8.7); phase 2c: the engine killed from
+                        outside, then a SIGINT while tr1 is converted: a first signal (R-run-9)
+TestScreenGone (11, 14) phase 2c, D1: the terminal hangs up, Ctrl-C kills the tee the screen goes through,
+                        stdout closed at start (>&-), a reader that stops after one line (| head -1): the
+                        run goes on without the screen and earns its status, nothing on stderr, no
+                        traceback file (R-run-1, R-run-2)
 TestAde (12)            the §9 ADE command line: psf/ holds logFile and the data files beside ADE's own
                         file, spectre.out ends with the trailer, spectre.ic and spectre.fc hold every
                         node (§8.6)
@@ -27,6 +32,7 @@ import importlib.util
 import math
 import os
 import re
+import select
 import signal
 import subprocess
 import threading
@@ -36,6 +42,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import psfcheck  # noqa: E402
 import spectre_testlib as T  # noqa: E402
+from vamos_testlib import procs_under  # noqa: E402
 from spectre_testlib import (LAUNCHER, SpectreCase, needs_flow, needs_ngspice, needs_vacask, needs_vacask_rawread,
                              ngspice_bin, spectre_fixture, vacask_src)  # noqa: E402
 
@@ -51,6 +58,21 @@ def _default_signals() -> None:
         s = getattr(signal, name, None)
         if s is not None:
             signal.signal(s, signal.SIG_DFL)
+
+
+def _engine_procs(d: str, name: str) -> List[Tuple[int, str]]:
+    """(pid, argv[0]) of the processes whose cwd is under d and whose program is named `name` (the engine
+    runs in the run directory)."""
+    out = []
+    for pid in procs_under(d):
+        try:
+            with open("/proc/%d/cmdline" % pid, "rb") as fh:
+                argv0 = fh.read().split(b"\0", 1)[0].decode("utf-8", "replace")
+        except OSError:
+            continue
+        if name in os.path.basename(argv0):
+            out.append((pid, argv0))
+    return out
 
 
 def failure_messages(text: str, name: str, severities: Sequence[str] = ("error", "warning")) -> List[str]:
@@ -316,15 +338,17 @@ class TestExitStatus(CliCase):
                 self.check_failed_run(d, p, "deck.scs", "op2", ["op1-dc", "op3-dc", "ac1-ac"])
 
     def test_a_failing_sweep_point(self):
-        """The leaf before the failed point written; the parent lists the complete prefix (§8.2)."""
+        """The leaf before the failed point written; the parent lists the complete prefix (§8.2).  Since phase 2c
+        the sweep starts at the nominal g=0.5 again (E126 fixed, R-tests-1): out = -g/(1-g) = -1 there; it started
+        at 0.75 (out -3) to dodge E126 before."""
         for engine in self.each_engine():
             with self.subTest(engine=engine):
                 d, p = self.run_case(self.CASE, engine, "sweep_fail.scs")
                 log = self.check_failed_run(d, p, "sweep_fail.scs", "op1", ["sw_op1-sweep", "sw-000_op1-dc", "op9-dc"])
                 self.assertEqual(len(log.children["sw_op1-sweep"]), 1)
-                self.assertEqual(log.by_key["sw-000_op1-dc"].props.get("g"), 0.75)
+                self.assertEqual(log.by_key["sw-000_op1-dc"].props.get("g"), 0.5)
                 leaf = psfcheck.check(os.path.join(self.results(d, "sweep_fail.scs"), "sw-000_op1.dc"))
-                self.assertAlmostEqual(leaf.value("out"), -3.0, places=9)
+                self.assertAlmostEqual(leaf.value("out"), -1.0, places=9)
 
     def test_a_tran_that_aborts_mid_run(self):
         """Status 1, not 0 (E66): the engine's partial tran is a failure, neither written nor listed."""
@@ -383,6 +407,39 @@ class TestExitStatus(CliCase):
                 self.assertTrue(0.0 < xs[-1] < 10.0, xs[-1])
                 self.assertEqual(tr.header["stop"], 10.0)                      # the planned stop (§8.3)
 
+    def test_after_the_engine_is_ended_from_outside_a_first_signal_finishes_the_file(self):
+        """R-run-9 (phase 2c): the engine killed from outside vamos during the tran (status 3, and vamos got no
+        signal), then one SIGINT while the interrupted tr1 is converted: that is the user's first signal, so the
+        file in hand is finished and listed (before: it counted as a second one, and tr1 was dropped)."""
+        for engine in self.each_engine():
+            with self.subTest(engine=engine):
+                d = self.copy_case(os.path.join(E2E, self.CASE), "killconv_" + engine)
+                p, lines = self.start(d, ["sigint.scs"], engine)
+                if self.wait_for(d, "vamos_a2.raw", p, min_bytes=8 << 20) is None:
+                    self._stop(p)
+                    self.fail("the tran never got going (no <run>/vamos_a2.raw of 8 MiB):\n" + "".join(lines))
+                name = "vacask" if engine == "vacask" else "Xyce"
+                pids = [pid for pid, _cmd in _engine_procs(d, name)]
+                self.assertTrue(pids, "no %s process under %s" % (name, d))
+                for pid in pids:
+                    os.kill(pid, signal.SIGKILL)                   # from outside vamos
+                tmp = os.path.join(d, "sigint.raw", "tr1.tran.tran.vamos-tmp")
+                deadline = time.time() + 300
+                while not os.path.exists(tmp) and p.poll() is None and time.time() < deadline:
+                    time.sleep(0.01)
+                if not os.path.exists(tmp):
+                    self._stop(p)
+                    self.fail("tr1's conversion was never seen (%s):\n%s" % (tmp, "".join(lines)))
+                os.kill(p.pid, signal.SIGINT)
+                rc, out = self.finish(p, lines, 300)
+                self.assertEqual(rc, 3, out)
+                self.assertIn("SIGKILL from outside vamos", out)
+                res = os.path.join(d, "sigint.raw")
+                self.assertEqual(psfcheck.check_logfile(os.path.join(res, "logFile")).keys(), ["op1-dc", "tr1-tran"],
+                                 out)
+                self.assertGreaterEqual(psfcheck.check(os.path.join(res, "tr1.tran.tran")).points, 2)
+                self.assertIn("stopping after `tr1' is written; a second interrupt drops it", out)       # D3
+
     def test_sigusr1_prints_a_status_line_and_the_run_continues(self):
         for engine in self.each_engine():
             with self.subTest(engine=engine):
@@ -398,9 +455,154 @@ class TestExitStatus(CliCase):
                 status = [ln for ln in out.splitlines() if ln.startswith("spectre status: ")]
                 self.assertTrue(status, "no status line:\n" + out)
                 self.assertIn("tr1", status[0])
+                # R-tests-4 (phase 2c): the line printed while the engine runs the tran, not the conversion's
+                # ("no analysis running, writing the results of `tr1'"), with the engine's progress
+                self.assertIn("analysis `tr1' running", status[0])
+                self.assertIn("time = " if engine == "vacask" else "Xyce deck", status[0])
                 self.assert_completes(out)
                 tr = psfcheck.check(os.path.join(d, "usr1.raw", "tr1.tran.tran"))
                 self.assertAlmostEqual(tr.sweep_values()[-1], 0.5, delta=1e-12)
+
+
+# -- phase 2c, D1: a screen that goes away (e2e 11's sigint.scs, e2e 14's x.scs) -----------------------------------
+
+def _drain(fd: int, stop: threading.Event, into: List[bytes]) -> None:
+    """Read a pty master until `stop` is set (select with a timeout, so the master can be closed after)."""
+    while not stop.is_set():
+        try:
+            ready, _, _ = select.select([fd], [], [], 0.05)
+            if ready:
+                into.append(os.read(fd, 65536))
+        except OSError:
+            return
+
+
+@needs_flow
+class TestScreenGone(CliCase):
+    """R-run-1, R-run-2 (D1, interim choice (a)): the screen goes away and the run goes on without it,
+    earning its status: 3 after a hangup or a Ctrl-C (the finished and the interrupted analyses converted),
+    0 for a run that completes; nothing on stderr, no traceback file, never Python's exit status 120."""
+
+    STATUS = "11_exit_status"
+    QUICK = "14_defaults_stdin"
+
+    def env(self) -> Dict[str, str]:
+        env = self.child_env()
+        for v in T.UNSET_VARS:
+            env.pop(v, None)
+        return env
+
+    def tracebacks(self, d: str) -> List[str]:
+        """The traceback files of a run: in its run directories, and in TMPDIR (child_env's, isolated)."""
+        return (glob.glob(os.path.join(d, "*.run.*", "vamos-spectre.traceback"))
+                + glob.glob(os.path.join(self.tmp, "tmp", "vamos-spectre-*.traceback")))
+
+    def test_a_terminal_that_hangs_up(self):
+        """vamos on a pty that is its controlling terminal; the master closed while the tran runs (SIGHUP,
+        then EIO on every write to the terminal): status 3, op1 and the partial tr1 listed (before: 120)."""
+        import fcntl
+        import termios
+        for engine in self.each_engine():
+            with self.subTest(engine=engine):
+                d = self.copy_case(os.path.join(E2E, self.STATUS), "hangup_" + engine)
+                master, slave = os.openpty()
+
+                def pre() -> None:
+                    _default_signals()
+                    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+                p = subprocess.Popen([LAUNCHER, "-spectre", "sigint.scs", "--vamos-analog=" + engine], cwd=d,
+                                     env=self.env(), stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
+                                     preexec_fn=pre)
+                os.close(slave)
+                self.addCleanup(self._stop, p)
+                stop = threading.Event()
+                screen: List[bytes] = []
+                reader = threading.Thread(target=_drain, args=(master, stop, screen), daemon=True)
+                reader.start()
+                try:
+                    raw = self.wait_for(d, "vamos_a2.raw", p, min_bytes=65536)
+                finally:
+                    stop.set()
+                    reader.join(timeout=30)
+                    os.close(master)                           # the hangup
+                text = b"".join(screen).decode("utf-8", "replace")
+                if raw is None:
+                    self.fail("the tran never got going (no <run>/vamos_a2.raw of 64 KiB):\n" + text)
+                rc = p.wait(timeout=300)
+                self.assertEqual(rc, 3, text)
+                res = os.path.join(d, "sigint.raw")
+                self.assertEqual(psfcheck.check_logfile(os.path.join(res, "logFile")).keys(), ["op1-dc", "tr1-tran"])
+                self.assertEqual(self.tracebacks(d), [])
+
+    def test_ctrl_c_under_tee(self):
+        """`spectre sigint.scs | tee screen.log` and a Ctrl-C (SIGINT to the pipeline's process group): tee dies,
+        vamos converts without its screen: status 3, op1 and the partial tr1 listed, stderr empty (before: 120,
+        'Exception ignored ... BrokenPipeError' on stderr, nothing converted)."""
+        for engine in self.each_engine():
+            with self.subTest(engine=engine):
+                d = self.copy_case(os.path.join(E2E, self.STATUS), "tee_" + engine)
+                tee = subprocess.Popen(["tee", "screen.log"], cwd=d, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL,
+                                       preexec_fn=lambda: (_default_signals(), os.setpgid(0, 0)))
+                self.addCleanup(self._stop, tee)
+                p = subprocess.Popen([LAUNCHER, "-spectre", "sigint.scs", "--vamos-analog=" + engine], cwd=d,
+                                     env=self.env(), stdin=subprocess.DEVNULL, stdout=tee.stdin, stderr=subprocess.PIPE,
+                                     universal_newlines=True, errors="replace",
+                                     preexec_fn=lambda: (_default_signals(), os.setpgid(0, tee.pid)))
+                tee.stdin.close()                              # vamos alone writes into the pipe
+                self.addCleanup(self._stop, p)
+                errs: List[str] = []
+                reader = threading.Thread(target=lambda: errs.extend(p.stderr), daemon=True)
+                reader.start()
+                raw = self.wait_for(d, "vamos_a2.raw", p, min_bytes=65536)
+                if raw is None:
+                    self.fail("the tran never got going (no <run>/vamos_a2.raw of 64 KiB)")
+                os.killpg(tee.pid, signal.SIGINT)              # Ctrl-C: the whole foreground process group
+                rc = p.wait(timeout=300)
+                reader.join(timeout=30)
+                self.assertEqual(tee.wait(timeout=60), -signal.SIGINT)
+                self.assertEqual((rc, "".join(errs)), (3, ""))
+                res = os.path.join(d, "sigint.raw")
+                self.assertEqual(psfcheck.check_logfile(os.path.join(res, "logFile")).keys(), ["op1-dc", "tr1-tran"])
+                self.assertEqual(self.tracebacks(d), [])
+
+    def test_a_closed_stdout(self):
+        """`spectre x.scs >&-`: status 0 and the results (before: exit 2, nothing simulated, two traceback
+        files in TMPDIR)."""
+        for engine in self.each_engine():
+            with self.subTest(engine=engine):
+                d = self.copy_case(os.path.join(E2E, self.QUICK), "closed_" + engine)
+                p = subprocess.run([LAUNCHER, "-spectre", "x.scs", "--vamos-analog=" + engine], cwd=d, env=self.env(),
+                                   stdin=subprocess.DEVNULL, stderr=subprocess.PIPE, universal_newlines=True,
+                                   errors="replace", timeout=600, preexec_fn=lambda: (_default_signals(), os.close(1)))
+                self.assertEqual((p.returncode, p.stderr), (0, ""))
+                self.assertEqual(psfcheck.check_logfile(os.path.join(d, "x.raw", "logFile")).keys(),
+                                 ["op1-dc", "tr1-tran"])
+                self.assertEqual(glob.glob(os.path.join(d, "x.run.*")), [])
+                self.assertEqual(self.tracebacks(d), [])
+
+    def test_a_reader_that_stops_after_the_first_line(self):
+        """`spectre x.scs | head -1` (D1 (a)): the run goes on without the screen: status 0, the results, no
+        run directory left, stderr empty, no traceback file (before: 120 and nothing converted)."""
+        for engine in self.each_engine():
+            with self.subTest(engine=engine):
+                d = self.copy_case(os.path.join(E2E, self.QUICK), "head_" + engine)
+                p = subprocess.Popen([LAUNCHER, "-spectre", "x.scs", "--vamos-analog=" + engine], cwd=d, env=self.env(),
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     universal_newlines=True, errors="replace", start_new_session=True,
+                                     preexec_fn=_default_signals)
+                self.addCleanup(self._stop, p)
+                first = p.stdout.readline()
+                p.stdout.close()                               # head -1 is done: the pipe has no reader
+                rc = p.wait(timeout=600)
+                err = p.stderr.read()
+                p.stderr.close()
+                self.assertTrue(first.startswith("vamos "), first)
+                self.assertEqual((rc, err), (0, ""))
+                self.assertEqual(psfcheck.check_logfile(os.path.join(d, "x.raw", "logFile")).keys(),
+                                 ["op1-dc", "tr1-tran"])
+                self.assertEqual(glob.glob(os.path.join(d, "x.run.*")), [])
+                self.assertEqual(self.tracebacks(d), [])
 
 
 # -- e2e 12: the ADE command line (§9) --------------------------------------------------------------------------

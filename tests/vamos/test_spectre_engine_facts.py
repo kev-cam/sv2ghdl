@@ -1,8 +1,9 @@
 """Engine facts: the T1 tier of docs/VAMOS_SPECTRE_DESIGN.md (§11 T1, §13).
 
 Every §13 row that its introduction lists as an engine fact (E1-E13, E15-E43, E45's engine
-half, E47, E51, E63-E75, E77, E81, E82, E84, E95, E96; and E102-E109 and E114, harvested in
-phase 2) lives in
+half, E47, E51, E63-E75, E77, E81, E82, E84, E95, E96; E102-E109 and E114, harvested in
+phase 2; E115-E129 and E131, harvested in phase 2c, with R-emit-19's added facts in E116,
+E120 and E125, and E105's and E106's time points stated directly) lives in
 fixtures/spectre/engine_facts/E<nn>/: the deck(s) the fact was observed on and an
 `expect.json` naming the tool, the command line and the facts the row states (values with
 tolerances, messages, exit status).  This module runs them on today's engines through
@@ -21,23 +22,30 @@ expect.json
   "runs": [ { ... } ],                                    # one entry per engine run
   "cross": [ { ... } ]                                    # optional: checks across runs
 }
-A run: name (the test id suffix), tool (vacask | xyce | openvaf | cpp | exe), deck (the
-input file, copied with every other file of the directory into a scratch copy), args
-(extra argv; "{deck}" stands for the deck, which is appended when absent), cwd (a
-sub-directory of the copy to run in), env ({tmp} is the scratch copy), gates (extra gate
-names), launcher ("second": the other Xyce launcher, /usr/local/bin/Xyce), plain_env (no
-env_for and no LD_LIBRARY_PATH), subst (files in which @CWD@ becomes the scratch copy's
-path), program (tool exe), timeout, signal ({after, name, grace}: the run is signalled),
-status (an int, a list of ints, or a signal name for a death by that signal), output
-({contains, absent, regex} on stdout+stderr), stderr ({contains, absent, empty}), files
-({present, absent}), checks (below), record_only (observed and logged, never asserted),
-note.
+A run: name (the test id suffix), tool (vacask | xyce | openvaf | cpp | exe | python: this
+interpreter on a script of the row), deck (the input file, copied with every other file of the
+directory into a scratch copy), args (extra argv; "{deck}" stands for the deck, which is
+appended when absent), cwd (a sub-directory of the copy to run in, or a directory read in place
+such as {cmc}/<tree>/code: the run's logs then stay in the copy), env, gates (extra gate names),
+launcher ("second": the other Xyce launcher, /usr/local/bin/Xyce), plain_env (no env_for and no
+LD_LIBRARY_PATH), subst (files in which @CWD@ becomes the scratch copy's path, @CMC@
+VAMOS_CMC_EXAMPLES and @VACASK_SRC@ spectre_testlib.vacask_src()), links and symlinks ({new:
+existing}: hard and symbolic links made in the copy before the run), program (tool exe),
+timeout, signal ({after, name, grace}: the run is signalled), status (an int, a list of ints, or
+a signal name for a death by that signal), output ({contains, absent, regex} on stdout+stderr),
+stderr ({contains, absent, empty}), files ({present, absent}), checks (below), record_only
+(observed and logged, never asserted), note.  In args, env values and cwd, {tmp} is the scratch
+copy, {repo} the repository, {psf_parser} spectre_testlib.psf_parser_dir(), {vacask_src}
+spectre_testlib.vacask_src() and {cmc} VAMOS_CMC_EXAMPLES.
 A check names a file: "raw" (a rawfile, with "plot" index; keys names, names_include,
 names_exclude, names_sorted, ambiguous (names Raw.index cannot tell apart, E84), points,
 min_points, plots, declared, no_header, plotname_contains, col + row|at|select|column|minus
-+ value|values + rel|abs, restarts [+ axis], readable, fix_points, max_last_time), "prn" (a
-Xyce standard table; keys columns, rows, min_rows, col + row + value, column, index) or
-"text" (keys contains, absent, regex, line + equals, first_unmarked).  A run may also carry
++ value|values + rel|abs, restarts [+ axis], readable, fix_points, max_last_time, times: the
+sweep points in [from, to] with count, min_step and max_step ranges and a gap [t, d], E105 and
+E106), "prn" (a Xyce standard table; keys columns, rows, min_rows, col + row + value, column,
+index, read_prn: vamos's rawfile.read_prn reads every row) or "text" (keys contains, absent,
+regex, line + equals, first_unmarked).  TestRowForm checks every row's keys on both legs, so a
+misspelt one fails instead of passing unread.  A run may also carry
 in_run (continue in an earlier run's scratch copy; put both runs in one "group"),
 stopped_within (seconds, with signal) and group (the test the run belongs to; the tool by
 default).
@@ -100,7 +108,7 @@ def gate(name):
 
 
 TOOL_GATES = {"vacask": ("needs_vacask",), "xyce": ("needs_xyce",), "openvaf": ("needs_openvaf",),
-              "cpp": ("needs_cpp",), "exe": ()}
+              "cpp": ("needs_cpp",), "exe": (), "python": ()}
 
 
 # -- engine environment --------------------------------------------------------
@@ -124,6 +132,49 @@ def second_xyce():
     return None
 
 
+def cmc_examples():
+    return (getattr(_spectre_lib, "cmc_examples", None) or (lambda: os.environ.get("VAMOS_CMC_EXAMPLES", "")))()
+
+
+def placeholders(wd):
+    """What {name} stands for in a run's args, env values and cwd (and @NAME@ in its subst files)."""
+    lib = _spectre_lib
+    return {
+        "tmp": wd,
+        "repo": os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "psf_parser": lib.psf_parser_dir() if lib is not None else "",
+        "vacask_src": lib.vacask_src() if lib is not None else os.environ.get("VAMOS_VACASK_SRC", ""),
+        "cmc": cmc_examples(),
+    }
+
+
+def expand(text, wd, deck=None):
+    out = text if deck is None else text.replace("{deck}", deck)
+    for k, v in placeholders(wd).items():
+        out = out.replace("{%s}" % k, v)
+    return out
+
+
+def prepare(row_dir, run, wd):
+    """The scratch copy of a row for one run: the directory copied, the subst files' @CWD@ (the
+    copy), @CMC@ and @VACASK_SRC@ replaced, the hard links of `links` and the symbolic links of
+    `symlinks` ({new: existing}, both relative to the copy) made."""
+    shutil.copytree(row_dir, wd)
+    ph = placeholders(wd)
+    for rel in (run.get("subst") or []):
+        p = os.path.join(wd, rel)
+        with open(p) as fh:
+            text = fh.read()
+        text = text.replace("@CWD@", wd).replace("@CMC@", ph["cmc"]).replace("@VACASK_SRC@", ph["vacask_src"])
+        with open(p, "w") as fh:
+            fh.write(text)
+    for key, make in (("links", os.link), ("symlinks", os.symlink)):
+        for new, existing in (run.get(key) or {}).items():
+            path = os.path.join(wd, new)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            make(os.path.join(wd, existing), path)
+
+
 def tool_program(run):
     """(program, env) for a run; env is None when the run is skipped (reason in program)."""
     tool = run["tool"]
@@ -145,6 +196,8 @@ def tool_program(run):
         return (prog, engine_env("vacask")) if prog else ("no openvaf-r", None)
     if tool == "cpp":
         return cpp_path(), dict(os.environ)
+    if tool == "python":                               # this interpreter: a row's script
+        return sys.executable, dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     if tool == "exe":
         prog = run["program"]
         if not os.access(prog, os.X_OK):
@@ -177,18 +230,21 @@ def _read(path):
 
 def execute(program, env, run, wd):
     """Run one entry of expect.json in its scratch copy wd; returns a RunResult."""
-    cwd = os.path.join(wd, run["cwd"]) if run.get("cwd") else wd
+    cwd = os.path.join(wd, expand(run["cwd"], wd)) if run.get("cwd") else wd
     deck = run.get("deck")
-    args = [a.replace("{deck}", deck or "") for a in run.get("args", [])]
+    args = [expand(a, wd, deck or "") for a in run.get("args", [])]
     if deck and not any("{deck}" in a for a in run.get("args", [])):
         args.append(deck)
     cmd = [program] + args
     env = dict(env)
     for k, v in (run.get("env") or {}).items():
-        env[k] = v.replace("{tmp}", wd)
+        env[k] = expand(v, wd)
     if run["tool"] == "xyce":
         env.setdefault("PYMS_CACHE", os.path.join(os.path.dirname(wd), "pyms"))
-    out_path, err_path = os.path.join(cwd, "vamos_run.out"), os.path.join(cwd, "vamos_run.err")
+    inside = os.path.realpath(cwd) == os.path.realpath(wd) or os.path.realpath(cwd).startswith(
+        os.path.realpath(wd) + os.sep)
+    logs = cwd if inside else wd                       # a cwd read in place (a CMC tree) is never written
+    out_path, err_path = os.path.join(logs, "vamos_run.out"), os.path.join(logs, "vamos_run.err")
     stopped_in = None
     sig = run.get("signal")
     with open(out_path, "w") as out, open(err_path, "w") as err:
@@ -302,13 +358,7 @@ class FactCase(TempDir):
                       output_tail=res.output.strip().splitlines()[-6:])
             return res
         wd = os.path.join(case, run["name"])
-        shutil.copytree(row_dir, wd)
-        for rel in (run.get("subst") or []):
-            p = os.path.join(wd, rel)
-            with open(p) as fh:
-                text = fh.read()
-            with open(p, "w") as fh:
-                fh.write(text.replace("@CWD@", wd))
+        prepare(row_dir, run, wd)
         res = execute(program, env, run, wd)
         self.note(row=os.path.basename(row_dir), run=run["name"], cmd=res.cmd, rc=res.rc,
                   stopped_in=res.stopped_in, output_tail=res.output.strip().splitlines()[-6:])
@@ -404,8 +454,36 @@ class FactCase(TempDir):
             xs = [real(v) for v in self.values(raw, chk.get("axis", raw.names()[chk.get("axis_index", 1)]))]
             groups = 1 + sum(1 for a, b in zip(xs, xs[1:]) if b < a)
             self.assertEqual(groups, chk["restarts"], "%s: %d groups" % (ctx, groups))
+        if "times" in chk:
+            self.check_times(raw, chk["times"], ctx)
         if "col" in chk:
             self.check_column(raw, chk, ctx)
+
+    def check_times(self, raw, spec, ctx):
+        """Where an engine put its points (E105, E106): of the sweep values (time unless `axis`
+        names another) in [from, to], `count` [lo, hi] how many there are, `min_step` and
+        `max_step` [lo, hi] the smallest and the largest step between two of them; `gap` [t, d]: no
+        point of the whole axis lies closer than d to t."""
+        xs = [real(v) for v in self.values(raw, spec.get("axis", "time"))]
+        lo, hi = spec.get("from", -float("inf")), spec.get("to", float("inf"))
+        win = [x for x in xs if lo <= x <= hi]
+        steps = [b - a for a, b in zip(win, win[1:])]
+        self.note(row=ctx, window=[lo, hi], times=win[:40], points=len(win))
+        if "count" in spec:
+            n0, n1 = spec["count"]
+            self.assertTrue(n0 <= len(win) <= n1, "%s: %d points in [%r, %r], expected %d to %d: %r"
+                            % (ctx, len(win), lo, hi, n0, n1, win[:40]))
+        for key, pick in (("min_step", min), ("max_step", max)):
+            if key in spec:
+                a, b = spec[key]
+                self.assertTrue(steps, "%s: fewer than two points in [%r, %r]: %r" % (ctx, lo, hi, win))
+                got = pick(steps)
+                self.assertTrue(a <= got <= b, "%s: %s in [%r, %r] is %r, expected %r to %r (points %r)"
+                                % (ctx, key, lo, hi, got, a, b, win[:40]))
+        if "gap" in spec:
+            t, d = spec["gap"]
+            near = [x for x in xs if abs(x - t) < d]
+            self.assertEqual(near, [], "%s: points within %r of %r" % (ctx, d, t))
 
     def check_column(self, raw, chk, ctx):
         rel, abs_ = chk.get("rel", 1e-5), chk.get("abs", 1e-12)
@@ -459,6 +537,10 @@ class FactCase(TempDir):
             self.assertEqual(len(rows), chk["rows"], "%s: %d rows" % (ctx, len(rows)))
         if "min_rows" in chk:
             self.assertGreaterEqual(len(rows), chk["min_rows"], "%s: %d rows" % (ctx, len(rows)))
+        if chk.get("read_prn"):                            # vamos's reader takes the table as it is (E124)
+            plots = rawfile.read_prn(path)
+            self.assertEqual(sum(len(p.points) for p in plots), len(rows), "%s: rawfile.read_prn reads %s rows"
+                             % (ctx, [len(p.points) for p in plots]))
         if "index" in chk:
             got = [r[columns.index("Index")] for r in rows]
             self.assertEqual(got, [float(v) for v in chk["index"]], "%s: Index column" % ctx)
@@ -597,6 +679,125 @@ def _install():
 _install()
 
 
+# -- the rows' form, on both legs ---------------------------------------------------
+
+ROW_KEYS = {"row", "experiment", "result", "rules", "runs", "cross", "provenance"}
+RUN_KEYS = {"name", "tool", "deck", "args", "cwd", "env", "gates", "launcher", "plain_env", "subst", "links", "symlinks",
+            "program", "engine_env", "timeout", "signal", "status", "output", "stderr", "files", "checks",
+            "record_only", "note", "in_run", "stopped_within", "group"}
+TEXT_SPEC_KEYS = {"contains", "absent", "regex", "empty"}
+CHECK_KEYS = {
+    "raw": {"raw", "plot", "names", "names_include", "names_exclude", "names_sorted", "ambiguous", "points",
+            "min_points", "plots", "declared", "no_header", "plotname_contains", "col", "row", "at", "select",
+            "column", "values", "value", "minus", "rel", "abs", "axis", "axis_index", "restarts", "readable",
+            "fix_points", "max_last_time", "times", "note"},
+    "prn": {"prn", "columns", "rows", "min_rows", "col", "row", "value", "column", "index", "rel", "abs", "read_prn",
+            "note"},
+    "text": {"text", "contains", "absent", "regex", "line", "equals", "first_unmarked", "note"},
+}
+TIMES_KEYS = {"axis", "from", "to", "count", "min_step", "max_step", "gap"}
+
+
+def row_problems(name, spec, row_dir):
+    """The authoring errors of one row's expect.json: keys this module does not read (a misspelt
+    check would pass unread), unknown tools and gates, decks the directory lacks; [] when well formed."""
+    out = []
+    extra = set(spec) - ROW_KEYS
+    if extra:
+        out.append("%s: unknown keys %s" % (name, sorted(extra)))
+    for run in spec.get("runs", []):
+        where = "%s/%s" % (name, run.get("name"))
+        extra = set(run) - RUN_KEYS
+        if extra:
+            out.append("%s: unknown run keys %s" % (where, sorted(extra)))
+        if run.get("tool") not in TOOL_GATES:
+            out.append("%s: unknown tool %r" % (where, run.get("tool")))
+        for g in run.get("gates", []):
+            if gate(g) is None or getattr(gate(g)(lambda: None), "__unittest_skip_why__", "").startswith("unknown gate"):
+                out.append("%s: unknown gate %r" % (where, g))
+        if run.get("deck") and not run.get("in_run"):
+            base = os.path.join(row_dir, run.get("cwd") or "")
+            if "{" not in (run.get("cwd") or "") and not os.path.isfile(os.path.join(base, run["deck"])):
+                out.append("%s: no deck %s" % (where, run["deck"]))
+        for key in ("output", "stderr"):
+            extra = set(run.get(key) or {}) - TEXT_SPEC_KEYS
+            if extra:
+                out.append("%s: unknown %s keys %s" % (where, key, sorted(extra)))
+        extra = set(run.get("files") or {}) - {"present", "absent"}
+        if extra:
+            out.append("%s: unknown files keys %s" % (where, sorted(extra)))
+        for k, chk in enumerate(run.get("checks", [])):
+            kinds = [kind for kind in CHECK_KEYS if kind in chk]
+            if len(kinds) != 1:
+                out.append("%s check %d: names %s, expected one of raw, prn, text" % (where, k, kinds))
+                continue
+            extra = set(chk) - CHECK_KEYS[kinds[0]]
+            if extra:
+                out.append("%s check %d: unknown %s keys %s" % (where, k, kinds[0], sorted(extra)))
+            extra = set(chk.get("times") or {}) - TIMES_KEYS
+            if extra:
+                out.append("%s check %d: unknown times keys %s" % (where, k, sorted(extra)))
+    return out
+
+
+class TestRowForm(unittest.TestCase):
+    """Both legs, no engine: every row's expect.json is well formed for this module (the engine runs are
+    WSL's, so a misspelt key would otherwise first show there, or never)."""
+
+    def test_the_t1_rows_are_harvested(self):
+        """§13's tier list of the T1 rows, every one with its directory (E115-E129 and E131: phase 2c,
+        R-tests-20 / R-emit-19); E14, E44 and the other rows are other tiers."""
+        want = (list(range(1, 14)) + list(range(15, 44)) + [45, 47, 51] + list(range(63, 76)) + [77, 81, 82, 84, 95, 96]
+                + list(range(102, 110)) + [114] + list(range(115, 130)) + [131])
+        got = sorted(int(os.path.basename(d)[1:]) for d, _ in load_rows())
+        self.assertEqual(sorted(set(want) - set(got)), [], "T1 rows without a directory")
+        self.assertEqual(sorted(set(got) - set(want)), [], "directories of rows that are no T1 row")
+        for d, spec in load_rows():
+            self.assertEqual(spec["row"], "E%d" % int(os.path.basename(d)[1:]), d)
+
+    def test_every_row(self):
+        rows = load_rows()
+        for row_dir, spec in rows:
+            with self.subTest(row=os.path.basename(row_dir)):
+                self.assertEqual(row_problems(os.path.basename(row_dir), spec, row_dir), [])
+
+    def test_a_misspelt_key_is_a_problem(self):
+        spec = {"row": "E0", "runs": [{"name": "r", "tool": "xyce", "checks": [{"raw": "a.raw", "point": 3},
+                                                                                 {"raw": "a.raw", "times": {"gaps": []}}],
+                                       "output": {"contain": []}, "gates": ["needs_nothing"]}]}
+        probs = row_problems("E0", spec, FACTS)
+        self.assertTrue(any("unknown raw keys ['point']" in p for p in probs), probs)
+        self.assertTrue(any("unknown times keys ['gaps']" in p for p in probs), probs)
+        self.assertTrue(any("unknown output keys ['contain']" in p for p in probs), probs)
+        self.assertTrue(any("unknown gate 'needs_nothing'" in p for p in probs), probs)
+
+
+class TestTimesCheck(FactCase):
+    """Both legs, no engine: the `times` check that states E105 (the step size across a knee) and E106
+    (no point at a breakpoint) directly, on a synthetic plot."""
+
+    def plot(self, times):
+        raw = rawfile.Raw()
+        raw.variables = [("time", "time"), ("v(a)", "voltage")]
+        raw.points = [(t, 0.0) for t in times]
+        return raw
+
+    def test_holds_and_fails(self):
+        knee = self.plot([1.4744e-3, 1.5144e-3, 1.5544e-3, 1.5944e-3, 1.6344e-3])
+        self.check_times(knee, {"from": 1.5e-3, "to": 1.61e-3, "count": [3, 3], "min_step": [3.99e-5, 4.01e-5],
+                                "max_step": [3.99e-5, 4.01e-5]}, "knee")
+        self.check_times(knee, {"gap": [1.535e-3, 1e-6]}, "gap")
+        for spec, what in (({"from": 1.5e-3, "to": 1.61e-3, "count": [4, 10]}, "3 points in"),
+                           ({"from": 1.5e-3, "to": 1.61e-3, "min_step": [0.0, 1e-6]}, "min_step in"),
+                           ({"from": 1.5e-3, "to": 1.61e-3, "max_step": [0.0, 1e-5]}, "max_step in"),
+                           ({"from": 1.55e-3, "to": 1.56e-3, "min_step": [0.0, 1.0]}, "fewer than two points"),
+                           ({"gap": [1.5544e-3, 1e-6]}, "points within")):
+            with self.subTest(what=what):
+                with self.assertRaises(AssertionError) as cm:
+                    self.check_times(knee, spec, "knee")
+                self.assertIn(what, str(cm.exception))
+
+
 # -- the facts that need more than a command line ---------------------------------
 
 @unittest.skipUnless(LINUX, "signals and nohup: Linux/WSL")
@@ -638,6 +839,133 @@ class TestE81Dispositions(FactCase):
         self.note(row="E81/nohup", nohup=with_nohup.stdout.strip(), plain=plain.stdout.strip())
         self.assertEqual(with_nohup.stdout.strip().splitlines()[-1], str(int(signal.SIG_IGN)))
         self.assertEqual(plain.stdout.strip().splitlines()[-1], str(int(signal.SIG_DFL)))
+
+
+@unittest.skipUnless(LINUX, "pipes and pseudo-terminals: Linux/WSL")
+class TestStdoutBuffering(FactCase):
+    """E115's and E123's output halves: when the engines' lines arrive through a pipe, a
+    pseudo-terminal (unsized, and 80 columns wide) and a regular file.  §7.1: run_vacask reads VACASK
+    through an unsized pty, line-buffered and without a progress bar; §2.7: SIGUSR1's status line
+    reads Xyce's last `Percent complete` from the deck's log while Xyce runs."""
+
+    def copy(self, row):
+        wd = os.path.join(self.tmp, row)
+        shutil.copytree(os.path.join(FACTS, row), wd)
+        return wd
+
+    def through_a_pty(self, cmd, wd, env, cols=None):
+        """(rc, exit time, [(time, bytes)]) of cmd with its stdout and stderr on a fresh pty."""
+        import fcntl
+        import pty
+        import select
+        import struct
+        import termios
+        master, slave = pty.openpty()
+        if cols:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, cols, 0, 0))
+        t0 = time.time()
+        proc = subprocess.Popen(cmd, cwd=wd, env=env, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave,
+                                start_new_session=True)
+        os.close(slave)
+        chunks = []
+        try:
+            while True:
+                ready, _, _ = select.select([master], [], [], 0.5)
+                if ready:
+                    try:
+                        data = os.read(master, 1 << 16)
+                    except OSError:                      # EIO: every writer of the pty is gone
+                        break
+                    if not data:
+                        break
+                    chunks.append((time.time() - t0, data))
+                elif proc.poll() is not None:
+                    break
+            rc = proc.wait(300)
+        finally:
+            os.close(master)
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+        return rc, time.time() - t0, chunks
+
+    @needs_vacask
+    def test_vacask_holds_its_lines_in_a_pipe(self):
+        wd = self.copy("E115")
+        t0 = time.time()
+        proc = subprocess.Popen([engines.vacask_bin(), "long.sim"], cwd=wd, env=engine_env("vacask"),
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                start_new_session=True)
+        reads = []
+        while True:
+            data = os.read(proc.stdout.fileno(), 1 << 16)
+            if not data:
+                break
+            reads.append((time.time() - t0, data))
+        rc = proc.wait(300)
+        t_exit = time.time() - t0
+        err = proc.stderr.read()
+        proc.stdout.close()
+        proc.stderr.close()
+        text = b"".join(d for _, d in reads).decode(errors="replace")
+        self.note(row="E115/pipe", rc=rc, exit=t_exit, reads=[(round(t, 2), len(d)) for t, d in reads])
+        self.assertEqual(rc, 0, text[-1500:])
+        self.assertIn("Running analysis 'tr1'.", text)
+        self.assertEqual(err, b"")
+        self.assertGreater(t_exit, 2.0, "the run is too short to tell (%.2f s)" % t_exit)
+        self.assertGreater(reads[0][0], t_exit - 0.5, "VACASK's first line came %.2f s before its exit (%.2f s)"
+                           % (t_exit - reads[0][0], t_exit))
+
+    @needs_vacask
+    def test_vacask_lines_arrive_as_printed_on_a_pty_without_a_bar(self):
+        wd = self.copy("E115")
+        rc, t_exit, chunks = self.through_a_pty([engines.vacask_bin(), "long.sim"], wd, engine_env("vacask"))
+        text = b"".join(d for _, d in chunks).decode(errors="replace")
+        at = [t for t, d in chunks if b"Running analysis 'tr1'." in d]
+        self.note(row="E115/pty", rc=rc, exit=t_exit, tr1_line=at, chunks=len(chunks))
+        self.assertEqual(rc, 0, text[-1500:])
+        self.assertTrue(at, text[-1500:])
+        self.assertLess(at[0], t_exit - 1.0, "the tr1 line came at %.2f s of %.2f s" % (at[0], t_exit))
+        self.assertNotRegex(text, r"\|=+ *\d+% *=* *\|", "a progress bar on an unsized pty")
+
+    @needs_vacask
+    def test_vacask_progress_bar_needs_a_terminal_width(self):
+        wd = self.copy("E115")
+        rc, t_exit, chunks = self.through_a_pty([engines.vacask_bin(), "long.sim"], wd, engine_env("vacask"), cols=80)
+        text = b"".join(d for _, d in chunks).decode(errors="replace")
+        self.note(row="E115/pty80", rc=rc, exit=t_exit, tail=text[-300:])
+        self.assertEqual(rc, 0, text[-1500:])
+        self.assertRegex(text, r"\|=+ *\d+% *=* *\| [0-9.]+s @ [0-9.e+-]+s\r")
+
+    @needs_xyce
+    def test_xyce_stdout_into_a_file_grows_while_it_runs(self):
+        """2026-10-17: Xyce writes its stdout into a file line by line (its Percent complete lines are
+        there while it runs), where the design's E123 row records block buffering."""
+        wd = self.copy("E123")
+        out = os.path.join(wd, "xlong.out")
+        seen = None
+        with open(out, "w") as fh:
+            t0 = time.time()
+            proc = subprocess.Popen([engines.xyce_bin(), "xlong.cir"], cwd=wd, env=engine_env("xyce"),
+                                    stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
+                                    start_new_session=True)
+            try:
+                while proc.poll() is None:
+                    time.sleep(0.2)
+                    if seen is None and "Percent complete" in _read(out):
+                        seen = time.time() - t0
+                rc = proc.wait(300)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+        t_exit = time.time() - t0
+        self.note(row="E123/file", rc=rc, exit=t_exit, first_percent=seen)
+        self.assertEqual(rc, 0, _read(out)[-1500:])
+        self.assertGreater(t_exit, 2.0, "the run is too short to tell (%.2f s)" % t_exit)
+        self.assertIsNotNone(seen, "no Percent complete in the file before Xyce exited")
+        self.assertLess(seen, t_exit - 1.0, "the first Percent complete reached the file at %.2f s of %.2f s"
+                        % (seen, t_exit))
 
 
 @unittest.skipUnless(LINUX, "engine environment: Linux/WSL")
@@ -695,13 +1023,7 @@ def observe(rows):
                 print("-- %s: SKIP %s" % (run["name"], program))
                 continue
             wd = os.path.join(case, run["name"])
-            shutil.copytree(row_dir, wd)
-            for rel in (run.get("subst") or []):
-                p = os.path.join(wd, rel)
-                with open(p) as fh:
-                    text = fh.read()
-                with open(p, "w") as fh:
-                    fh.write(text.replace("@CWD@", wd))
+            prepare(row_dir, run, wd)
             try:
                 res = execute(program, env, run, wd)
             except subprocess.TimeoutExpired as e:

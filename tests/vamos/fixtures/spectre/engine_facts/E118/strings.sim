@@ -1,0 +1,28 @@
+string arguments of noise and acxf: instance paths and node names quoted inside the string (the node quoting of 4.5 item 9) and plain
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+subckt cell (a b)
+  vb (a m1) vamos_vsource type="dc" dc=0 mag=0
+  r1 (m1 Mid) vamos_resistor r=1000.0
+  r2 (Mid b) vamos_resistor r=1000.0
+ends
+V1 (in 0) vamos_vsource type="dc" dc=1 mag=1
+R1 (in '007') vamos_resistor r=1000.0
+R2 ('007' 'net4<0>') vamos_resistor r=1000.0
+R3 ('net4<0>' 0) vamos_resistor r=2000.0
+I2 (in 0) cell
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  analysis nzq1 noise out="I2:Mid" in="'I2:vb'" values=[1k]
+  analysis nzq2 noise out="'I2:Mid'" in="V1" values=[1k]
+  analysis nzq3 noise out="'007'" in="V1" values=[1k]
+  analysis nzq4 noise out="'net4<0>'" in="V1" values=[1k]
+  analysis xfq1 acxf out="'I2:Mid'" values=[1k]
+  analysis nz1 noise out="I2:Mid" in="I2:vb" values=[1k]
+  analysis nz2 noise out="007" in="V1" values=[1k]
+  analysis nz3 noise out="net4<0>" in="V1" values=[1k]
+  analysis xf1 acxf out="I2:Mid" values=[1k]
+endc

@@ -100,9 +100,17 @@ RESERVED_WORDS = frozenset("freq scalem temp temper time tnom".split())
 # every Spectre analysis keyword (ref19); v1 maps dc ac noise xf tran sweep (§3.11), parses montecarlo,
 # and refuses the rest with an error naming it (§3.6 "anything else")
 ANALYSES = frozenset(("ac dc noise xf tran sweep montecarlo pz sp stb pss pac pnoise pxf psp pstb hb hbac hbnoise "
-                      "hbxf hbsp envlp qpss qpac qpnoise qpxf qpsp sens dcmatch acmatch lf tdr pdisto "
-                      "dcop").split())
+                      "hbxf hbsp hbstb envlp qpss qpac qpnoise qpxf qpsp sens dcmatch acmatch lf tdr pdisto "
+                      "dcop cosim loadpull reliability stress thermal uti").split())
 CONTROLS = frozenset("options set alter altergroup info paramtest check checklimit assert shell".split())
+# names a netlist parameter cannot take: "The following parameters are reserved and must not be declared as
+# either top-level parameters or subcircuit parameters: temp, tnom, scale, scalem, freq, time" (ref19 p.508);
+# temper and hertz are the evaluator's (§3.5)
+_RESERVED_PARAMS = {
+    "temp": "it is the predefined temperature (ref19 p.508)", "tnom": "it is the predefined temperature (ref19 p.508)",
+    "scale": "ref19 p.508 reserves it", "scalem": "ref19 p.508 reserves it", "freq": "ref19 p.508 reserves it",
+    "time": "ref19 p.508 reserves it", "temper": "a name the evaluator reserves",
+    "hertz": "a name the evaluator reserves"}
 
 # §3.11: the parameters of each v1 analysis under their Spectre names (ir.py's docstring); a '*' ends
 # a prefix (emir*, rf*, ...).  The sweep parameters are SweepSpec's.
@@ -219,6 +227,8 @@ def _logical_lines(text: str, origin: str, first: int, start_offset: int, notes:
         if not t or t.startswith("*"):
             continue
         body = _strip_comment(s)
+        if not body.strip():
+            continue                # a '//' comment line, like a '*' one: a '+' after it continues the statement
         end = line_start + len(s)
         # a backslash ending the line continues it on the next physical line
         while body.rstrip().endswith("\\") and not body.rstrip().endswith("\\\\") and k < len(phys):
@@ -240,20 +250,69 @@ def _logical_lines(text: str, origin: str, first: int, start_offset: int, notes:
     return out
 
 
-def _split_regions(text: str, lang: str) -> List[Tuple[str, int, int, Optional[str], int]]:
-    """The language regions of a file (§3.1): (lang, first line index, end line index, the switch
-    statement's text or None, the switch's line index), from 'simulator lang=' lines in either mode."""
+_STRUCTURAL = ("library", "section", "endsection", "endlibrary")
+
+
+def _structural(raw: str, lang: str) -> Optional[Tuple[str, str]]:
+    """(keyword, name) when a physical line is a library, section, endsection or endlibrary statement
+    (`library L`, `section S`, `endsection [S]`, `endlibrary [L]`, a comment after it allowed): they are read
+    in either language, so a library section may hold language switches (ref19 p.498); in SPICE mode the
+    keyword and the name are folded to lower case (UG p.52)."""
+    t = raw.strip()
+    if not t or t[0] not in "lseLSE":
+        return None
+    t = _strip_comment(t)
+    if lang == "spice":
+        t = spice._strip_comment(t, "")[0]
+    words = t.split()
+    if not words or len(words) > 2:
+        return None
+    kw = words[0].lower() if lang == "spice" else words[0]
+    if kw not in _STRUCTURAL or (kw in ("library", "section") and len(words) != 2):
+        return None
+    name = words[1] if len(words) == 2 else ""
+    return kw, name.lower() if lang == "spice" else name
+
+
+class _Region:
+    """One language region of a file (§3.1): its language, its lines [start, end), and the line that opens
+    it: kind None (the file's start), "switch" (a simulator lang= line) or "struct" (a _structural line)."""
+    __slots__ = ("lang", "start", "end", "kind", "line", "text", "struct")
+
+    def __init__(self, lang: str, start: int, end: int, kind: Optional[str], line: int, text: str,
+                 struct: Optional[Tuple[str, str]]):
+        self.lang, self.start, self.end, self.kind, self.line, self.text, self.struct = (lang, start, end, kind, line,
+                                                                                      text, struct)
+
+
+def _split_regions(text: str, lang: str, title: bool = False) -> List[_Region]:
+    """The language regions of a file (§3.1), cut at every 'simulator lang=' line in either mode and at
+    every library/section/endsection/endlibrary line; each section starts in the file's language (lang):
+    "Spectre automatically switches to SPICE input mode when it opens a library file" (ref19 p.498).
+    title: line 1 is the title, never a library statement."""
     phys = text.split("\n")
-    regions: List[Tuple[str, int, int, Optional[str], int]] = []
-    cur_lang, cur_start, switch, switch_line = lang, 0, None, -1
+    regions: List[_Region] = []
+    cur_lang, cur_start = lang, 0
+    kind: Optional[str] = None
+    line, opener, struct = -1, "", None
     for k, raw in enumerate(phys):
         m = _LANG.match(raw)
-        if m is None:
+        s = None if m is not None or (title and k == 0) else _structural(raw, cur_lang)
+        if m is None and s is None:
             continue
-        regions.append((cur_lang, cur_start, k, switch, switch_line))
-        cur_lang, cur_start, switch, switch_line = m.group(1).lower(), k + 1, raw.strip(), k
-    regions.append((cur_lang, cur_start, len(phys), switch, switch_line))
+        regions.append(_Region(cur_lang, cur_start, k, kind, line, opener, struct))
+        if m is not None:
+            cur_lang, kind, struct = m.group(1).lower(), "switch", None
+        else:
+            cur_lang, kind, struct = lang if s[0] == "section" else cur_lang, "struct", s
+        cur_start, line, opener = k + 1, k, raw.strip()
+    regions.append(_Region(cur_lang, cur_start, len(phys), kind, line, opener, struct))
     return regions
+
+
+def _end_language(text: str, lang: str, title: bool = False) -> str:
+    """The language in effect at the end of text, which starts in lang (§3.1's switches)."""
+    return _split_regions(text, lang, title)[-1].lang
 
 
 def _words(text: str) -> List[Tuple[str, int]]:
@@ -319,8 +378,8 @@ def _top_level_eq(word: str) -> int:
 
 
 def _continues_value(word: str) -> bool:
-    """A word that can only continue an expression (an operator, or ? :)."""
-    return word[0] in "+-*/?:<>!&|~^," or word in ("<<", ">>", "**")
+    """A word that can only continue an expression (an operator, ? : or ==, which is never an assignment)."""
+    return word[0] in "+-*/?:<>!&|~^," or word in ("<<", ">>", "**") or word.startswith("==")
 
 
 def _ends_open(word: str) -> bool:
@@ -382,6 +441,46 @@ def _fields(text: str) -> List[Tuple[Optional[str], str, int]]:
             break
         out.append((key, " ".join(parts), off))
     return out
+
+
+def _split_groups(word: str, off: int) -> List[Tuple[str, int]]:
+    """A bare word of an instance statement cut where a top-level '( )' group starts or ends: parentheses are
+    field separators (UG p.59), so r1(a 0) is the name r1 and the group (a 0), (a 0)resistor the group and
+    the master; a '\\' escapes the next character.  Values are never cut (r=myfunc(2.0, 4.5))."""
+    if "(" not in word:
+        return [(word, off)]
+    out: List[Tuple[str, int]] = []
+    i, start, depth = 0, 0, 0
+    while i < len(word):
+        c = word[i]
+        if c == "\\" and i + 1 < len(word):
+            i += 2
+            continue
+        if c == "(":
+            if depth == 0 and i > start:
+                out.append((word[start:i], off + start))
+                start = i
+            depth += 1
+        elif c == ")" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                out.append((word[start:i + 1], off + start))
+                start = i + 1
+        i += 1
+    if start < len(word):
+        out.append((word[start:], off + start))
+    return out
+
+
+def _param_group(word: str) -> bool:
+    """A parenthesized group of name=value assignments: (c=10E-12), (r=1k w=1u) (UG p.63)."""
+    if not (word.startswith("(") and word.endswith(")")):
+        return False
+    try:
+        inner = _fields(word[1:-1])
+    except _Syntax:
+        return False
+    return bool(inner) and all(k is not None for k, _w, _o in inner)
 
 
 def _node_groups(words: List[str]) -> List[str]:
@@ -449,6 +548,21 @@ def _chunks(line: _Line) -> List[_Chunk]:
     return out
 
 
+def _bad_name_char(written: str, dots: bool = False) -> Optional[str]:
+    """The first character of a written Spectre-mode name outside UG p.60's rule (letters, digits, _ and !,
+    any character after a '\\'; '.' too where dots, a hierarchical name), else None (§3.2)."""
+    i = 0
+    while i < len(written):
+        c = written[i]
+        if c == "\\" and i + 1 < len(written):
+            i += 2
+            continue
+        if not ((c.isascii() and c.isalnum()) or c in "_!" or (dots and c == ".")):
+            return c
+        i += 1
+    return None
+
+
 def _unescape(name: str) -> str:
     """The name a written token denotes: a '\\' escapes the next character (UG p.60)."""
     if "\\" not in name:
@@ -476,6 +590,7 @@ class _Statements:
         self.k = 0
         self.title = title
         self.switch_follows = False
+        self.containers: List[Stmt] = []        # the open library and section statements, across regions
 
     def where(self, lineno: int) -> str:
         return "%s:%d" % (self.origin, lineno)
@@ -483,31 +598,46 @@ class _Statements:
     def err(self, lineno: int, msg: str) -> None:
         self.notes.append(error(self.where(lineno), msg))
 
+    def target(self, out: List[Stmt]) -> List[Stmt]:
+        """Where the next statement goes: the innermost open library or section, else the file."""
+        return self.containers[-1].children if self.containers else out
+
     def run(self) -> List[Stmt]:
-        regions = _split_regions(self.text, self.lang)
+        regions = _split_regions(self.text, self.lang, self.title)
         phys = self.text.split("\n")
         offsets = [0]
         for raw in phys:
             offsets.append(offsets[-1] + len(raw) + 1)
         out: List[Stmt] = []
-        for k, (lang, start, end, switch, switch_line) in enumerate(regions):
-            self.switch_follows = k + 1 < len(regions)
-            if switch is not None and not (self.title and switch_line == 0):
+        self.containers = []
+        for k, r in enumerate(regions):
+            self.switch_follows = k + 1 < len(regions) and regions[k + 1].kind == "switch"
+            ind = len(phys[r.line]) - len(phys[r.line].lstrip()) if r.kind is not None else 0
+            if r.kind == "switch" and not (self.title and r.line == 0):
+                # the switch line is read in the mode before it; a comment may end it (UG p.59)
+                text = _strip_comment(r.text)
+                if regions[k - 1].lang == "spice":
+                    text = spice._strip_comment(text, "")[0]
+                text = text.strip()
                 try:
-                    out.append(self.parse_text(switch, switch_line + 1, offsets[switch_line],
-                                               offsets[switch_line] + len(switch)))
+                    self.target(out).append(self.parse_text(text, r.line + 1, offsets[r.line] + ind,
+                                                            offsets[r.line] + ind + len(text)))
                 except _Syntax as exc:
-                    self.err(switch_line + 1, exc.msg)
+                    self.err(r.line + 1, exc.msg)
+            elif r.kind == "struct":
+                self.structural(r, offsets[r.line] + ind, offsets[r.line] + ind + len(r.text), out)
+            start, end = r.start, r.end
             if start == 0 and self.title:
                 start = 1
             if start >= end:
                 continue
             seg = "\n".join(phys[start:end])
-            if lang == "spice":
+            if r.lang == "spice":
                 lead = len(seg) - len(seg.lstrip())
                 if seg.strip():
-                    out.append(Stmt("spice", origin=self.where(start + 1),
-                                    span=(offsets[start] + lead, offsets[start] + len(seg.rstrip()))))
+                    # the region's origin is the line of its first statement, after any blank lines
+                    self.target(out).append(Stmt("spice", origin=self.where(start + 1 + seg[:lead].count("\n")),
+                                                 span=(offsets[start] + lead, offsets[start] + len(seg.rstrip()))))
                 continue
             lines = _logical_lines(seg, self.origin, start + 1, offsets[start], self.notes)
             self.chunks = []
@@ -517,10 +647,35 @@ class _Statements:
                 except _Syntax as exc:
                     self.err(ln.lineno, exc.msg)
             self.k = 0
-            out.extend(self.block(None))
+            self.target(out).extend(self.block(None))
+        for c in reversed(self.containers):
+            self.notes.append(error(c.origin, "%s %s has no end%s" % (c.kind, c.name, c.kind)))
+        self.containers = []
         if any(n.severity == ERROR for n in self.notes):
             raise NoteError(self.notes)
         return out
+
+    def structural(self, r: _Region, start: int, end: int, out: List[Stmt]) -> None:
+        """A library/section line opens a container that later regions fill; endsection/endlibrary closes it
+        (the optional trailing name must match, UG pp.75-76)."""
+        kw, name = r.struct or ("", "")
+        lineno = r.line + 1
+        if kw in ("library", "section"):
+            st = Stmt(kw, name, origin=self.where(lineno), span=(start, end))
+            self.target(out).append(st)
+            self.containers.append(st)
+            return
+        want = kw[3:]
+        while want == "library" and self.containers and self.containers[-1].kind == "section":
+            sec = self.containers.pop()
+            self.notes.append(error(sec.origin, "section %s has no endsection" % sec.name))
+        if not self.containers or self.containers[-1].kind != want:
+            self.err(lineno, "%s without %s" % (kw, want))
+            return
+        c = self.containers.pop()
+        if name and name != c.name:
+            self.err(lineno, "%s %s closes %s %s" % (kw, name, want, c.name))
+        c.span = (c.span[0], end)
 
     # -- the recursive statement builder
 
@@ -638,18 +793,12 @@ class _Statements:
         return st
 
     def if_chain(self, st: Stmt, c: _Chunk, opens: bool) -> Stmt:
-        """if (c) {...} else if (c) {...} else {...}, or the brace-less one-statement forms (UG p.109)."""
+        """if (c) {...} else if (c) {...} else {...}, or the brace-less one-statement forms (UG p.109).  A
+        brace-less statement that is itself an if is a whole chain: it takes the { } block that follows it
+        and the else after it, since an else matches the closest previous unmatched if (ref19 p.491)."""
         cond, rest = st.branches[0][0], st.master
         st.master = ""
-        if opens:
-            self.k += 1
-            body = self.block("}")
-        elif rest:
-            inner = self.parse_inline(rest, c)
-            body = [inner]
-        else:
-            raise _Syntax("if (...) needs a statement or a { } block")
-        st.branches = [(cond, body)]
+        st.branches = [(cond, self.if_body(rest, c, opens, "if (...)"))]
         last_end = self.chunks[self.k - 1].end if self.k else c.end
         while True:
             nxt = self.peek()
@@ -662,42 +811,39 @@ class _Statements:
             if after.startswith("if") and (len(after) == 2 or not (after[2].isalnum() or after[2] == "_")):
                 sub = self.parse_text(after, nxt.lineno, nxt.start + 5, nxt.end)
                 cond2, rest2 = sub.branches[0][0], sub.master
-                if fopens:
-                    self.k += 1
-                    body2 = self.block("}")
-                elif rest2:
-                    body2 = [self.parse_inline(rest2, nxt)]
-                else:
-                    raise _Syntax("else if (...) needs a statement or a { } block")
-                st.branches.append((cond2, body2))
+                st.branches.append((cond2, self.if_body(rest2, nxt, fopens, "else if (...)")))
                 last_end = self.chunks[self.k - 1].end if self.k else nxt.end
                 continue
-            if fopens:
-                self.k += 1
-                body3 = self.block("}")
-            elif after:
-                body3 = [self.parse_inline(after, nxt)]
-            else:
-                raise _Syntax("else needs a statement or a { } block")
-            st.branches.append(("", body3))
+            st.branches.append(("", self.if_body(after, nxt, fopens, "else")))
             last_end = self.chunks[self.k - 1].end if self.k else nxt.end
             break
         st.span = (st.span[0], last_end)
         return st
 
-    def parse_inline(self, text: str, c: _Chunk) -> Stmt:
-        """The one statement of a brace-less if (itself possibly an if)."""
+    def if_body(self, rest: str, c: _Chunk, opens: bool, what: str) -> List[Stmt]:
+        """One part's body: its brace-less statement (rest, which takes a following { } block when it is an
+        if), else the { } block."""
+        if rest:
+            return [self.parse_inline(rest, c, opens)]
+        if opens:
+            self.k += 1
+            return self.block("}")
+        raise _Syntax("%s needs a statement or a { } block" % what)
+
+    def parse_inline(self, text: str, c: _Chunk, opens: bool = False) -> Stmt:
+        """The one statement of a brace-less if part; an if there is read as a whole chain (if_chain), so it
+        takes the { } block that follows (opens) and the else after it (ref19 p.491)."""
         at = c.text.find(text)
         st = self.parse_text(text, c.lineno, c.start + max(at, 0), c.end)
         if st.kind == "if":
-            cond, rest = st.branches[0][0], st.master
-            st.master = ""
-            if not rest:
-                raise _Syntax("a brace-less if needs a statement")
-            st.branches = [(cond, [self.parse_inline(rest, c)])]
-        elif st.kind not in ("instance", "paramtest"):
+            return self.if_chain(st, c, opens)
+        if st.kind not in ("instance", "paramtest"):
             raise _Syntax("an if holds instance statements, if statements and paramtests only (ref19 p.491), "
                           "not a %s statement" % st.kind)
+        if opens:
+            self.k += 1
+            self.block("}")
+            raise _Syntax("a %s statement does not take a { } block" % st.kind)
         return st
 
     def function_body(self, body: List[Stmt], lineno: int) -> str:
@@ -756,7 +902,9 @@ class _Statements:
         if first == "else":
             return Stmt("else", origin=origin, span=span)
         if first == "parameters":
-            return Stmt("parameters", params=self.keyed(fields[1:]), origin=origin, span=span)
+            # a bare name is a subckt parameter without a default value (name, ""), ref19 p.506, p.533
+            params = [(w, "") if k is None else self.keyed([(k, w, o)])[0] for k, w, o in fields[1:]]
+            return Stmt("parameters", params=params, origin=origin, span=span)
         if first == "model":
             if len(fields) < 3 or fields[1][0] is not None or fields[2][0] is not None:
                 raise _Syntax("model needs a name and a master: model name master parameters")
@@ -836,13 +984,20 @@ class _Statements:
             return Stmt("protect" if first.lower().startswith("prot") else "unprotect", origin=origin, span=span)
         if first in ("paramset", "end", "function"):
             raise _Syntax("the %s statement is not supported" % first)
-        # name [(]nodes[)]... master params  (instance, analysis or named control statement)
+        # name [(]nodes[)]... master [(]params[)]  (instance, analysis or named control statement)
         bare: List[Tuple[str, int]] = []
         i = 0
         while i < len(fields) and fields[i][0] is None:
-            bare.append((fields[i][1], fields[i][2]))
+            bare.extend(_split_groups(fields[i][1], fields[i][2]))      # r1(a 0): parentheses separate fields
             i += 1
         params = self.keyed(fields[i:])
+        groups: List[Tuple[Optional[str], str, int]] = []
+        while len(bare) > 2 and _param_group(bare[-1][0]):
+            # optional parentheses around parameter specifications, (c=10E-12) (UG p.63)
+            w, off = bare.pop()
+            groups[:0] = [(k, v, off) for k, v, _o in _fields(w[1:-1])]
+        if groups:
+            params = self.keyed(groups) + params
         if len(bare) < 2:
             if len(bare) == 1 and params:
                 raise _Syntax("%r needs a master (name [nodes] master parameters)" % bare[0][0])
@@ -1282,9 +1437,13 @@ class _Parser:
         self.left_out: Dict[str, Note] = {}
         self.spice_counts: Dict[str, int] = {}
         self.insensitive_now = False
-        self.card_folds: Dict[str, Dict[str, Expr]] = {}   # card name -> folded card parameters
+        self.card_folds: Dict[int, Dict[str, Expr]] = {}   # id(card) -> folded card parameters
+        # the Spectre-mode model declarations per subckt path (() is the top level): a model defined in a subckt
+        # is local to it (ref19 pp.533-536), so an instance takes the card its own scope sees (R-lang-2)
+        self.scoped_models: Dict[Tuple[str, ...], Dict[str, _Decl]] = {}
+        self.decl_path: List[str] = []
         self.xrefs: List[Tuple[Instance, _Decl, str]] = []
-        self.va_card_refs: List[Tuple[Instance, str]] = []
+        self.va_card_refs: List[Tuple[Instance, str, "_Scope"]] = []
         self.probe_refs: List[Tuple[Instance, str, _Scope]] = []
         self.top_sorted: List[Param] = []
         self.tran_stops: List[float] = []
@@ -1292,6 +1451,10 @@ class _Parser:
         self.top_lang = "spectre"                        # the top-level netlist's own language (§3.1, §4.3 allpub)
         self.top_origin = ""
         self.mode_stack: List[bool] = []                 # insensitive= states saved around includes (§3.1)
+        self.ended: Set[str] = set()                     # the files a SPICE .end ended (UG p.50), by origin
+        self.no_default: Dict[str, List[str]] = {}       # subckt -> its parameters without a default (ref19 p.506)
+        self.count_refs: List[Tuple[SweepSpec, Expr, str, str]] = []   # lin=/dec=/log= reading parameters
+        self.spice_cards: Set[int] = set()               # ids of the SPICE-mode cards (their level chose the master)
         self.popts = ParseOpts(dialect="spectre-spice", case="lower", parhier_local=True, search=list(opts.search))
 
     # -- notes --------------------------------------------------------------------------------
@@ -1430,21 +1593,29 @@ class _Parser:
             done.append(cur)
         out: List[object] = []
         top = done[0][0] if done else top_name
+        resume: Dict[str, str] = {}             # file -> the language at the end of its latest chunk
         for fname, first, lines in done:
             if not any(l.strip() for l in lines):
                 continue
             is_top = fname == top
-            body = "\n".join(lines)
             # §1: the markers of a netlist read from stdin name its copy in the run directory; its
             # statements carry opts.top_name (stdin:<line>) and its includes resolve against opts.top_dir
             origin = self.opts.top_name if (is_top and self.opts.top_name) else fname
-            if is_top:
+            if origin in self.ended:
+                continue                        # a later chunk of a file its SPICE .end ended (UG p.50)
+            body = "\n".join(lines)
+            if fname in resume:
+                # flag 2 returns to the includer in the mode it was in (§2.6; ref19 p.493): only a file's first
+                # chunk takes §3.1's detection
+                lang = resume[fname]
+            elif is_top:
                 probe = (self.title + "\n" + body) if first > 1 else body
                 lang = self.language_of(origin, probe, first <= 1)
                 if first <= 1 or not self.top_origin:
                     self.top_lang, self.top_origin = lang, "%s:1" % origin
             else:
                 lang = self.language_of(fname, body, False)
+            resume[fname] = _end_language(body, lang, is_top and first <= 1)
             if is_top and self.opts.top_dir:
                 base = self.opts.top_dir
             else:
@@ -1484,7 +1655,7 @@ class _Parser:
     def expand(self, stmts: List[Stmt], text: str, origin: str, base: str, scope_name: Optional[str]) -> List[object]:
         """Includes and SPICE regions spliced in, in place, per scope (§3.1, §4.3 Files)."""
         out: List[object] = []
-        for st in stmts:
+        for idx, st in enumerate(stmts):
             if st.kind == "include":
                 out.extend(self.include(st, base, scope_name))
             elif st.kind == "spice":
@@ -1493,7 +1664,17 @@ class _Parser:
                     continue
                 seg = text[st.span[0]:st.span[1]]
                 first_line = int(st.origin.rsplit(":", 1)[1])
-                out.extend(self.spice_region(seg, origin, first_line, base))
+                items, end_rest = self.spice_region(seg, origin, first_line, base)
+                out.extend(items)
+                if end_rest is not None:
+                    # the SPICE .end ends the file that holds it (UG p.50), its later Spectre regions included;
+                    # an included file's .end ends only that file
+                    rest = end_rest + [o for s in stmts[idx + 1:] for o in self.origins_of(s, text, origin)]
+                    if rest:
+                        self.note(rest[0], "ignored after .end (%d statement%s)" % (len(rest), "" if len(rest) == 1
+                                                                                     else "s"))
+                    self.ended.add(origin)
+                    break
             elif st.kind == "simulator":
                 self.simulator(st, scope_name)
                 out.append(st)
@@ -1511,6 +1692,16 @@ class _Parser:
             else:
                 out.append(st)
         return out
+
+    @staticmethod
+    def origins_of(st: Stmt, text: str, origin: str) -> List[str]:
+        """The origins of the statements one Stmt holds (a SPICE region's logical statements)."""
+        if st.kind != "spice":
+            return [st.origin]
+        first = int(st.origin.rsplit(":", 1)[1])
+        seg = text[st.span[0]:st.span[1]].split("\n")
+        stmts, _notes = spice._logical([(l, "%s:%d" % (origin, first + k)) for k, l in enumerate(seg)], "spectre-spice")
+        return [s.origin for s in stmts]
 
     def check_if_contents(self, st: Stmt) -> None:
         for _cond, body in st.branches:
@@ -1595,10 +1786,12 @@ class _Parser:
 
     # -- SPICE regions (§4.3 Files)
 
-    def spice_region(self, seg: str, origin: str, first_line: int, base: str) -> List[object]:
+    def spice_region(self, seg: str, origin: str, first_line: int, base: str
+                     ) -> Tuple[List[object], Optional[List[str]]]:
         """A SPICE-mode region: logical statements, its file statements spliced in (whole files or
         .lib sections) before the second phase; a Spectre-language file named by a SPICE include
-        splits the region (§3.1, §4.3 Files)."""
+        splits the region (§3.1, §4.3 Files).  With the region's items comes, when it holds the
+        file's .end, the origins of its statements after it (None: no .end)."""
         phys = [(line, "%s:%d" % (origin, first_line + k)) for k, line in enumerate(seg.split("\n"))]
         stmts, notes = spice._logical(phys, "spectre-spice")
         self.notes.extend(notes)
@@ -1608,14 +1801,20 @@ class _Parser:
         f = spice._File(origin, stmts)
         self.notes.extend(f.notes)
         lines: List[Tuple[str, str]] = []
+        end_rest: Optional[List[str]] = None
         i = 0
         while i < len(stmts):
             if i in f.skip:
                 i = f.skip[i] + 1
                 continue
             lines.append((stmts[i].text, stmts[i].origin))
+            if stmts[i].kw == ".end":
+                # ".end ... is treated like the end of file" (UG p.50): nothing after it is read, the rest of
+                # the region and every later item of the file (expand drops those)
+                end_rest = [s.origin for s in stmts[i + 1:]]
+                break
             i += 1
-        return self.splice(lines, base, 0)
+        return self.splice(lines, base, 0), end_rest
 
     def splice(self, lines: List[Tuple[str, str]], base: str, depth: int) -> List[object]:
         if not lines:
@@ -1732,11 +1931,15 @@ class _Parser:
             self.add_decl(_Decl("subckt", _unescape(st.name), self.insensitive_now, "", len(st.nodes), params,
                                 st.origin))
             saved = self.insensitive_now
+            self.decl_path.append(_unescape(st.name))
             for c in st.children:
                 self.declare_stmt(c)
+            self.decl_path.pop()
             self.insensitive_now = saved
         elif st.kind == "model":
-            self.add_decl(_Decl("model", _unescape(st.name), self.insensitive_now, st.master, origin=st.origin))
+            d = _Decl("model", _unescape(st.name), self.insensitive_now, st.master, origin=st.origin)
+            self.add_decl(d)
+            self.scoped_models.setdefault(tuple(self.decl_path), {}).setdefault(d.name, d)
         elif st.kind == "parameters":
             for k, _ in st.params:
                 self.add_decl(_Decl("param", k, False, origin=st.origin))
@@ -1867,6 +2070,10 @@ class _Parser:
             self.err(origin, "node %s: a hierarchical node name on an instance terminal is an error in v1 (§3.4)"
                      % written)
             return None
+        if _bad_name_char(written, dots=not terminal) is not None:
+            self.err(origin, "node %s: a node name holds letters, digits, _ and ! (escape any other character with "
+                     "\\, UG p.60, §3.2)" % written)
+            return None
         if name != written:
             self.spelling.setdefault(name, written)
         return name
@@ -1875,6 +2082,52 @@ class _Parser:
         """An alter target, sweep mod= or save subckt= to its IR name (§3.1)."""
         d = self.resolver.find(kind, _unescape(written))
         return d.name if d is not None else None
+
+    @staticmethod
+    def scope_path(scope: Optional["_Scope"]) -> Tuple[str, ...]:
+        names: List[str] = []
+        while scope is not None and scope.name is not None:
+            names.append(scope.name)
+            scope = scope.parent
+        return tuple(reversed(names))
+
+    def find_model_decl(self, name: str, scope: "_Scope") -> Optional[_Decl]:
+        """The model an instance in scope names: a model defined in a subckt is local to it (ref19
+        pp.533-536), so the instance's own subckt is searched first, then each enclosing one, each by §3.1's
+        rule (exact case, then a marked definition); then the complete first-phase table (SPICE-mode cards)."""
+        path = self.scope_path(scope)
+        while True:
+            table = self.scoped_models.get(path)
+            if table:
+                d = table.get(name)
+                if d is None:
+                    low = name.lower()
+                    d = next((x for x in table.values() if x.insensitive and x.name.lower() == low), None)
+                if d is not None:
+                    return d
+            if not path:
+                return self.resolver.find("model", name)
+            path = path[:-1]
+
+    def card_for(self, name: str, scope: "_Scope") -> Optional[Model]:
+        """The card named name that scope sees: its own, else the nearest enclosing scope's (ref19 p.533)."""
+        s: Optional[_Scope] = scope
+        while s is not None:
+            for it in s.items:
+                if isinstance(it, Model) and it.name == name:
+                    return it
+            s = s.parent
+        return next((m for m in self.all_models() if m.name == name), None)
+
+    def group_for(self, base: str, scope: "_Scope") -> List[Model]:
+        """The entries of the model group base that scope sees (its own scope first, as card_for)."""
+        s: Optional[_Scope] = scope
+        while s is not None:
+            found = [it for it in s.items if isinstance(it, Model) and it.base is not None and it.base == base]
+            if found:
+                return found
+            s = s.parent
+        return [m for m in self.all_models() if m.base is not None and m.base == base]
 
     # -- statements
 
@@ -1985,17 +2238,38 @@ class _Parser:
             self.note(st.origin, "function %s is defined again; the last definition is used" % name)
         self.funcs[name] = (args, body)
 
+    def reserved_param(self, name: str, origin: str, scope: Optional[_Scope]) -> bool:
+        """A parameter name that cannot be declared, with the error: the reserved parameters (ref19 p.508:
+        temp tnom scale scalem freq time; temper and hertz, the evaluator's, §3.5), the constants, and m in a
+        subckt (every subckt's implicit multiplicity, ref19 p.533)."""
+        if name in _RESERVED_PARAMS:
+            self.err(origin, "a parameter named %s is an error in v1: %s (§3.5, §14 q.29)"
+                     % (name, _RESERVED_PARAMS[name]))
+            return True
+        if name in expr.SPECTRE_CONSTANTS:
+            self.err(origin, "%s is a built-in constant; it cannot name a parameter (ref19 p.495)" % name)
+            return True
+        if name == "m" and scope is not None and scope is not self.top:
+            self.err(origin, "subckt %s: m is every subckt's implicit multiplicity; it cannot be declared on a "
+                     "parameters line (ref19 p.533)" % scope.name)
+            return True
+        return False
+
     def parameters(self, scope: _Scope, st: Stmt) -> None:
         for k, v in st.params:
             if not _IDENT.match(k):
                 self.err(st.origin, "parameters: %r is not a parameter name" % k)
                 continue
-            if k in ("temp", "tnom", "temper", "time", "hertz"):
-                self.err(st.origin, "a parameter named %s is an error in v1: it is the predefined temperature (temp, "
-                         "tnom) or a name the evaluator reserves (§3.5, §14 q.29)" % k)
+            if self.reserved_param(k, st.origin, scope):
                 continue
-            if k in expr.SPECTRE_CONSTANTS:
-                self.err(st.origin, "%s is a built-in constant; it cannot name a parameter (ref19 p.495)" % k)
+            if v == "":
+                # a subckt parameter without a default value (ref19 p.506, p.533): every instance gives it
+                # (masters_pass checks), so the placeholder default is never used
+                if scope is self.top:
+                    self.err(st.origin, "parameters: a top-level parameter needs a value: %s (ref19 p.506)" % k)
+                    continue
+                scope.params.append((k, Num(0.0), st.origin, "spectre"))
+                self.no_default.setdefault(scope.name or "", []).append(k)
                 continue
             val = self.value(v, st.origin, k)
             if val is None:
@@ -2194,9 +2468,9 @@ class _Parser:
             inst = Instance(name, _MASTER_KIND[master], nodes, None, params={}, origin=st.origin, prim=master)
             self.primitive(inst, params, st)
         else:
-            d = self.resolver.find("model", master)
+            d = self.find_model_decl(master, scope)
             if d is not None:
-                inst = self.model_instance(name, nodes, d, params, st)
+                inst = self.model_instance(name, nodes, d, params, st, scope)
             else:
                 d = self.resolver.find("subckt", master)
                 if d is not None:
@@ -2241,8 +2515,8 @@ class _Parser:
             inst.params[k] = v
         return True
 
-    def model_instance(self, name: str, nodes: List[str], d: _Decl, params: Dict[str, Value], st: Stmt
-                       ) -> Optional[Instance]:
+    def model_instance(self, name: str, nodes: List[str], d: _Decl, params: Dict[str, Value], st: Stmt,
+                       scope: "_Scope") -> Optional[Instance]:
         master = d.master
         va = self.resolver.va.get(master.lower()) if master else None
         if va is not None:
@@ -2251,7 +2525,7 @@ class _Parser:
             inst = Instance(name, "y", nodes, va.name, params={}, origin=st.origin, prim=va.name)
             if not self.va_params(inst, va, params, st.origin):
                 return None
-            self.va_card_refs.append((inst, d.name))
+            self.va_card_refs.append((inst, d.name, scope))
             return inst
         if master not in _MASTER_KIND:
             self.err(st.origin, "%s: model %s has master %s, which is not a v1 primitive" % (name, d.name, master))
@@ -2402,11 +2676,16 @@ class _Parser:
                 e = self.expr(given[mode], st.origin)
                 if e is None:
                     return None
-                if not isinstance(e, Num) or e.value != int(e.value) or e.value <= 0:
+                e = expr.fold(e)
+                if not isinstance(e, Num):
+                    # an expression reading parameters (ref19 p.474): counts_pass evaluates it after §3.7
+                    self.count_refs.append((spec, e, "%s %s: %s=%s" % (st.name, kw, mode, given[mode]), st.origin))
+                elif e.value != int(e.value) or e.value <= 0:
                     self.err(st.origin, "%s %s: %s=%s must be a positive integer" % (st.name, kw, mode, given[mode]))
                     return None
+                else:
+                    spec.count = int(e.value)
                 spec.mode = mode
-                spec.count = int(e.value)
             elif mode == "step":
                 spec.mode = "step"
                 spec.step = self.expr(given["step"], st.origin)
@@ -2601,10 +2880,19 @@ class _Parser:
             self.err(origin, "%s %s is defined nowhere (in either language)" % (kind, name))
         for it in frag.items:
             if isinstance(it, Param):
-                self.top.params.append((it.name, it.expr, it.origin, "spice"))
+                if not self.reserved_param(it.name, it.origin, self.top):
+                    self.top.params.append((it.name, it.expr, it.origin, "spice"))
             elif isinstance(it, Subckt):
+                # a definition is defined once in its scope, whatever the language of the other (§3.7, §3.9)
+                prev = next((o for o in self.top.items if isinstance(o, Subckt) and o.name == it.name), None)
+                if prev is not None:
+                    self.err(it.origin, "subckt %s is defined twice: %s and %s" % (it.name, prev.origin, it.origin))
+                    continue
                 self.spice_subckt(it, self.top)
                 self.top.items.append(it)
+            elif isinstance(it, Model):
+                self.spice_cards.add(id(it))
+                self.add_model(self.top, it, it.origin)
             else:
                 self.top.items.append(it)
         for keyword, fields, origin in frag.controls:
@@ -2612,12 +2900,15 @@ class _Parser:
 
     def spice_subckt(self, sub: Subckt, parent: _Scope) -> None:
         child = _Scope(sub.name, parent)
-        child.params = [(p.name, p.expr, p.origin, "spice") for p in sub.params]
+        child.params = [(p.name, p.expr, p.origin, "spice") for p in sub.params
+                        if not self.reserved_param(p.name, p.origin, child)]
         child.items = sub.body
         child.body = sub.body
         for it in sub.body:
             if isinstance(it, Subckt):
                 self.spice_subckt(it, child)
+            elif isinstance(it, Model):
+                self.spice_cards.add(id(it))
         self.scopes.append((child, sub))
 
     def spice_control(self, keyword: str, fields: List[Tuple[Optional[str], str]], origin: str) -> None:
@@ -2877,6 +3168,34 @@ class _Parser:
         for scope, sub in self.scopes:
             sub.params = self.sort_params(scope, "subckt %s" % scope.name)
 
+    def counts_pass(self) -> None:
+        """A lin=/dec=/log= that reads parameters (ref19 p.474), evaluated against the top-level values: a
+        positive integer that no sweep or alter changes, since SweepSpec.count is one number."""
+        if not self.count_refs:
+            return
+        changed: Set[str] = set()
+        for a in flat_analyses(self.analyses):
+            if a.sweep is not None and a.sweep.target == "param":
+                changed.add(a.sweep.param)
+            if a.kind == "alter" and isinstance(a.args.get("param"), Str) and not any(
+                    t in a.args for t in ("dev", "mod", "sub")):
+                changed.add(a.args["param"].text)
+        for spec, e, what, origin in self.count_refs:
+            moved = sorted(expr.names(e) & changed)
+            if moved:
+                self.err(origin, "%s reads %s, which a sweep or alter changes; the point count must be one number "
+                         "(§5.2)" % (what, ", ".join(moved)))
+                continue
+            try:
+                v = expr.evaluate(e, self.values, "spectre")
+            except expr.EvalError as exc:
+                self.err(origin, "%s must be a positive integer: %s" % (what, exc))
+                continue
+            if v != int(v) or v <= 0:
+                self.err(origin, "%s must be a positive integer (it is %s)" % (what, expr.to_text(Num(v), "spectre")))
+                continue
+            spec.count = int(v)
+
     def sort_params(self, scope: _Scope, where: str) -> List[Param]:
         """The last definition wins (a note), then a topological sort (a cycle is an error) (§3.7)."""
         last: Dict[str, int] = {}
@@ -2940,8 +3259,18 @@ class _Parser:
             for k in inst.params:
                 if k != "m" and k not in declared:
                     self.err(origin, "%s: %s is not a parameter of subckt %s (%s)" % (inst.name, k, d.name, d.origin))
-        for inst, card in self.va_card_refs:                 # a Verilog-A card's parameters merged in (§3.9)
-            m = next((it for it in self.all_models() if it.name == card), None)
+        if self.no_default:
+            for _scope, items in self.bodies():
+                for it in flat_items(items):
+                    if isinstance(it, Instance) and it.kind == "x" and it.master in self.no_default:
+                        missing = [p for p in self.no_default[it.master] if p not in it.params]
+                        if missing:
+                            self.err(it.origin, "%s: subckt %s's parameter%s %s ha%s no default value; give %s on the "
+                                     "instance (ref19 p.506)" % (it.name, it.master, "s" if len(missing) > 1 else "",
+                                                                 " ".join(missing), "ve" if len(missing) > 1 else "s",
+                                                                 "them" if len(missing) > 1 else "it"))
+        for inst, card, scope in self.va_card_refs:          # a Verilog-A card's parameters merged in (§3.9)
+            m = self.card_for(card, scope)
             if m is not None:
                 merged = dict(m.params)
                 merged.update(inst.params)
@@ -2980,15 +3309,30 @@ class _Parser:
             m.kind = row.kinds[0][1]
         if "level" in m.params:
             lv = m.params["level"]
+            levels = [t for r in row.params if r.name == "level" and r.action == "fold" for t in r.match]
             if row.level is None:
                 self.err(m.origin, "model %s %s: a %s card takes no level" % (m.name, m.prim, m.prim))
                 return
-            if not (isinstance(lv, Num) and lv.value == row.level):
+            if id(m) in self.spice_cards:
+                m.params.pop("level")                       # a SPICE card's level chose the master (§4.3)
+            elif any(r.name == "level" for r in row.params):
+                # the master's own selectors (bsim3v3 11 49 53, ref5 p.197; bsim4 14, ref5 p.224): a fold row
+                # accepts the value, the master's DISPATCH level stands for it (§3.9)
+                rule = T.rule_for(row.params, "level", lv, given)
+                if rule is None or rule.action != "fold":
+                    what = ("Spectre's level %s" % levels[0]) if len(levels) == 1 else \
+                        ("one of Spectre's levels %s" % " ".join(levels))
+                    self.err(m.origin, "model %s %s: level=%s is not %s of %s (§3.9)%s"
+                             % (m.name, m.prim, expr.to_text(lv, "spectre"), what, m.prim,
+                                ": " + T._rule_reason(rule) if rule is not None else ""))
+                    return
+                m.params.pop("level")
+            elif not (isinstance(lv, Num) and lv.value == row.level):
                 self.err(m.origin, "model %s %s: level=%s is not Spectre's level %d of %s (§3.9)"
                          % (m.name, m.prim, expr.to_text(lv, "spectre"), row.level, m.prim))
                 return
-            if not any(r.name == "level" for r in row.params):
-                m.params.pop("level")                       # a SPICE card's level chose the master (§4.3)
+            else:
+                m.params.pop("level")
         if row.level is not None:
             m.level = float(row.level)
         for key in list(m.params):
@@ -2999,7 +3343,7 @@ class _Parser:
                 continue
             if rule.action == "fold":
                 folds[key] = m.params.pop(key)
-        self.card_folds[m.name] = folds
+        self.card_folds[id(m)] = folds
         if folds and m.prim in ("resistor", "capacitor", "inductor"):
             self.note(m.origin, "model %s: %s folded into its instances (§3.8)" % (m.name, " ".join(sorted(folds))))
 
@@ -3032,7 +3376,8 @@ class _Parser:
             self.err(inst.origin, "%s %s needs %d terminal%s (%s), not %d" % (inst.name, prim, terms,
                                                                             "" if terms == 1 else "s",
                                                                             " ".join(row.terminals), n))
-        folds = self.card_folds.get(inst.master or "", {}) if inst.master else {}
+        card = self.card_for(inst.master, scope) if inst.master else None
+        folds = self.card_folds.get(id(card), {}) if card is not None else {}
         if prim in ("vsource", "isource"):
             self.source_instance(inst, row)
             return
@@ -3055,7 +3400,7 @@ class _Parser:
         if prim in ("resistor", "capacitor", "inductor"):
             self.rcl_value(inst, prim, folds)
         elif prim in ("mos1", "mos2", "mos3", "bsim3v3", "bsim4"):
-            self.mos_defaults(inst, prim, folds, row)
+            self.mos_defaults(inst, prim, folds, row, scope)
         elif prim in ("diode", "bjt", "jfet"):
             if "area" in params:
                 inst.value = params.pop("area")
@@ -3087,13 +3432,18 @@ class _Parser:
             self.probe_refs.append((inst, pn, scope))
             params.pop("type", None)
         elif prim == "mutual_inductor":
-            if "coupling" not in params or "ind1" not in params or "ind2" not in params:
+            spice_form = not ({"coupling", "ind1", "ind2"} & set(params)) and inst.value is not None and \
+                len(inst.ctrl) == 2
+            if spice_form:
+                pass        # a SPICE-mode K line: spice.parse_fragment put the coupling in value, L1 L2 in ctrl (§4.3)
+            elif "coupling" not in params or "ind1" not in params or "ind2" not in params:
                 self.err(inst.origin, "%s mutual_inductor needs coupling= ind1= ind2=" % inst.name)
                 return
-            inst.value = params.pop("coupling")
-            l1, l2 = params.pop("ind1"), params.pop("ind2")
-            inst.ctrl = [x.text if isinstance(x, Str) else x.name if isinstance(x, Name) else expr.to_text(x)
-                         for x in (l1, l2)]
+            else:
+                inst.value = params.pop("coupling")
+                l1, l2 = params.pop("ind1"), params.pop("ind2")
+                inst.ctrl = [x.text if isinstance(x, Str) else x.name if isinstance(x, Name) else expr.to_text(x)
+                             for x in (l1, l2)]
             for c in inst.ctrl:
                 if not any(isinstance(it, Instance) and it.name == c and it.kind == "l"
                            for it in flat_items(self.scope_items(scope))):
@@ -3261,19 +3611,24 @@ class _Parser:
         inst.value = Num(rsh * (l - 2 * etchl) / (w - 2 * etch))
         inst.folded = fed
 
-    def mos_defaults(self, inst: Instance, prim: str, folds: Dict[str, Expr], row) -> None:
-        """§3.9: default MOS geometry (the card's w/l, else the master's default) and nrd/nrs."""
+    def mos_defaults(self, inst: Instance, prim: str, folds: Dict[str, Expr], row, scope: "_Scope") -> None:
+        """§3.9: default MOS geometry (the card's w/l, else the master's default) and nrd/nrs.  An instance of a
+        Spectre model group gets no default w or l: plan.build refuses it (D4, ref5 p.203)."""
         p = inst.params
         geometry = dict(row.geometry)
-        group_cards = [m for m in self.all_models() if m.base is not None and m.base == inst.master]
+        group_cards = self.group_for(inst.master, scope) if inst.master else []
         for key in ("w", "l"):
             if key in p:
                 continue
             if group_cards:
-                if any(key in self.card_folds.get(m.name, {}) for m in group_cards):
+                if any(key in self.card_folds.get(id(m), {}) for m in group_cards):
                     self.err(inst.origin, "%s: a model-group card gives %s for an instance without %s: an error in v1 "
                              "(§3.9)" % (inst.name, key, key))
                     return
+                if any(m.bin_rule == "spectre" for m in group_cards):
+                    # D4: automatic model selection needs both w and l on the instance line [M ref5 p.203];
+                    # plan.build reports the instance (status 2), so no master default is written here
+                    continue
                 p[key] = Num(geometry[key])
                 self.note(inst.origin, "%s: %s not given; the %s master's default %g m is written on the instance "
                           "(§3.9)" % (inst.name, key, prim, geometry[key]))
@@ -3503,6 +3858,7 @@ def parse(path: str, cwd: str, opts: SpectreParseOpts) -> Netlist:
     p.declare_all()
     p.lower_all()
     p.parameters_pass()
+    p.counts_pass()
     p.masters_pass()
     p.ground_pass()
     p.duplicates_pass()

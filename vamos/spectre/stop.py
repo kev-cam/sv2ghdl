@@ -16,7 +16,12 @@ Spectre exit status their engine run implies, decided by the failure rules of §
 is absent).  A second INT, TERM, HUP or QUIT while an engine runs kills it at once (`proc.Interrupts`),
 and vamos then exits 3 without converting (§2.7): the runner raises `Stop`, which `flow.run` catches.
 The grace-period kill (the engine still running `INTERRUPT_GRACE` seconds after the first signal) is not
-a second signal: the run is converted as for status 3.
+a second signal: the run is converted as for status 3.  The runners signal the engine's whole process
+group (`proc.Interrupts(..., group=True)`), so a child of the engine, such as Xyce's PyMS compile, never
+outlives vamos.
+
+SIGUSR2's note is `CHECKPOINT` wherever it is printed (flow.poll before and after the engine, and the
+runners' flags while it runs): one text [M UG p.237].
 """
 
 import signal
@@ -29,6 +34,8 @@ HANDLED: Tuple[int, ...] = tuple(getattr(signal, n) for n in ("SIGINT", "SIGTERM
 FLAGS: Tuple[int, ...] = tuple(getattr(signal, n) for n in ("SIGUSR1", "SIGUSR2") if hasattr(signal, n))
 # what the first handled signal becomes when it is passed on to the engine (§2.7, E81)
 FORWARD: int = signal.SIGTERM
+# the SIGUSR2 note (§2.7) [M UG p.237], with no origin: the flow and both runners print this text
+CHECKPOINT = "checkpoint not supported: SIGUSR2 is ignored and the run continues"
 
 
 class Stop(Exception):

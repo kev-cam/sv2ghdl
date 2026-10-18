@@ -22,7 +22,7 @@ M2 (d2 g 0 0) nch w=0.5u l=2u
 M3 (d3 g 0 0) nch w=2u l=0.5u
 M4 (d4 g 0 0) nch w=2u l=1u
 M5 (d5 g 0 0) b4ref w=2u l=1u
-M6 (d6 g 0 0) nch
+M6 (d6 g 0 0) nch w=5u l=5u
 M7 (d7 g 0 0) b4ref w=5u l=5u
 M8 (d8 g 0 0) b1ref
 op1 dc

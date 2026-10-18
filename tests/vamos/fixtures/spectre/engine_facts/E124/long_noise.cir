@@ -1,0 +1,8 @@
+* a 2.7e6-point .NOISE (450000 points per decade over six decades), for an interrupt
+V1 in 0 DC 0 AC 1
+R1 in out 1000.0
+R2 out 0 1000.0
+C1 out 0 1e-09
+.NOISE V(OUT) V1 DEC 450000 1 1MEG
+.PRINT NOISE FILE=long_noise.prn ONOISE INOISE
+.end

@@ -1,0 +1,10 @@
+* a .STEP of the .param that a linear E source's gain reads, starting at the .param's nominal (0.5): out = g * a = -2 g
+.param g=0.5
+V1 in 0 DC -2
+R1 in a 1000.0
+E1 out 0 a 0 {g}
+R2 out 0 1000.0
+.STEP g LIST 0.5 0.75 2
+.OP
+.PRINT DC FORMAT=RAW FILE=estep.raw V(OUT)
+.end

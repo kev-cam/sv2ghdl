@@ -1,0 +1,14 @@
+noise with a second AC source: out = 0.6 V1 + 0.2 V2 (R1 = 1k, R2 = R3 = 3k), both mag=1
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+V1 (in1 0) vamos_vsource type="dc" dc=0 mag=1
+V2 (in2 0) vamos_vsource type="dc" dc=0 mag=1
+R1 (in1 out) vamos_resistor r=1000.0
+R2 (in2 out) vamos_resistor r=3000.0
+R3 (out 0) vamos_resistor r=3000.0
+control
+  options rawfile="ascii"
+  analysis nz1 noise out="out" in="V1" from=1k to=10k mode="dec" points=1
+endc

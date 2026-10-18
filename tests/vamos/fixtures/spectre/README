@@ -20,9 +20,12 @@ exist yet.
                    vamos-authored fixtures (cadnip/*.scs with their title line stripped, lang/*.scs whole)
   cst/DIVERGENCES, cst/GAPS   the oracle's divergence and gap lists (phase 1, owner S1), vamos-authored
   engine_facts/    E<nn>/{deck, expect.json}: the engine facts of §13's T1 rows (phase 0, owner S0G;
-                   E102-E109 and E114 phase 2, owner H), vamos-authored, except that E103, E105 and E106
-                   hold vamos's renders of xdm/ decks (Xyce_Regression, below) and E104, E108 and E109
-                   copy e2e/08's, E63's and E64's Verilog-A files
+                   E102-E109 and E114 phase 2, owner H; E115-E129 and E131 phase 2c, owner X-tests),
+                   vamos-authored, except that E103, E105 and E106 hold vamos's renders of xdm/ decks
+                   (Xyce_Regression, below) and E104, E108 and E109 copy e2e/08's, E63's and E64's
+                   Verilog-A files; E125 copies E75's, E104's and E66's, E126 E66's nan.va; E127's tran
+                   decks are vamos's renders of e2e/15; E128 and E129 read the CMC trees in place
+                   (VAMOS_CMC_EXAMPLES, never copied)
   lang/            vamos-authored Spectre inputs for the CST gaps and the left-out corpus files (phase 1,
                    owner S1): <case>.scs with its CST dump <case>.cst, made by cst/regen.sh
   psf/             PSF ASCII files for psfcheck.py (§11 T0 "psfcheck")
@@ -64,6 +67,25 @@ exist yet.
                    rewrites them); the decks are read in place from VAMOS_CMC_EXAMPLES, never copied;
                    vamos-authored
   plan/ *          plan goldens (a later phase)
+
+Gate environment (§11 "Gates", §12).  The gate's run on WSL sets five variables; without them the
+tiers they open are reported skips (T3b is optional and T3c opt-in, so these two stay variables):
+  VAMOS_CADNIP_VACASK  a VACASK built with -DCADNIP_PARSERS=ON (the recipe is cadnip/BUILD), with
+  SIM_MODULE_PATH      the device directory it loads: T3b, the Cadnip oracle on the cadnip/ decks
+                       (tests/vamos/test_spectre_cadnip.py, needs_cadnip)
+  VAMOS_CMC=1 with
+  VAMOS_CMC_EXAMPLES   the CMC benchmark decks, read in place: T3c (tests/vamos/test_spectre_cmc.py and
+                       the engine_facts rows that read those trees, needs_cmc)
+  VAMOS_VACASK_SRC     VACASK's source tree: e2e 29 (T2) and VACASK's python/rawfile.py checks
+                       (needs_vacask_src, needs_vacask_rawread).  Unset, it defaults to the tree the
+                       VACASK in use was configured from (CMAKE_HOME_DIRECTORY in the CMakeCache.txt of
+                       its build) when that tree holds benchmark/ring and devices/psp103v4, so e2e 29
+                       runs without it; an empty value turns the default off
+The phase-2 gate ran with VAMOS_CADNIP_VACASK naming its Cadnip-enabled VACASK build (cadnip/BUILD)
+SIM_MODULE_PATH=/opt/build.VACASK/Release/devices VAMOS_CMC=1
+VAMOS_CMC_EXAMPLES=/usr/local/src/xyce/utils/ADMS/examples VAMOS_VACASK_SRC=/usr/local/src/VACASK.
+Besides these, the optional psf_utils consumer check runs when VAMOS_PSF_UTILS and
+VAMOS_PSF_UTILS_DEPS name a psf_utils checkout and its dependencies (needs_psf_utils).
 
 Third-party files
 -----------------
@@ -128,4 +150,6 @@ vamos's own emitters from hand-built IR) and psf/golden/** (the PSF writer's gol
 vamos's own writer; psf/golden/engine/** holds the vamos-authored divider decks and the output the
 engines VACASK 0.3.4-91-g64489cf7 and Xyce DEVELOPMENT-202610100047 wrote for them on 2026-10-10, as
 psf/golden/README records); and, from phase 2: e2e/11-30 (but e2e/22's one card), cmc/*.json and the
-engine_facts rows E102-E109 and E114 (but the derived and copied files named above).
+engine_facts rows E102-E109 and E114 (but the derived and copied files named above); and, from phase
+2c: the engine_facts rows E115-E129 and E131 (but the copied files named above) and e2e/07's
+deck_fine.scs.

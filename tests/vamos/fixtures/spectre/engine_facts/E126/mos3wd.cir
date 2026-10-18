@@ -1,0 +1,8 @@
+* a level-3 MOSFET card with WD
+.model nm nmos level=3 vto=0.7 kp=1e-4 wd=1e-07
+V1 d 0 DC 1
+V2 g 0 DC 1.5
+M1 d g 0 0 nm w=10u l=1u
+.OP
+.PRINT DC FORMAT=RAW FILE=mos3wd.raw I(V1)
+.end

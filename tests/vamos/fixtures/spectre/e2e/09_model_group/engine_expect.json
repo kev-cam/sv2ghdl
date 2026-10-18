@@ -188,5 +188,18 @@
     "rel": 1e-09
    }
   ]
- }
+ },
+ "also": [
+  {
+   "deck": "deck_nowl.scs",
+   "vacask": {
+    "status": 2,
+    "refused": "instance M6 on path top level of model group nch has no w or l"
+   },
+   "xyce": {
+    "status": 2,
+    "refused": "instance M6 on path top level of model group nch has no w or l"
+   }
+  }
+ ]
 }

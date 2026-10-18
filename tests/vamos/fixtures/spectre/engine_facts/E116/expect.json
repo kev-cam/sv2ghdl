@@ -1,0 +1,216 @@
+{
+ "row": "E116",
+ "experiment": "stepped sweep counts (the runners and the integration, phase 2): VACASK sweeps from=0 to=0.3 step=0.1, 0 to 0.7, 0 to 1 step 0.25, a descending dec sweep and a descending dec ac; Xyce .DC 0 0.3 0.1 and 0 0.7 0.1, .DC DEC from 1 down to 1m, .AC DEC 10 1 1MEG, .AC LIN 4 1K 4K, and .AC DEC and LIN with start > stop",
+ "result": "VACASK runs n = ceil((to - from)/step) points, plus one when from + n*step <= to (lib/answeep.cpp): 0 to 0.3 by 0.1 runs 3 points and 0 to 0.7 runs 7 (0.3/0.1 is 2.9999999999999996, 3*0.1 is 0.30000000000000004), where the plan's grid has 4 and 8; 0 to 1 by 0.25 runs 5; Xyce's .DC and .AC counts equal the plan's grid (4, 8, 61, 4). Added in phase 2c (R-emit-19): VACASK runs a descending dec sweep natively (dc 1 V down to 1 mV and ac 1 MHz down to 1 kHz, 4 points each); Xyce's .DC DEC with start > stop computes one step, with a warning; .AC DEC and .AC LIN with start > stop are a netlist error, rc 1",
+ "rules": [
+  "§4.5 / §7.1: render prints a stepped grid whose float steps miss the end as values=[...] on VACASK (vacask.step_values), and the VACASK runner counts the points VACASK runs (run_vacask.vacask_count)",
+  "§7.2: Xyce's .DC and .AC grids are the plan's (results.grid_values), the failed-point detection counting them",
+  "R-emit-3 / R-emit-4 (phase 2c): a descending dec grid runs as it is on VACASK; on Xyce a .DC or .STEP DEC with start > stop computes one point and an .AC grid with start > stop is refused, so render must not print either"
+ ],
+ "runs": [
+  {
+   "name": "vacask_counts",
+   "tool": "vacask",
+   "deck": "steps.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dc1.raw",
+     "points": 3,
+     "col": "s1",
+     "values": [
+      0.0,
+      0.1,
+      0.2
+     ],
+     "rel": 1e-09
+    },
+    {
+     "raw": "dc1.raw",
+     "col": "out",
+     "values": [
+      0.0,
+      0.05,
+      0.1
+     ],
+     "rel": 1e-09,
+     "abs": 1e-15
+    },
+    {
+     "raw": "dc2.raw",
+     "points": 7,
+     "col": "s2",
+     "row": -1,
+     "value": 0.6,
+     "rel": 1e-09
+    },
+    {
+     "raw": "dc3.raw",
+     "points": 5,
+     "col": "s3",
+     "values": [
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+     ],
+     "rel": 1e-09
+    },
+    {
+     "raw": "dc4.raw",
+     "points": 4,
+     "col": "s4",
+     "values": [
+      1.0,
+      0.1,
+      0.01,
+      0.001
+     ],
+     "rel": 1e-09
+    },
+    {
+     "raw": "ac1.raw",
+     "points": 4,
+     "col": "frequency",
+     "values": [
+      1000000.0,
+      100000.0,
+      10000.0,
+      1000.0
+     ],
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_dc_0_to_0p3",
+   "tool": "xyce",
+   "deck": "dc03.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dc03.raw",
+     "points": 4,
+     "col": "sweep",
+     "values": [
+      0.0,
+      0.1,
+      0.2,
+      0.3
+     ],
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_dc_0_to_0p7",
+   "tool": "xyce",
+   "deck": "dc07.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dc07.raw",
+     "points": 8,
+     "col": "sweep",
+     "row": -1,
+     "value": 0.7,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_dc_dec_descending",
+   "tool": "xyce",
+   "deck": "dcdec.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Decade DC or STEP parameters for sweep over V1 request stop",
+     "Xyce will compute only one step at the start"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "dcdec.raw",
+     "points": 1,
+     "col": "sweep",
+     "value": 1.0,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac_dec",
+   "tool": "xyce",
+   "deck": "acdec.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "acdec.raw",
+     "points": 61,
+     "col": "FREQUENCY",
+     "row": -1,
+     "value": 1000000.0,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac_lin",
+   "tool": "xyce",
+   "deck": "aclin.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "aclin.raw",
+     "points": 4,
+     "col": "FREQUENCY",
+     "values": [
+      1000.0,
+      2000.0,
+      3000.0,
+      4000.0
+     ],
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_ac_dec_descending_refused",
+   "tool": "xyce",
+   "deck": "acdec_desc.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Netlist error: End frequency must not be less than start frequency on .AC line"
+    ]
+   },
+   "files": {
+    "absent": [
+     "acdec_desc.raw"
+    ]
+   }
+  },
+  {
+   "name": "xyce_ac_lin_descending_refused",
+   "tool": "xyce",
+   "deck": "aclin_desc.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Netlist error: End frequency must not be less than start frequency on .AC line"
+    ]
+   },
+   "files": {
+    "absent": [
+     "aclin_desc.raw"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row and R-emit-19's added facts; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored, after the phase-2 runners' grids and the 2b review's dsc1, dsc2 and frq2 decks (sp2b/S-emit)"
+ ]
+}

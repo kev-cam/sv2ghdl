@@ -1,0 +1,19 @@
+a nested sweep whose op fails at the outer sweep's second point and the inner's second: the vccs cancels out's conductance there (singular)
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+model vamos_vccs vccs
+V1 (in 0) vamos_vsource type="dc" dc=1
+R1 (in out) vamos_resistor r=1000.0
+R2 (out 0) vamos_resistor r=1000.0
+G1 (out 0 out 0) vamos_vccs gain=0.001*(va*vb-6)
+control
+  options rawfile="ascii" strictoutput=0
+  var va=1
+  var vb=1
+  save v(out)
+  sweep so variable="va" values=[1, 2]
+    sweep si variable="vb" values=[1, 2, 3]
+      analysis op1 op
+endc

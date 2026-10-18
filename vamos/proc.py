@@ -2,7 +2,7 @@
 (docs/VAMOS_SPECTRE_DESIGN.md §2.7, §10).  Moved here from backends/nvc.py, which imports it
 back; the spectre flow is its second user.
 
-Interrupts(handled, forward, flags=(), grace=INTERRUPT_GRACE)
+Interrupts(handled, forward, flags=(), grace=INTERRUPT_GRACE, group=False)
     A context manager for the time a child runs.  The first signal in `handled` that
     vamos gets is passed to the child as `forward` and recorded (signum); a second one,
     or the child still running `grace` seconds after the first (SIGALRM), kills it
@@ -12,11 +12,17 @@ Interrupts(handled, forward, flags=(), grace=INTERRUPT_GRACE)
     own (child_setup).  Handlers are installed only in the main thread, and restored on
     exit; a signal that is ignored stays ignored (nohup, a background job without job
     control).  attach(proc) names the child; a signal that came before it is passed on
-    then.
+    then.  group: every signal goes to the child's process group, which child_setup made
+    it the leader of, so the child's own children (Xyce's PyMS compile: sh, python3, g++)
+    get it too; only while the child has not been reaped (its group id may be reused
+    then), and to the child alone where that fails.
     nvc: Interrupts((SIGINT, SIGTERM, SIGHUP), SIGINT, grace=nvc.INTERRUPT_GRACE);
-    spectre: ((SIGINT, SIGTERM, SIGHUP, SIGQUIT), SIGTERM, flags=(SIGUSR1, SIGUSR2)).
+    spectre: ((SIGINT, SIGTERM, SIGHUP, SIGQUIT), SIGTERM, flags=(SIGUSR1, SIGUSR2),
+    group=True).
 child_setup() -> the Popen preexec_fn: the child's own process group, and on Linux
     SIGTERM when vamos dies (prctl PR_SET_PDEATHSIG); None where setpgid is missing.
+kill_group(p) -> None: SIGKILL to a running child's process group (as group= sends it),
+    then the child reaped: the cleanup that leaves nothing of a child behind.
 signal_name(signum) -> "SIGINT", or "signal 42" for a number with no name.
 """
 
@@ -42,14 +48,16 @@ class Interrupts:
     for take_flags() and is never forwarded.  A SIGTSTP (Ctrl-Z) stops the child with
     vamos, and the child continues when vamos does (the child is in a process group of
     its own, child_setup).  Handlers are installed only in the main thread, and restored
-    afterwards; a signal that is ignored stays ignored."""
+    afterwards; a signal that is ignored stays ignored.  group: each signal goes to the
+    child's process group (see the module docstring)."""
 
     def __init__(self, handled: Sequence[int], forward: int, flags: Sequence[int] = (),
-                 grace: float = INTERRUPT_GRACE) -> None:
+                 grace: float = INTERRUPT_GRACE, group: bool = False) -> None:
         self.handled = tuple(handled)
         self.forward = forward
         self.flags = tuple(flags)
         self.grace = grace
+        self.group = group                       # signal the child's process group, not its pid alone
         self.proc: Optional[subprocess.Popen] = None
         self.signum: Optional[int] = None        # the first handled signal, None if none came
         self.killed = False                      # the child outlived the grace or a second signal
@@ -128,10 +136,39 @@ class Interrupts:
     def _send(self, sig) -> None:
         if self.proc is None:
             return
+        if self.group and _signal_group(self.proc, sig):
+            return
         try:
             self.proc.send_signal(sig)
         except OSError:
             pass
+
+
+def _signal_group(p: subprocess.Popen, sig: int) -> bool:
+    """sig to the process group a child set up by child_setup leads; False when it cannot be sent so:
+    the child has been reaped (its group id may belong to another process by now), the platform has
+    no killpg, or the child has no group of its own (setpgid failed: ESRCH)."""
+    killpg = getattr(os, "killpg", None)
+    if killpg is None or p.poll() is not None:
+        return False
+    try:
+        killpg(p.pid, sig)
+        return True
+    except OSError:
+        return False
+
+
+def kill_group(p: subprocess.Popen) -> None:
+    """SIGKILL to a running child's process group (to the child alone where that fails), then the
+    child reaped; a child already reaped is only waited for."""
+    if p.poll() is None:
+        sig = getattr(signal, "SIGKILL", signal.SIGTERM)
+        if not _signal_group(p, sig):
+            try:
+                p.kill()
+            except OSError:
+                pass
+    p.wait()
 
 
 def child_setup() -> Optional[Callable[[], None]]:

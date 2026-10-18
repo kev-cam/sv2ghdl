@@ -75,11 +75,17 @@
  "messages": [
   [
    "note",
-   "M6: w not given; the bsim4 master's default 5e-06 m"
-  ],
-  [
-   "note",
    "M8: l=2e-06 written from the card's l"
   ]
- ]
+ ],
+ "also": {
+  "deck": "deck_nowl.scs",
+  "status": 2,
+  "messages": [
+   [
+    "error",
+    "instance M6 on path top level of model group nch has no w or l"
+   ]
+  ]
+ }
 }

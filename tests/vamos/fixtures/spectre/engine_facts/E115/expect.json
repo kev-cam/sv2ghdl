@@ -1,0 +1,86 @@
+{
+ "row": "E115",
+ "experiment": "VACASK's output into a pipe and into a pseudo-terminal (the VACASK runner, phase 2): an aborted analysis between two ops, its output into a file; a tran of about 4 s (long.sim) ended by SIGTERM and by SIGKILL 2 s in; the same tran through a pipe, an unsized pty and an 80-column pty (TestStdoutBuffering)",
+ "result": "through a pipe (or into a file) VACASK's stdout is block-buffered: every line of a 4-7 s run arrives at exit, and a SIGTERM or SIGKILL loses the lines not yet flushed (none of the run's lines is left); through a pty each line arrives as printed; its progress bar needs a terminal width (simulator/progressbar.cpp: isTty, ttyColumns, 0 columns turning it off), so an unsized pty shows none and an 80-column one shows `|===== 91% ==== | <t>s @ <time>s`; everything, failures included, goes to stdout, stderr staying empty; per analysis it prints `Running analysis '<name>'.`, then `Elapsed time: <t>`, then that analysis's failure messages; the rows still in its file buffer when SIGKILL or SIGTERM ends it are lost, and rawfile.fix_points repairs the count from the rows on disk (as E40 assumed)",
+ "rules": [
+  "§7.1: run_vacask reads VACASK through a pseudo-terminal where one opens (line-buffered, so the analyses are reported as they run; a pipe would hold every line until VACASK exits), sized 0 so no progress bar mixes into the narration",
+  "§7.1: an analysis's engine messages are the lines from its `Running analysis` line to the next one, after its elapsed line",
+  "§2.7 status 3: an interrupted VACASK run is converted after rawfile.fix_points (E40)"
+ ],
+ "runs": [
+  {
+   "name": "messages_after_the_elapsed_line_stderr_empty",
+   "tool": "vacask",
+   "deck": "abort.sim",
+   "status": 0,
+   "output": {
+    "regex": [
+     "Running analysis 'nz1'\\.\\n\\s*Elapsed time: \\S+\\nNode ''out'' not found\\.\\nAnalysis 'nz1' aborted\\.\\nRunning analysis 'op2'\\."
+    ]
+   },
+   "stderr": {
+    "empty": true
+   },
+   "files": {
+    "present": [
+     "op1.raw",
+     "nz1.raw",
+     "op2.raw"
+    ]
+   }
+  },
+  {
+   "name": "sigterm_loses_the_unflushed_lines",
+   "tool": "vacask",
+   "deck": "long.sim",
+   "signal": {
+    "after": 2,
+    "name": "TERM",
+    "grace": 20
+   },
+   "status": "TERM",
+   "output": {
+    "absent": [
+     "Running analysis",
+     "This is vacask"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 1000,
+     "max_last_time": 0.25
+    }
+   ]
+  },
+  {
+   "name": "sigkill_loses_the_unflushed_lines",
+   "tool": "vacask",
+   "deck": "long.sim",
+   "signal": {
+    "after": 2,
+    "name": "KILL",
+    "grace": 20
+   },
+   "status": "KILL",
+   "output": {
+    "absent": [
+     "Running analysis"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "fix_points": true,
+     "min_points": 1000,
+     "max_last_time": 0.25
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 through vamos.ams.engines and engines.env_for; the pipe and pty halves are test_spectre_engine_facts.TestStdoutBuffering's",
+  "decks: vamos-authored"
+ ]
+}

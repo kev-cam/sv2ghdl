@@ -1,0 +1,11 @@
+`include "disciplines.vams"
+`include "constants.vams"
+// E125: a plain Verilog-A resistor with thermal noise, no xyce attributes (vamos-authored, after the 2b review's van1)
+module nvr(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = 1000.0;
+  analog begin
+    I(a, b) <+ V(a, b) / r;
+    I(a, b) <+ white_noise(4.0 * `P_K * $temperature / r, "thermal");
+  end
+endmodule

@@ -1,0 +1,20 @@
+a vccs negative conductance kicked by a pulse (e2e 11's tran_abort): node a grows as exp(t / 1 us)
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+model vamos_isource isource
+model vamos_vccs vccs
+model vamos_resistor resistor
+model vamos_capacitor capacitor
+I1 (0 a) vamos_isource type="pulse" val0=0 val1=1e-06 delay=0 rise=1e-09 fall=1e-09 width=1e-06 period=10
+G1 (0 a a 0) vamos_vccs gain=0.001
+C1 (a 0) vamos_capacitor c=1e-09
+R1 (a 0) vamos_resistor r=1000000.0
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0 tran_lteimplicit=0
+  save v(a)
+  analysis op1 op
+  analysis tr1 tran step=1e-06 stop=0.001 maxstep=2e-05
+  analysis op2 op
+endc

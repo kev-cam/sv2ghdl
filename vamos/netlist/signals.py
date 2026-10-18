@@ -8,6 +8,8 @@ source of engine columns.  It returns a copy.deepcopy of the netlist with the pr
 and Netlist.values reduced per engine from RunPlan.dependents (§4.1), never the input IR.
 
 What resolve does:
+  - folds, on the copy, a resistor's r that is a constant expression equal to 0 (r=1k-1k) to the constant 0,
+    §4.5 item 10's short (phase 2c3, G3: fold_constant_shorts, plan.is_short);
   - flattens the IR once, on the copy, with tables.path_envs (nominal values): every instance
     path, every net as an IR path ('.' hierarchy, the original case), the ports of a subckt
     instance bound to its caller's nets, an inline subckt's component named like the subckt
@@ -22,7 +24,9 @@ What resolve does:
     vcvs/ccvs (the first terminal), a 0 V probe source vamos_tp<k> in series with every other
     terminal (the terminal moves to vamos_tn<k>), in the copy;
   - the noise STRUCT type names (§8.4), the noise input of §5.6 (vamos_nin<k> across the output
-    pair), the xf traces (one per IR independent source), the psf types of §6.4;
+    pair, in the shallowest body that sees both nets, a port net under the port's name), the xf
+    traces (one per IR independent source; with save=lvl or lvlpub down to nestlvl), the psf
+    types of §6.4;
   - the ic/nodeset names and the names in readns/readic files (§3.10), warned when unmatched;
   - the output options of §6.1 (notes and warnings).
 
@@ -36,7 +40,7 @@ import fnmatch
 import math
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from vamos.netlist import plan as PL
 from vamos.netlist import tables as T
@@ -136,6 +140,21 @@ def is_no(v: object) -> bool:
     return isinstance(text, str) and text.lower() in ("no", "false", "0")
 
 
+def noise_off_at(flat: "_Flat", ent: "_Inst") -> bool:
+    """A resistor's isnoisy on its instance path, as the emitters decide it (xyce.noise_off: no/false off,
+    yes/true on, a number or a parameter evaluated with the path's values, 0 off; §4.5 item 7, R-emit-6); a
+    value that is not a number on its path counts as on here (the emitters report it)."""
+    v = ent.inst.params.get("isnoisy")
+    if v is None:
+        return False
+    from vamos.netlist import expr as X
+    from vamos.netlist.xyce import noise_off
+    try:
+        return noise_off(v, flat.path_env(ent.at.path), flat.nl.dialect)
+    except X.EvalError:
+        return False
+
+
 def _value(v: object) -> Optional[float]:
     if isinstance(v, Num):
         return float(v.value)
@@ -191,7 +210,32 @@ class _Flat:
         # the generic probe on both engines
         self.small_signal = any(a.op == "analysis" and a.step is not None and a.step.kind in ("ac", "xf")
                                 for a in plan.actions)
+        # phase 2c2 (R-plan-19): the resistors whose isnoisy an alter sets; on Xyce the state replay renders each
+        # deck's form from the altered switch (the noise-free G form or the R), so their currents are probed
+        self.switched: Set[str] = {t[1] for t in (a.args.get("target") for a in plan.actions if a.op == "alter")
+                                   if isinstance(t, tuple) and len(t) == 3 and t[0] == "instance" and t[2] == "isnoisy"}
+        # phase 2c2: the instances whose m a sweep or alter sets; VACASK's native current of one is a single unit's
+        # once m is not 1 (an alter of R1's m to 2 gave R1:1 = 1/3 mA where the total is 2/3 mA, measured)
+        targets = [a.args.get("target") for a in plan.actions if a.op == "alter"]
+        for a in plan.actions:
+            if a.op == "analysis" and a.step is not None:
+                targets += [lv.target for lv in list(a.step.context) + ([a.step.own] if a.step.own is not None else [])]
+        self.m_targets: Set[str] = {t[1] for t in targets
+                                    if isinstance(t, tuple) and len(t) == 3 and t[0] == "instance" and t[2] == "m"}
         self._build()
+
+    def path_env(self, path: str) -> Mapping[str, float]:
+        """The parameter values on an instance path, as the emitters' elaboration reads them (tables.path_envs,
+        non-strict), for a resistor's isnoisy (noise_off_at, R-emit-6); the netlist's values off any path."""
+        envs = getattr(self, "_envs", None)
+        if envs is None:
+            from vamos.netlist import expr as X
+            try:
+                envs = {pe.path: pe.env for pe in T.path_envs(self.nl, strict=False, dialect=self.nl.dialect)}
+            except (X.EvalError, T.TableError):
+                envs = {}
+            self._envs = envs
+        return envs.get(path, self.nl.values)
 
     # -- flattening
     def _resolve(self, at: _Path, local: str) -> str:
@@ -202,8 +246,10 @@ class _Flat:
         return at.path + "." + local
 
     def _build(self) -> None:
-        temp = _value(self.plan.options.get("temp")) or 27.0
-        tnom = _value(self.plan.options.get("tnom")) or 27.0
+        temp = _value(self.plan.options.get("temp"))
+        tnom = _value(self.plan.options.get("tnom"))
+        temp = 27.0 if temp is None else temp             # 0 C is a temperature (phase 2c, R-plan-11)
+        tnom = 27.0 if tnom is None else tnom
         try:
             with PL.substituted(PL.temp_sites(self.nl), temp, tnom):     # §3.5: temp and tnom in conditions
                 envs = list(T.path_envs(self.nl, dialect=PL.DIALECT))
@@ -307,9 +353,11 @@ class _Flat:
             self.notes.append(Note(WARNING, origin, "%s has no terminal %d" % (ent.spectre, idx + 1)))
             return None
         kind = it.kind
-        if self.plan.engine == "vacask" and kind in ("v", "l", "e", "h", "r") and _multiplied(it):
+        if self.plan.engine == "vacask" and kind in ("v", "l", "e", "h", "r") and (
+                _multiplied(it) or ent.path in self.m_targets):
             # VACASK's native flow(br) and p(r, i) of a $mfactor instance are one unit's current; Spectre's
-            # terminal current (and Xyce's I(R1)) is the total: a probe measures it (phase 1b, XDM rlc)
+            # terminal current (and Xyce's I(R1)) is the total: a probe measures it (phase 1b, XDM rlc), also
+            # for an m a sweep or alter sets (phase 2c2)
             return self.probe(ent, idx)
         if idx == 0 and kind in ("v", "l", "e", "h"):
             return ("i", ent.path)
@@ -320,10 +368,11 @@ class _Flat:
                                        "is not written" % ent.spectre))
                 return None
             if idx == 0:
-                noisy_off = is_no(it.params.get("isnoisy"))
+                noisy_off = noise_off_at(self, ent)       # the switch per path, as the emitters read it
                 has_tc = any(k in it.params for k in ("tc1", "tc2"))
                 short = isinstance(v, Num) and v.value == 0
-                g_form = self.plan.engine == "xyce" and noisy_off and not has_tc and not short
+                switched = ent.path in self.switched      # an alter of isnoisy: the form changes per deck
+                g_form = self.plan.engine == "xyce" and (noisy_off or switched) and not has_tc and not short
                 # VACASK has no dv/di of a resistor (its r=0 short is a 0 V source, which has them); Xyce's
                 # .PRINT AC cannot print I(R) either ("Function or variable I(R1) is not defined", rc 1,
                 # measured on DEVELOPMENT-202610100047 in phase 2), R=0 included
@@ -602,7 +651,18 @@ def _nestlvl(v: object) -> Optional[int]:
 
 # -- noise and xf (§5.6, §6.4, §8.4) ----------------------------------------------------------------------
 
-def _is_noisy(ent: _Inst) -> bool:
+_NOMINAL = object()
+
+
+def _switch_off(value: object) -> bool:
+    """An alter's value of a resistor's isnoisy (Action.args value: a word or a number) read as the emitters
+    read the switch (plan.noise_switch_off); a value that is neither counts as on, as noise_off_at's."""
+    return PL.noise_switch_off(value) is True
+
+
+def _is_noisy(ent: _Inst, flat: _Flat, switch: object = _NOMINAL) -> bool:
+    """Whether an instance contributes noise; switch: a resistor's isnoisy as an alter set it (phase 2c2,
+    R-plan-19), else the netlist's on its path."""
     it = ent.inst
     if it.kind not in NOISY_KINDS or it.name.startswith("vamos_"):
         return False
@@ -610,18 +670,33 @@ def _is_noisy(ent: _Inst) -> bool:
         v = it.value
         if isinstance(v, Num) and (v.value == 0 or math.isinf(v.value)):
             return False
-        if is_no(it.params.get("isnoisy")):
+        if switch is not _NOMINAL:
+            return not _switch_off(switch)
+        if noise_off_at(flat, ent):                   # isnoisy per path: a parameter counts (R-emit-6)
             return False
     return True
 
 
+def _switch_values(plan: RunPlan) -> Dict[str, List[object]]:
+    """Resistor path -> the isnoisy values the plan's alters give it, in order (phase 2c2)."""
+    out: Dict[str, List[object]] = {}
+    for a in plan.actions:
+        t = a.args.get("target") if a.op == "alter" else None
+        if isinstance(t, tuple) and len(t) == 3 and t[0] == "instance" and t[2] == "isnoisy":
+            out.setdefault(t[1], []).append(a.args.get("value"))
+    return out
+
+
 def _noise_types(flat: _Flat, notes: List[Note]) -> Dict[str, str]:
-    """Instance path -> its STRUCT type name: the model, else the master; a collision suffixed (§8.4)."""
+    """Instance path -> its STRUCT type name: the model, else the master; a collision suffixed (§8.4).  Every
+    instance noisy in some step has one: at its netlist value or at a value an alter of its isnoisy gives
+    (phase 2c2); _noise_signals lists each step's noisy ones."""
     by_key: Dict[str, str] = {}
     taken: Set[str] = set(PSF_FIXED_TYPES)
     out: Dict[str, str] = {}
+    altered = _switch_values(flat.plan)
     for ent in flat.insts.values():
-        if not _is_noisy(ent):
+        if not (_is_noisy(ent, flat) or any(_is_noisy(ent, flat, v) for v in altered.get(ent.path, ()))):
             continue
         it = ent.inst
         key = it.master if (it.master and it.kind != "y") else (it.prim or it.master or it.kind)
@@ -640,10 +715,17 @@ def _noise_types(flat: _Flat, notes: List[Note]) -> Dict[str, str]:
     return out
 
 
-def _noise_signals(flat: _Flat, step: AnalysisStep, types: Dict[str, str]) -> List[_Signal]:
+def _noise_signals(flat: _Flat, step: AnalysisStep, types: Dict[str, str],
+                   switches: Optional[Mapping[str, object]] = None) -> List[_Signal]:
+    """The noise step's signals: the instances noisy in it (switches: the isnoisy values the alters before the
+    step set, phase 2c2), out, and gain and in for an input source."""
     out: List[_Signal] = []
     for ent in flat.insts.values():
         if ent.path in types:
+            if switches is not None and ent.path in switches and not _is_noisy(ent, flat, switches[ent.path]):
+                continue                              # an alter turned its noise off before this step
+            if (switches is None or ent.path not in switches) and not _is_noisy(ent, flat):
+                continue                              # off at its netlist value; an alter turns it on later
             out.append((("noise", ent.path), ent.spectre, types[ent.path], "n"))
     out.append((("onoise",), "out", PSF_V_NOISE, "n"))
     inp = step.noise_input
@@ -655,12 +737,17 @@ def _noise_signals(flat: _Flat, step: AnalysisStep, types: Dict[str, str]) -> Li
     return out
 
 
-def _xf_signals(flat: _Flat) -> List[_Signal]:
-    """One trace per IR independent source: kind v with prim vsource, kind i, at every level (§6.4)."""
+def _xf_signals(flat: _Flat, mode: str = "selected", nest: Optional[int] = None) -> List[_Signal]:
+    """One trace per IR independent source: kind v with prim vsource, kind i, at every level (§6.4); with
+    save=lvl or lvlpub, the sources down to nestlvl [M ref19 p.438 'You can limit the number of sources in
+    hierarchical netlists by using the save and nestlvl parameters', p.188] (phase 2c)."""
+    limit = nest if mode in ("lvl", "lvlpub") else None
     out: List[_Signal] = []
     for ent in flat.insts.values():
         it = ent.inst
         if it.name.startswith("vamos_"):
+            continue
+        if limit is not None and ent.level > limit:
             continue
         if (it.kind == "v" and it.prim in ("vsource", "")) or it.kind == "i":
             out.append((("tf", ent.path), "%s:%s" % (ent.spectre, flat.terminal_label(ent, 0)),
@@ -705,25 +792,43 @@ def _insert_noise_input(flat: _Flat, step: AnalysisStep, notes: List[Note]) -> N
     pair = _output_pair(flat, a, step, notes)
     if pair is None:
         return
-    where: Optional[_Path] = None
-    local: List[str] = []
+    nets: List[Tuple[str, Optional[str]]] = []          # (as named, the net: None for ground or a global)
     for g in pair:
         if g == "0" or g in flat.globals:
-            local.append(g)
+            nets.append((g, None))
             continue
-        at = flat.node_at.get(g)
-        if at is None:
+        c = flat.net(g)                                   # a port path (X1.y) is its caller's net (phase 2c)
+        if c is None:
             notes.append(Note(ERROR, a.origin, "noise %s: output node %s is not a net of the circuit" % (a.name, g)))
             return
-        p, name = at
-        if where is not None and where is not p:
-            notes.append(Note(ERROR, a.origin, "noise %s: the output nodes %s and %s lie in different subckt bodies; "
-                              "the noise input of §5.6 cannot be placed (v1)" % (a.name, pair[0], pair[1])))
-            return
-        where = p
-        local.append(name)
+        nets.append((g, c))
+    # the shallowest body that sees both nets, each declared there or bound to one of its ports (a port net is
+    # visible in the body, under the port's name; phase 2c, R-plan-10)
+    found: Optional[Tuple[_Path, List[str]]] = None
+    for p in flat.paths:
+        local: List[str] = []
+        for g, c in nets:
+            if c is None:
+                local.append(g)
+                continue
+            at = flat.node_at.get(c)
+            if at is not None and at[0] is p:
+                local.append(at[1])
+                continue
+            port = next((k for k, v in p.nodemap.items() if v == c), None) if p.path else None
+            if port is None:
+                break
+            local.append(port)
+        else:
+            if found is None or p.depth < found[0].depth:
+                found = (p, local)
+    if found is None:
+        notes.append(Note(ERROR, a.origin, "noise %s: the output nodes %s and %s lie in different subckt bodies; "
+                          "the noise input of §5.6 cannot be placed (v1)" % (a.name, pair[0], pair[1])))
+        return
+    where, local = found
     base = (step.noise_input or "vamos_nin").rsplit(".", 1)[-1]
-    body = (where or flat.by_path[""]).body
+    body = where.body
     body.append(Instance(base, "i", local, source=Source(dc=Num(0.0)), origin=a.origin, prim="isource"))
     # placed inside a subckt body, the input is that path's instance: the step names it by its IR path,
     # which render prints (VACASK in="I2:vamos_nin1"; Xyce AC 1 0 in the body, .NOISE naming XI2:VAMOS_NIN1,
@@ -779,11 +884,32 @@ def _state_file(flat: _Flat, step: AnalysisStep, key: str, notes: List[Note]) ->
 
 # -- resolve --------------------------------------------------------------------------------------------
 
+def fold_constant_shorts(nl: Netlist) -> None:
+    """G3 (phase 2c3): a resistor whose r is a constant expression equal to 0 (plan.is_short, plan.constant_zero:
+    r=1k-1k, r=2*0) is §4.5 item 10's static short: its r becomes the constant 0 in place, at every level (Cond
+    branches and subckt bodies), so the probes here and both emitters treat it as r=0 (VACASK's 0 V source, Xyce's
+    R=0).  F1 had refused it on both engines; Spectre makes it a short, and Xyce had printed {1000-1000} as one."""
+    def walk(items: Sequence[object]) -> None:
+        for it in items:
+            if isinstance(it, Instance):
+                if it.kind == "r" and not isinstance(it.value, Num) and PL.is_short(it):
+                    it.value = Num(0.0)
+            elif isinstance(it, Cond):
+                for _cond, body in it.branches:
+                    walk(body)
+                walk(it.default)
+            elif isinstance(it, Subckt):
+                walk(it.body)
+    walk(nl.body)
+
+
 def resolve(nl: Netlist, plan: RunPlan) -> Tuple[Netlist, SignalMap, List[Note]]:
     """The render copy (a copy.deepcopy of nl with the probes, Netlist.values reduced per engine from
-    plan.dependents, §4.1), the SignalMap and the notes (§6)."""
+    plan.dependents, §4.1, and a constant expression equal to 0 folded to a resistor's short, G3), the SignalMap
+    and the notes (§6)."""
     notes: List[Note] = []
     nl2 = copy.deepcopy(nl)
+    fold_constant_shorts(nl2)
     flat = _Flat(nl2, plan, notes)
     options = _output_options(nl2, notes)
     allpub_all = flat.allpub(None)                       # before any insertion (§6.1)
@@ -794,8 +920,12 @@ def resolve(nl: Netlist, plan: RunPlan) -> Tuple[Netlist, SignalMap, List[Note]]
     _check_names(flat, list(nl2.nodesets), "nodeset", "", notes)
     types = _noise_types(flat, notes)
     sigmap = SignalMap()
+    switches: Dict[str, object] = {}                     # resistor path -> isnoisy as the alters so far set it
     for act in plan.actions:
         step = act.step
+        target = act.args.get("target") if act.op == "alter" else None
+        if isinstance(target, tuple) and len(target) == 3 and target[0] == "instance" and target[2] == "isnoisy":
+            switches[target[1]] = act.args.get("value")
         if act.op != "analysis" or step is None:
             continue
         for key in ("readns", "readic", "read"):
@@ -809,9 +939,9 @@ def resolve(nl: Netlist, plan: RunPlan) -> Tuple[Netlist, SignalMap, List[Note]]
         if step.kind == "noise":
             if step.noise_input and is_vamos_input(step.noise_input):
                 _insert_noise_input(flat, step, notes)
-            sigs = _noise_signals(flat, step, types)
+            sigs = _noise_signals(flat, step, types, switches)
         elif step.kind == "xf":
-            sigs = _xf_signals(flat)
+            sigs = _xf_signals(flat, mode, nest)
         else:
             sigs = []
             if mode == "nooutput":

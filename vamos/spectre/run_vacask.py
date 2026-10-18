@@ -3,14 +3,17 @@
 
 run(nl, plan, sigmap, run_dir, job, log, strict=False) -> EngineResult
     Step 10: every Verilog-A file of nl.hdl is compiled by engines.openvaf() (environment
-    engines.env_for("vacask", None, os.environ)) into <ahdllibdir>/<stem>_<sha1>.osdi, written to
+    engines.env_for("vacask", None, os.environ) with tools.bound_blas_threads: OPENBLAS_NUM_THREADS=1
+    unless the user set a thread count) into <ahdllibdir>/<stem>_<sha1>.osdi, written to
     a temporary file and moved with os.replace (concurrent runs share the directory), and reused
     while its sha1 holds; openvaf-r gets the include directories the module scan read
     (CDS_VLOGA_INCLUDE's, then -I's) and -va,define's macros (§2.5, §2.8).  Step 11:
     vacask.render(nl, osdi=<those files>, plan=plan, sigmap=sigmap, names=<the map it fills>) is
     written to <run_dir>/vamos.sim and run as `engines.vacask_bin() vamos.sim` in run_dir, stdin
     /dev/null, its own process group and PR_SET_PDEATHSIG (proc.child_setup), under
-    proc.Interrupts(stop.HANDLED, stop.FORWARD, stop.FLAGS, grace=INTERRUPT_GRACE).  VACASK's
+    proc.Interrupts(stop.HANDLED, stop.FORWARD, stop.FLAGS, grace=INTERRUPT_GRACE, group=True): every
+    signal vamos sends a child goes to its whole process group, and a child left running when the
+    runner ends (an exception) is killed with it (proc.kill_group).  VACASK's
     output goes through a pseudo-terminal where one opens (its stdout is then line-buffered, so the
     analyses are reported as they run; a pipe would hold every line until VACASK exits) and is kept
     whole in <run_dir>/vacask.log.  render's errors, a missing openvaf-r, a failed compile and a
@@ -28,16 +31,17 @@ are written).  An engine warning (`Warning, ...`) is a warning, any other line (
 $strobe) a plain line, at most ENGINE_LINES per analysis; the rest stays in vacask.log, which the
 message names.  SIGUSR1 prints log.status_line with the running analysis and its progress, read
 from the end of its rawfile (VACASK prints none into a pipe or an unsized terminal); SIGUSR2 the
-note "checkpoint not supported".  Under VAMOS_VERBOSE (--vamos-verbose) each command is echoed.
+note stop.CHECKPOINT.  Under VAMOS_VERBOSE (--vamos-verbose) each command is echoed.
 
 The EngineResult (stop.py): rc 0, 1, 2 or 3; status per AnalysisStep id (absent for a step
 VACASK never reached); files: the absolute vamos_a<k>.raw of every step whose rawfile exists;
 failed_points: the first failed point (1-based) of a swept step that failed part-way; names:
 render's map; log: VACASK's message lines (at most LOG_LINES).  An analysis succeeded only if its
 rawfile exists, its `No. Points:` is filled and equals the rows rawfile.scan counts, it holds the
-planned groups (the product of the points VACASK runs for its sweep statements; for a time or
-frequency axis, the restarts of that axis) and, for a tran, every group ends at `stop` (relative
-REL_STOP); otherwise it failed, whatever VACASK printed or returned (§7.1, E27, E28, E66).  A
+planned groups (the product of the points VACASK runs for its sweep statements; for a time axis,
+its restarts; for a frequency axis, groups of its grid's points, R-emit-4) and, for a tran, every
+group ends at `stop` (relative REL_STOP); otherwise it failed, whatever VACASK printed or returned
+(§7.1, E27, E28, E66).  A
 failed swept analysis keeps its complete leading groups: failed_points is one past them (counted in
 the enclosing sweep blocks' points for a step inside them, else in the step's own dc or
 fixed-frequency sweep points), never past the point `Sweep aborted @ k/n (v)[, k/n (v)...].`
@@ -72,7 +76,7 @@ import uuid
 from datetime import datetime
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from vamos import proc
+from vamos import proc, tools
 from vamos.ams import engines
 from vamos.netlist import rawfile, vacask
 from vamos.netlist.ir import Netlist
@@ -129,12 +133,12 @@ def _terminator(line: str) -> bool:
 # -- signals ---------------------------------------------------------------------------------------
 
 class _Interrupts(proc.Interrupts):
-    """proc.Interrupts with stop.py's signals, which also records a second handled signal: the
-    grace-period kill and a second signal both set `killed`, and only the second one stops the
-    run without converting (stop.Stop)."""
+    """proc.Interrupts with stop.py's signals, sent to the child's process group, which also records
+    a second handled signal: the grace-period kill and a second signal both set `killed`, and only
+    the second one stops the run without converting (stop.Stop)."""
 
     def __init__(self) -> None:
-        super().__init__(stop.HANDLED, stop.FORWARD, stop.FLAGS, grace=INTERRUPT_GRACE)
+        super().__init__(stop.HANDLED, stop.FORWARD, stop.FLAGS, grace=INTERRUPT_GRACE, group=True)
         self.second: Optional[int] = None
 
     def _on_signal(self, signum, frame) -> None:
@@ -278,7 +282,7 @@ class StepCheck:
         self.exists = False
         self.declared: Optional[int] = None     # the header's No. Points (None: blank)
         self.n = 0                               # the rows rawfile.scan counts
-        self.groups = 0                          # the groups found (rows, or restarts of the axis)
+        self.groups = 0                          # the groups found (rows, time restarts, frequency grids)
         self.planned: Optional[int] = None       # the groups the plan asks for (None: not known)
         self.done = 0                            # complete leading units a failed swept step keeps
         self.last: Optional[float] = None        # the last axis value (a tran's last time)
@@ -289,10 +293,11 @@ class StepCheck:
 def check_step(step: AnalysisStep, path: str) -> StepCheck:
     """§7.1's success rules for one analysis step: the rawfile exists; its `No. Points:` is filled
     and equals the rows read (rawfile.scan); it holds the planned groups (the product of
-    vacask_count over the sweep statements; for a time or frequency axis, the restarts of that
-    axis); for a tran, every group ends at args["stop"] within REL_STOP.  `done` counts the
-    complete leading units a failed swept step keeps: groups of the enclosing sweep blocks when it
-    is inside one, else the points of its own sweep."""
+    vacask_count over the sweep statements; for a time axis, its restarts; for a frequency axis,
+    groups of its grid's vacask_count points, the last one complete); for a tran, every group ends
+    at args["stop"] within REL_STOP.  `done` counts the complete leading units a failed swept step
+    keeps: groups of the enclosing sweep blocks when it is inside one, else the points of its own
+    sweep."""
     c = StepCheck()
     if not os.path.isfile(path):
         c.reason = "VACASK wrote no rawfile for it"
@@ -316,6 +321,8 @@ def check_step(step: AnalysisStep, path: str) -> StepCheck:
         except (TypeError, ValueError):
             stop_ = None
     ends_ok = True
+    per: Optional[int] = None                      # a frequency axis's points per group (below)
+    short_rows = 0
     if axis is None:                               # one row per point of every sweep statement
         c.planned = _product(ctx + [own_n])
         c.groups = c.n
@@ -340,10 +347,14 @@ def check_step(step: AnalysisStep, path: str) -> StepCheck:
              else head.names.index(axis))
         groups: List[List[float]] = []             # [rows, last x] per group
         prev = None
+        # a frequency axis is grouped by its grid's point count, as results._groups splits it: render prints the
+        # plan's grid, which need not increase (start = stop, values=[1M 1k 10k], a descending lin or dec;
+        # R-emit-4); a time axis is split at its restarts
+        per = vacask_count(step.own.spec) if axis == "frequency" and step.own is not None else None
         try:
             for (x,) in rawfile.iter_rows(path, 0, [k]):
                 xv = x.real if isinstance(x, complex) else float(x)
-                if prev is None or xv <= prev:
+                if ((not groups or groups[-1][0] >= per) if per else (prev is None or xv <= prev)):
                     groups.append([0, xv])
                 groups[-1][0] += 1
                 groups[-1][1] = xv
@@ -361,6 +372,9 @@ def check_step(step: AnalysisStep, path: str) -> StepCheck:
             good = [want is None or rows == want for rows, _last in groups]
             if want is None and groups and c.declared != c.n:
                 good[-1] = False                   # a failed file's last group may be cut short
+            if per:
+                ends_ok = all(good)                # a last group short of the grid's points is cut short
+                short_rows = int(groups[-1][0]) if groups else 0
         done = 0
         for g in good:
             if not g:
@@ -374,6 +388,9 @@ def check_step(step: AnalysisStep, path: str) -> StepCheck:
     elif c.planned is not None and c.groups != c.planned:
         c.reason = "its rawfile holds %d of the %d planned %s" % (c.groups, c.planned,
                                                                   "sweep groups" if levels else "plots")
+    elif not ends_ok and stop_ is None:
+        c.reason = ("a group of its rawfile holds %d of the %d points of its frequency grid"
+                    % (short_rows, per or 0))
     elif not ends_ok:
         c.reason = ("a group of its rawfile ends at time = %s, before stop = %s"
                     % (si(c.last or 0.0, "s"), si(stop_ or 0.0, "s")))
@@ -604,7 +621,7 @@ class _Run:
         for s in self.steps:
             for lv in list(s.context) + ([s.own] if s.own is not None else []):
                 self.levels.setdefault(lv.id, (lv, s))
-        self.env = engines.env_for("vacask", None, dict(os.environ))
+        self.env = tools.bound_blas_threads(engines.env_for("vacask", None, dict(os.environ)))
         self.intr: Optional[_Interrupts] = None
         self.checks: Dict[str, StepCheck] = {}
         self.reasons: Dict[str, str] = {}
@@ -755,9 +772,7 @@ class _Run:
                     if self.intr.second is not None:
                         break
         finally:
-            if p.poll() is None:
-                p.kill()
-                p.wait()
+            proc.kill_group(p)                           # left running only by an exception or a second signal
             self.compiling = ""
             if self.intr.signum is None:
                 self.child = ""
@@ -807,7 +822,7 @@ class _Run:
             elif sig == getattr(signal, "SIGUSR2", None):
                 blk = self.current
                 phase = self.phase_of(blk.step) if blk is not None and blk.step is not None else PHASE_RUN
-                self.log.message(note("SIGUSR2", "checkpoint not supported"), phase)
+                self.log.message(note("", stop.CHECKPOINT), phase)
 
     def progress(self) -> str:
         """The running analysis's progress, from the end of its rawfile."""
@@ -1006,9 +1021,7 @@ class _Run:
         try:
             rc = self.pump(p, fd)
         finally:
-            if p.poll() is None:
-                p.kill()
-                p.wait()
+            proc.kill_group(p)                           # left running only by an exception
             closer()
         if self.intr.second is not None:
             raise stop.Stop(self.intr.second)
@@ -1058,8 +1071,7 @@ class _Run:
                             pass
                     self.flags()
                     if self.intr.second is not None:
-                        if p.poll() is None:
-                            p.kill()
+                        proc.kill_group(p)               # the handler's SIGKILL came first: this reaps it
                         return p.wait()
                     if self.eof and p.poll() is not None:
                         break

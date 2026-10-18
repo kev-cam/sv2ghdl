@@ -1,0 +1,10 @@
+* two instances of a portless subckt, the internal node printed by its instance path
+.subckt s2 params: p3=1
+I1 0 M1 DC 1
+R1 M1 0 {p3}
+.ends s2
+X2 s2 params: p3=7
+X3 s2 params: p3=9
+.OP
+.PRINT DC FORMAT=RAW FILE=portless_path.raw V(X2:M1)
+.end

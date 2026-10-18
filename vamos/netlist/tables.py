@@ -489,7 +489,8 @@ def _when_holds(when: str, given: Set[str]) -> bool:
 def rule_for(rules: Sequence[ParamRule], name: str, value: Optional[Expr], given: Set[str]
              ) -> Optional[ParamRule]:
     """The first rule of `name` that applies to `value` (None: the parameter is absent) when the
-    parameters `given` are written; None when no rule covers it."""
+    parameters `given` are written; None when no rule covers it.  A given binning name of bsim3v3 or
+    bsim4 without a row of its own takes its P0 parameter's rule (binning_rule, ref5 p.186, p.209)."""
     for r in rules:
         if r.name != name or not _when_holds(r.when, given):
             continue
@@ -503,6 +504,8 @@ def rule_for(rules: Sequence[ParamRule], name: str, value: Optional[Expr], given
         elif r.match and not any(_token_matches(t, value) for t in r.match):
             continue
         return r
+    if value is not None:
+        return binning_rule(rules, name)
     return None
 
 
@@ -2168,6 +2171,7 @@ SPECTRE_MASTERS: Dict[str, MasterRow] = {
             ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.188; §3.9: polarity -> Model.kind"),
             ParamRule("type", "error", cite="ref5 p.188; unknown polarity"),
             ParamRule("vtho", "rename", "vth0", cite="ref5 p.188; Spectre's spelling; sp_bsim3v3 vth0 (alias vtho, bsim3v3.va:190), Xyce VTH0 (N_DEV_MOSFET_B3.C:528)"),
+            ParamRule("vth0", "pass", cite="ref5 p.188; the BSIM spelling of vtho (ref5 p.188's delvto: 'zero-bias threshold voltage vth0'; the UG's cards, pp.47 and 299): sp_bsim3v3 vth0 (bsim3v3.va:189), Xyce VTH0 (N_DEV_MOSFET_B3.C:528)"),
             ParamRule("vfb", "pass", cite="ref5 p.188; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)"),
             *[ParamRule(n, "pass", cite="ref5 p.189; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
               for n in "k1 k2 k3 k3b w0 nlx gamma1 gamma2 vbx vbm dvt0 dvt1 dvt2 dvt0w dvt1w dvt2w a0 b0 b1 a1 a2 ags".split()],
@@ -2279,8 +2283,9 @@ SPECTRE_MASTERS: Dict[str, MasterRow] = {
             ParamRule("gap1", "error", cite="ref5 p.197; as eg"),
             ParamRule("gap2", "strip", match=("1108",), cite="ref5 p.197; as eg"),
             ParamRule("gap2", "error", cite="ref5 p.197; as eg"),
-            ParamRule("diomod", "strip", match=("1",), cite="ref5 p.197; junction model selector: the targets have BSIM3v3's junction model only"),
-            ParamRule("diomod", "error", cite="ref5 p.197; junction model selector: the targets have BSIM3v3's junction model only"),
+            ParamRule("diomod", "strip", match=("0",), cite="ref5 p.197; diomod=0 selects the Berkeley junction model, the one both targets simulate (neither sp_bsim3v3, bsim3v3.va, nor Xyce's BSIM3, N_DEV_MOSFET_B3.C, has a selector)"),
+            ParamRule("diomod", "strip", match=("1",), cite="ref5 p.197; diomod=1, Spectre's default, selects the junction model of ref5's Common MOSFET Equations section, which neither target has: both simulate the Berkeley junction model (diomod=0)"),
+            ParamRule("diomod", "error", cite="ref5 p.197; a junction model selector ref5 does not list (0 Berkeley's, 1 the Common MOSFET Equations')"),
             *[ParamRule(n, "pass", cite="ref5 p.198; bsim3v3.va; N_DEV_MOSFET_B3.C (Berkeley's BSIM3v3 code on both; equal defaults, derived ones included)")
               for n in "kt1 kt1l kt2 at ua1 ub1 uc1 prt".split()],
             ParamRule("trs", "strip", match=("0",), cite="ref5 p.198; source resistance tempco: no target"),
@@ -2419,6 +2424,7 @@ SPECTRE_MASTERS: Dict[str, MasterRow] = {
             ParamRule("type", "fold", match=("n", "p",), cite="ref5 p.211; §3.9: polarity -> Model.kind"),
             ParamRule("type", "error", cite="ref5 p.211; unknown polarity"),
             ParamRule("vtho", "rename", "vth0", cite="ref5 p.211; Spectre's spelling; sp_bsim4v8 vth0 (alias vtho, bsim4v8.va:235), Xyce VTH0 (N_DEV_MOSFET_B4.C:703)"),
+            ParamRule("vth0", "pass", cite="ref5 p.211; the BSIM spelling of vtho (ref5 p.209's sample model statement writes vth0=-0.42): sp_bsim4v8 vth0 (bsim4v8.va:234), Xyce VTH0 (N_DEV_MOSFET_B4.C:703)"),
             *[ParamRule(n, "pass", cite="ref5 p.211; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
               for n in "vfb phin k1".split()],
             *[ParamRule(n, "pass", cite="ref5 p.212; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
@@ -2464,8 +2470,7 @@ SPECTRE_MASTERS: Dict[str, MasterRow] = {
               for n in "nigbacc eigbinv nigbinv".split()],
             *[ParamRule(n, "pass", cite="ref5 p.219; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
               for n in "dlcig nigc poxedge pigcd ntox toxref".split()],
-            ParamRule("diomod", "strip", match=("1",), cite="ref5 p.219; junction model selector: the targets have BSIM4's junction model only"),
-            ParamRule("diomod", "error", cite="ref5 p.219; junction model selector: the targets have BSIM4's junction model only"),
+            ParamRule("diomod", "pass", cite="ref5 p.219; BSIM4's own diode IV model selector dioMod (0, 1, 2; default 1, as ref5's): sp_bsim4v8 diomod (bsim4v8.va:145, the values at :3783-3787), Xyce DIOMOD (N_DEV_MOSFET_B4.C:4730)"),
             ParamRule("js", "rename", "jss", cite="ref5 p.219; Spectre's legacy name: BSIM4's jss (jsd follows it) (bsim4v8.va; N_DEV_MOSFET_B4.C)"),
             *[ParamRule(n, "pass", cite="ref5 p.219; bsim4v8.va; N_DEV_MOSFET_B4.C (Berkeley's BSIM4 code on both; equal defaults, derived ones included)")
               for n in "jss jsd jsws jswd jswgs".split()],
@@ -2614,6 +2619,73 @@ SPECTRE_MASTERS: Dict[str, MasterRow] = {
         ),
     ),
 }
+
+
+# The binning names of bsim3v3 and bsim4 (phase 2c, R-plan-1): "Only the P0 parameters are listed. Pl, Pw, and
+# Pp are not shown but can be recognized. The names of Pl, Pw, and Pp are identical to that of P0 but with a
+# prefix of l, w, and p, respectively" [M ref5 p.186 (bsim3v3), p.209 (bsim4)].  BINNING lists the P0 names, as
+# the card rows spell them, whose l, w and p names both targets declare: VACASK 3becb73d devices/spice/bsim3v3.va
+# (the l/w/p blocks, :296-547) and bsim4v8.va (:500-966), Xyce 919b89d2 N_DEV_MOSFET_B3.C (:908-2644) and
+# N_DEV_MOSFET_B4.C (:2059-4401); each has a pass or rename row above.  The selectors, the process, junction,
+# noise and temperature-reference parameters and the bin bounds have no binning name on either target, and a
+# name with a row of its own keeps it (bsim3v3's LOD rows lku0 ... pkvth0, bsim4's lku0 ... pkvth0, BSIM's lint
+# ll lw wl ...).  binning_rule derives the rule: the P0 row's pass (with its warning: bsim4's gate-tunneling
+# coefficients) or its rename with the prefix (lvtho -> lvth0); tables.rule_for and plan.rule_for read it.
+BINNING: Dict[str, FrozenSet[str]] = {
+    "bsim3v3": frozenset(
+        "vtho vth0 vfb k1 k2 k3 k3b w0 nlx gamma1 gamma2 vbx vbm dvt0 dvt1 dvt2 dvt0w dvt1w dvt2w a0 b0 b1 a1 a2 "
+        "ags keta nsub nch ngate xj dwg dwb xt rdsw prwb prwg wr u0 vsat ua ub uc drout pclm pdiblc1 pdiblc2 "
+        "pdiblcb pscbe1 pscbe2 pvag delta cdsc cdscb cdscd nfactor cit voff dsub eta0 etab alpha0 alpha1 beta0 "
+        "cgsl cgdl ckappa clc cle cf elm vfbcv acde moin noff voffcv kt1 kt1l kt2 at ua1 ub1 uc1 prt ute".split()),
+    "bsim4": frozenset(
+        "vtho vth0 vfb phin k1 k2 k3 k3b w0 lpe0 lpeb gamma1 gamma2 vbx vbm dvt0 dvt1 dvt2 dvtp0 dvtp1 dvt0w "
+        "dvt1w dvt2w a0 b0 b1 a1 a2 ags keta ndep nsd nsub ngate xj dwg dwb xt rdsw rdw rsw prwb prwg wr u0 vsat "
+        "ua ub uc eu drout fprout pclm pdiblc1 pdiblc2 pdiblcb pscbe1 pscbe2 pvag delta pdits pditsd cdsc cdscb "
+        "cdscd nfactor cit voff minv dsub eta0 etab alpha0 alpha1 beta0 agidl bgidl cgidl egidl aigbacc bigbacc "
+        "cigbacc aigbinv bigbinv cigbinv aigc bigc cigc aigsd bigsd cigsd nigbacc eigbinv nigbinv nigc poxedge "
+        "pigcd ntox cgsl cgdl ckappas ckappad clc cle cf vfbcv acde moin noff voffcv kt1 kt1l kt2 at ua1 ub1 uc1 "
+        "prt ute xrcrg1 xrcrg2".split()),
+}
+BINNING_PAGE = {"bsim3v3": "ref5 p.186", "bsim4": "ref5 p.209"}
+_BINNING_RULES: Dict[Tuple[str, str], ParamRule] = {}
+
+
+def _binning_master(rules: Sequence[ParamRule]) -> Optional[str]:
+    """The BINNING master whose card rules `rules` are (the MasterRow.params tuple the callers pass)."""
+    for master in BINNING:
+        own = SPECTRE_MASTERS[master].params
+        if rules is own or (isinstance(rules, tuple) and len(rules) == len(own) and rules == own):
+            return master
+    return None
+
+
+def binning_rule(rules: Sequence[ParamRule], name: str) -> Optional[ParamRule]:
+    """The rule of a given binning name l<p>, w<p> or p<p> (the BINNING comment): for the card rules of a
+    BINNING master, a name without a row of its own whose P0 name p is listed gets p's pass row (its warning
+    kept) or p's rename with the prefix (lvtho -> lvth0); None for any other name, master or rule list."""
+    if len(name) < 2 or name[0] not in "lwp":
+        return None
+    master = _binning_master(rules)
+    if master is None or name[1:] not in BINNING[master]:
+        return None
+    key = (master, name)
+    rule = _BINNING_RULES.get(key)
+    if rule is None:
+        if any(r.name == name for r in rules):
+            return None                                  # a row of its own (never cached: the rows decide)
+        p0 = name[1:]
+        base = next((r for r in rules if r.name == p0 and r.action in ("pass", "rename")), None)
+        if base is None:
+            return None
+        page = BINNING_PAGE[master]
+        reason = (_rule_reason(base) if base.warn else
+                  "the %s binning name of %s (ref5's binning sentence; tables.BINNING)" % (name[0], p0))
+        if base.action == "rename":
+            rule = ParamRule(name, "rename", name[0] + base.value, warn=base.warn, cite="%s; %s" % (page, reason))
+        else:
+            rule = ParamRule(name, "pass", warn=base.warn, cite="%s; %s" % (page, reason))
+        _BINNING_RULES[key] = rule
+    return rule
 
 
 # HSPICE's R (wire) and C model parameters (Star-HSPICE 2001.2, 14-3..14-10) on the targets: the

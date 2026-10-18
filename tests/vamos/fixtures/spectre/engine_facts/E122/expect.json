@@ -1,0 +1,79 @@
+{
+ "row": "E122",
+ "experiment": "Xyce subckts without ports (e2e 23, phase 2): two instances of a portless subckt, X2 s2 p3=7 and X3 s2 p3=9, each feeding 1 A into its own resistor; .PRINT V(M1) and V(X2:M1); the same subckt with one port (its ground); the portless deck on VACASK",
+ "result": "the instances of a portless subckt share its internal nodes: V(M1) = 7.875 V (2 A into 7 || 9 ohm), and `.PRINT V(X2:M1)` is \"There was 1 undefined symbol in .PRINT command: node X2:M1\", rc 1; with one port each, X2:M1 = 7 and X3:M1 = 9; VACASK keeps the nodes apart (7 and 9)",
+ "rules": [
+  "§4.5 / e2e 23: an instance of a subckt without ports is an error on Xyce in v1 (xyce.render: \"subckt ... has no ports: on Xyce the instances of a portless subckt share its internal nodes\"); VACASK runs it (e2e 23's deck_portless)"
+ ],
+ "runs": [
+  {
+   "name": "xyce_portless_instances_share_nodes",
+   "tool": "xyce",
+   "deck": "portless.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "portless.raw",
+     "col": "V(M1)",
+     "value": 7.875,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "xyce_portless_path_undefined",
+   "tool": "xyce",
+   "deck": "portless_path.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "There was 1 undefined symbol in .PRINT command: node X2:M1"
+    ]
+   }
+  },
+  {
+   "name": "xyce_one_port_each",
+   "tool": "xyce",
+   "deck": "oneport.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "oneport.raw",
+     "col": "V(X2:M1)",
+     "value": 7.0,
+     "rel": 1e-09
+    },
+    {
+     "raw": "oneport.raw",
+     "col": "V(X3:M1)",
+     "value": 9.0,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "vacask_portless_nodes_apart",
+   "tool": "vacask",
+   "deck": "portless.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "X2:M1",
+     "value": 7.0,
+     "rel": 1e-09
+    },
+    {
+     "raw": "op1.raw",
+     "col": "X3:M1",
+     "value": 9.0,
+     "rel": 1e-09
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) and /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7, both through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored, after e2e 23's UG pp.85-86 deck"
+ ]
+}

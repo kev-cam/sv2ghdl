@@ -1,0 +1,188 @@
+{
+ "row": "E120",
+ "experiment": "Xyce .NOISE across two nodes (the engine-facts owner, phase 2; re-measured 2026-10-17 on both launchers): V(OUT,0) on a flat divider, V(A,B) on a flat ladder, V(OUT,0) on a deck with a subckt and on e2e 25's Xyce noise deck; V(OUT) on the subckt deck; e2e 25's deck at XI2:MID with its 0 A input (5.6's vamos_nin1) in the divider body, named by its path, by its top-level name and bare; added in phase 2c (R-emit-19): .PRINT NOISE with VM(OUT) and VP(OUT)",
+ "result": "`.NOISE V(a,b)`, even `V(OUT,0)`, aborts while parsing: \"OUT OF MEMORY (error in 'new')\", rc 1, on the flat decks and (2026-10-17, both launchers) on the decks with a subckt too, writing no print file; `.NOISE V(OUT)` runs; the input source in the subckt body runs under its path (XI2:IVAMOS_NIN1) and, 2026-10-17, also under its top-level name (IVAMOS_NIN1, VAMOS_NIN1), each with the same INOISE (ONOISE over 750 ohm squared). The row's segfaults (rc 139 or -11: the subckt deck with V(a,b), and the top-level name) did not reproduce on these decks. Added in phase 2c (R-emit-19): .PRINT NOISE accepts VM(OUT) and VP(OUT) beside ONOISE and INOISE (VM(OUT) = 0.5 on the divider)",
+ "rules": [
+  "\u00a73.11 / \u00a74.5: Xyce's render refuses a noise output across two nodes (xyce.py: an unsupported construct, status 2) and prints V(p) for (p 0)",
+  "\u00a75.6: an input placed in a subckt body is named by its path on Xyce (signals.py's integration seam; Xyce AC 1 0 in the body, .NOISE naming XI2:VAMOS_NIN1)",
+  "\u00a78.4 / R-emit-13 (phase 2c): the noise deck prints the output's magnitude as VM(<out>) for the gain column"
+ ],
+ "runs": [
+  {
+   "name": "pair_flat_out_of_memory",
+   "tool": "xyce",
+   "deck": "pair_flat.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "OUT OF MEMORY (error in 'new')"
+    ]
+   },
+   "files": {
+    "absent": [
+     "pair_flat.prn"
+    ]
+   }
+  },
+  {
+   "name": "pair_flat_out_of_memory_second_launcher",
+   "tool": "xyce",
+   "launcher": "second",
+   "deck": "pair_flat.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "OUT OF MEMORY (error in 'new')"
+    ]
+   }
+  },
+  {
+   "name": "pair_ab_out_of_memory",
+   "tool": "xyce",
+   "deck": "pair_ab.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "OUT OF MEMORY (error in 'new')"
+    ]
+   }
+  },
+  {
+   "name": "pair_subckt_out_of_memory",
+   "tool": "xyce",
+   "deck": "pair_sub.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "OUT OF MEMORY (error in 'new')"
+    ]
+   },
+   "note": "the design row records a segfault (rc 139 or -11) for a deck with a subckt; on 2026-10-17 it is this abort"
+  },
+  {
+   "name": "pair_subckt_out_of_memory_second_launcher",
+   "tool": "xyce",
+   "launcher": "second",
+   "deck": "pair_sub.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "OUT OF MEMORY (error in 'new')"
+    ]
+   }
+  },
+  {
+   "name": "pair_e2e25_out_of_memory",
+   "tool": "xyce",
+   "deck": "pair_e25.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "OUT OF MEMORY (error in 'new')"
+    ]
+   }
+  },
+  {
+   "name": "single_node_runs",
+   "tool": "xyce",
+   "deck": "single.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "single.prn",
+     "rows": 2,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "body_input_by_path",
+   "tool": "xyce",
+   "deck": "nin_e25_path.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nin_e25_path.prn",
+     "rows": 3,
+     "col": "INOISE",
+     "row": 0,
+     "value": 2.21010066e-23,
+     "rel": 1e-06
+    },
+    {
+     "prn": "nin_e25_path.prn",
+     "col": "ONOISE",
+     "row": 0,
+     "value": 1.24318162e-17,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "body_input_by_top_level_name",
+   "tool": "xyce",
+   "deck": "nin_e25.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nin_e25.prn",
+     "rows": 3,
+     "col": "INOISE",
+     "row": 0,
+     "value": 2.21010066e-23,
+     "rel": 1e-06
+    }
+   ],
+   "note": "the design row records a segfault (rc -11) for this form; on 2026-10-17 Xyce finds the source in the body"
+  },
+  {
+   "name": "body_input_bare_name",
+   "tool": "xyce",
+   "deck": "nin_e25_bare.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "nin_e25_bare.prn",
+     "rows": 3,
+     "col": "INOISE",
+     "row": 0,
+     "value": 2.21010066e-23,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "print_noise_takes_vm",
+   "tool": "xyce",
+   "deck": "vm.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "vm.prn",
+     "columns": [
+      "Index",
+      "FREQ",
+      "ONOISE",
+      "INOISE",
+      "VM(OUT)",
+      "VP(OUT)"
+     ]
+    },
+    {
+     "prn": "vm.prn",
+     "col": "VM(OUT)",
+     "row": 0,
+     "value": 0.5,
+     "rel": 1e-09
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce and /usr/local/bin/Xyce, DEVELOPMENT-202610100047 (7cd78110), under engines.env_for",
+  "decks: vamos-authored, two after e2e 25's Xyce render (tests/vamos/fixtures/spectre/e2e/25_ade_instance/render/xyce/vamos_a2.cir)"
+ ]
+}

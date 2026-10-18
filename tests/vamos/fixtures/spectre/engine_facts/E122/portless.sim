@@ -1,0 +1,17 @@
+two instances of a portless subckt on VACASK, each feeding 1 A into its own resistor (7 and 9 ohm)
+ground 0
+load "resistor.osdi"
+model vamos_isource isource
+model vamos_resistor resistor
+subckt s2 ()
+  parameters p3=1
+  I1 (0 M1) vamos_isource type="dc" dc=1.0
+  R1 (M1 0) vamos_resistor r=p3
+ends
+X2 () s2 p3=7
+X3 () s2 p3=9
+control
+  options rawfile="ascii"
+  save v('X2:M1') v('X3:M1')
+  analysis op1 op
+endc

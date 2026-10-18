@@ -1,0 +1,8 @@
+* a tran of the same circuit: Xyce prints its Percent complete
+V1 in 0 DC 0 SIN(0 1 1K)
+R1 in out 1000.0
+R2 out 0 1000.0
+C1 out 0 1e-09
+.TRAN 1e-06 0.01
+.PRINT TRAN FORMAT=RAW FILE=tran.raw V(OUT)
+.end

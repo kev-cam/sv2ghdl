@@ -1,0 +1,17 @@
+* the vcvs Schmitt trigger (gain 10) on Xyce with .NODESET V(OUT)=1.7 V(P)=0.85
+Vin in 0 DC 0
+R1 in p 1000.0
+R2 p out 1000.0
+E1 x 0 p 0 10
+R3 x out 1000.0
+.model dl d is=1e-12
+D1 out m1 dl
+D2 m1 m2 dl
+D3 m2 0 dl
+D4 0 m3 dl
+D5 m3 m4 dl
+D6 m4 out dl
+.NODESET V(OUT)=1.7 V(P)=0.85
+.OP
+.PRINT DC FORMAT=RAW FILE=schmitt_p.raw V(OUT) V(P) V(X)
+.end

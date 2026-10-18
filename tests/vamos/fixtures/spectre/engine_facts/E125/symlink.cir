@@ -1,0 +1,8 @@
+* ires.va through a symbolic link beside the deck (link/ires.va -> lib/ires.va, its include beside the target)
+.hdl "link/ires.va"
+V1 a 0 DC 1.0
+.model ires__vamos ires
+yires X1 a 0 ires__vamos
+.OP
+.PRINT DC FORMAT=RAW FILE=symlink.raw I(V1)
+.end

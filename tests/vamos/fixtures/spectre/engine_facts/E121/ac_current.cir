@@ -1,0 +1,7 @@
+* .PRINT AC of a resistor current
+V1 in1 0 DC 0 AC 1
+R1 in1 out 1000.0
+R3 out 0 3000.0
+.AC DEC 1 1K 10K
+.PRINT AC FORMAT=RAW FILE=ac_current.raw V(OUT) I(R1)
+.end

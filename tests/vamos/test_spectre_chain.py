@@ -402,5 +402,81 @@ for _case in CASES:
     setattr(TestChainRuns, "test_" + _case, _run_test(_case))
 
 
+# -- phase 2c: the review's decks through the chain (X-emit; both legs, no engine) ---------------------------
+
+NSY_DECK = """// X-emit 2c: isnoisy through a netlist parameter and a subckt parameter (R-emit-6)
+simulator lang=spectre
+parameters nflag=0
+V1 (in 0) vsource dc=0
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k isnoisy=nflag
+X3 (out 0) qr nz=0
+X4 (out 0) qr
+subckt qr (a b)
+  parameters nz=1
+  R1 (a b) resistor r=1k isnoisy=nz
+ends qr
+op1 dc
+n1 (out 0) noise start=1k stop=1k lin=1 iprobe=V1
+save out R2:1
+"""
+
+GAINS_DECK = """// X-emit 2c: a vcvs and a vccs whose gains read a swept parameter, dev= sweeps of gm and m (E126, R-plan-4)
+simulator lang=spectre
+parameters g=0.5 gm=1m
+V1 (a 0) vsource dc=1
+E1 (o1 0 a 0) vcvs gain=g
+R2 (o1 0) resistor r=1k
+G1 (0 o2 a 0) vccs gm=gm m=2
+R3 (o2 0) resistor r=1k
+G2 (0 o3 a 0) vccs gm=1m
+R4 (o3 0) resistor r=1k m=1
+swg dc param=g values=[0.5 0.75]
+swgm dc dev=G2 param=gm values=[1m 2m]
+swm dc dev=R4 param=m values=[1 2]
+save o1 o2 o3
+"""
+
+
+class TestChainPhase2c(TempDir):
+    """The review's decks through spectre.parse -> plan.build -> signals.resolve -> render (phase 2c, X-emit)."""
+
+    def test_gains_and_dev_targets_through_the_chain(self):
+        """R-plan-5 / R-tests-1 on Xyce: the E and G whose gains read the swept g print VALUE= in swg's deck;
+        R-plan-4 on VACASK: dev=G2 param=gm sweeps VACASK's gain, dev=R4 param=m its $mfactor."""
+        path = self.write("gains.scs", GAINS_DECK)
+        r = chain(path, "xyce")
+        swg = r.decks["vamos_a1.cir"]
+        self.assertIn("\nE1 o1 0 VALUE={g*v(a)}\n", swg)
+        self.assertIn("\nG1 0 o2 VALUE={gm*2.0*v(a)}\n", swg)
+        self.assertIn("\nG2 0 o3 a 0 0.001\n", swg)                          # a literal gain stays linear
+        self.assertIn("\nG2 0 o3 VALUE={vamos_x_G2_gm*v(a)}\n", r.decks["vamos_a2.cir"])
+        self.assertIn(".DC R4:M LIST 1.0 2.0\n", r.decks["vamos_a3.cir"])
+        r = chain(path, "vacask")
+        control = r.decks["vamos.sim"]
+        self.assertIn('sweep vamos_w2 instance="G2" parameter="gain" values=[0.001, 0.002]', control)
+        self.assertIn('sweep vamos_w3 instance="R4" parameter="$mfactor" values=[1.0, 2.0]', control)
+
+    def test_isnoisy_parameters_leave_their_resistors_out_of_the_noise_structs(self):
+        """R-emit-6: signals lists the noisy instances of a noise analysis (its STRUCTs) with the raw isnoisy, so
+        R2 (isnoisy=nflag, nflag=0) and X3.R1 (isnoisy=nz, nz=0 on X3) were listed; the emitters now evaluate the
+        switch per path (R1 and X4.R1 noisy, the others not), and signals must read it the same way."""
+        path = self.write("nsy.scs", NSY_DECK)
+        for engine in ("vacask", "xyce"):
+            r = chain(path, engine)
+            nz = next(s for s in r.steps if s.kind == "noise")
+            self.assertEqual(sorted(ref[1] for ref, _n, _t in r.sigmap.per_step[nz.id] if ref[0] == "noise"),
+                             ["R1", "X4.R1"], engine)
+
+    def test_a_saved_current_of_a_parametric_noise_free_resistor_gets_its_probe(self):
+        """R-emit-6 on Xyce: R2 (isnoisy=nflag, nflag=0) prints as the noise-free G form, whose current needs a
+        probe (signals.resolve inserts one for isnoisy=no); with the raw isnoisy signals asks for I(R2), which
+        render refuses (`the current of the noise-free G form of R2 needs a probe')."""
+        r = chain(self.write("nsy.scs", NSY_DECK), "xyce")
+        op = next(s for s in r.steps if s.name == "op1")
+        self.assertIn("R2:1", r.signals(op.id))
+        self.assertTrue(r.column(op.id, "R2:1").startswith("I(VAMOS_TP"), r.names[op.id])
+
+
 if __name__ == "__main__":
     unittest.main()

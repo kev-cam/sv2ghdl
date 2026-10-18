@@ -1,0 +1,8 @@
+* E66's nan.va, a single-terminal Verilog-A source that reads $abstime (V(a) <+ 1.0 before 1 us), on PyMS's letter device
+.hdl "nan.va"
+.model nanv__vamos nanv
+ynanv X1 a nanv__vamos
+R1 a 0 1000.0
+.OP
+.PRINT DC FORMAT=RAW FILE=nan.raw V(A)
+.end

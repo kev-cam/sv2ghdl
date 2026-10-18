@@ -29,7 +29,7 @@ import shutil
 import unittest
 
 import psfcheck
-from spectre_testlib import SPECTRE_FIXTURES, SpectreCase, needs_flow
+from spectre_testlib import SPECTRE_FIXTURES, SpectreCase, needs_engines, needs_flow
 
 try:                                                   # §12 phase 2 moves it into spectre_testlib
     from spectre_testlib import compare_results_dir
@@ -103,12 +103,10 @@ class TestE2e28(SpectreCase):
         return os.path.join(d, "deck.raw")
 
     def each_engine(self):
-        engines = self.engines()
-        if not engines:
-            self.skipTest("needs VACASK or Xyce (Linux/WSL)")
-        return engines
+        return self.engines()
 
     @needs_flow
+    @needs_engines
     def test_structure_equals_the_real_run(self):
         ascii_dir, logfile, omit = real_paths()
         for engine in self.each_engine():
@@ -117,6 +115,7 @@ class TestE2e28(SpectreCase):
                 self.assertEqual(compare_results_dir(raw, ascii_dir, omit_keys=omit, want_logfile=logfile), [])
 
     @needs_flow
+    @needs_engines
     def test_values_equal_the_real_run(self):
         ascii_dir, logfile, omit = real_paths()
         log = psfcheck.check_logfile(logfile, datadir=ascii_dir)

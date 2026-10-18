@@ -1,0 +1,48 @@
+{
+ "row": "E124",
+ "experiment": "Xyce's noise .prn after an interrupt (the Xyce runner, 2026-10-16, phase 2; §14 q.26): a 2.7e6-point .NOISE (DEC 450000 from 1 Hz to 1 MHz) sent SIGTERM 4 s in",
+ "result": "the .prn holds complete rows only (164,830 to 188,231 in the phase-2 runs), ends with a newline and has no `End of Xyce` line; rawfile.read_prn reads every row of it, and results.collect converts it `interrupted`",
+ "rules": [
+  "§2.7 status 3 / §14 q.26: an interrupted Xyce noise run is converted from its .prn, whose rows Xyce writes whole (run_xyce; rawfile.read_prn takes a table without its End line)"
+ ],
+ "runs": [
+  {
+   "name": "sigterm_noise_prn",
+   "tool": "xyce",
+   "deck": "long_noise.cir",
+   "signal": {
+    "after": 4,
+    "name": "TERM",
+    "grace": 20
+   },
+   "status": "TERM",
+   "timeout": 600,
+   "checks": [
+    {
+     "prn": "long_noise.prn",
+     "columns": [
+      "Index",
+      "FREQ",
+      "ONOISE",
+      "INOISE"
+     ],
+     "min_rows": 1000,
+     "read_prn": true
+    },
+    {
+     "text": "long_noise.prn",
+     "regex": [
+      "\\n\\Z"
+     ],
+     "absent": [
+      "End of Xyce"
+     ]
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) under engines.env_for",
+  "decks: vamos-authored"
+ ]
+}

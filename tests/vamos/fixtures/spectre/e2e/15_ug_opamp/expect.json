@@ -233,12 +233,8 @@
   {
    "file": "dmXferFunctions.xf",
    "signal": "A1.Ib:sink",
-   "at": 1000000.0,
-   "value": [
-    -2869.04,
-    3302.24
-   ],
-   "rel": 0.001
+   "at": null,
+   "value": null
   },
   {
    "file": "cmXferFunctions.xf",

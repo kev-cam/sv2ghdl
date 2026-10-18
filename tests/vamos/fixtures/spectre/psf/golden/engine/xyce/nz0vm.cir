@@ -1,0 +1,7 @@
+* divider noise, no STEP, the gain as the output's magnitude (phase 2c, R-emit-13)
+V1 in 0 DC 1 AC 1 0
+R1 in out 1k
+R2 out 0 1k
+.NOISE V(out) V1 DEC 2 1 100
+.PRINT NOISE FILE=nz0vm.prn DNO(R1) DNO(R2) ONOISE VM(OUT) INOISE
+.END

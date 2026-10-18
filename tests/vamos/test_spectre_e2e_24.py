@@ -22,7 +22,7 @@ import shutil
 import unittest
 
 import psfcheck
-from spectre_testlib import SPECTRE_FIXTURES, SpectreCase, needs_flow
+from spectre_testlib import SPECTRE_FIXTURES, SpectreCase, needs_engines, needs_flow
 
 CASE = os.path.join(SPECTRE_FIXTURES, "e2e", "24_diode_fcs")
 CJSW, VJSW, MJSW, FC, FREQ = 2e-12, 0.8, 0.5, 0.3, 1e6        # cjsw=1p on perim=2
@@ -58,11 +58,9 @@ class TestE2e24(SpectreCase):
         return psfcheck.check(os.path.join(d, "deck.raw", "cv.ac"))
 
     @needs_flow
+    @needs_engines
     def test_sidewall_capacitance_follows_spectre_fcs(self):
-        engines = self.engines()
-        if not engines:
-            self.skipTest("needs VACASK or Xyce (Linux/WSL)")
-        for engine in engines:
+        for engine in self.engines():
             with self.subTest(engine=engine):
                 pf = self.run_case(engine)
                 self.assertEqual(pf.sweep.name, "dc")

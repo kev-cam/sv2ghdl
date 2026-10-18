@@ -85,6 +85,8 @@ RESISTOR_CONTRIBUTIONS = {"thermal": "rn", "flicker": "fn"}                     
 OPTION_DEFAULTS = {"reltol": 1e-3, "vabstol": 1e-6, "iabstol": 1e-12, "temp": 27.0, "tnom": 27.0,
                    "tempeffects": "all", "gmin": 1e-12}
 ISTEP = 1e-3                        # every sample's tran header carries "istep" 1e-3 [S]
+END_REL = 1e-9                      # a last x this close to stop (relative) is written as stop: the runners'
+#                                     REL_STOP / STOP_REL (§7.1, §7.2; R-emit-11)
 _SI = {-6: "a", -5: "f", -4: "p", -3: "n", -2: "u", -1: "m", 0: "", 1: "k", 2: "M", 3: "G", 4: "T", 5: "P"}
 
 
@@ -108,7 +110,8 @@ def si(v: float, units: str) -> str:
 def grid_values(spec) -> List[float]:
     """The points of an evaluated SweepSpec (§5.2; every Expr field a folded Num after plan.build):
     `values` as given; lin=N: N+1 points; step: start, start+step, ... <= stop; dec=N (an integral
-    span): start*10^(k/N), the last exactly stop."""
+    span): start*10^(k/N), or start*10^(-k/N) when start > stop, the last exactly stop.  The grid of
+    plan.grid_points, which render prints, so the results split what the engines ran (R-emit-3)."""
     def num(e) -> float:
         if e is None:
             raise ValueError("sweep %r: a bound is missing" % (spec,))
@@ -132,10 +135,10 @@ def grid_values(spec) -> List[float]:
         n = int(spec.count or 0)
         if n < 1 or start <= 0 or stop <= 0:
             return [start, stop]
-        total = int(round(n * math.log10(stop / start)))
-        if total < 1:
-            return [start]
-        return [start * 10.0 ** (k / float(n)) for k in range(total)] + [stop]
+        span = n * math.log10(stop / start)                 # negative for a descending sweep
+        total = int(round(abs(span)))
+        sign = 1.0 if span >= 0 else -1.0
+        return [start * 10.0 ** (sign * k / float(n)) for k in range(total)] + [stop]
     if mode == "log":
         n = int(spec.count or 0)
         if n < 1 or start <= 0 or stop <= 0:
@@ -157,9 +160,11 @@ def _count_width(n: int) -> int:
 # -- engine plots ----------------------------------------------------------------------------------
 
 class _Plot:
-    """One engine plot: its variables (a Raw with no points, for Raw.exact) and a row source."""
+    """One engine plot: its variables (a Raw with no points, for Raw.exact) and a row source, which
+    starts at a given row (`first`) so that a reader of n groups reads each once (R-emit-9)."""
 
-    def __init__(self, raw: rawfile.Raw, rows: Callable[[Sequence[int]], Iterator[tuple]], n: Optional[int]):
+    def __init__(self, raw: rawfile.Raw, rows: Callable[[Sequence[int], int], Iterator[tuple]],
+                 n: Optional[int]):
         self.raw, self._rows, self.n = raw, rows, n
 
     def exact(self, name: str) -> int:
@@ -168,8 +173,8 @@ class _Plot:
     def names(self) -> List[str]:
         return self.raw.names()
 
-    def rows(self, cols: Sequence[int]) -> Iterator[tuple]:
-        return self._rows(cols)
+    def rows(self, cols: Sequence[int], first: int = 0) -> Iterator[tuple]:
+        return self._rows(cols, first)
 
 
 def _raw_header(path: str, start: int) -> rawfile.Raw:
@@ -220,13 +225,16 @@ def _raw_header(path: str, start: int) -> rawfile.Raw:
 
 
 def _raw_plots(path: str) -> List[_Plot]:
-    """Every plot of a rawfile as a _Plot streaming through rawfile.iter_rows."""
+    """Every plot of a rawfile as a _Plot streaming through rawfile.iter_rows, each read at its byte offset
+    (scan's next_start chain) from its first wanted row: n Xyce .STEP plots or n VACASK groups are read once
+    each, not n^2/2 times (R-emit-9)."""
     scanned = rawfile.scan(path)
     starts = [0] + [p.next_start for p in scanned[:-1]]
     plots = []
     for k, (start, sp) in enumerate(zip(starts, scanned)):
         raw = _raw_header(path, start)
-        plots.append(_Plot(raw, lambda cols, k=k: rawfile.iter_rows(path, k, list(cols)), sp.n))
+        plots.append(_Plot(raw, lambda cols, first=0, k=k, start=start:
+                           rawfile.iter_rows(path, k, list(cols), start=start, first=first), sp.n))
     return plots
 
 
@@ -235,7 +243,8 @@ def _prn_plots(path: str) -> List[_Plot]:
     plots = []
     for raw in rawfile.read_prn(path):
         pts = raw.points
-        plots.append(_Plot(raw, lambda cols, pts=pts: (tuple(p[c] for c in cols) for p in pts), len(pts)))
+        plots.append(_Plot(raw, lambda cols, first=0, pts=pts: (tuple(pts[i][c] for c in cols)
+                                                                 for i in range(first, len(pts))), len(pts)))
     return plots
 
 
@@ -252,6 +261,11 @@ class _Trace:
 def _sqrt(v: object) -> float:
     x = float(v.real if isinstance(v, complex) else v)  # type: ignore[union-attr]
     return math.sqrt(x) if x >= 0 else float("nan")
+
+
+def _magnitude(v: object) -> float:
+    """|v|: Xyce's VM(<p>) column, the noise gain (a real magnitude in the .prn)."""
+    return abs(v) if isinstance(v, complex) else abs(float(v))  # type: ignore[arg-type]
 
 
 class _Step:
@@ -340,6 +354,13 @@ class _Step:
 
         var_names = plot.names()
         xyce_total_noted = False
+        # Xyce's gain is the output's magnitude VM(<p>) under the input's AC 1 when the name map sends
+        # ('gain',) to a column other than INOISE (every other source prints no AC in a noise deck,
+        # §8.4), and in = out/gain as on VACASK; with ('gain',) on INOISE it is sqrt(ONOISE/INOISE),
+        # which ONOISE = 0 or Xyce's clamp of a zero transfer (INOISE = ONOISE/1e-20) turns into nan or
+        # a finite wrong value (R-emit-13)
+        gain_text = names.get(("gain",))
+        xyce_vm = self.engine == "xyce" and gain_text is not None and gain_text.upper() != "INOISE"
         for ref, name, ptype in entries:
             kind = ref[0]
             if kind in ("v", "i", "tf"):
@@ -358,12 +379,14 @@ class _Step:
             elif kind == "gain":
                 # §8.4 per engine: the name maps send ('gain',) and ('inoise',) to one column on each
                 # engine (VACASK `gain`, the power gain; Xyce INOISE), so the formula follows the engine
-                if self.engine != "xyce":                               # VACASK: sqrt(power gain)
+                if self.engine != "xyce" or xyce_vm:      # VACASK: sqrt(power gain); Xyce: |VM(<p>)|
                     k = col(ref)
                     if k is None:
                         missing(name)
                         continue
-                    self.traces.append(_Trace(Signal(name, ptype, ptype), [k], lambda v, k=k: _sqrt(v[k])))
+                    self.traces.append(_Trace(Signal(name, ptype, ptype), [k],
+                                              (lambda v, k=k: _magnitude(v[k])) if xyce_vm
+                                              else (lambda v, k=k: _sqrt(v[k]))))
                     continue
                 ko, ki = col(("onoise",)), col(("inoise",)) if ("inoise",) in names else col(ref)
                 if ko is None or ki is None:
@@ -373,17 +396,22 @@ class _Step:
                                           lambda v, ko=ko, ki=ki: _sqrt(float(v[ko]) / float(v[ki])
                                                                         if float(v[ki]) else float("nan"))))
             elif kind == "inoise":
-                if self.engine == "xyce":                               # Xyce: sqrt(INOISE)
+                if self.engine == "xyce" and not xyce_vm:              # Xyce without VM(<p>): sqrt(INOISE)
                     k = col(ref)
                     if k is None:
                         missing(name)
                         continue
                     self.traces.append(_Trace(Signal(name, ptype, ptype), [k], lambda v, k=k: _sqrt(v[k])))
                     continue
-                ko = col(("onoise",))                                   # VACASK: out / gain
+                ko = col(("onoise",))                                   # out / gain
                 kg = col(("gain",)) if ("gain",) in names else col(ref)
                 if ko is None or kg is None:
                     missing(name)
+                    continue
+                if xyce_vm:
+                    self.traces.append(_Trace(Signal(name, ptype, ptype), [ko, kg],
+                                              lambda v, ko=ko, kg=kg: (_sqrt(v[ko]) / _magnitude(v[kg])
+                                                                       if _magnitude(v[kg]) > 0 else float("nan"))))
                     continue
                 self.traces.append(_Trace(Signal(name, ptype, ptype), [ko, kg],
                                           lambda v, ko=ko, kg=kg: (_sqrt(v[ko]) / _sqrt(v[kg])
@@ -394,18 +422,25 @@ class _Step:
                     missing(name)
                     continue
                 total_col = names[ref]
+                master = self.c.masters.get(ptype, ptype)
+                # a resistor without a card (its type is its master's name) has no flicker noise: kf is a
+                # card parameter [M ref5 p.629]; [S noiva] "resistor" STRUCT(rn total).  VACASK prints such
+                # an instance with tc1, w or l through spice/resistor.osdi, whose flicker is then always
+                # zero, and the member set would differ from resistor.osdi's (R-emit-5)
+                cardless_resistor = master == "resistor" and ptype == master
                 members: List[Tuple[str, int]] = []
                 if total_col.endswith(")"):                             # VACASK n(inst) -> n(inst,contrib)
                     prefix = total_col[:-1] + ","
                     for vn in var_names:
                         if vn.startswith(prefix) and vn.endswith(")"):
                             contrib = vn[len(prefix):-1]
+                            if cardless_resistor and contrib == "flicker":
+                                continue
                             members.append((contrib, self._col_by_name(plot, vn, colmap)))
                 if not members and self.engine == "xyce" and not xyce_total_noted:
                     xyce_total_noted = True
                     self.c.note(step.name, "noise analysis `%s' on Xyce: the per-instance STRUCTs carry only "
                                 "`total' (DNO), no contributions" % step.name)
-                master = self.c.masters.get(ptype, ptype)
                 mnames = [RESISTOR_CONTRIBUTIONS.get(m, m) if master == "resistor" else m for m, _ in members]
                 sig = Signal(name, ptype, "", members=[(m, []) for m in mnames] + [("total", [])])
                 mcols = [c for _, c in members] + [k]
@@ -439,7 +474,9 @@ class _Step:
 
     def _groups(self) -> None:
         """The sweep groups (§7.1 Reading, §7.2 Output): VACASK one plot, split by the known inner
-        counts or the restart of the time/frequency axis; Xyce one plot per .STEP point."""
+        counts (an own parameter sweep's or the frequency grid's points: render prints the plan's
+        grid, which need not increase, R-emit-4) or at the restart of the time axis; Xyce one plot per
+        .STEP point."""
         if self.status == "failed" and not self.plots:
             return
         if self.engine == "xyce":
@@ -453,7 +490,7 @@ class _Step:
             self.groups = [(0, 0, -1)]
             return
         total = plot.n if plot.n is not None else sum(1 for _ in plot.rows([0]))
-        if self.axis in ("time", "freq") and self.xcol is not None:
+        if self.axis == "time" and self.xcol is not None:
             bounds: List[int] = []
             prev = None
             for i, (x,) in enumerate(plot.rows([self.xcol])):
@@ -464,7 +501,7 @@ class _Step:
             bounds.append(total)
             self.groups = [(0, a, b) for a, b in zip(bounds, bounds[1:])]
         else:
-            size = len(self.own_values) if self.axis == "param" else 1
+            size = len(self.own_values) if self.axis in ("param", "freq") else 1
             size = max(size, 1)
             full = total // size
             self.groups = [(0, g * size, (g + 1) * size) for g in range(full)]
@@ -506,7 +543,8 @@ class _Step:
             return stepped
         if b < 0:
             return lambda: self.plots[plot_k].rows(self.cols)
-        return lambda: itertools.islice(self.plots[plot_k].rows(self.cols), a, b)
+        # the group's rows read from its own first row, not from row 0 (R-emit-9)
+        return lambda: itertools.islice(self.plots[plot_k].rows(self.cols, a), 0, b - a)
 
     def xy_rows(self, g: int) -> Callable[[], Iterator[Tuple[object, List[object]]]]:
         src = self.row_source(g)
@@ -520,15 +558,41 @@ class _Step:
             return it_stepped
         xpos = self.xpos
         keep = self.tran_filter() if self.kind == "tran" else None
+        end = self.end_point()
 
         def it() -> Iterator[Tuple[object, List[object]]]:
+            last: Optional[Tuple[object, List[object]]] = None        # one row behind, to pin the last x
             for row in src():
                 x = row[xpos]
                 xv = x.real if isinstance(x, complex) else x
                 if keep is not None and not keep(xv):
                     continue
-                yield xv, [t.make(row) for t in traces]
+                if last is not None:
+                    yield last
+                last = (xv, [t.make(row) for t in traces])
+            if last is not None:
+                if end is not None and abs(float(last[0]) - end[0]) <= end[1]:  # type: ignore[arg-type]
+                    last = (end[0], last[1])
+                yield last
         return it
+
+    def end_point(self) -> Optional[Tuple[float, float]]:
+        """The planned last x of the step's axis and the tolerance within which the engine's last x is
+        written as it (R-emit-11): Spectre ends a sweep and a tran exactly at stop [S myac.ac,
+        noiva.noise, mytran.tran.tran], while VACASK's dec grid ends at 999999.9999999995 for 1 MHz and
+        Xyce's at 1000000.000000003.  The tolerance is the runners' (REL_STOP, STOP_REL: 1e-9) relative
+        to the larger of |stop| and the span, so a point short of stop (an interrupted run) stays."""
+        if self.kind == "tran":
+            args = self.step.args
+            try:
+                first, stop = float(args.get("start", 0.0)), float(args["stop"])  # type: ignore[arg-type]
+            except (KeyError, TypeError, ValueError):
+                return None
+        elif self.own_values:
+            first, stop = float(self.own_values[0]), float(self.own_values[-1])
+        else:
+            return None
+        return stop, END_REL * max(abs(stop), abs(stop - first))
 
     def tran_filter(self) -> Optional[Callable[[float], bool]]:
         """The tran output filters (§3.11, §6.2): points before `outputstart` are dropped; between
@@ -622,8 +686,10 @@ class _Step:
             first, last = self.span(args)
             h.update([("start", first), ("stop", last), ("operating point producer", name)])
         elif self.atype == "noise":
+            # the output signals are nodes, with oprobe= too: plan.build fills p and n from the probe's
+            # terminals (§14 q.35; D8: the probe's name is never written here)
             h.update([("operating point producer", name), ("output", "pair of nodes"), ("ground", "0"),
-                      ("positive output signal", str(args.get("p", args.get("oprobe", "")))),
+                      ("positive output signal", str(args.get("p", ""))),
                       ("negative output signal", str(args.get("n", "0")))])
         elif self.atype == "tran":
             start = float(args.get("start", 0.0))  # type: ignore[arg-type]

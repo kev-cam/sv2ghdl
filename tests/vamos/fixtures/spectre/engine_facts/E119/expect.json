@@ -1,0 +1,194 @@
+{
+ "row": "E119",
+ "experiment": "VACASK on constructs of the T2 decks (e2e 11, 25 and 29, phase 2), with Xyce's answer where the row gives one: a negative resistor; a sweep of a parameter the Verilog-A module does not declare; a vccs negative conductance kicked by a pulse; a model card naming a module whose Verilog-A name has upper-case letters; the tran ic forcing of e2e 25",
+ "result": "a negative resistor: \"Instance 'R1': parameter 'r' is out of bounds.\" and \"Initial circuit setup failed.\", rc 1 (vamos exit 2), where Xyce takes r < 0 (V(OUT) = 2); a sweep of a parameter the module does not declare: \"Sweep 'sw1': parameter 'foo' of instance 'X1' not found.\", \"Failed to bind sweep parameters.\", rc 0 (status 1), the analyses around it run; the kicked negative conductance: \"Timestep too small. Transient analysis aborted.\", rc 0 and a truncated rawfile (No. Points: blank, last time before stop), while Xyce exits 1 (\"Time step too small near step number\") with a partial print file; openvaf-r names its OSDI modules in lower case: `model m__va MixRes` is \"Device 'MixRes' not found.\", rc 1, `mixres` works (runme.sim writes psp103va); the tran ic forcing gives Mid(0) = 0.300003 for ic 0.3 (Xyce 0.3)",
+ "rules": [
+  "§7.1 Failures: VACASK's setup failure is exit 1 (vamos status 2); a bind failure is rc 0 with the analysis missing (status 1); an aborted tran leaves a rawfile that ends before stop, which check_step fails",
+  "§7.2: Xyce's failed tran is exit 1 with a partial print file",
+  "§4.5 item 12: a Verilog-A module's name is printed lower-cased on VACASK (OSDI's name)",
+  "§5.5 / e2e 25: the tran ic on VACASK starts the node within 1e-5 of the ic, not at it"
+ ],
+ "runs": [
+  {
+   "name": "vacask_negative_resistor",
+   "tool": "vacask",
+   "deck": "negr.sim",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Instance 'R1': parameter 'r' is out of bounds.",
+     "Initial circuit setup failed."
+    ]
+   },
+   "files": {
+    "absent": [
+     "op1.raw"
+    ]
+   }
+  },
+  {
+   "name": "xyce_negative_resistor",
+   "tool": "xyce",
+   "deck": "negr.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "negr.raw",
+     "col": "V(OUT)",
+     "value": 2.0,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "vacask_bind_failure",
+   "tool": "vacask",
+   "deck": "bind.sim",
+   "gates": [
+    "needs_openvaf"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "Sweep 'sw1': parameter 'foo' of instance 'X1' not found.",
+     "Failed to bind sweep parameters."
+    ]
+   },
+   "files": {
+    "present": [
+     "op1.raw",
+     "op2.raw"
+    ],
+    "absent": [
+     "dc1.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "op2.raw",
+     "col": "b",
+     "value": 0.3333333333333333,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "vacask_kicked_negative_conductance",
+   "tool": "vacask",
+   "deck": "kick.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Timestep too small. Transient analysis aborted.",
+     "Analysis 'tr1' aborted."
+    ]
+   },
+   "files": {
+    "present": [
+     "op1.raw",
+     "tr1.raw",
+     "op2.raw"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "tr1.raw",
+     "declared": null,
+     "min_points": 100,
+     "max_last_time": 0.001
+    }
+   ]
+  },
+  {
+   "name": "xyce_kicked_negative_conductance",
+   "tool": "xyce",
+   "deck": "kick.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Time step too small near step number"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "kick.raw",
+     "declared": null,
+     "min_points": 100,
+     "max_last_time": 0.001
+    }
+   ]
+  },
+  {
+   "name": "vacask_module_name_as_written",
+   "tool": "vacask",
+   "deck": "upper.sim",
+   "gates": [
+    "needs_openvaf"
+   ],
+   "status": 1,
+   "output": {
+    "contains": [
+     "Device 'MixRes' not found."
+    ]
+   }
+  },
+  {
+   "name": "vacask_module_name_lower_case",
+   "tool": "vacask",
+   "deck": "lower.sim",
+   "gates": [
+    "needs_openvaf"
+   ],
+   "status": 0,
+   "checks": [
+    {
+     "raw": "op1.raw",
+     "col": "b",
+     "value": 0.5,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "vacask_tran_ic",
+   "tool": "vacask",
+   "deck": "ic.sim",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "tric.raw",
+     "col": "Mid",
+     "row": 0,
+     "value": 0.300003,
+     "rel": 1e-06
+    },
+    {
+     "raw": "tric.raw",
+     "col": "Mid",
+     "row": -1,
+     "value": 0.74943,
+     "rel": 0.0005
+    }
+   ]
+  },
+  {
+   "name": "xyce_tran_ic",
+   "tool": "xyce",
+   "deck": "ic.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "ic.raw",
+     "col": "V(MID)",
+     "row": 0,
+     "value": 0.3,
+     "rel": 1e-12
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 (Verilog-A compiled by /opt/openvaf-r-20260616/openvaf-r through SIM_OPENVAF) and /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110), both through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored, after e2e 11's bind_fail.scs and tran_abort.scs, e2e 25 and e2e 29's runme.sim card"
+ ]
+}

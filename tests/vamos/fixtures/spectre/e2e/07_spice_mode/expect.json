@@ -35,12 +35,35 @@
    "file": "timeSweep.tran.tran",
    "signal": "out",
    "at": 0.001,
-   "value": -0.09801,
-   "rel": 0.001
+   "value": -0.0981197,
+   "rel": 0.002
   }
  ],
  "cross_engine": {
   "rel": 0.001
  },
- "messages": []
+ "messages": [],
+ "also": {
+  "deck": "deck_fine.scs",
+  "status": 0,
+  "files": [
+   "opBegin.dc",
+   "frequencySweep.ac",
+   "timeSweep.tran.tran",
+   "logFile"
+  ],
+  "values": [
+   {
+    "file": "timeSweep.tran.tran",
+    "signal": "out",
+    "at": 0.001,
+    "value": -0.0981197,
+    "rel": 0.002
+   }
+  ],
+  "cross_engine": {
+   "rel": 0.001
+  },
+  "messages": []
+ }
 }

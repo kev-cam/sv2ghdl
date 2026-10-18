@@ -36,6 +36,8 @@ engine/   the engine outputs the sweep-splitting and noise tests read (§7.1 "Re
   xyce/   Xyce DEVELOPMENT-202610100047-(Release-7.10.0-212-g7cd78110), /usr/local/src/xyce-build/src/Xyce
           under engines.env_for, one run per deck, a 1 kOhm / 1 kOhm divider:
           nz0.prn     .NOISE without .STEP: the standard table `Index FREQ ONOISE INOISE DNO(R1) DNO(R2)`
+          nz0vm.prn   the same, printed as render prints it since phase 2c (R-emit-13; recorded 2026-10-17):
+                      `Index FREQ DNO(R1) DNO(R2) ONOISE VM(OUT) INOISE`, VM(OUT) the gain (0.5)
           nz1.prn     .NOISE under one .STEP (2 points): the Index restarts at 0 per step, no separator (E33)
           nz2.prn     .NOISE under two .STEPs (2 x 3 points), LIN 3: six tables of three rows
           opstep.raw  .OP + .PRINT DC FORMAT=RAW under one .STEP: one plot per step point, `sweep` first

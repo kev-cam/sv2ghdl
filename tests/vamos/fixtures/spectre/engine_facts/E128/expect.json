@@ -1,0 +1,144 @@
+{
+ "row": "E128",
+ "experiment": "the CMC decks on Xyce under env_for (the T3c owner and the integration, phase 2; E99 re-measured): under -norun, letter-route decks with only level on the card (77, 107, 108, 110) and the instance parameters on the M line, each naming one CMC tree's module by its absolute path in VAMOS_CMC_EXAMPLES (read in place); the BSIM6 deck with a model-typed parameter, LLONG, on the M line as the 12 rendered CMC decks carry their cards' parameters",
+ "result": "the letter-route decks list, under -norun, the PyMS module under its own name: `BSIM6 (bsim6) 1`, `BSIMCMG (bsimcmg) 1`, `BSIMCMG_108 (bsimcmg_108) 1`, `BSIMCMG_110 (bsimcmg_110) 1`, rc 0, with no `M level 77/107/108/110` entry: E99's built-in binding does not reproduce; a model parameter on the M line stops -norun with rc 1 on \"Unrecognized parameter LLONG for device MX1\" and \"Unrecognized fields for device MX1\" (E108; the 12 CMC decks that render stop so, T3c's records); Xyce wraps a long `.HDL: compiled and registered <module> from` line, the path on the next line",
+ "rules": [
+  "§11.3 (c) 2 / §4.5 item 13: every CMC deck is an expected refusal on Xyce in v1, at the stage the T3c records name (xyce.output_problems, xyce.device_summary_problems)",
+  "§7.2: run_xyce's narration filters the PyMS registration lines (_QUIET), the wrapped path line included"
+ ],
+ "runs": [
+  {
+   "name": "bsim6_letter_route",
+   "tool": "xyce",
+   "deck": "bsim6_letter.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "subst": [
+    "bsim6_letter.cir"
+   ],
+   "gates": [
+    "needs_cmc",
+    "needs_pyms"
+   ],
+   "timeout": 1200,
+   "status": 0,
+   "output": {
+    "regex": [
+     "BSIM6 \\(bsim6\\)\\s+1\\n",
+     "compiled and registered bsim6 from\\s*\\n\\s*/\\S+/BSIM6\\.1\\.1/code/BSIM6\\.1\\.1\\.va"
+    ],
+    "absent": [
+     "M level 77"
+    ]
+   }
+  },
+  {
+   "name": "bsim6_model_parameter_on_the_m_line",
+   "tool": "xyce",
+   "deck": "bsim6_llong.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "subst": [
+    "bsim6_llong.cir"
+   ],
+   "gates": [
+    "needs_cmc",
+    "needs_pyms"
+   ],
+   "timeout": 1200,
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized parameter LLONG for device MX1",
+     "Unrecognized fields for device MX1"
+    ]
+   }
+  },
+  {
+   "name": "bsimcmg107_letter_route",
+   "tool": "xyce",
+   "deck": "bsimcmg107_letter.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "subst": [
+    "bsimcmg107_letter.cir"
+   ],
+   "gates": [
+    "needs_cmc",
+    "needs_pyms"
+   ],
+   "timeout": 1200,
+   "status": 0,
+   "output": {
+    "regex": [
+     "BSIMCMG \\(bsimcmg\\)\\s+1\\n"
+    ],
+    "absent": [
+     "M level 107"
+    ]
+   }
+  },
+  {
+   "name": "bsimcmg108_letter_route",
+   "tool": "xyce",
+   "deck": "bsimcmg108_letter.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "subst": [
+    "bsimcmg108_letter.cir"
+   ],
+   "gates": [
+    "needs_cmc",
+    "needs_pyms"
+   ],
+   "timeout": 1200,
+   "status": 0,
+   "output": {
+    "regex": [
+     "BSIMCMG_108 \\(bsimcmg_108\\)\\s+1\\n"
+    ],
+    "absent": [
+     "M level 108"
+    ]
+   }
+  },
+  {
+   "name": "bsimcmg110_letter_route",
+   "tool": "xyce",
+   "deck": "bsimcmg110_letter.cir",
+   "args": [
+    "-norun",
+    "{deck}"
+   ],
+   "subst": [
+    "bsimcmg110_letter.cir"
+   ],
+   "gates": [
+    "needs_cmc",
+    "needs_pyms"
+   ],
+   "timeout": 1200,
+   "status": 0,
+   "output": {
+    "regex": [
+     "BSIMCMG_110 \\(bsimcmg_110\\)\\s+1\\n"
+    ],
+    "absent": [
+     "M level 110"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) with PyMS under engines.env_for, the CMC trees of VAMOS_CMC_EXAMPLES=/usr/local/src/xyce/utils/ADMS/examples read in place (about 3 minutes on a cold PYMS_CACHE)",
+  "decks: vamos-authored; @CMC@ is VAMOS_CMC_EXAMPLES"
+ ]
+}

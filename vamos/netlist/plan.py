@@ -25,8 +25,22 @@ What build does (§5, in this order):
     strict), for every parameter state the plan sets (the nominal values, each sweep point,
     each alter), with the ParamTests and the condition/bin rule of §3.7 and §4.3's SPICE bin
     comparison;
-  - the run-dependent card rules (ParamRule.warn: analyses=..., temp!=tnom), the sources'
-    run-dependent errors (§3.8.1), device ic= on C/L, and the ic/nodeset values (§3.10).
+  - the run-dependent card rules (ParamRule.warn: analyses=..., temp!=tnom over every temperature
+    a step runs a card at), the sources' run-dependent errors (§3.8.1), device ic= on C/L, and the
+    ic/nodeset values (§3.10);
+  - phase 2c: AnalysisStep.user_options (D2), the state files an earlier analysis writes (D9: a
+    readic=/read= of one an error, a readns= of one a warning and not read), a model-group instance
+    without w or l an error (D4);
+  - phase 2c2: a non-constant r that is 0 in a state an analysis runs in, or that an alter sets, an
+    error naming the resistor, the sweep or alter and the point (F1); the dev= targets a resistor's
+    printed form decides: a short's parameters, a sweep of isnoisy (F2, R-plan-19); E102's
+    bound-expression check for every master's value parameter and the sources' fields (F3);
+  - phase 2c3: an alter of a parameter the netlist binds to an expression reading a name, then a change
+    of what it reads, an error on both engines at the first point where the two readings of Spectre
+    differ, and on VACASK any change of a variable, temp or tnom (or of the holding subckt instance's
+    parameters) after its elaboration before the alter (G1, _Bound); F1's check of a dev= sweep or
+    alter of a resistor's r without a walk per point, and of a walked state from the walk's own values
+    (G2, _State.rset); a constant expression equal to 0 is the short (G3, constant_zero).
 
 Errors are collected with every other note and raised together as a NoteError at the end;
 warnings and notes come back in RunPlan.notes.  DIALECT names the expression dialect of every
@@ -38,6 +52,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from dataclasses import replace as dc_replace
@@ -47,7 +62,7 @@ from vamos.netlist import expr as X
 from vamos.netlist import tables as T
 from vamos.netlist.expr_ast import Binary, Expr, Name, Num, Str
 from vamos.netlist.ir import (Analysis, Cond, Instance, Model, Netlist, Param, ParamTest, SaveSpec, Source,
-                              Subckt, SweepSpec, flat_analyses)
+                              Subckt, SweepSpec, flat_analyses, flat_items)
 from vamos.notes import ERROR, NOTE, WARNING, Note, NoteError
 from vamos.spectre.job import Settings
 
@@ -91,6 +106,9 @@ class AnalysisStep:
     noise_input: Optional[str] = None   # IR name of the input source; vamos_nin<k> when the netlist gives none (§5.6)
     stores: Optional[str] = None  # prevoppoint/useprevic stored-solution names
     uses: Optional[str] = None
+    user_options: Set[str] = field(default_factory=set)   # D2 (phase 2c): the option keys the netlist (options, set,
+    #                               alter), +paramdefault or the command line set before this step, and a tran's own
+    #                               reltol relref lteratio errpreset method keys; never a Spectre default
 
 
 @dataclass
@@ -148,6 +166,11 @@ ENGINE_OPTIONS = ("temp", "tnom", "gmin", "reltol", "vabstol", "iabstol", "charg
 OPTION_DEFAULTS: Dict[str, float] = {"temp": 27.0, "tnom": 27.0, "reltol": 1e-3, "vabstol": 1e-6,
                                      "iabstol": 1e-12, "gmin": 1e-12}
 OUTPUT_OPTIONS = ("rawfmt", "rawfile", "precision")          # §2.2, §2.5, §8.3: output settings
+# D2: job.settings writes these into Settings.options whatever the run set (the resolved output settings), so
+# they count as set only when the netlist's options give them
+SETTINGS_WRITTEN = ("rawfmt", "rawfile", "maxwarns", "maxnotes")
+# D2: a tran's own tolerance and method keys (§5.4), the ones the Xyce notes name
+TRAN_TOLERANCE_KEYS = ("reltol", "relref", "lteratio", "errpreset", "method")
 SAVE_OPTIONS = ("save", "nestlvl", "currents", "subcktprobelvl", "pwr", "useprobes", "useterms",
                 "saveahdlvars", "subcktiprobes", "savefilter", "saveports", "wfdebug")    # §6.1 (signals.py)
 LIMIT_OPTIONS = ("maxwarns", "maxnotes")
@@ -168,6 +191,8 @@ ERRPRESETS: Dict[str, Tuple[float, str, str, float, float]] = {
 }
 RELTOL_CAP = 0.01
 DEFAULT_ERRPRESET = "moderate"
+# tran skipdc [M ref19 p.417, pp.428-429]: v1 runs no and yes (§0); ac, noise and xf take no and yes [M ref19 p.44]
+TRAN_SKIPDC = ("no", "yes", "useprevic", "waveless", "rampup", "autodc", "sigrampup", "dcrampup")
 DEFAULT_GRID_COUNT = 50          # no step parameter: lin=50 or log=50 (§5.2)
 DEC_TOLERANCE = 1e-9             # relative tolerance of the dec interval count (§5.2)
 
@@ -354,14 +379,16 @@ def rule_for(rules: Sequence[T.ParamRule], name: str, params: Mapping[str, objec
              env: Optional[Mapping[str, float]] = None, temp: float = 27.0, tnom: float = 27.0
              ) -> Optional[T.ParamRule]:
     """The first rule for `name` whose `when` and `match` hold on the card or instance as written
-    (§10); None when no rule of that name applies."""
+    (§10); None when no rule of that name applies.  A binning name of bsim3v3 or bsim4 without a row of
+    its own takes its P0 parameter's rule (tables.binning_rule, ref5 p.186, p.209; phase 2c), given or
+    not, as an unconditional row does here (a mod= target need not be on the card)."""
     value = params.get(name, _MISSING)
     for r in rules:
         if r.name != name:
             continue
         if _when_holds(r.when, params) and _match_holds(r.match, value, env or {}, temp, tnom):
             return r
-    return None
+    return T.binning_rule(rules, name)
 
 
 def _reason(rule: T.ParamRule) -> str:
@@ -451,14 +478,22 @@ class _State:
     tnom: float = 27.0
     inst: Dict[Tuple[int, str], Tuple[Instance, str, float]] = field(default_factory=dict)
     model: Dict[Tuple[int, str], Tuple[Model, str, float]] = field(default_factory=dict)
+    paths: Dict[Tuple[int, str], str] = field(default_factory=dict)   # the IR path a dev= value of inst names
+    rset: Dict[str, float] = field(default_factory=dict)  # G2 (phase 2c3): resistor path -> the r a dev= sweep or alter
+    #                                                       sets there (F1); no expression reads it, so no walk does
 
-    def key(self) -> Tuple:
+    def walk_key(self) -> Tuple:
+        """What a walk of the instance paths reads (_check_paths): everything but rset."""
         return (tuple(sorted(self.top.items())), self.temp, self.tnom,
-                tuple(sorted((k, v[2]) for k, v in self.inst.items())),
+                tuple(sorted((k, v[2], self.paths.get(k, "")) for k, v in self.inst.items())),
                 tuple(sorted((k, v[2]) for k, v in self.model.items())))
 
+    def key(self) -> Tuple:
+        return self.walk_key() + (tuple(sorted(self.rset.items())),)
+
     def copy(self) -> "_State":
-        return _State(dict(self.top), self.temp, self.tnom, dict(self.inst), dict(self.model))
+        return _State(dict(self.top), self.temp, self.tnom, dict(self.inst), dict(self.model), dict(self.paths),
+                      dict(self.rset))
 
 
 @dataclass
@@ -497,6 +532,27 @@ class _Ctx:
         self.reads_temp = False
         self.dependents: Set[str] = set()
         self.variables: Dict[str, float] = {}
+        # phase 2c
+        self.user_keys: Set[str] = set()                        # D2: the option keys the run set so far
+        self.cwd = ""                                           # D9: where relative state-file names resolve (build)
+        self.outdir: Optional[str] = None                       # D9: the resolved -outdir (§2.5)
+        self.state_writes: Dict[str, Tuple[str, str, str]] = {}  # D9: path -> (step, key, name) written so far
+        self.card_users: Dict[int, Dict[str, Instance]] = {}    # R-plan-6: id(card) -> {instance path: instance}
+        self.trise_now: Dict[str, float] = {}                   # R-plan-6: instance path -> trise an alter set
+        self.step_trise: Dict[str, Dict[str, float]] = {}       # R-plan-6: step id -> trise_now at the step
+        self.nowl_reported: Set[Tuple[str, str]] = set()        # D4: (path, instance) without w or l reported
+        # phase 2c2
+        self.zeros: Dict[Tuple, List[Tuple[str, str, str]]] = {}  # F1: walk key -> the resistances 0 in it (G2: its
+        #                                                           rset is applied by _zeros_of)
+        self.zero_reported: Set[str] = set()                    # F1: the resistor paths reported
+        self.history: List[Tuple[_State, str]] = []             # F1: (base state, the alter or set that made it)
+        # phase 2c3
+        self.walk_order: Dict[str, int] = {}                    # G2: instance path -> its place in a walk
+        self.bound: List[_Bound] = []                           # G1: the alters of bound parameters still in force
+        self.elab: Optional[Tuple[_State, int]] = None          # G1: VACASK's last elaboration: (its state, the
+        #                                                         number of marks then)
+        self.marks: List[Tuple[_State, str]] = []               # G1: (base state, the alter or set that made it)
+        self.scope_envs: Dict[Tuple, Optional[Dict[str, float]]] = {}   # G1: (walk key, path) -> its values
 
     # -- notes
     def _add(self, sev: str, origin: str, msg: str) -> None:
@@ -549,6 +605,7 @@ class _Ctx:
             for it in pe.items:
                 path = it.name if not pe.path else pe.path + "." + it.name
                 self.insts.setdefault(path, _Inst(path, it, pe))
+        self.walk_order = {path: k for k, path in enumerate(self.insts)}
         self.path_counts = {s.name: 0 for s in T.all_subckts(nl)}
         for pe in self.paths:
             if pe.subckt is not None:
@@ -597,9 +654,10 @@ def _applied(ctx: _Ctx, st: _State) -> Iterator[None]:
                 holder[key] = old
 
 
-def _top_values(ctx: _Ctx, st: _State, where: str) -> Dict[str, float]:
+def _top_values(ctx: _Ctx, st: _State, where: str, quiet: bool = False) -> Dict[str, float]:
     """The top-level parameter values in a state: Netlist.values, the variables' values, and every
-    dependent or temperature-reading parameter re-evaluated (§3.5)."""
+    dependent or temperature-reading parameter re-evaluated (§3.5).  quiet: a parameter that does not
+    evaluate is left out, not reported (G1's evaluations; the walk of the state reports it)."""
     vals: Dict[str, float] = dict(ctx.nl.values)
     vals.update(st.top)
     todo = [p for p in ctx.top_params
@@ -617,6 +675,9 @@ def _top_values(ctx: _Ctx, st: _State, where: str) -> Dict[str, float]:
         if not todo or not progress:
             break
     for p, exc in remaining:                          # type: ignore[possibly-undefined]
+        if quiet:
+            vals.pop(p.name, None)
+            continue
         ctx.err(p.origin, "%s: parameter %s=%s does not evaluate: %s" % (where, p.name, _txt(p.expr), exc))
     return vals
 
@@ -656,12 +717,23 @@ def _bin_rule_bins(bins: Sequence[Model]) -> List[Model]:
 
 def _check_bin(ctx: _Ctx, it: Instance, bins: Sequence[Model], pe: T.PathEnv, st: _State, where: str) -> None:
     """§3.7: the bin a model-group instance selects, at every state; §4.3: the HSPICE rule's card
-    beside the Spectre rule's where the group carries HSPICE bounds."""
+    beside the Spectre rule's where the group carries HSPICE bounds.  D4 (phase 2c): an instance of a
+    Spectre model group selects only with both w and l on its line [M ref5 p.203]."""
     env = pe.env
     bins = _bin_rule_bins(bins)
     master = bins[0].prim
     geom = dict(T.SPECTRE_MASTERS[master].geometry) if master in T.SPECTRE_MASTERS else {}
     vals: Dict[str, float] = {}
+    if bins[0].bin_rule == "spectre":
+        missing = [k for k in ("w", "l") if it.params.get(k) is None]
+        if missing:
+            key = (pe.path, it.name)
+            if key not in ctx.nowl_reported:
+                ctx.nowl_reported.add(key)
+                ctx.err(it.origin, "instance %s on path %s of model group %s has no %s: automatic model selection "
+                        "needs both w and l on the instance line [M ref5 p.203] (§3.9)"
+                        % (it.name, pe.path or "top level", it.master, " or ".join(missing)))
+            return
     for k in ("l", "w", "nf"):
         e = it.params.get(k)
         if e is None:
@@ -712,11 +784,17 @@ def _check_bin(ctx: _Ctx, it: Instance, bins: Sequence[Model], pe: T.PathEnv, st
                 % (where, it.name, path, chosen.name, ctx.nominal_bin[key]))
 
 
-def _check_instance(ctx: _Ctx, it: Instance, pe: T.PathEnv, st: _State, where: str) -> None:
+def _check_instance(ctx: _Ctx, it: Instance, pe: T.PathEnv, st: _State, where: str) -> Optional[float]:
+    """Every expression of an instance on one path in one state (§3.5) and its cards; returns the value of its
+    Instance.value (a resistor's r, which F1's zero check reads: G2, phase 2c3), None when it has none or it does
+    not evaluate."""
     path = pe.path or "top level"
+    value: Optional[float] = None
     for k, e in _item_exprs(it):
         try:
-            _ev(e, pe.env, st.temp, st.tnom)
+            v = _ev(e, pe.env, st.temp, st.tnom)
+            if k == "value" and value is None:
+                value = v
         except X.EvalError as exc:
             ctx.err(it.origin, "%s: %s=%s of instance %s on path %s does not evaluate: %s"
                     % (where, k, _txt(e), it.name, path, exc))
@@ -724,6 +802,7 @@ def _check_instance(ctx: _Ctx, it: Instance, pe: T.PathEnv, st: _State, where: s
         card, bins = pe.scope.card_of(it)
         for c in ([card] if card is not None else []) + list(bins):
             ctx.cards_used.setdefault(id(c), (c, path, dict(pe.env)))
+            ctx.card_users.setdefault(id(c), {}).setdefault(it.name if not pe.path else pe.path + "." + it.name, it)
             ekey = (id(c), id(pe.env))
             if ekey not in ctx.card_evaluated or st.top or st.model:
                 ctx.card_evaluated.add(ekey)
@@ -736,6 +815,7 @@ def _check_instance(ctx: _Ctx, it: Instance, pe: T.PathEnv, st: _State, where: s
                                     "evaluate: %s" % (where, k, _txt(e), c.name, it.name, path, exc))
         if bins:
             _check_bin(ctx, it, bins, pe, st, where)
+    return value
 
 
 _TEST_SEVERITY = {"errorif": ERROR, "warnif": WARNING, "printif": NOTE}
@@ -774,13 +854,94 @@ def _paramtest(ctx: _Ctx, pt: ParamTest, pe: T.PathEnv, st: _State, where: str) 
         ctx._add(sev, pt.origin, "paramtest %s on path %s (%s): %s" % (pt.name, path, where, text))
 
 
-def _check_state(ctx: _Ctx, st: _State, where: str) -> None:
+_ZERO_TEXT = ("resistor %s on path %s: %s, and vamos prints a short only for the constant r=0: a non-constant r that "
+              "evaluates to 0 is an error in v1 (§3.8, §4.5 item 10; VACASK's resistor fails with NaN at r=0, and Xyce's "
+              "swept to 0 becomes an open circuit)")
+
+
+def _zero_expr(it: Instance, pe: T.PathEnv) -> Optional[Tuple[str, str, str]]:
+    """F1 (phase 2c2): (the resistor's path, its origin, the finding) for a resistor whose r a walk evaluated to 0
+    on this path (_check_paths passes it only then, G2) and that is not the short the emitters print (is_short:
+    the constant 0, phase 2c3's G3 a constant expression equal to it) or an infinite resistor.  Spectre makes such
+    a resistor a short (the resistance form it chooses below thresh [M ref5 p.632]); VACASK's resistor gives NaN
+    at r = 0 and Xyce's turns into an open circuit (a sweep through 0 gave out = 0 where the short gives 1 V, exit
+    0, measured), so vamos refuses it."""
+    if isinstance(it.value, Num) or is_short(it) or is_infinite_resistor(it):
+        return None
+    path = it.name if not pe.path else pe.path + "." + it.name
+    return (path, it.origin, _ZERO_TEXT % (it.name, pe.path or "top level", "r=%s evaluates to 0" % _txt(it.value)))
+
+
+def _zero_set(ctx: _Ctx, path: str) -> Optional[Tuple[str, str, str]]:
+    """F1: the finding for the resistor at path whose r a dev= sweep or alter sets to 0 (_State.rset), None for a
+    short, an infinite resistor or a path that holds no resistor."""
+    ent = ctx.insts.get(path)
+    if ent is None or ent.inst.kind != "r" or is_short(ent.inst) or is_infinite_resistor(ent.inst):
+        return None
+    return (path, ent.inst.origin, _ZERO_TEXT % (ent.inst.name, path.rpartition(".")[0] or "top level",
+                                                 "its r, set by a sweep or alter, is 0"))
+
+
+def _zeros_of(ctx: _Ctx, st: _State) -> List[Tuple[str, str, str]]:
+    """F1: the resistances that are 0 in a state: the walk's findings for its walk key (_check_state walked it)
+    less the resistors whose r the state sets, plus those it sets to 0, in walk order (G2, phase 2c3: a dev=
+    value of r changes that resistor alone, so it is applied here instead of in a walk)."""
+    walk = ctx.zeros.get(st.walk_key(), [])
+    if not st.rset:
+        return walk
+    out = [z for z in walk if z[0] not in st.rset]
+    for path, v in st.rset.items():
+        if v == 0.0:
+            z = _zero_set(ctx, path)
+            if z is not None:
+                out.append(z)
+    out.sort(key=lambda z: ctx.walk_order.get(z[0], len(ctx.walk_order)))
+    return out
+
+
+def _walk_state(ctx: _Ctx, st: _State, where: str) -> None:
+    """The walk of one state (_check_paths), once per walk key."""
+    wk = st.walk_key()
+    if wk not in ctx.checked:
+        ctx.checked.add(wk)
+        ctx.zeros[wk] = []
+        _check_paths(ctx, st, where, ctx.zeros[wk])
+
+
+def _check_state(ctx: _Ctx, st: _State, where: str, runs: bool = False, sweeps: str = "") -> None:
     """Every reachable expression on every instance path in one state (§3.5), the ParamTests and
-    the condition/bin rule (§3.7)."""
-    key = st.key()
-    if key in ctx.checked:
-        return
-    ctx.checked.add(key)
+    the condition/bin rule (§3.7).  runs (phase 2c2, F1): an analysis runs in this state; the resistances
+    found 0 in it (_zeros_of) are then errors, each resistor once, naming `where`, the sweeps the
+    state is a point of (`sweeps`) and the alter or set statement that made the resistance 0 (_zero_cause)."""
+    _walk_state(ctx, st, where)
+    if runs:
+        _report_zeros(ctx, _zeros_of(ctx, st), where, sweeps)
+
+
+def _report_zeros(ctx: _Ctx, zeros: Sequence[Tuple[str, str, str]], where: str, sweeps: str) -> None:
+    for path, origin, text in zeros:
+        if path in ctx.zero_reported:
+            continue
+        ctx.zero_reported.add(path)
+        parts = [sweeps] if sweeps else []
+        cause = _zero_cause(ctx, path)
+        if cause:
+            parts.append("after " + cause)
+        ctx.err(origin, "%s%s: %s" % (where, " (%s)" % "; ".join(parts) if parts else "", text))
+
+
+def _zero_cause(ctx: _Ctx, path: str) -> str:
+    """The alter or set statement since whose state the resistor at path has been 0 in the base state (the
+    states the alters and sets made, ctx.history), "" when it is 0 at the netlist's values or not in the base."""
+    cause = ""
+    for st, where in reversed(ctx.history):
+        if not any(z[0] == path for z in _zeros_of(ctx, st)):
+            break
+        cause = where
+    return cause
+
+
+def _check_paths(ctx: _Ctx, st: _State, where: str, zeros: List[Tuple[str, str, str]]) -> None:
     with _applied(ctx, st):
         top = _top_values(ctx, st, where)
         try:
@@ -803,7 +964,11 @@ def _check_state(ctx: _Ctx, st: _State, where: str) -> None:
                 ctx.err("", "%s changes a structural condition on path %s: vamos refuses a sweep or alter that "
                         "changes an if branch, as Spectre does (§3.7, §14 q.13)" % (where, pe.path or "top level"))
             for it in insts:
-                _check_instance(ctx, it, pe, st, where)
+                v = _check_instance(ctx, it, pe, st, where)
+                if v == 0.0 and it.kind == "r":          # F1: the value the walk computed (G2: not evaluated again)
+                    z = _zero_expr(it, pe)
+                    if z is not None:
+                        zeros.append(z)
             for pt in tests:
                 _paramtest(ctx, pt, pe, st, where)
 
@@ -890,9 +1055,11 @@ def grid(ctx: _Ctx, spec: SweepSpec, env: Mapping[str, float], st: _State, origi
             ctx.err(origin, "%s: values=[] is empty" % what)
             return None
         return out("values", values)
+    if spec.start is None:
+        start = 0.0                       # Spectre's default start [M ref19 pp.43, 64, 182, 406, 439; UG p.67]
     if start is None or stop is None:
-        if spec.start is None or spec.stop is None:
-            ctx.err(origin, "%s needs start and stop (or values)" % what)
+        if spec.stop is None:
+            ctx.err(origin, "%s needs stop (or values)" % what)
         return None
     if mode == "step":
         if step is None:
@@ -999,8 +1166,9 @@ def _units_of(inst: Instance, p: str) -> str:
     return ""
 
 
-def _labels(ctx: _Ctx, target: Target, parent: bool) -> Tuple[str, str, str]:
-    """(label, desc, units) of a level (§5.2, §8.3)."""
+def _labels(ctx: _Ctx, target: Target, parent: bool, param: str = "") -> Tuple[str, str, str]:
+    """(label, desc, units) of a level (§5.2, §8.3).  param is the parameter as the netlist wrote it: the
+    label and the description name it, never the engine spelling a rename gives the target (phase 2c)."""
     kind, name, p = target
     if kind == "freq":
         return "freq", "freq", "Hz"
@@ -1008,9 +1176,10 @@ def _labels(ctx: _Ctx, target: Target, parent: bool) -> Tuple[str, str, str]:
         return name, name, "C"
     if kind == "variable":
         return name, name, ""
+    p = param or p
     full = "%s:%s" % (name, p)
     if kind == "model":
-        return full, full, ""
+        return (full if parent else p), full, ""
     ent = ctx.insts.get(name)
     units = _units_of(ent.inst, p) if ent is not None else ""
     return (full if parent else p), full, units
@@ -1033,14 +1202,25 @@ def _source_fields(prim: str) -> Set[str]:
     return {r.name for r in row.instance} if row is not None else set()
 
 
-_VALUE_KEY = {"resistor": "r", "capacitor": "c", "inductor": "l"}
+# The value parameter spectre.parse moves into Instance.value, per master (spectre.rcl_value and the masters
+# pass): the resistor's r, the capacitor's c, the inductor's l, a controlled source's gain, gm or rm, a mutual
+# inductor's coupling, a diode's, bjt's or jfet's area.  A dev= target names it; the IR holds it there.  Phase 2c2
+# (F3): E102's bound-expression check read r, c and l only, so `vcvs gain=g` swept with dev= failed at VACASK's run
+# (exit 1, 'bound to an expression') instead of with status 2 here.
+VALUE_PARAMS: Dict[str, str] = {"resistor": "r", "capacitor": "c", "inductor": "l", "vcvs": "gain", "vccs": "gm",
+                                "ccvs": "rm", "cccs": "gain", "mutual_inductor": "coupling", "diode": "area",
+                                "bjt": "area", "jfet": "area"}
+_VALUE_KEY = VALUE_PARAMS
 
 
 def _bound_expr(it: Instance, param: str) -> Optional[Expr]:
-    """The expression an instance parameter is bound to: Instance.value for a resistor's r, a capacitor's
-    c and an inductor's l (spectre.rcl_value moves them there), else the params entry."""
-    if _VALUE_KEY.get(it.prim or "") == param:
+    """The expression an instance parameter is bound to: Instance.value for the master's value parameter
+    (VALUE_PARAMS), a source field as written (Source.spectre, Spectre's names), else the params entry."""
+    if VALUE_PARAMS.get(it.prim or "") == param:
         return it.value
+    if it.kind in ("v", "i") and it.source is not None and param in it.source.spectre:
+        v = it.source.spectre[param]
+        return v if isinstance(v, (Num, Name, Binary)) or (v is not None and not isinstance(v, (Str, list))) else None
     v = it.params.get(param)
     return v if isinstance(v, (Num, Name, Binary)) or (v is not None and not isinstance(v, (Str, list))) else None
 
@@ -1049,7 +1229,10 @@ def _vacask_bound(ctx: _Ctx, ent: _Inst, param: str, origin: str, what: str) -> 
     """VACASK cannot sweep an instance parameter bound to an expression that reads a parameter
     ("parameter 'r' of instance 'X2:R1' is bound to an expression. Failed to bind sweep parameters.",
     rc 0, no rawfile), while an alter of the same parameter works (alter instance("X2:R1") r=2000
-    moved the node) [E, phase 1b]; Xyce sweeps it natively (.DC X2:R1:R, §7.2)."""
+    moved the node) [E, phase 1b]; Xyce sweeps it natively (.DC X2:R1:R, §7.2).  Phase 2c2 (F3): every
+    master's value parameter (VALUE_PARAMS: a vcvs gain=g, a vccs gm, a ccvs rm, a cccs gain, a mutual
+    inductor's coupling, a diode's area) and a source field (dc=vv) fail the same way, measured on VACASK
+    0.3.4-91: exit 1, "Failed to bind sweep parameters"."""
     if ctx.engine != "vacask":
         return True
     e = _bound_expr(ent.inst, param)
@@ -1099,6 +1282,16 @@ def _resolve_target(ctx: _Ctx, kind: str, name: str, param: str, origin: str, wh
             ctx.err(origin, "%s: no instance %s on any path (dev=)" % (what, name))
             return None
         it = ent.inst
+        if it.kind == "x" and param != "m":
+            # phase 2c (R-plan-3): a subckt instance's parameter is sub='s target, with its rules (the parameter
+            # check, plan.overridden, the per-point condition and bin rule of §3.7)
+            return _subckt_target(ctx, ent, name, param, origin, what)
+        if it.kind == "y":
+            va = ctx.nl.va_modules.get((it.prim or it.master or "").lower())
+            if va is not None and not _va_declares(va, param):
+                ctx.err(origin, "%s: %s is not a parameter of Verilog-A module %s (declared: %s)"
+                        % (what, param, va.name, " ".join(va.params or []) or "none"))
+                return None
         if it.kind in ("v", "i") and it.prim != "iprobe" and param != "m":
             fields = _source_fields(it.prim or ("vsource" if it.kind == "v" else "isource"))
             if fields and param not in fields:
@@ -1106,7 +1299,11 @@ def _resolve_target(ctx: _Ctx, kind: str, name: str, param: str, origin: str, wh
                 return None
             if not _multipath(ctx, ent, origin, what):
                 return None
+            if sweep and not _vacask_bound(ctx, ent, param, origin, what):
+                return None                                 # phase 2c2 (F3): dc=vv swept with dev= on VACASK
             return _Resolved(("instance", ent.path, param), ent, source_field=True)
+        if it.kind == "r" and not _resistor_target(ctx, ent, param, origin, what, sweep):
+            return None
         if param in it.folded:
             ctx.err(origin, "%s: %s of %s fed a value vamos computed at parse time (Instance.folded): a sweep or "
                     "alter of it would change nothing the engines print; not supported in v1 (§5.2)"
@@ -1151,6 +1348,11 @@ def _resolve_target(ctx: _Ctx, kind: str, name: str, param: str, origin: str, wh
         for card in cards:
             row = T.SPECTRE_MASTERS.get(card.prim)
             if row is None:
+                va = nl.va_modules.get((card.prim or "").lower())          # a Verilog-A card (R-plan-21)
+                if va is not None and not _va_declares(va, param):
+                    ctx.err(origin, "%s: %s is not a parameter of Verilog-A module %s (declared: %s)"
+                            % (what, param, va.name, " ".join(va.params or []) or "none"))
+                    return None
                 continue
             rule = rule_for(row.params, param, card.params, nl.values)
             if rule is None:
@@ -1169,20 +1371,104 @@ def _resolve_target(ctx: _Ctx, kind: str, name: str, param: str, origin: str, wh
         if ent is None or ent.inst.kind != "x":
             ctx.err(origin, "%s: %s is not a subckt instance on any path (sub=)" % (what, name))
             return None
-        sub = ent.env.scope.find_subckt(ent.inst.master or "")
-        if sub is None:
-            ctx.err(origin, "%s: subckt %s of %s is not defined" % (what, ent.inst.master, name))
-            return None
-        names = {p.name for p in sub.params} | {p.name for p in sub.body if isinstance(p, Param)}
-        if param not in names:
-            ctx.err(origin, "%s: %s is not a parameter of subckt %s (instance %s)" % (what, param, sub.name, name))
-            return None
-        if not _multipath(ctx, ent, origin, what):
-            return None
-        ctx.plan.overridden.setdefault(sub.name, set()).add(param)
-        return _Resolved(("instance", ent.path, param), ent, subckt=sub)
+        return _subckt_target(ctx, ent, name, param, origin, what)
     ctx.err(origin, "%s: unknown target kind %r" % (what, kind))
     return None
+
+
+def _subckt_target(ctx: _Ctx, ent: _Inst, name: str, param: str, origin: str, what: str) -> Optional[_Resolved]:
+    """sub= (and dev= on a subckt instance): a parameter the subckt declares, one path on Xyce (§5.3),
+    made overridable (RunPlan.overridden) and checked per point (_affects)."""
+    sub = ent.env.scope.find_subckt(ent.inst.master or "")
+    if sub is None:
+        ctx.err(origin, "%s: subckt %s of %s is not defined" % (what, ent.inst.master, name))
+        return None
+    names = {p.name for p in sub.params} | {p.name for p in sub.body if isinstance(p, Param)}
+    if param not in names:
+        ctx.err(origin, "%s: %s is not a parameter of subckt %s (instance %s)" % (what, param, sub.name, name))
+        return None
+    if not _multipath(ctx, ent, origin, what):
+        return None
+    ctx.plan.overridden.setdefault(sub.name, set()).add(param)
+    return _Resolved(("instance", ent.path, param), ent, subckt=sub)
+
+
+def constant_zero(v: object) -> bool:
+    """G3 (phase 2c3): the constant 0, or an expression that reads no parameter, temp or tnom and evaluates to
+    exactly 0 (r=1k-1k, r=2*0, r=-(1k-1k)).  Spectre makes such a resistor a short and Xyce had printed it as one
+    ({1000-1000}: out = 1 V, R1:1 = 1 mA, phase 2c2's skeptic); F1 had refused it on both engines.  An expression
+    that reads a name (r=0*rv) is not constant: F1's rule."""
+    if isinstance(v, Num):
+        return v.value == 0.0
+    if v is None or isinstance(v, (Str, list, str, bool, int, float)):
+        return False
+    try:
+        if X.names(v):                                    # type: ignore[arg-type]
+            return False
+        return X.evaluate(v, {}, dialect=DIALECT) == 0.0   # type: ignore[arg-type]  (temp/tnom: not a constant)
+    except (X.EvalError, X.ExprError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
+def is_short(it: Instance) -> bool:
+    """§3.8, §4.5 item 10: a resistor whose r is the constant 0 prints as a short (VACASK a 0 V vsource, Xyce
+    R=0); the emitters' test (vacask.rcl, xyce.rcl, signals.current), which plan.build's rules share.  Phase 2c3
+    (G3): a constant expression equal to 0 (constant_zero) is the same short; signals.resolve folds it to the
+    constant 0 in the render copy, so the emitters print the r=0 form."""
+    return it.kind == "r" and constant_zero(it.value)
+
+
+def noise_switch_off(value: object) -> Optional[bool]:
+    """An alter's value of a resistor's isnoisy (§4.5 item 7, R-emit-6): True when it turns the noise off (the
+    words no and false, any case, or the number 0), False when on (yes, true, another number), None when it
+    is neither a word of the four nor a number."""
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, (int, float)):
+        return float(value) == 0.0
+    text = _text_of(value)
+    if text is None:
+        return None
+    low = text.strip().lower()
+    if low in ("no", "false"):
+        return True
+    if low in ("yes", "true"):
+        return False
+    num = _number_text(low)
+    return None if num is None else num == 0.0
+
+
+def _resistor_target(ctx: _Ctx, ent: _Inst, param: str, origin: str, what: str, sweep: bool) -> bool:
+    """Phase 2c2 (F2, R-plan-19): the dev= targets of a resistor that its printed form decides.
+      - A resistor printed as a short (is_short) is a 0 V vsource on VACASK, which has none of the resistor's
+        parameters ("Parameter 'r' not found"; its $mfactor would divide the current the short reports), and
+        R=0 on Xyce, which Xyce makes a short when it reads the netlist (a .DC R1:R from 1k left b at 1 V,
+        measured): a sweep of any of its parameters is an error in v1, and so is an alter on VACASK; Xyce's
+        state replay renders the altered value into the next deck (an alter of r to 1k gave b = 0.5).
+      - A sweep of isnoisy would switch the element per point (VACASK's noisy, Xyce's noise-free G form, §4.5
+        item 7): an error in v1; an alter of it is mapped (vacask.alter_lines' noisy=, Xyce's state replay,
+        signals' per-step noise lists and probes) and takes the four words or a number."""
+    it = ent.inst
+    if is_short(it) and (sweep or ctx.engine == "vacask"):
+        ctx.err(origin, "%s: %s prints as a short (its r is the constant 0, §3.8, §4.5 item 10: a 0 V source on "
+                "VACASK, R=0 on Xyce); %s of its %s is not supported in v1%s"
+                % (what, ent.path, "a sweep" if sweep else "an alter", param,
+                   "" if sweep else " on VACASK (Xyce runs it)"))
+        return False
+    if param == "isnoisy" and sweep:
+        ctx.err(origin, "%s: a sweep of the isnoisy of %s is not supported in v1: the switch chooses the "
+                "resistor's form (VACASK's noisy, Xyce's noise-free G form, §4.5 item 7) per deck, not per "
+                "point; alter it between analyses instead" % (what, ent.path))
+        return False
+    return True
+
+
+def _va_declares(va: Any, param: str) -> bool:
+    """§3.9's rule for a Verilog-A instance parameter (spectre.va_params): declared, compared case-insensitively,
+    or m; anything when the module's parameter list is unknown (VaModule.params None, §3.1)."""
+    if va.params is None or param == "m":
+        return True
+    return param.lower() in {p.lower() for p in va.params}
 
 
 def _affects(ctx: _Ctx, r: _Resolved, param: str) -> bool:
@@ -1199,6 +1485,8 @@ def _affects(ctx: _Ctx, r: _Resolved, param: str) -> bool:
             return False
         if r.subckt is not None:
             return True
+        if r.inst is not None and r.inst.inst.kind == "r" and param == "r":
+            return True                                    # F1 (phase 2c2): a resistance a sweep or alter sets
         return r.inst is not None and r.inst.inst.kind == "m" and param in ("w", "l", "nf")
     return False
 
@@ -1218,8 +1506,19 @@ def _apply(st: _State, r: _Resolved, param: str, value: float) -> _State:
         for c in r.cards:
             st.model[(id(c), param)] = (c, param, value)
     elif kind == "instance" and r.inst is not None and not r.source_field:
-        st.inst[(id(r.inst.inst), param)] = (r.inst.inst, param, value)
+        if _sets_r(r, param):
+            st.rset[r.inst.path] = value                  # G2: that resistor's r alone; F1 checks it (_zeros_of)
+        else:
+            st.inst[(id(r.inst.inst), param)] = (r.inst.inst, param, value)
+            st.paths[(id(r.inst.inst), param)] = r.inst.path
     return st
+
+
+def _sets_r(r: _Resolved, param: str) -> bool:
+    """A dev= target of a resistor's r (G2, phase 2c3): its values change nothing a walk reads (no expression reads
+    an instance parameter), only that resistor's F1 check."""
+    return (r.target[0] == "instance" and r.inst is not None and r.subckt is None and not r.source_field
+            and r.inst.inst.kind == "r" and param == "r")
 
 
 # -- options (§3.10) ---------------------------------------------------------------------------------
@@ -1307,10 +1606,13 @@ def _set_statement(ctx: _Ctx, a: Analysis, in_sweep: bool) -> None:
         ctx.err(a.origin, "set %s inside a sweep block: its effect would depend on the point order (§5.3)" % a.name)
         return
     changed = _option_dispositions(ctx, a.args, a.origin, "set %s" % a.name)
+    ctx.user_keys |= set(a.args)                           # D2
     for key in a.args:
         if key in SAVE_OPTIONS or key in OUTPUT_OPTIONS:
             ctx.warn(a.origin, "set %s: %s between analyses is not applied; the netlist's options statement decides "
                      "it for the whole run" % (a.name, key))
+    before = ctx.base.key()
+    ctx.base = ctx.base.copy()                              # the history keeps the states (F1, G1)
     for key, v in changed.items():
         ctx.current[key] = v
         if key == "temp":
@@ -1318,6 +1620,9 @@ def _set_statement(ctx: _Ctx, a: Analysis, in_sweep: bool) -> None:
         elif key == "tnom":
             ctx.base.tnom = float(v)                        # type: ignore[arg-type]
     ctx.plan.actions.append(Action("options", dict(changed), None, a.origin))
+    if ctx.base.key() != before:
+        ctx.history.append((ctx.base, "set %s" % a.name))      # F1 (phase 2c2): _zero_cause
+        _bound_base_change(ctx, "set %s" % a.name)              # G1 (phase 2c3)
     if changed:
         _check_state(ctx, ctx.base, "set %s" % a.name)
 
@@ -1348,6 +1653,16 @@ def _alter(ctx: _Ctx, a: Analysis, in_sweep: bool) -> None:
         return
     act: Dict[str, object] = {"target": r.target, "value": value}
     tk, tname, tparam = r.target
+    if tk == "instance" and r.inst is not None and r.inst.inst.kind == "r" and tparam == "isnoisy" \
+            and noise_switch_off(value) is None:
+        ctx.err(a.origin, "%s: isnoisy=%s of %s is not yes, no, true, false or a number (§4.5 item 7)"
+                % (what, _fmt(value), r.inst.path))
+        return
+    if tk in ("instance", "model"):
+        if ctx.elab is None:                               # G1: VACASK elaborates at its first alter instance/model
+            ctx.elab = (ctx.base, len(ctx.marks))
+        ctx.bound = [b for b in ctx.bound if b.target != r.target]    # G1: this alter replaces an earlier one's value
+    before = ctx.base.key()
     if r.source_field and r.inst is not None:
         src = r.inst.inst.source
         wave, dc_given, cur = ctx.source_state.get(r.inst.path, (src.wave if src else None, bool(src and src.dc is not None),
@@ -1375,15 +1690,23 @@ def _alter(ctx: _Ctx, a: Analysis, in_sweep: bool) -> None:
             ctx.err(a.origin, "%s: %s=%s is not a number" % (what, param, value))
             return
         ctx.current[tname] = value
+        ctx.user_keys.add(tname)                           # D2
         ctx.base = _apply(ctx.base, r, param, value)
     elif tk == "variable":
         if not isinstance(value, float):
             ctx.err(a.origin, "%s: %s=%s is not a number" % (what, param, value))
             return
         ctx.base = _apply(ctx.base, r, param, value)
-    elif isinstance(value, float) and _affects(ctx, r, param):
+    elif isinstance(value, float) and (_affects(ctx, r, param) or _holder_m(r, param)):
         ctx.base = _apply(ctx.base, r, param, value)
+    if tk == "instance" and r.inst is not None and isinstance(value, float) and _is_trise(r.inst, tparam):
+        ctx.trise_now[r.inst.path] = value                 # R-plan-6: the device temperature from here on
     ctx.plan.actions.append(Action("alter", act, None, a.origin))
+    if ctx.base.key() != before:
+        ctx.history.append((ctx.base, what))         # F1 (phase 2c2): an analysis after it names it (_zero_cause)
+        _bound_base_change(ctx, what)                # G1 (phase 2c3): what the alters in force read
+    if tk in ("instance", "model") and isinstance(value, float):
+        _bound_alter(ctx, a, r, param, value)
     _check_state(ctx, ctx.base, what)
 
 
@@ -1399,7 +1722,7 @@ def _level(ctx: _Ctx, spec: SweepSpec, name: str, origin: str, what: str, parent
     g = grid(ctx, spec, env, ctx.base, origin, what)
     if g is None:
         return None
-    label, desc, units = _labels(ctx, r.target, parent)
+    label, desc, units = _labels(ctx, r.target, parent, spec.param)
     return SweepLevel(name, "", r.target, g, continuation, label, desc, units), r
 
 
@@ -1480,7 +1803,9 @@ def _common_dispositions(ctx: _Ctx, a: Analysis, step: AnalysisStep, args: Dict[
     if a.kind in FREQ_KINDS:
         if _enum(args, "prevoppoint") == "yes":
             _use_previous(ctx, step, o, what, "prevoppoint=yes")
-        if _enum(args, "skipdc") == "yes":
+        if "skipdc" in args and _enum(args, "skipdc", "?") not in ("no", "yes"):
+            ctx.err(o, "%s: skipdc=%s is not one of no, yes [M ref19 p.44]" % (what, _fmt(args["skipdc"])))
+        elif _enum(args, "skipdc") == "yes":
             ctx.err(o, "%s: skipdc=yes is not supported for %s" % (what, a.kind))
         if _enum(args, "perturbation", "linear") != "linear":
             ctx.err(o, "%s: perturbation=%s is not supported" % (what, args["perturbation"]))
@@ -1526,6 +1851,15 @@ def _tran_dispositions(ctx: _Ctx, a: Analysis, step: AnalysisStep, args: Dict[st
             ctx.err(o, "%s: %s is not supported" % (what, key))
     if _enum(args, "linearic") == "yes":
         ctx.err(o, "%s: linearic=yes is not supported" % what)
+    if "skipdc" in args:                               # ref19 p.417; v1 runs no and yes (§0; phase 2c, R-plan-2)
+        sk = _enum(args, "skipdc", "?")
+        if sk not in TRAN_SKIPDC:
+            ctx.err(o, "%s: skipdc=%s is not one of %s [M ref19 p.417]" % (what, _fmt(args["skipdc"]),
+                                                                         ", ".join(TRAN_SKIPDC)))
+        elif sk not in ("no", "yes"):
+            ctx.err(o, "%s: skipdc=%s is not supported in v1, only no and yes are (§0; ref19 pp.428-429)" % (what, sk))
+        else:
+            args["skipdc"] = sk                       # the emitters read "yes"
     for key in list(args):
         if key.startswith("rampup"):
             ctx.err(o, "%s: %s is not supported" % (what, key))
@@ -1566,7 +1900,8 @@ def _tran_dispositions(ctx: _Ctx, a: Analysis, step: AnalysisStep, args: Dict[st
     m = _enum(args, "method")
     if ctx.engine == "vacask" and m in ("trapgear2", "trapeuler"):
         ctx.note(o, "%s: method=%s runs as VACASK's trap (§5.4)" % (what, m))
-    if ctx.engine == "xyce":
+    if ctx.engine == "xyce" and step.user_options & set(TRAN_TOLERANCE_KEYS):
+        # D2: only for a tran whose tolerances or method the run set (a run that sets none prints none)
         ctx.note(o, "%s: Xyce takes the method (%s) only; reltol=%s relref=%s lteratio=%s are Spectre's "
                  "settings, not Xyce's (§5.4)" % (what, m, _fmt(args["reltol"]), args["relref"], _fmt(args["lteratio"])))
     ic = _enum(args, "ic", "all")
@@ -1605,8 +1940,18 @@ def _output_pair(ctx: _Ctx, a: Analysis, args: Dict[str, Setting], ent: Optional
         args["p"] = _node_path(ctx, at, ent.inst.nodes[0])
         args["n"] = _node_path(ctx, at, ent.inst.nodes[1])
     elif a.nodes:
-        args["p"] = a.nodes[0]
-        args["n"] = a.nodes[1] if len(a.nodes) > 1 else "0"
+        args["p"] = _net_of(ctx, a.nodes[0])
+        args["n"] = _net_of(ctx, a.nodes[1]) if len(a.nodes) > 1 else "0"
+
+
+def _net_of(ctx: _Ctx, name: str) -> str:
+    """An analysis's output node as its net: a port of a subckt instance (X1.y) follows the X line's binding,
+    as oprobe's terminals do (phase 2c, R-plan-10); any other name stays as written."""
+    at, sep, local = name.rpartition(".")
+    xent = ctx.insts.get(at) if sep else None
+    if xent is None or xent.inst.kind != "x":
+        return name
+    return _node_path(ctx, at, local)
 
 
 def _noise_dispositions(ctx: _Ctx, a: Analysis, step: AnalysisStep, args: Dict[str, Setting]) -> None:
@@ -1676,11 +2021,66 @@ def _xf_dispositions(ctx: _Ctx, a: Analysis, step: AnalysisStep, args: Dict[str,
         ctx.err(o, "%s: stimuli=%s is not supported (sources only)" % (what, args["stimuli"]))
 
 
+def _user_options(ctx: _Ctx, a: Analysis, args: Mapping[str, Setting]) -> Set[str]:
+    """D2: the option keys the run set before this step (ctx.user_keys), and a tran's own tolerance and
+    method keys (TRAN_TOLERANCE_KEYS) the netlist or +paramdefault gave, errpreset from +errpreset/+aps."""
+    out = set(ctx.user_keys)
+    if a.kind == "tran":
+        out |= {k for k in TRAN_TOLERANCE_KEYS if k in args}
+        if ctx.settings.aps or ctx.settings.errpreset:
+            out.add("errpreset")
+    return out
+
+
+def _state_write_path(ctx: _Ctx, name: str) -> str:
+    """D9: where the flow writes a write=/writefinal= file (flow.state_path, §2.5): an absolute name as
+    it is, a name without / into -outdir, else against the cwd."""
+    if os.path.isabs(name):
+        return os.path.normpath(name)
+    if ctx.outdir and "/" not in name and os.sep not in name:
+        return os.path.normpath(os.path.join(ctx.outdir, name))
+    return os.path.normpath(os.path.join(ctx.cwd, name))
+
+
+def _state_read_path(ctx: _Ctx, name: str) -> str:
+    """D9: where the flow reads a readns=/readic=/read= file: against the cwd (§14 q.3)."""
+    return os.path.normpath(name if os.path.isabs(name) else os.path.join(ctx.cwd, name))
+
+
+def _state_files(ctx: _Ctx, what: str, origin: str, args: Dict[str, Setting]) -> None:
+    """D9 (phase 2c): vamos reads every state file before the run, so a file an earlier analysis of the run
+    writes would be a previous run's, or none: a readic=/read= of it is an error naming both analyses, a
+    readns= of it a warning, and it is not read (the netlist's nodesets, as without readns=).  The
+    analysis's own write comes after its reads: readns=x write=x on one analysis is §5.4's idiom."""
+    for key in ("readic", "read", "readns"):
+        f = args.get(key)
+        if not isinstance(f, str) or not f:
+            continue
+        hit = ctx.state_writes.get(_state_read_path(ctx, f))
+        if hit is None:
+            continue
+        wstep, wkey, wname = hit
+        if key == "readns":
+            ctx.warn(origin, "%s: readns=%s is the file %s writes earlier in this run (%s=%s): vamos reads state "
+                     "files before the run, so it is not read and the netlist's nodesets apply (§5.4; chaining "
+                     "the solution is phase 3)" % (what, f, wstep, wkey, wname))
+            del args[key]
+        else:
+            ctx.err(origin, "%s: %s=%s is the file %s writes earlier in this run (%s=%s): vamos reads state "
+                    "files before the run, so it would read a previous run's file or none; not supported in v1 "
+                    "(§0, §5.4)" % (what, key, f, wstep, wkey, wname))
+    for key in ("write", "writefinal"):
+        f = args.get(key)
+        if isinstance(f, str) and f:
+            ctx.state_writes[_state_write_path(ctx, f)] = (what, key, f)
+
+
 def _step(ctx: _Ctx, a: Analysis, context: List[Tuple[SweepLevel, _Resolved]], in_sweep: bool) -> None:
     what = "%s %s" % (a.kind, a.name)
     env = _step_env(ctx)
     args = _args(ctx, a, env, what)
     step = AnalysisStep(ctx.new_a(), a.name, a.kind)
+    step.user_options = _user_options(ctx, a, args)
     restart_no = _enum(args, "restart") == "no"
     levels: List[Tuple[SweepLevel, _Resolved]] = []
     for lvl, r in context:
@@ -1695,7 +2095,10 @@ def _step(ctx: _Ctx, a: Analysis, context: List[Tuple[SweepLevel, _Resolved]], i
         if a.sweep is None:
             ctx.err(a.origin, "%s: a frequency sweep (start/stop/values) or a parameter sweep with freq= is required" % what)
         else:
-            own = _level(ctx, a.sweep, "", a.origin, what, parent=False, continuation=1)
+            # restart=yes, their default, restarts the DC solution from scratch when a condition changes [M ref19
+            # p.45, p.184, p.441]: a parameter sweep has continuation 0 as a sweep block has (§5.2; phase 2c)
+            cont = 1 if a.sweep.target == "freq" or restart_no else 0
+            own = _level(ctx, a.sweep, "", a.origin, what, parent=False, continuation=cont)
             if a.sweep.target != "freq" and "freq" not in args:
                 ctx.err(a.origin, "%s: a parameter sweep of an %s needs freq=, the fixed frequency" % (what, a.kind))
     elif a.sweep is not None:
@@ -1705,6 +2108,8 @@ def _step(ctx: _Ctx, a: Analysis, context: List[Tuple[SweepLevel, _Resolved]], i
         own[0].id = ctx.new_w()
         levels.append(own)
     _common_dispositions(ctx, a, step, args, in_sweep)
+    if not in_sweep:                                     # inside a sweep block a state file is an error already
+        _state_files(ctx, what, a.origin, args)
     if a.kind == "tran":
         _tran_dispositions(ctx, a, step, args)
     elif a.kind == "noise":
@@ -1713,46 +2118,393 @@ def _step(ctx: _Ctx, a: Analysis, context: List[Tuple[SweepLevel, _Resolved]], i
         _xf_dispositions(ctx, a, step, args)
     step.args = args
     step.options = dict(ctx.current)
-    # §5.3 source states on VACASK: around a tran, and around an analysis sweeping a derived dc
+    ctx.step_trise[step.id] = dict(ctx.trise_now)
+    # §5.3 source states on VACASK: around a tran, and around an analysis sweeping a derived dc; the waveform
+    # acts in tran (§3.8.1), so a tran is never bracketed by the dc state (phase 2c, R-emit-2)
     before: List[Action] = []
     after: List[Action] = []
+    if a.kind == "tran":
+        for lvl, r in levels:
+            if r.source_field and r.inst is not None and lvl.target[2] == "dc":
+                wave = ctx.source_state.get(r.inst.path, (None, True, Source()))[0]
+                if wave is not None:
+                    ctx.note(a.origin, "%s: the swept dc of %s changes nothing in the transient: its %s waveform acts "
+                             "in tran (§3.8.1)" % (what, r.inst.path, SPECTRE_TYPE.get(wave, wave)))
     if ctx.engine == "vacask":
         if a.kind == "tran":
             for path, (wave, given, src) in sorted(ctx.source_state.items()):
                 if wave is not None and given:
                     before.append(Action("source", {"path": path, "type": SPECTRE_TYPE.get(wave, wave), "source": src}, None, a.origin))
                     after.append(Action("source", {"path": path, "type": "dc", "source": src}, None, a.origin))
-        for lvl, r in levels:
-            if r.source_field and r.inst is not None and lvl.target[2] == "dc":
-                wave, given, src = ctx.source_state.get(r.inst.path, (None, True, Source()))
-                if wave is not None and not given:
-                    before.append(Action("source", {"path": r.inst.path, "type": "dc", "source": src}, None, a.origin))
-                    after.append(Action("source", {"path": r.inst.path, "type": SPECTRE_TYPE.get(wave, wave), "source": src}, None, a.origin))
+        else:
+            for lvl, r in levels:
+                if r.source_field and r.inst is not None and lvl.target[2] == "dc":
+                    wave, given, src = ctx.source_state.get(r.inst.path, (None, True, Source()))
+                    if wave is not None and not given:
+                        before.append(Action("source", {"path": r.inst.path, "type": "dc", "source": src}, None, a.origin))
+                        after.append(Action("source", {"path": r.inst.path, "type": SPECTRE_TYPE.get(wave, wave), "source": src}, None, a.origin))
     ctx.plan.actions.extend(before)
     ctx.plan.actions.append(Action("analysis", {}, step, a.origin))
     ctx.plan.actions.extend(after)
     ctx.steps.append(step)
     _check_step_states(ctx, step, levels, what)
+    _bound_step(ctx, levels, what, a.origin)             # G1 (phase 2c3)
 
 
 def _check_step_states(ctx: _Ctx, step: AnalysisStep, levels: List[Tuple[SweepLevel, _Resolved]], what: str) -> None:
     """§3.5, §3.7: the nominal state of the step, then every sweep point of the levels whose target
-    can change a branch, a bin or an expression."""
-    _check_state(ctx, ctx.base, what)
+    can change a branch, a bin or an expression.  F1 (phase 2c2): the states the step runs in (its sweep
+    points, else the nominal one) report the resistances that are 0 there.  G2 (phase 2c3): a level that sets
+    a resistor's r is not walked per point (_check_r_levels)."""
     axes: List[List[Tuple[_Resolved, str, str, float]]] = []
+    named: List[str] = []
     for lvl, r in levels:
         param = lvl.target[2] if lvl.target[0] != "option" else lvl.target[1]
         if not _affects(ctx, r, param):
             continue
         axes.append([(r, param, lvl.desc, v) for v in grid_points(lvl.spec)])
+        if lvl.name:
+            named.append("sweep %s" % lvl.name)
+    _check_state(ctx, ctx.base, what, runs=not axes)
     if not axes:
         return
-    for combo in itertools.product(*axes):
+    sweeps = ", ".join(named)
+    walked = [i for i, ax in enumerate(axes) if not _sets_r(ax[0][0], ax[0][1])]
+    if len(walked) == len(axes):
+        for combo in itertools.product(*axes):
+            st = ctx.base
+            for r, param, desc, v in combo:
+                st = _apply(st, r, param, v)
+            where = "%s at %s" % (what, ", ".join("%s=%s" % (desc, _fmt(v)) for _, _, desc, v in combo))
+            _check_state(ctx, st, where, runs=True, sweeps=sweeps)
+        return
+    _check_r_levels(ctx, axes, walked, what, sweeps)
+
+
+def _check_r_levels(ctx: _Ctx, axes: List[List[Tuple[_Resolved, str, str, float]]], walked: List[int], what: str,
+                    sweeps: str) -> None:
+    """G2 (phase 2c3): the points of a step some of whose levels set a resistor's r (_sets_r).  Such a value changes
+    that resistor alone, so only the combinations of the other levels are walked; the F1 errors are those of the
+    product of every level (2c2's walk of each point), each reported at its first point in product order: a walk's
+    finding where no level sets that resistor (those levels at their first point), and a level's first point 0 of
+    the resistor it sets (the last such level wins, as _apply does)."""
+    last: Dict[str, int] = {}
+    for i, ax in enumerate(axes):
+        if i not in walked:
+            last[ax[0][0].inst.path] = i                  # type: ignore[union-attr]
+    first: Dict[str, Tuple[Tuple[int, ...], int, Tuple[str, str, str]]] = {}   # path -> (point, order, finding)
+
+    def keep(idx: List[int], z: Tuple[str, str, str]) -> None:
+        cand = (tuple(idx), ctx.walk_order.get(z[0], len(ctx.walk_order)), z)
+        old = first.get(z[0])
+        if old is None or cand[:2] < old[:2]:
+            first[z[0]] = cand
+
+    for widx in itertools.product(*[range(len(axes[i])) for i in walked]):
+        idx = [0] * len(axes)
         st = ctx.base
-        for r, param, desc, v in combo:
+        for i, j in zip(walked, widx):
+            idx[i] = j
+            r, param, _desc, v = axes[i][j]
             st = _apply(st, r, param, v)
-        where = "%s at %s" % (what, ", ".join("%s=%s" % (desc, _fmt(v)) for _, _, desc, v in combo))
-        _check_state(ctx, st, where)
+        lead = st                                          # the point with the r levels at their first values
+        for i in last.values():
+            r, param, _desc, v = axes[i][0]
+            lead = _apply(lead, r, param, v)
+        _walk_state(ctx, lead, "%s at %s" % (what, ", ".join("%s=%s" % (axes[i][idx[i]][2], _fmt(axes[i][idx[i]][3]))
+                                                              for i in range(len(axes)))))
+        for z in _zeros_of(ctx, st):
+            if z[0] not in last:
+                keep(idx, z)
+        for path, i in last.items():
+            j = next((k for k, p in enumerate(axes[i]) if p[3] == 0.0), None)
+            if j is not None:
+                z = _zero_set(ctx, path)
+                if z is not None:
+                    keep(idx[:i] + [j] + idx[i + 1:], z)
+    for idx_t, _order, z in sorted(first.values(), key=lambda c: c[:2]):
+        where = "%s at %s" % (what, ", ".join("%s=%s" % (axes[i][j][2], _fmt(axes[i][j][3])) for i, j in enumerate(idx_t)))
+        _report_zeros(ctx, [z], where, sweeps)
+
+
+# -- G1 (phase 2c3): an alter of a parameter the netlist binds to an expression ------------------------------------
+
+@dataclass
+class _Bound:
+    """An alter in force of an instance, subckt-instance, source-field or card parameter that the netlist binds to
+    an expression reading a parameter, temp or tnom (r=rv, gain=g, dc=vv, m=mm, X1 rr=rv, a card's is=isv).
+
+    Spectre's reading is not settled: ref19 p.54 ("changes the value of any modifiable component or netlist
+    parameter for any analyses that follow"), p.55 (reelaborate=yes "triggers a related expression evaluation
+    throughout the circuit"), p.222 (reelaborateonalter) and UG pp.190-191 ("The modifications apply to all analyses
+    that follow the alter statement ... until you request another parameter modification") do not say whether
+    the alter replaces the binding or a later change of what it reads re-evaluates it.  The engines differ
+    (measured, X-follow2 m01-m27): Xyce's state replay prints the altered constant in every later deck;
+    VACASK re-propagates every parameter its netlist binds to an expression at its next elaboration (an analysis or
+    a sweep point) after a change of a variable, temp or tnom, and inside a subckt instance after a change of that
+    instance's parameters (lib/cirparams.cpp's force, hierdevice.cpp's propagateParameters), whether or not the
+    expression reads what changed.  So plan.build refuses, at the first analysis point where the readings or the
+    engines differ: a change of what the expression reads after the alter on both engines (G1), and on VACASK any
+    such change since its elaboration before the alter (Xyce, and Spectre under either reading, keep the alter)."""
+    alter: str                         # the alter statement's name
+    origin: str
+    target: Target
+    param: str                         # as the alter names it
+    obj: str                           # "R1", "X1.R1", "X1", "model dmod"
+    expr: Expr
+    reads: Tuple[str, ...]             # the names it reads, temp and tnom as such
+    value: float
+    scope: str                         # the instance path whose values evaluate it ("" at the top level)
+    inputs0: Optional[Tuple] = None    # what it reads, at the alter
+    q0: Optional[Tuple] = None         # what VACASK re-elaborates on, at its last elaboration before the alter
+    changed: Optional[Tuple[str, str]] = None    # (the alter, set or sweep, the names) that changed what it reads
+    vchanged: Optional[Tuple[str, str]] = None   # the same for what VACASK re-elaborates on
+
+
+def _reads_of(e: Expr) -> Tuple[str, ...]:
+    """The names an expression reads, temp (temper) and tnom ($tnom) included as such."""
+    try:
+        out = set(X.names(e))
+        walk = list(X.walk(e))
+    except Exception:  # noqa: BLE001  (not an expression)
+        return ()
+    for n in walk:
+        if isinstance(n, Name) and n.name == "temper":
+            out.add("temp")
+        elif isinstance(n, Name) and n.name == "$tnom":
+            out.add("tnom")
+    return tuple(sorted(out))
+
+
+def _card_scope(ctx: _Ctx, card: Model) -> str:
+    """The instance path whose values a card's expressions read: "" for a top-level card, else the first path
+    whose subckt defines it."""
+    if any(m is card for m in flat_items(ctx.nl.body)):
+        return ""
+    for pe in ctx.paths:
+        if pe.subckt is not None and any(m is card for m in flat_items(pe.subckt.body)):
+            return pe.path
+    return ""
+
+
+def _scope_env(ctx: _Ctx, st: _State, scope: str) -> Optional[Dict[str, float]]:
+    """The parameter values on an instance path in a state (the top-level values for ""), None when they do not
+    evaluate; cached per walk key."""
+    key = (st.walk_key(), scope)
+    if key in ctx.scope_envs:
+        return ctx.scope_envs[key]
+    env: Optional[Dict[str, float]] = None
+    try:
+        if not scope:
+            env = _top_values(ctx, st, "", quiet=True)
+        else:
+            with _applied(ctx, st):
+                top = _top_values(ctx, st, "", quiet=True)
+                for pe in T.path_envs(ctx.nl, values=top, strict=False, dialect=DIALECT):
+                    if pe.path == scope:
+                        env = dict(pe.env)
+                        break
+    except (X.EvalError, T.TableError):
+        env = None
+    ctx.scope_envs[key] = env
+    return env
+
+
+def _bound_inputs(ctx: _Ctx, b: _Bound, st: _State) -> Optional[Tuple]:
+    env = _scope_env(ctx, st, b.scope)
+    if env is None:
+        return None
+    return tuple(st.temp if n == "temp" else st.tnom if n == "tnom" else env.get(n) for n in b.reads)
+
+
+def _input_diff(ctx: _Ctx, b: _Bound, st: _State) -> str:
+    """The names the bound expression reads whose values differ in st from those at the alter, "" for none."""
+    now = _bound_inputs(ctx, b, st)
+    if now is None or b.inputs0 is None:
+        return ""
+    return ", ".join(n for n, x, y in zip(b.reads, b.inputs0, now) if x != y)
+
+
+def _holder_m(r: _Resolved, param: str) -> bool:
+    """A target of a subckt instance's m: no walk reads it (tables.path_envs leaves m out of the X line's values),
+    but VACASK propagates the instance's body again when its $mfactor changes (G1, q_holder_m_alter)."""
+    return r.target[0] == "instance" and r.inst is not None and r.inst.inst.kind == "x" and param == "m"
+
+
+def _holders(scope: str) -> List[str]:
+    """The subckt instance paths that hold an instance path's body: "X0.X1" -> ["X0", "X0.X1"]."""
+    parts = scope.split(".") if scope else []
+    return [".".join(parts[:k]) for k in range(1, len(parts) + 1)]
+
+
+def _vacask_sig(ctx: _Ctx, b: _Bound, st: _State) -> Tuple:
+    """What VACASK re-elaborates such a binding on (G1): the variables' values, temp, tnom, and inside a subckt
+    instance the values on its path and the m of every instance that holds it."""
+    held: Tuple = ()
+    mult: List[Tuple[str, Optional[float]]] = []
+    if b.scope:
+        env = _scope_env(ctx, st, b.scope)
+        held = tuple(sorted(env.items())) if env is not None else ("?",)
+        for p in _holders(b.scope):
+            ent = ctx.insts.get(p)
+            if ent is None or ent.inst.kind != "x":
+                continue
+            hit = st.inst.get((id(ent.inst), "m"))
+            if hit is not None and st.paths.get((id(ent.inst), "m"), p) == p:
+                mult.append((p, hit[2]))
+                continue
+            e = ent.inst.params.get("m")
+            try:
+                mult.append((p, 1.0 if e is None else _ev(_exprs(e)[0], ent.env.env, st.temp, st.tnom)))
+            except (X.EvalError, IndexError):
+                mult.append((p, None))
+    return (tuple((v, st.top.get(v, nominal)) for v, nominal in sorted(ctx.variables.items())), st.temp, st.tnom,
+            held, tuple(mult))
+
+
+def _vacask_diff(ctx: _Ctx, b: _Bound, st: _State) -> str:
+    """What changed for VACASK between its elaboration before the alter and st, "" for nothing."""
+    q0, q1 = b.q0, _vacask_sig(ctx, b, st)
+    if q0 is None or q0 == q1:
+        return ""
+    names = [v for (v, x), (_, y) in zip(q0[0], q1[0]) if x != y]
+    names += [n for n, x, y in (("temp", q0[1], q1[1]), ("tnom", q0[2], q1[2])) if x != y]
+    m0, m1 = dict(q0[4]), dict(q1[4])
+    mult = ["%s:m" % p for p in _holders(b.scope) if m0.get(p) != m1.get(p)]
+    if not names and not mult and q0[3] != q1[3]:
+        d0, d1 = dict(q0[3]) if q0[3] != ("?",) else {}, dict(q1[3]) if q1[3] != ("?",) else {}
+        names = ["%s:%s" % (b.scope, k) for k in sorted(set(d0) | set(d1)) if d0.get(k) != d1.get(k)]
+    return ", ".join(names + mult) or b.scope
+
+
+def _bound_value(ctx: _Ctx, b: _Bound, st: _State) -> Optional[float]:
+    env = _scope_env(ctx, st, b.scope)
+    if env is None:
+        return None
+    try:
+        return _ev(b.expr, env, st.temp, st.tnom)
+    except X.EvalError:
+        return None
+
+
+def _bound_alter(ctx: _Ctx, a: Analysis, r: _Resolved, param: str, value: float) -> None:
+    """G1: track an alter of a parameter the netlist binds to an expression that reads a name."""
+    tk, tname, _tparam = r.target
+    found: List[Tuple[str, Expr, str]] = []                # (what the message names, the expression, its scope)
+    if tk == "instance" and r.inst is not None:
+        e = _bound_expr(r.inst.inst, param)
+        if e is not None:
+            found.append((r.inst.path, e, r.inst.path.rpartition(".")[0]))
+    elif tk == "model":
+        for card in r.cards:
+            e = card.params.get(param)
+            if e is not None and not isinstance(e, (Str, list)):
+                found.append(("model %s" % tname, e, _card_scope(ctx, card)))   # type: ignore[arg-type]
+    for obj, e, scope in found:
+        reads = _reads_of(e)
+        if not reads:
+            continue                                       # a constant: VACASK propagates expressions only (m11)
+        b = _Bound(a.name, a.origin, r.target, param, obj, e, reads, value, scope)
+        b.inputs0 = _bound_inputs(ctx, b, ctx.base)
+        if b.inputs0 is None:
+            continue                                       # it does not evaluate here: the walk reports it
+        est, mark = ctx.elab if ctx.elab is not None else (ctx.base, len(ctx.marks))
+        b.q0 = _vacask_sig(ctx, b, est)
+        for st, label in ctx.marks[mark:]:                 # a change VACASK has not elaborated yet (m16, m19)
+            d = _vacask_diff(ctx, b, st)
+            if d:
+                b.vchanged = (label, d)
+                break
+        ctx.bound.append(b)
+
+
+def _bound_base_change(ctx: _Ctx, label: str) -> None:
+    """G1: an alter or set statement changed the base state: what the alters in force read, and what VACASK
+    re-elaborates on."""
+    for b in ctx.bound:
+        if b.changed is None:
+            d = _input_diff(ctx, b, ctx.base)
+            if d:
+                b.changed = (label, d)
+        if b.vchanged is None:
+            d = _vacask_diff(ctx, b, ctx.base)
+            if d:
+                b.vchanged = (label, d)
+    ctx.marks.append((ctx.base, label))
+
+
+def _bound_step(ctx: _Ctx, levels: List[Tuple[SweepLevel, _Resolved]], what: str, origin: str) -> None:
+    """G1: an analysis runs; it is VACASK's latest elaboration afterwards (a sweep restores its values)."""
+    if ctx.bound:
+        _bound_runs(ctx, levels, what)
+    ctx.elab = (ctx.base, len(ctx.marks))
+
+
+def _level_param(lvl: SweepLevel) -> str:
+    return lvl.target[2] if lvl.target[0] != "option" else lvl.target[1]
+
+
+def _bound_runs(ctx: _Ctx, levels: List[Tuple[SweepLevel, _Resolved]], what: str) -> None:
+    """The points an analysis runs at, of the levels that change a name an expression can read (a variable, temp,
+    tnom, a subckt instance's parameter), in VACASK's order; each alter in force is refused at the first point at
+    or after a change where the expression's value differs from the alter's (_bound_message)."""
+    rel = [(lvl, r) for lvl, r in levels if r.target[0] in ("variable", "option")
+           or (r.target[0] == "instance" and r.inst is not None and r.inst.inst.kind == "x")]
+    runs: List[Tuple[_State, str, List[Tuple[SweepLevel, _Resolved, float]]]] = []
+    if rel:
+        axes = [[(lvl, r, v) for v in grid_points(lvl.spec)] for lvl, r in rel]
+        for combo in itertools.product(*axes):
+            st = ctx.base
+            for lvl, r, v in combo:
+                st = _apply(st, r, _level_param(lvl), v)
+            runs.append((st, "%s at %s" % (what, ", ".join("%s=%s" % (lvl.desc, _fmt(v)) for lvl, _r, v in combo)),
+                         list(combo)))
+    else:
+        runs.append((ctx.base, what, []))
+
+    def changer(b: _Bound, combo: List[Tuple[SweepLevel, _Resolved, float]], diff: Any) -> str:
+        for lvl, r, v in combo:
+            if diff(ctx, b, _apply(ctx.base, r, _level_param(lvl), v)):
+                return "sweep %s" % lvl.name if lvl.name else "%s (its sweep of %s)" % (what, lvl.desc)
+        lvl = combo[0][0] if combo else None
+        return what if lvl is None else ("sweep %s" % lvl.name if lvl.name else "%s (its sweep of %s)" % (what, lvl.desc))
+
+    for b in list(ctx.bound):
+        for rule, attr, diff in (("changed", "changed", _input_diff), ("vacask", "vchanged", _vacask_diff)):
+            if rule == "vacask" and ctx.engine != "vacask":
+                break
+            start = 0 if getattr(b, attr) is not None else None
+            if start is None:
+                for k, (st, _where, combo) in enumerate(runs):
+                    d = diff(ctx, b, st)
+                    if d:
+                        start = k
+                        setattr(b, attr, (changer(b, combo, diff), d))
+                        break
+            if start is None:
+                continue
+            hit = next((w for st, w, _c in runs[start:] for v in [_bound_value(ctx, b, st)]
+                        if v is not None and not _close(v, b.value)), None)
+            if hit is not None:
+                ctx.err(b.origin, _bound_message(b, rule, hit))
+                ctx.bound.remove(b)
+                break
+
+
+def _bound_message(b: _Bound, rule: str, where: str) -> str:
+    head = "%s: %salter %s set %s of %s, which the netlist binds to the expression %s (it reads %s)" % (
+        where, "on VACASK, " if rule == "vacask" else "", b.alter, b.param, b.obj, _txt(b.expr), ", ".join(b.reads))
+    if rule == "changed":
+        label, names = b.changed or ("", "")
+        return head + (", and %s changes %s after the alter: whether Spectre keeps the altered value or re-evaluates the "
+                       "expression is not known (VACASK re-evaluates it, Xyce keeps the alter): not supported in v1 "
+                       "(§5.3; alter what the expression reads instead)" % (label, names))
+    label, names = b.vchanged or ("", "")
+    holder = " or of a parameter of the subckt instance %s that holds it" % b.scope if b.scope else ""
+    return head + ("; %s changes %s, and VACASK re-evaluates such a binding at the next analysis after a change of a "
+                   "netlist parameter, temp or tnom%s, so the alter's value is lost (Xyce keeps it, as Spectre does while "
+                   "nothing the expression reads changes): not supported on VACASK in v1 (Xyce runs it)"
+                   % (label, names, holder))
 
 
 # -- the run-dependent rules (§3.8.1, §3.9) -------------------------------------------------------------
@@ -1776,6 +2528,74 @@ def _card_tnom(ctx: _Ctx, card: Model, step: AnalysisStep) -> float:
         except (X.EvalError, IndexError):
             pass
     return float(step.options.get("tnom", 27.0))                                         # type: ignore[arg-type]
+
+
+def _innermost(step: AnalysisStep, match: Any) -> Optional[SweepLevel]:
+    """The innermost sweep level of a step (its own, then its enclosing ones inner to outer) whose target
+    `match` accepts."""
+    for lvl in ([step.own] if step.own is not None else []) + list(reversed(step.context)):
+        if match(lvl.target):
+            return lvl
+    return None
+
+
+def _trise_names(it: Instance) -> Set[str]:
+    """The names an instance's trise has in a target: trise, and its rename on the master's rows (dtemp)."""
+    out = {"trise"}
+    row = T.SPECTRE_MASTERS.get(it.prim) if it.kind not in ("x", "y") else None
+    for r in (row.instance if row is not None else ()):
+        if r.name == "trise" and r.action == "rename":
+            out.add(r.value)
+    return out
+
+
+def _is_trise(ent: _Inst, param: str) -> bool:
+    return param in _trise_names(ent.inst)
+
+
+def _trises(ctx: _Ctx, step: AnalysisStep, path: str, it: Instance) -> List[float]:
+    """The trise values an instance has in a step: a dev= sweep level of it, an alter, or its own value (0)."""
+    names = _trise_names(it)
+    lvl = _innermost(step, lambda t: t[0] == "instance" and t[1] == path and t[2] in names)
+    if lvl is not None:
+        return grid_points(lvl.spec)
+    altered = ctx.step_trise.get(step.id, {})
+    if path in altered:
+        return [altered[path]]
+    v = it.params.get("trise")
+    ent = ctx.insts.get(path)
+    try:
+        return [_ev(_exprs(v)[0], ent.env.env if ent is not None else ctx.nl.values, 27.0, 27.0)] if v is not None else [0.0]
+    except (X.EvalError, IndexError):
+        return [0.0]
+
+
+def _off_tnom(ctx: _Ctx, card: Model) -> Optional[str]:
+    """R-plan-6 (phase 2c): the first step that runs the card at a device temperature other than its tnom,
+    described for the warning: the step's temperature or its temp sweep points, plus the trise of the
+    card's instances (given, swept with dev= or altered), against the card's tnom or a tnom sweep's points."""
+    users = sorted(ctx.card_users.get(id(card), {}).items()) or [("", None)]
+    own_tnom = "tnom" in card.params
+    for s in ctx.steps:
+        lt = _innermost(s, lambda t: t == ("option", "temp", ""))
+        ln = _innermost(s, lambda t: t == ("option", "tnom", ""))
+        temps = grid_points(lt.spec) if lt is not None else [float(s.options.get("temp", 27.0))]   # type: ignore[arg-type]
+        if own_tnom or ln is None:
+            tnoms = [_card_tnom(ctx, card, s)]
+        else:
+            tnoms = grid_points(ln.spec)
+        for path, it in users:
+            trises = _trises(ctx, s, path, it) if it is not None else [0.0]
+            for t in temps:
+                for tr in trises:
+                    for tn in tnoms:
+                        if t + tr == tn:
+                            continue
+                        if tr:
+                            return "%s runs instance %s at temp=%s (trise=%s) where the card's tnom is %s" % (
+                                s.name, path, _fmt(t + tr), _fmt(tr), _fmt(tn))
+                        return "%s runs at temp=%s where the card's tnom is %s" % (s.name, _fmt(t), _fmt(tn))
+    return None
 
 
 def _run_dependent_rules(ctx: _Ctx) -> None:
@@ -1810,13 +2630,9 @@ def _run_dependent_rules(ctx: _Ctx) -> None:
                                                              _ANALYSES_TEXT.get(rule.warn[len("analyses="):], "it runs"),
                                                              ", ".join(hit)))
             elif rule.warn == "temp!=tnom" and card is not None:
-                bad = [(s.name, float(s.options.get("temp", 27.0)), _card_tnom(ctx, card, s))   # type: ignore[arg-type]
-                       for s in ctx.steps]
-                bad = [(n, t, tn) for n, t, tn in bad if t != tn]
-                if bad:
-                    n, t, tn = bad[0]
-                    ctx.warn(origin, "%s: %s: %s; %s runs at temp=%s where the card's tnom is %s (an approximation, §0)"
-                             % (label, shown, _reason(rule), n, _fmt(t), _fmt(tn)))
+                hit = _off_tnom(ctx, card)
+                if hit is not None:
+                    ctx.warn(origin, "%s: %s: %s; %s (an approximation, §0)" % (label, shown, _reason(rule), hit))
     # §3.8.1: the sources' run-dependent errors
     for ent in ctx.insts.values():
         it = ent.inst
@@ -1890,20 +2706,46 @@ def _dependents(ctx: _Ctx, variables: Mapping[str, float]) -> Set[str]:
     return deps
 
 
-def build(nl: Netlist, engine: str, settings: Settings) -> RunPlan:
+def _global_user_keys(ctx: _Ctx) -> Set[str]:
+    """D2: the option keys of the global set the run itself gave: the netlist's options, Settings.options
+    (argv over the netlist's; not the output settings job.settings writes there itself unless the netlist
+    gives them) and +paramdefault's options lines."""
+    nlo = set(ctx.nl.options)
+    keys = nlo | {k for k in ctx.settings.options if k not in SETTINGS_WRITTEN or k in nlo}
+    keys |= {param for prim, param, _value in ctx.settings.paramdefault if prim == "options"}
+    return keys
+
+
+def build(nl: Netlist, engine: str, settings: Settings, cwd: Optional[str] = None,
+          outdir: Optional[str] = None) -> RunPlan:
     """The ordered plan of a Spectre netlist for one engine (§5): per-path and per-state evaluation
     on tables.path_envs, the sweep grids, alters and source states, the options actions, dependents.
-    NoteError with every note when a construct is an error."""
+    NoteError with every note when a construct is an error.  cwd and outdir (phase 2c, D9) are the
+    job's cwd and its resolved -outdir, so state-file names compare as the flow resolves them; the
+    defaults are the process cwd and Settings.outdir against it."""
     if engine not in T.ENGINES:
         raise ValueError("engine must be one of %s, not %r" % (T.ENGINES, engine))
     ctx = _Ctx(nl, engine, settings)
     plan = ctx.plan
+    if cwd:
+        ctx.cwd = cwd
+    else:
+        try:
+            ctx.cwd = os.getcwd()
+        except OSError:                                  # a removed cwd: relative names compare as written
+            ctx.cwd = ""
+    if outdir is not None:
+        ctx.outdir = outdir
+    elif settings.outdir:
+        ctx.outdir = os.path.normpath(os.path.join(ctx.cwd, str(settings.outdir)))
     ctx.scan()
+    ctx.user_keys = _global_user_keys(ctx)
     gopts = _global_options(ctx)
     ctx.current = dict(gopts)
     plan.options = dict(gopts)
     plan.actions.append(Action("options", dict(gopts), None, ""))
     ctx.base = _State({}, float(gopts["temp"]), float(gopts["tnom"]))    # type: ignore[arg-type]
+    ctx.history = [(ctx.base, "")]
     with substituted(ctx.sites, ctx.base.temp, ctx.base.tnom):
         ctx.elaborate()
     ctx.variables = _variables(ctx)

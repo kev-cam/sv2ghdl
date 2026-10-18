@@ -117,6 +117,23 @@ class TestParseFragmentLexical(TempDir):
         self.assertEqual(len(errors(f)), 2)
         self.assertIn("* spectre:", errors(f)[0])
 
+    def test_star_after_an_elements_fields_is_a_comment(self):
+        # R-lang-22: "The SPICE Reader treats the * character as a math function if found inside of an expression
+        # and as a comment if found outside of an expression" (UG p.52): a '*' field after an element's bare
+        # positional fields starts a comment; inside quotes, braces or parentheses, after a key=value field or in a
+        # dot statement it is not one
+        f = frag("r1 1 0 1k * load resistor\nr2 1 0 2k *load\nc1 1 0 1p * it's a cap\nv1 1 0 dc 1 * supply\n"
+                 "r3 1 0 '1k * 2'\nr4 1 0 {1k * 3}\nr5 1 0 1k*4\n")
+        self.assertEqual(errors(f), [])
+        i = insts(f)
+        self.assertEqual([i[k].value for k in ("r1", "r2", "c1", "r3", "r4", "r5")],
+                         [Num(1000.0), Num(2000.0), Num(1e-12), Num(2000.0), Num(3000.0), Num(4000.0)])
+        self.assertEqual(i["v1"].source.spectre, {"dc": Num(1.0)})
+        f = frag(".param x = 2 * 3\n")                                  # stays an error, never x=2
+        self.assertTrue(any("* has no value" in m for m in errors(f)), errors(f))
+        f = frag("r6 1 0 r=1k * 2\n")                                   # after a key=value: not a comment
+        self.assertTrue(errors(f))
+
     def test_continuation_across_a_file_boundary(self):
         phys = lines("r1 a 0 1k", "a.sp") + lines("+ tc1=1e-3", "b.sp", 7)
         f = spice.parse_fragment(phys, ".", OPTS, Resolver())
@@ -286,6 +303,17 @@ class TestParseFragmentElements(TempDir):
         self.assertEqual(f.controls[2][1], [("v(a)", "1"), ("b", "2")])
         self.assertNotIn("r9", insts(f))                                      # after .end
         self.assertEqual(errors(f), [])
+
+    def test_control_names_are_folded_outside_quotes(self):
+        # R-lang-1, R-lang-4: the controls' fields are folded to lower case outside quotes, as every other
+        # SPICE-mode name (UG p.52); a quoted text keeps its case
+        f = frag(".GLOBAL VDD VSS\n.IC V(OUT)=0.5\n.PRINT TRAN V(OUT) I(VIN)\n.DC VIN 0 1 0.5\n"
+                 ".OPTION RAWFMT='PSFascii'\n")
+        self.assertEqual([c[0] for c in f.controls], [".global", ".ic", ".print", ".dc", ".option"])
+        self.assertEqual([c[1] for c in f.controls],
+                         [[(None, "vdd"), (None, "vss")], [("v(out)", "0.5")],
+                          [(None, "tran"), (None, "v(out)"), (None, "i(vin)")],
+                          [(None, "vin"), (None, "0"), (None, "1"), (None, "0.5")], [("rawfmt", "'PSFascii'")]])
 
     def test_controls_inside_a_subckt(self):
         f = frag(".subckt s a b\n.tran 1n 1u\n.option reltol=1e-3\nr1 a b 1k\n.ends\n")

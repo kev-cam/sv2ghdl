@@ -1,0 +1,9 @@
+* a noisy Verilog-A resistor (white_noise, 1 kohm) on PyMS's letter device in a 1k/1k divider: the output noise
+.hdl "nvr.va"
+V1 a 0 DC 1.0 AC 1 0
+.model nvr__vamos nvr
+ynvr X1 a b nvr__vamos
+R2 b 0 1000.0
+.NOISE V(B) V1 DEC 1 1K 10K
+.PRINT NOISE FILE=vanoise.prn ONOISE INOISE
+.end

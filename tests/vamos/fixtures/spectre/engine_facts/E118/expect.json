@@ -1,0 +1,88 @@
+{
+ "row": "E118",
+ "experiment": "VACASK string arguments of noise and acxf (the engine-facts owner, 2026-10-17, phase 2): noise in=\"'I2:vb'\", out=\"'I2:Mid'\", \"'007'\", \"'net4<0>'\" and acxf out=\"'I2:Mid'\" (the node quoting of 4.5 item 9 inside the string), then the unquoted forms, under abort except analysis and strictoutput=0",
+ "result": "VACASK reads a string's text as the name: in=\"'I2:vb'\" gives \"Instance ''I2:vb'' not found.\", and out=\"'I2:Mid'\", \"'007'\", \"'net4<0>'\" and acxf's out=\"'I2:Mid'\" give \"Node ''...'' not found.\"; each such analysis is aborted with rc 0, leaving a header-only rawfile with 0 points (No. Points: blank); the unquoted forms work, out=\"007\" and out=\"net4<0>\" included (power gains 0.25, 0.5625, 0.25)",
+ "rules": [
+  "§5.6 / §4.5 item 5: the noise and acxf in= and out= strings carry an instance path or node name without the node quoting of item 9 (vacask.spath), '007' and 'net4<0>' included",
+  "§7.1: an aborted analysis leaves a rawfile with no complete point, which run_vacask does not take for a result"
+ ],
+ "runs": [
+  {
+   "name": "quoted_and_plain_strings",
+   "tool": "vacask",
+   "deck": "strings.sim",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Instance ''I2:vb'' not found.",
+     "Analysis 'nzq1' aborted.",
+     "Node ''I2:Mid'' not found.",
+     "Analysis 'nzq2' aborted.",
+     "Node ''007'' not found.",
+     "Analysis 'nzq3' aborted.",
+     "Node ''net4<0>'' not found.",
+     "Analysis 'nzq4' aborted.",
+     "Analysis 'xfq1' aborted."
+    ],
+    "absent": [
+     "Analysis 'nz1' aborted.",
+     "Analysis 'nz2' aborted.",
+     "Analysis 'nz3' aborted.",
+     "Analysis 'xf1' aborted."
+    ]
+   },
+   "checks": [
+    {
+     "raw": "nzq1.raw",
+     "points": 0,
+     "declared": null
+    },
+    {
+     "raw": "nzq2.raw",
+     "points": 0
+    },
+    {
+     "raw": "nzq3.raw",
+     "points": 0
+    },
+    {
+     "raw": "nzq4.raw",
+     "points": 0
+    },
+    {
+     "raw": "xfq1.raw",
+     "points": 0
+    },
+    {
+     "raw": "nz1.raw",
+     "points": 1,
+     "col": "gain",
+     "value": 0.25,
+     "rel": 1e-09
+    },
+    {
+     "raw": "nz2.raw",
+     "points": 1,
+     "col": "gain",
+     "value": 0.5625,
+     "rel": 1e-09
+    },
+    {
+     "raw": "nz3.raw",
+     "points": 1,
+     "col": "gain",
+     "value": 0.25,
+     "rel": 1e-09
+    },
+    {
+     "raw": "xf1.raw",
+     "points": 1
+    }
+   ]
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /opt/build.VACASK/Release/simulator/vacask 0.3.4-91-g64489cf7 through vamos.ams.engines and engines.env_for",
+  "decks: vamos-authored, after e2e 25's I2 and the S6 quoting fix of vacask.spath"
+ ]
+}

@@ -1,0 +1,7 @@
+* .NOISE across two nodes, V(OUT,0), on a flat divider
+V1 in 0 DC 0 AC 1
+R1 in out 1000.0
+R2 out 0 1000.0
+.NOISE V(OUT,0) V1 DEC 1 1K 10K
+.PRINT NOISE FILE=pair_flat.prn ONOISE INOISE
+.end

@@ -2,7 +2,7 @@
 fixture paths and the SpectreCase base class.  Standard library only, Python 3.9, both legs.
 
 Gates (`unittest.skipUnless` decorators; every skip prints its reason).  They read the environment
-and nothing else, except where §11 names a path:
+and nothing else, except where §11 names a path and for needs_vacask_src's default (D6):
 
   needs_vacask, needs_xyce   vamos_testlib's (VAMOS_VACASK_HOME; VAMOS_XYCE and its default)
   needs_engines              an analog engine without nvc (ams_e2e_lib.needs_ams also wants nvc and
@@ -21,7 +21,10 @@ and nothing else, except where §11 names a path:
   needs_pyms                 an Xyce: both launchers here carry PyMS and, under engines.env_for, load
                              the same library (§11 Gates, §13 E96), so no binary has to be selected
   needs_cmc                  VAMOS_CMC=1 and VAMOS_CMC_EXAMPLES (the CMC decks, read in place)
-  needs_vacask_src           VAMOS_VACASK_SRC (VACASK's source tree; no default, §11)
+  needs_vacask_src           VAMOS_VACASK_SRC (VACASK's source tree); unset, the tree the VACASK in
+                             use was configured from (CMAKE_HOME_DIRECTORY in the CMakeCache.txt two
+                             levels above engines.vacask_bin()) when it holds benchmark/ring and
+                             devices/psp103v4 (D6: e2e 29 is T2); an empty value turns that off
   needs_vacask_rawread       needs_vacask_src plus numpy (VACASK's python/rawfile.py)
   needs_openvaf              VACASK and engines.openvaf() (phase 2: the copy test_spectre_engine_facts
                              defines, here for the e2e decks that list it)
@@ -41,8 +44,10 @@ and nothing else, except where §11 names a path:
 The T2 tier (§11.2, phase 2): an e2e deck directory fixtures/spectre/e2e/<nn>_<slug>/ with an
 expect.json is checked by `SpectreCase.check_case(case_dir)`: per engine, a copy of the directory,
 `vamos -spectre <argv> --vamos-analog=<engine>` in it (run_spectre), then `check_expect`, the
-vendored psf-parser over every PSF file (needs_psf_parser), the cross-engine comparison and the
-`also` decks.  The expect.json keys (one object; every key but argv and status optional):
+vendored psf-parser over every PSF file (needs_psf_parser), psf_utils over the data files when
+needs_psf_utils holds (check_psf_utils; without it the one reported skip is
+test_spectre_e2e.TestCheckExpect's), the cross-engine comparison and the `also` decks.  The
+expect.json keys (one object; every key but argv and status optional):
 
   argv          the deck file relative to the deck directory, then the options (["deck.scs",
                 "-format", "nutascii"]); a run that reads the netlist from stdin starts with an
@@ -204,6 +209,86 @@ def have_psf_utils() -> bool:
     return bool(home and deps) and all(os.path.isdir(p) for p in psf_utils_paths())
 
 
+def import_psf_utils():
+    """Import psf_utils from `psf_utils_paths()` (put first on sys.path, in their order) and return
+    the module."""
+    for p in reversed(psf_utils_paths()):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    import psf_utils  # noqa: E402  (GPL-3.0-or-later, never vendored: VAMOS_PSF_UTILS)
+    return psf_utils
+
+
+def _same(a: Any, b: Any) -> bool:
+    """Two values of one PSF entry as two readers give them: equal to 1e-12 (NaN equal to NaN)."""
+    try:
+        x, y = complex(a), complex(b)
+    except (TypeError, ValueError):
+        return a == b
+    if x == y or (x != x and y != y):
+        return True
+    return abs(x - y) <= 1e-12 * max(abs(x), abs(y))
+
+
+def _plain(v: Any) -> Any:
+    """A psf_utils value as a plain Python one (its Quantity is a float; a one-element list a
+    STRING value)."""
+    if isinstance(v, (list, tuple)) and len(v) == 1:
+        v = v[0]
+    if isinstance(v, complex):
+        return v
+    if isinstance(v, float):
+        return float(v)
+    return v
+
+
+def psf_utils_problems(name: str, ours: psfcheck.PsfFile, theirs: Any) -> List[str]:
+    """Where psf_utils's reading of a PSF data file (theirs, a psf_utils.PSF) differs from psfcheck's
+    (ours): the sweep, every trace's values (a STRUCT's members as `<trace>:<member>`) or every
+    operating-point value (`<name>.<member>`), the names it reads that psfcheck does not; psf_utils
+    assigns values by position in TRACE order [E83], so a VALUE out of that order shows here."""
+    out: List[str] = []
+    sigs = {s.name: s.ordinate for s in theirs.all_signals()}
+    want: Dict[str, Any] = {}
+    if ours.swept:
+        sweep = theirs.get_sweep()
+        if sweep is None or sweep.name != ours.sweep.name:
+            return ["%s: psf_utils reads the sweep %r, psfcheck %r" % (name, sweep and sweep.name, ours.sweep.name)]
+        for t in ours.traces:
+            col = ours.columns[t.name]
+            if col and isinstance(col[0], dict):
+                for m in col[0]:
+                    want["%s:%s" % (t.name, m)] = [row[m] for row in col]
+            else:
+                want[t.name] = col
+        cols = {"(sweep %s)" % sweep.name: (list(sweep.abscissa), ours.sweep_values())}
+        cols.update((k, (list(sigs[k]), v)) for k, v in want.items() if k in sigs)
+        for key, (got, exp) in cols.items():
+            if len(got) != len(exp):
+                out.append("%s: %s: psf_utils reads %d points, psfcheck %d" % (name, key, len(got), len(exp)))
+                continue
+            for i, (g, e) in enumerate(zip(got, exp)):
+                if not _same(g, e):
+                    out.append("%s: %s: point %d: psf_utils reads %r, psfcheck %r" % (name, key, i, _plain(g), e))
+                    break
+    else:
+        for k, v in ours.values.items():
+            if isinstance(v, dict):
+                want.update(("%s.%s" % (k, m), mv) for m, mv in v.items())
+            else:
+                want[k] = v
+        for key, exp in want.items():
+            if key in sigs and not _same(_plain(sigs[key]), exp):
+                out.append("%s: %s: psf_utils reads %r, psfcheck %r" % (name, key, _plain(sigs[key]), exp))
+    missing = [k for k in want if k not in sigs]
+    extra = [k for k in sigs if k not in want]
+    if missing:
+        out.append("%s: psf_utils has no %s (it has %s)" % (name, missing, sorted(sigs)))
+    if extra:
+        out.append("%s: psf_utils reads %s, which psfcheck does not" % (name, extra))
+    return out
+
+
 def have_numpy() -> bool:
     try:
         import numpy  # noqa: F401
@@ -232,12 +317,40 @@ def have_cmc() -> bool:
     return os.environ.get("VAMOS_CMC") == "1" and os.path.isdir(cmc_examples())
 
 
+VACASK_SRC_NEEDS = (("benchmark", "ring"), ("devices", "psp103v4"))     # e2e 29's ring and model
+
+
+def vacask_build_tree() -> str:
+    """The VACASK source tree the VACASK in use was configured from (D6): CMAKE_HOME_DIRECTORY in the
+    CMakeCache.txt of the build two levels above engines.vacask_bin() (its link resolved), when that
+    tree holds benchmark/ring and devices/psp103v4; "" otherwise."""
+    from vamos.ams import engines  # noqa: E402  (VAMOS_VACASK, else VAMOS_VACASK_HOME's simulator/vacask)
+    exe = engines.vacask_bin()
+    if not exe:
+        return ""
+    cache = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(exe))), "CMakeCache.txt")
+    try:
+        with open(cache, encoding="utf-8", errors="replace") as fh:
+            homes = [ln.split("=", 1)[1].strip() for ln in fh if ln.startswith("CMAKE_HOME_DIRECTORY:")]
+    except OSError:
+        return ""
+    home = homes[0] if homes else ""
+    if home and all(os.path.isdir(os.path.join(home, *sub)) for sub in VACASK_SRC_NEEDS):
+        return home
+    return ""
+
+
 def vacask_src() -> str:
-    return os.environ.get("VAMOS_VACASK_SRC", "")
+    """VAMOS_VACASK_SRC when it is set (an empty value turns the default off), else the tree the
+    VACASK in use was built from (vacask_build_tree, D6); "" when there is none."""
+    if "VAMOS_VACASK_SRC" in os.environ:
+        return os.environ["VAMOS_VACASK_SRC"]
+    return vacask_build_tree()
 
 
 def have_vacask_src() -> bool:
-    return bool(vacask_src()) and os.path.isdir(vacask_src())
+    src = vacask_src()
+    return bool(src) and os.path.isdir(src)
 
 
 def have_vacask_rawread() -> bool:
@@ -948,7 +1061,8 @@ class SpectreCase(TempDir):
     Phase 0 laid down the pieces §11 fixes: the engine loop, the isolated scratch directory and
     PYMS_CACHE, the launcher command and the expect.json loader.  Phase 2 adds the comparison of a
     run with its expect.json (`check_expect`), the psf-parser consumer check (`check_psf_parser`)
-    and the whole T2 case (`check_case`: the engines, the cross-engine comparison, the also decks).
+    and the whole T2 case (`check_case`: the engines, the cross-engine comparison, the also decks);
+    phase 2c the psf_utils consumer check (`check_psf_utils`).
     """
 
     def engines(self) -> List[str]:
@@ -966,8 +1080,13 @@ class SpectreCase(TempDir):
         return d
 
     def child_env(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        """The run's environment: the shims first on the PATH, no inherited VAMOS_ANALOG, and the
-        temporary files and the PyMS cache isolated under this test's scratch directory."""
+        """The run's environment: the shims first on the PATH, no inherited VAMOS_ANALOG, and TMPDIR
+        (the temporary files) and PYMS_CACHE (PyMS's compiled `.hdl` modules) isolated under this
+        test's scratch directory.  PyMS's evaluator libraries are not isolated: they go to
+        PYMS_VAE_CACHE, by default /tmp/pyms_vae_cache, whatever PYMS_CACHE or TMPDIR say [E125],
+        and stay shared by every run on purpose (D7: their names hash the module's path, parameters
+        and text, so a run only loads a library built from the same source); an inherited
+        PYMS_VAE_CACHE is passed on."""
         env = dict(os.environ)
         env["PATH"] = SHIMS + os.pathsep + env.get("PATH", "")
         env.pop("VAMOS_ANALOG", None)
@@ -1239,11 +1358,42 @@ class SpectreCase(TempDir):
         if problems:
             self.fail("psf-parser on %s:\n  - %s" % (results, "\n  - ".join(problems)))
 
+    def check_psf_utils(self, results: str, escchars: bool = False) -> List[str]:
+        """psf_utils reads every PSF data file of a results directory but logFile and the sweep and
+        Monte Carlo parents, which it does not parse, and its values equal psfcheck's (§11
+        Third-party PSF consumers, [E83]: it assigns them by position in TRACE order and deletes
+        every backslash, so names compare decoded); nothing is written beside the files (no cache).
+        needs_psf_utils.  Returns the files read."""
+        pu = import_psf_utils()
+        problems, read = [], []
+        for n in sorted(os.listdir(results)):
+            if not is_psf_data(n):
+                continue
+            path = os.path.join(results, n)
+            try:
+                ours = psfcheck.check(path, escchars=escchars)
+            except (psfcheck.PsfError, OSError, KeyError, IndexError, ValueError) as e:
+                problems.append("psfcheck rejects %s: %s" % (n, e))
+                continue
+            if ours.kind in psfcheck.PARENT_KINDS:
+                continue
+            try:
+                theirs = pu.PSF(path, use_cache=False, update_cache=False)
+            except Exception as e:  # noqa: BLE001  (a third-party reader: any failure is the finding)
+                problems.append("%s: psf_utils: %s: %s" % (n, type(e).__name__, e))
+                continue
+            read.append(n)
+            problems += psf_utils_problems(n, ours, theirs)
+        if problems:
+            self.fail("psf_utils on %s:\n  - %s" % (results, "\n  - ".join(problems)))
+        return read
+
     def check_case(self, case_dir: str, expect: Optional[dict] = None) -> Dict[str, Dict[str, ExpectRun]]:
         """The T2 check of one deck directory (§11.2): the expect.json's form, its gates, then per
         engine (a subTest each) a copy of the directory, the run and check_expect, the psf-parser
-        check (its own subTest, a reported skip without psf-parser), the cross-engine comparison,
-        and the same for every `also` deck.  Returns {"main"|"also<k>": {engine: ExpectRun}}."""
+        check (its own subTest, a reported skip without psf-parser), the psf_utils check (its own
+        subTest when needs_psf_utils holds), the cross-engine comparison, and the same for every
+        `also` deck.  Returns {"main"|"also<k>": {engine: ExpectRun}}."""
         if expect is None:
             expect = self.load_expect(os.path.join(case_dir, "expect.json"))
         bad = expect_problems(expect, os.path.join(os.path.basename(case_dir), "expect.json"))
@@ -1285,6 +1435,9 @@ class SpectreCase(TempDir):
                     if not have_psf_parser():
                         self.skipTest(GATES["needs_psf_parser"][1])
                     self.check_psf_parser(r.loc.results, r.loc.escchars)
+                if GATES["needs_psf_utils"][0]():          # optional: its skip is TestCheckExpect's, once
+                    with self.subTest(deck=label, engine=engine, check="psf_utils"):
+                        self.check_psf_utils(r.loc.results, r.loc.escchars)
         if (expect.get("cross_engine") or {}).get("rel") is not None and len(runs) > 1:
             with self.subTest(deck=label, check="cross_engine"):
                 problems = cross_engine_problems(runs, expect)

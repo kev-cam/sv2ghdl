@@ -5,6 +5,8 @@
 The IR and the RunPlan are built by hand from the frozen dataclasses (phase 0); plan.DIALECT is
 set to "hspice" for the test (the Spectre evaluator is S1's).  Engine columns are render's (S3):
 these tests check the Refs, the Spectre names, the psf types, the order and the render copies.
+Phase 2c2's TestIsnoisyAlter and TestTargetedMultiplier run parsed decks through spectre.parse and
+plan.build (the Spectre dialect): the noise lists and probes that follow the plan's alters and sweeps.
 """
 
 import copy
@@ -18,8 +20,9 @@ from vamos_testlib import ROOT  # noqa: F401  (puts the repository root on sys.p
 from vamos.netlist import expr as X  # noqa: E402
 from vamos.netlist import plan as PL  # noqa: E402
 from vamos.netlist import signals as SG  # noqa: E402
-from vamos.netlist.expr_ast import Name, Num, Str  # noqa: E402
-from vamos.netlist.ir import Analysis, Instance, Model, Netlist, Param, SaveSpec, Source, Subckt, SweepSpec  # noqa: E402
+from vamos.netlist.expr_ast import Binary, Name, Num, Str  # noqa: E402
+from vamos.netlist.ir import (Analysis, Cond, Instance, Model, Netlist, Param, SaveSpec, Source, Subckt,  # noqa: E402
+                              SweepSpec)
 from vamos.netlist.plan import Action, AnalysisStep, RunPlan  # noqa: E402
 from vamos.notes import ERROR, NOTE, WARNING  # noqa: E402
 
@@ -431,11 +434,51 @@ class TestNoiseXf(SignalsCase):
         _, _, notes = self.resolve(nl, self.noise_step())
         self.assertTrue(any(n.severity == ERROR and "different subckt bodies" in n.message for n in notes))
 
+    def test_noise_input_across_a_port_net(self):
+        # R-plan-10: a port net is visible in the subckt body, where §5.6 places the input 'in the body where both
+        # output nets live' (under the port's name); a net named through a port (X1.a) is its caller's net, and
+        # the shallowest body that sees both nets takes the input
+        st = self.noise_step()
+        nl2, sm, notes = self.resolve(self.netlist_with_noise(nodes=("X1.mid", "out")), st)
+        self.assertEqual([n.message for n in notes if n.severity == ERROR], [])
+        sub = [s for s in nl2.body if isinstance(s, Subckt)][0]
+        self.assertEqual(instances(sub.body)["vamos_nin1"].nodes, ["mid", "a"])
+        self.assertNotIn("vamos_nin1", instances(nl2.body))
+        self.assertEqual((st.noise_input, names(sm.per_step["vamos_a1"])[-1]), ("X1.vamos_nin1", "out"))
+        # oprobe's pair as plan.build gives it (an X1 component between port a and mid)
+        st = AnalysisStep("vamos_a1", "nz", "noise", args={"p": "out", "n": "X1.mid"}, noise_input="vamos_nin1")
+        nl2, _, notes = self.resolve(self.netlist_with_noise(nodes=()), st)
+        sub = [s for s in nl2.body if isinstance(s, Subckt)][0]
+        self.assertEqual((instances(sub.body)["vamos_nin1"].nodes, notes), (["a", "mid"], []))
+        st = self.noise_step()
+        nl2, _, notes = self.resolve(self.netlist_with_noise(nodes=("X1.a", "0")), st)
+        self.assertEqual((instances(nl2.body)["vamos_nin1"].nodes, st.noise_input, notes), (["out", "0"], "vamos_nin1", []))
+        _, _, notes = self.resolve(self.netlist_with_noise(nodes=("X1.zz", "0")), self.noise_step())
+        self.assertTrue(any(n.severity == ERROR and "X1.zz is not a net of the circuit" in n.message for n in notes))
+
     def test_xf_traces(self):
         nl = testbench()
         _, sm, _ = self.resolve(nl, AnalysisStep("vamos_a1", "x1", "xf"))
         sigs = sm.per_step["vamos_a1"]
         self.assertEqual(sigs, [(("tf", "V1"), "V1:p", "V/V"), (("tf", "I1"), "I1:sink", "V/A")])   # no iprobe, no short
+
+    def test_xf_traces_follow_save_and_nestlvl(self):
+        # R-plan-13: 'You can limit the number of sources in hierarchical netlists by using the save and nestlvl
+        # parameters' [M ref19 p.438]; nestlvl acts with save=lvl or lvlpub (p.188), as for the other analyses
+        def tb():
+            nl = testbench()
+            [s for s in nl.body if isinstance(s, Subckt)][0].body.append(vsrc("V2", "mid", "b", 0.0))
+            return nl
+        top = ["V1:p", "I1:sink"]
+        for args, options, want in (({"save": "lvlpub", "nestlvl": 1.0}, None, top),
+                                    ({"save": "lvl", "nestlvl": 1.0}, None, top),
+                                    ({}, {"save": "lvlpub", "nestlvl": 1.0}, top),
+                                    ({"nestlvl": 1.0}, None, top + ["X1.V2:p"]),
+                                    ({"save": "lvlpub"}, None, top + ["X1.V2:p"]),
+                                    ({"save": "lvlpub", "nestlvl": 2.0}, None, top + ["X1.V2:p"]),
+                                    ({}, None, top + ["X1.V2:p"])):
+            _, sm, _ = self.resolve(tb(), AnalysisStep("vamos_a1", "x1", "xf", args=dict(args)), options=options)
+            self.assertEqual(sorted(names(sm.per_step["vamos_a1"])), sorted(want), (args, options))
 
     def test_noisy_exclusions(self):
         nl = self.netlist_with_noise()
@@ -475,6 +518,21 @@ class TestNamesAndCopies(SignalsCase):
         self.assertTrue(any(m.startswith("note") and "1 current entries" in m for m in msgs), msgs)
         self.assertTrue(any(m.startswith("note") and "missing.ic" in m and "not found" in m for m in msgs), msgs)
 
+    def test_a_temperature_of_zero_is_not_27(self):
+        # R-plan-11: options temp=0 (or tnom=0) flattens at 0, where plan.build and the engine take the branch of an
+        # `if` on the temperature; `or 27.0` read 0.0 as 27 and dropped the saves of the taken branch
+        for name, cond, opts in (("temp", Binary("<", Name("temper"), N(10.0)), {"temp": 0.0, "tnom": 27.0}),
+                                 ("tnom", Binary("<", Name("$tnom"), N(10.0)), {"temp": 27.0, "tnom": 0.0})):
+            nl = testbench()
+            nl.body.append(Cond([(cond, [inst("Rcold", "r", ["out", "0"], "resistor", value=N(1e3))])],
+                                [inst("Rhot", "r", ["out", "0"], "resistor", value=N(2e3))], "t.scs:40"))
+            nl.saves = [SaveSpec(["out", "Rcold:1"], origin="t.scs:30")]
+            rp = plan_of(step("vamos_a1", "op1", "dc"))
+            rp.options = dict(opts)
+            _, sm, notes = SG.resolve(nl, rp)
+            self.assertEqual(names(sm.per_step["vamos_a1"]), ["out", "Rcold:1"], name)
+            self.assertEqual([n.message for n in notes], [], name)
+
     def test_values_reduced_per_engine(self):
         nl = testbench()
         nl.body.insert(1, Param("rdep", P("rval*2"), "t.scs:2"))
@@ -506,6 +564,97 @@ class TestTypes(unittest.TestCase):
         self.assertEqual(SG.PSF_TYPES, ("V", "I", "V/sqrt(Hz)", "A/sqrt(Hz)", "V/V", "V/A"))
         for t in SG.PSF_TYPES:
             self.assertIn(t, SG.PSF_FIXED_TYPES)
+
+
+# -- phase 2c2: an alter of a resistor's isnoisy (R-plan-19), through the real parser and plan ------------------
+
+def chain(text, engine):
+    """spectre.parse, plan.build and signals.resolve of a Spectre deck (the Spectre dialect)."""
+    from vamos.netlist import spectre
+    from vamos.spectre.job import Settings
+    d = tempfile.mkdtemp(prefix="vamos_signals_deck_")
+    try:
+        path = os.path.join(d, "deck.scs")
+        with open(path, "w") as fh:
+            fh.write(text)
+        nl = spectre.parse(path, d, spectre.SpectreParseOpts())
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    plan = PL.build(nl, engine, Settings())
+    nl2, sm, _notes = SG.resolve(nl, plan)
+    steps = {a.step.name: a.step.id for a in plan.actions if a.op == "analysis" and a.step is not None}
+    return nl2, sm, steps
+
+
+NOISE_ALTER = """simulator lang=spectre
+V1 (in 0) vsource dc=0
+R1 (in out) resistor r=1k%s
+R2 (out 0) resistor r=1k
+save R1:1 out
+nz1 (out 0) noise iprobe=V1 start=1k stop=10k dec=1
+a1 alter dev=R1 param=isnoisy value=%s
+nz2 (out 0) noise iprobe=V1 start=1k stop=10k dec=1
+op2 dc
+"""
+
+
+class TestIsnoisyAlter(unittest.TestCase):
+    """R-plan-19 (phase 2c2): an alter of isnoisy changes the resistor's noise and, on Xyce, its printed form (the
+    state replay renders the noise-free G form or the R per deck), so each noise step lists the instances noisy at
+    that step, and on Xyce the resistor's saved current is a probe in every form (`the current of the noise-free G
+    form of R1 needs a probe (signals.resolve)' before, status 2)."""
+
+    @staticmethod
+    def noisy(sm, sid):
+        return [r[1] for r in refs(sm.per_step[sid]) if r[0] == "noise"]
+
+    def test_each_noise_step_lists_the_resistors_noisy_at_it(self):
+        for engine in ("vacask", "xyce"):
+            with self.subTest(engine=engine, alter="off"):
+                _nl2, sm, steps = chain(NOISE_ALTER % ("", "no"), engine)
+                self.assertEqual(self.noisy(sm, steps["nz1"]), ["R1", "R2"])
+                self.assertEqual(self.noisy(sm, steps["nz2"]), ["R2"])
+            with self.subTest(engine=engine, alter="on"):
+                _nl2, sm, steps = chain(NOISE_ALTER % (" isnoisy=no", "yes"), engine)
+                self.assertEqual(self.noisy(sm, steps["nz1"]), ["R2"])
+                self.assertEqual(self.noisy(sm, steps["nz2"]), ["R1", "R2"])
+                self.assertEqual(sm.per_step[steps["nz2"]][0][2], "resistor")    # its STRUCT type, as R2's
+
+    def test_on_xyce_the_altered_resistor_s_current_is_probed(self):
+        _nl2, sm, steps = chain(NOISE_ALTER % ("", "0"), "vacask")
+        self.assertIn(("i", "R1"), refs(sm.per_step[steps["op2"]]))        # VACASK's r1.i in both noise states
+        nl2, sm, steps = chain(NOISE_ALTER % ("", "0"), "xyce")
+        self.assertEqual([r for r in refs(sm.per_step[steps["op2"]]) if r[0] == "i"], [("i", "vamos_tp1")])
+        self.assertIn("vamos_tp1", instances(nl2.body))
+        # without the alter R1 keeps its native current on Xyce (the R form in every deck)
+        _nl2, sm, steps = chain((NOISE_ALTER % ("", "0")).replace("a1 alter dev=R1 param=isnoisy value=0\n", ""), "xyce")
+        self.assertIn(("i", "R1"), refs(sm.per_step[steps["op2"]]))
+
+
+M_TARGET = """simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a b) resistor r=1k
+R2 (b 0) resistor r=1k
+save R1:1 b
+op1 dc
+%s
+"""
+
+
+class TestTargetedMultiplier(unittest.TestCase):
+    """Phase 2c2: VACASK's native current of a $mfactor instance is one unit's, so a multiplied instance's current is
+    probed (phase 1b); so is one whose m a sweep or alter sets (an alter of R1's m to 2 gave R1:1 = 1/3 mA on VACASK
+    where the total, Xyce's and Spectre's, is 2/3 mA).  Xyce's I(R1) is the total: no probe there."""
+
+    def test_an_m_a_sweep_or_alter_sets_gets_the_probe_on_vacask(self):
+        for tail in ("a1 alter dev=R1 param=m value=2\nop2 dc", "dc1 dc dev=R1 param=m values=[1 2]"):
+            with self.subTest(tail=tail):
+                _nl2, sm, steps = chain(M_TARGET % tail, "vacask")
+                self.assertEqual([r for r in refs(sm.per_step[steps["op1"]]) if r[0] == "i"], [("i", "vamos_tp1")])
+                _nl2, sm, steps = chain(M_TARGET % tail, "xyce")
+                self.assertEqual([r for r in refs(sm.per_step[steps["op1"]]) if r[0] == "i"], [("i", "R1")])
+        _nl2, sm, steps = chain(M_TARGET % "a1 alter dev=R1 param=r value=2k\nop2 dc", "vacask")    # another parameter
+        self.assertEqual([r for r in refs(sm.per_step[steps["op1"]]) if r[0] == "i"], [("i", "R1")])
 
 
 if __name__ == "__main__":

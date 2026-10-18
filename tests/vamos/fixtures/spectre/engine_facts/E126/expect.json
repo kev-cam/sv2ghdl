@@ -1,0 +1,187 @@
+{
+ "row": "E126",
+ "experiment": "Xyce on constructs of the T2 decks (e2e 11 and 15, phase 2): a .STEP and a .DC of the .param that a linear E source's gain {g} reads, the list starting at the nominal (0.5), with the nominal at 0.3, and with a VALUE= E source; a single-terminal Verilog-A source, E66's nan.va (which reads $abstime) and a plain V(a) <+ 1.0; a diode line with a positional area and a parameter after it; a level-3 MOSFET card with WD",
+ "result": "a .STEP or .DC of a .param that a linear E source's gain reads gives gain 0 at the point whose value equals the .param's nominal (.param g=0.5, .STEP g LIST 0.5 0.75 2: V(OUT) = 0 where -1 is right; -1.5 and -4 after it); a nominal of 0.3, or a VALUE= E source, are right; E66's nan.va leaves its node at 0 V under PyMS, rc 0 (its $abstime does not build, E125), while a single-terminal V(a) <+ 1.0 drives its node to 1.001 V into 1 kohm; a diode line with a positional area followed by any parameter is \"Unrecognized fields for device D1\", rc 1 (`D1 a 0 dm 4e-07` and `D1 a 0 dm area=4e-07 m=1` run); MOSFET3 has no WD (\"No model parameter WD found for model NM of type NMOS, parameter ignored.\", rc 0, which the parameter scan makes status 2)",
+ "rules": [
+  "R-tests-1 / §4.5: on Xyce a swept .param must not reach a linear E (vcvs) gain directly (the VALUE= form is right); this row tells when the workaround can go",
+  "§4.5: xyce.render prints a diode's area by name (area=), never positionally before other parameters",
+  "§7.2 [E43]: xyce.output_problems makes \"No model parameter ... found\" status 2, naming the parameter"
+ ],
+ "runs": [
+  {
+   "name": "step_from_the_nominal_gives_gain_0",
+   "tool": "xyce",
+   "deck": "estep.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "estep.raw",
+     "plots": 3,
+     "plot": 0,
+     "col": "V(OUT)",
+     "value": 0.0,
+     "abs": 1e-12
+    },
+    {
+     "raw": "estep.raw",
+     "plot": 1,
+     "col": "V(OUT)",
+     "value": -1.5,
+     "rel": 1e-09
+    },
+    {
+     "raw": "estep.raw",
+     "plot": 2,
+     "col": "V(OUT)",
+     "value": -4.0,
+     "rel": 1e-09
+    }
+   ],
+   "note": "-1 is right at g = 0.5"
+  },
+  {
+   "name": "step_with_another_nominal",
+   "tool": "xyce",
+   "deck": "estep_nominal03.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "estep_nominal03.raw",
+     "plot": 0,
+     "col": "V(OUT)",
+     "value": -1.0,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "step_of_a_value_source",
+   "tool": "xyce",
+   "deck": "estep_value.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "estep_value.raw",
+     "plot": 0,
+     "col": "V(OUT)",
+     "value": -1.0,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "dc_from_the_nominal_gives_gain_0",
+   "tool": "xyce",
+   "deck": "edc.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "edc.raw",
+     "col": "V(OUT)",
+     "values": [
+      0.0,
+      -1.5,
+      -4.0
+     ],
+     "rel": 1e-09,
+     "abs": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "single_terminal_nan_va_leaves_its_node_at_0",
+   "tool": "xyce",
+   "deck": "nan.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "status": 0,
+   "checks": [
+    {
+     "raw": "nan.raw",
+     "col": "V(A)",
+     "value": 0.0,
+     "abs": 1e-12
+    }
+   ]
+  },
+  {
+   "name": "single_terminal_plain_source_drives_its_node",
+   "tool": "xyce",
+   "deck": "vone.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "env": {
+    "PYMS_CACHE": "{tmp}/pyms_cache"
+   },
+   "status": 0,
+   "checks": [
+    {
+     "raw": "vone.raw",
+     "col": "V(A)",
+     "value": 1.001001001002003,
+     "rel": 1e-06
+    }
+   ],
+   "note": "measured 2026-10-17: the row's 0 V is nan.va's (its $abstime), not every single-terminal source's"
+  },
+  {
+   "name": "diode_positional_area_then_a_parameter",
+   "tool": "xyce",
+   "deck": "dpos_m.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Unrecognized fields for device D1"
+    ]
+   }
+  },
+  {
+   "name": "diode_positional_area_alone",
+   "tool": "xyce",
+   "deck": "dpos.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "dpos.raw",
+     "col": "V(A)",
+     "value": 0.5999999995188102,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "diode_area_by_name",
+   "tool": "xyce",
+   "deck": "darea.cir",
+   "status": 0,
+   "checks": [
+    {
+     "raw": "darea.raw",
+     "col": "V(A)",
+     "value": 0.5999999995188102,
+     "rel": 1e-09
+    }
+   ]
+  },
+  {
+   "name": "mosfet3_has_no_wd",
+   "tool": "xyce",
+   "deck": "mos3wd.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "No model parameter WD found for model NM of type NMOS, parameter ignored."
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) under engines.env_for (PyMS for the Verilog-A runs)",
+  "decks: vamos-authored, after the 2b review's e126*.scs (sp2b/R-tests); nan.va copies E66's"
+ ]
+}

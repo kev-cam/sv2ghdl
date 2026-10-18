@@ -1,0 +1,92 @@
+{
+ "row": "E123",
+ "experiment": "Xyce after a failed .STEP point, a singular .OP, and its output (the Xyce runner, 2026-10-16, phase 2): a tran .STEP g LIST 1e-7 1e-3 2e-7 whose second point (G1 a negative conductance kicked by a pulse) fails; an .OP with a node that has no DC path; a 6001-point .NOISE and a tran of one circuit",
+ "result": "a tran .STEP point that fails does not stop the run: Xyce goes on with the next point, exits 0 and appends that point's rows to the failed one's plot (2 plots for 3 points; the time restarts inside the second, \"Step 2 of 3\"), so only the restart of the time inside a plot and the plots' `Step k of n` names show which point failed; a singular .OP exits 1 (\"Failed DC sweep steps\") and writes no print file; a noise analysis prints no `Percent complete`, a tran does (Xyce's block-buffered stdout into a file or pipe is TestStdoutBuffering's)",
+ "rules": [
+  "§7.2: a tran plot whose time restarts, or fewer plots than the .STEP points, is a failed analysis (status 1), the first failed group giving failed_points",
+  "§7.2: a non-zero exit with no print file is a failed analysis",
+  "§2.7 / §7.2: SIGUSR1's status line reads Xyce's last `Percent complete`, which a noise analysis never prints"
+ ],
+ "runs": [
+  {
+   "name": "failed_step_point_appended",
+   "tool": "xyce",
+   "deck": "stepfail.cir",
+   "status": 0,
+   "output": {
+    "contains": [
+     "Time step too small near step number"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "stepfail.raw",
+     "plots": 2,
+     "plot": 0,
+     "plotname_contains": [
+      "Step 1 of 3"
+     ],
+     "restarts": 1,
+     "axis": "TIME"
+    },
+    {
+     "raw": "stepfail.raw",
+     "plot": 1,
+     "plotname_contains": [
+      "Step 2 of 3"
+     ],
+     "restarts": 2,
+     "axis": "TIME"
+    }
+   ]
+  },
+  {
+   "name": "singular_op",
+   "tool": "xyce",
+   "deck": "singular.cir",
+   "status": 1,
+   "output": {
+    "contains": [
+     "Failed DC sweep steps"
+    ]
+   },
+   "files": {
+    "absent": [
+     "singular.raw"
+    ]
+   }
+  },
+  {
+   "name": "noise_prints_no_percent",
+   "tool": "xyce",
+   "deck": "noise.cir",
+   "status": 0,
+   "output": {
+    "absent": [
+     "Percent complete"
+    ]
+   },
+   "checks": [
+    {
+     "prn": "noise.prn",
+     "rows": 6001
+    }
+   ]
+  },
+  {
+   "name": "tran_prints_percent",
+   "tool": "xyce",
+   "deck": "tran.cir",
+   "status": 0,
+   "output": {
+    "regex": [
+     "Percent complete:\\s*[0-9.]+ %"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce DEVELOPMENT-202610100047 (7cd78110) under engines.env_for",
+  "decks: vamos-authored, after e2e 11's tran_abort.scs"
+ ]
+}

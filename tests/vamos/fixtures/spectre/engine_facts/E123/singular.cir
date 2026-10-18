@@ -1,0 +1,8 @@
+* a singular .OP: a node driven by a current source with no DC path to ground
+I1 0 a DC 1e-03
+C1 a 0 1e-09
+R1 b 0 1000.0
+V1 b 0 DC 1
+.OP
+.PRINT DC FORMAT=RAW FILE=singular.raw V(A) V(B)
+.end

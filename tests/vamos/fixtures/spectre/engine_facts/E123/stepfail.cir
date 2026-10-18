@@ -1,0 +1,10 @@
+* a tran .STEP whose second point fails: g = 1m makes G1 a negative conductance that the pulse kicks
+.param g=1e-07
+I1 0 a PULSE(0 1e-06 0 1e-09 1e-09 1e-06 10)
+G1 0 a a 0 {g}
+C1 a 0 1e-09
+R1 a 0 1000000.0
+.STEP g LIST 1e-07 1e-03 2e-07
+.TRAN 1e-06 0.001 0 2e-05
+.PRINT TRAN FORMAT=RAW FILE=stepfail.raw V(A)
+.end

@@ -1,0 +1,8 @@
+* a single-terminal Verilog-A voltage source, V(a) <+ 1.0, on PyMS's letter device
+.hdl "vone.va"
+.model vone__vamos vone
+yvone X1 a vone__vamos
+R1 a 0 1000.0
+.OP
+.PRINT DC FORMAT=RAW FILE=vone.raw V(A)
+.end

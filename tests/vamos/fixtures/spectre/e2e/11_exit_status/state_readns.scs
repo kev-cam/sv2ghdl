@@ -1,0 +1,9 @@
+// e2e 11: exit status 0, a nodeset file chained between analyses: op2's readns names the file drift writes in
+// the same run (the UG's Drift/XferVsTemp form): a warning, and op2 runs on the netlist's nodesets (sec. 5.4)
+simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a b) resistor r=1k
+R2 (b 0) resistor r=1k
+drift dc readns="chain.dc0" write="chain.dc0"
+op2 dc readns="chain.dc0"
+save b

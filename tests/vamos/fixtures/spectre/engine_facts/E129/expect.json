@@ -1,0 +1,101 @@
+{
+ "row": "E129",
+ "experiment": "openvaf-r on the CMC trees (openvaf-r 20260616-3-g0e83f1ed as engines.openvaf() resolves it, run as vcs-ams's compile runs it, `<va> -o <osdi>` in the file's directory, read in place in VAMOS_CMC_EXAMPLES; the T3c owner, phase 2)",
+ "result": "exit 65 on all four trees: BSIM6.1.1.va 650 errors (E91 counted 651), bsimcmg_107 1334, BSIMCMG108 2108, BSIMCMG110 1, no .osdi written; the first error in each, and BSIMCMG110's only one, is the attribute after the port list (bsimcmg.va:86:35, \"unexpected token '(*'; expected ';'\")",
+ "rules": [
+  "\u00a711.3 (c) 3 / E91: openvaf-r rejects every CMC Verilog-A tree the decks load, so their VACASK runs are reported skips (test_spectre_cmc.TestCmcVacask)"
+ ],
+ "runs": [
+  {
+   "name": "bsim6",
+   "tool": "openvaf",
+   "args": [
+    "{cmc}/BSIM6.1.1/code/BSIM6.1.1.va",
+    "-o",
+    "{tmp}/BSIM6.1.1.osdi"
+   ],
+   "cwd": "{cmc}/BSIM6.1.1/code",
+   "gates": [
+    "needs_cmc"
+   ],
+   "timeout": 600,
+   "status": 65,
+   "output": {
+    "contains": [
+     "unexpected token '(*'; expected ';'",
+     "could not compile `BSIM6.1.1.va` due to 650 previous errors"
+    ]
+   }
+  },
+  {
+   "name": "bsimcmg_107",
+   "tool": "openvaf",
+   "args": [
+    "{cmc}/bsimcmg_107.0.0/code/bsimcmg.va",
+    "-o",
+    "{tmp}/bsimcmg107.osdi"
+   ],
+   "cwd": "{cmc}/bsimcmg_107.0.0/code",
+   "gates": [
+    "needs_cmc"
+   ],
+   "timeout": 600,
+   "status": 65,
+   "output": {
+    "contains": [
+     "unexpected token '(*'; expected ';'",
+     "could not compile `bsimcmg.va` due to 1334 previous errors"
+    ]
+   }
+  },
+  {
+   "name": "bsimcmg_108",
+   "tool": "openvaf",
+   "args": [
+    "{cmc}/BSIMCMG108.0.0_20140822/code/bsimcmg.va",
+    "-o",
+    "{tmp}/bsimcmg108.osdi"
+   ],
+   "cwd": "{cmc}/BSIMCMG108.0.0_20140822/code",
+   "gates": [
+    "needs_cmc"
+   ],
+   "timeout": 600,
+   "status": 65,
+   "output": {
+    "contains": [
+     "unexpected token '(*'; expected ';'",
+     "could not compile `bsimcmg.va` due to 2108 previous errors"
+    ]
+   }
+  },
+  {
+   "name": "bsimcmg_110",
+   "tool": "openvaf",
+   "args": [
+    "{cmc}/BSIMCMG110.0.0_20160101/code/bsimcmg.va",
+    "-o",
+    "{tmp}/bsimcmg110.osdi"
+   ],
+   "cwd": "{cmc}/BSIMCMG110.0.0_20160101/code",
+   "gates": [
+    "needs_cmc"
+   ],
+   "timeout": 600,
+   "status": 65,
+   "output": {
+    "contains": [
+     "unexpected token '(*'; expected ';'",
+     "could not compile `bsimcmg.va` due to 1 previous errors"
+    ],
+    "regex": [
+     "bsimcmg\\.va:86:35"
+    ]
+   }
+  }
+ ],
+ "provenance": [
+  "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /opt/openvaf-r-20260616/openvaf-r, the CMC trees of VAMOS_CMC_EXAMPLES=/usr/local/src/xyce/utils/ADMS/examples read in place (nothing is written there: the -o path and the run's logs are in the scratch copy)",
+  "no deck: the runs name the trees' files through {cmc}"
+ ]
+}

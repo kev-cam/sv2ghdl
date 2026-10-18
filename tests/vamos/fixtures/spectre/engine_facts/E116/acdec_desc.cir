@@ -1,0 +1,7 @@
+* stepped sweep counts on Xyce: .AC DEC with start > stop (1 MHz down to 1 kHz)
+V1 in 0 DC 0 AC 1
+R1 in out 1000.0
+R2 out 0 1000.0
+.AC DEC 1 1MEG 1K
+.PRINT AC FORMAT=RAW FILE=acdec_desc.raw V(OUT)
+.end

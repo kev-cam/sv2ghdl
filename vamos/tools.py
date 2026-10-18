@@ -9,6 +9,10 @@ outermost first).  Entering a personality that is already on the stack means a
 real tool called its own name and hit a shim; vamos then execs the real tool
 instead of dispatching again.  More than MAX_DEPTH nested vamos entries is a
 hard error that shows the chain.
+
+version_of(name, path, env=None) gives the provenance header's version of a tool,
+run under env (child_env() by default); bound_blas_threads(env) bounds an analog
+engine's OpenBLAS threads unless the user set a thread count (the spectre runners).
 """
 
 import os
@@ -272,8 +276,10 @@ def version_text(output: str) -> str:
     return "?"
 
 
-def version_of(name: str, path: str) -> str:
-    """One-line version string for the provenance header ("?": cannot be run or read)."""
+def version_of(name: str, path: str, env: Optional[Dict[str, str]] = None) -> str:
+    """One-line version string for the provenance header ("?": cannot be run or read).  env: the
+    environment the tool runs under, child_env() when None; an engine's row passes the one its runs
+    get (engines.env_for), so that a launcher without an RPATH names the library it loads there."""
     if name == "sv2ghdl" or name == "vamos":
         root = package_root()
         if os.path.isdir(os.path.join(root, ".git")) and shutil.which("git"):
@@ -293,7 +299,23 @@ def version_of(name: str, path: str) -> str:
     try:
         r = subprocess.run([path, flag], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            universal_newlines=True, timeout=20,
-                           env=child_env())
+                           env=child_env() if env is None else env)
     except (OSError, subprocess.SubprocessError):
         return "?"
     return version_text(r.stdout or "")
+
+
+# The variables that set OpenBLAS's thread count, in the order it reads them
+BLAS_THREAD_VARS = ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
+
+
+def bound_blas_threads(env: Dict[str, str]) -> Dict[str, str]:
+    """OPENBLAS_NUM_THREADS=1 in an engine's environment unless it names a thread count already
+    (BLAS_THREAD_VARS; an empty value is OpenBLAS's unset), changed in place and returned.  Both
+    engines link OpenBLAS, whose pool otherwise starts one thread per CPU at load, and those threads
+    spin: about 2 s of CPU per Xyce or VACASK process on 32 CPUs, for no wall time (VACASK caps
+    OpenBLAS at one CPU itself, -b 1, but only after the pool has started; neither engine gains from
+    the pool, measured 2026-10-17; docs/VAMOS_SPECTRE_DESIGN.md §7.1, §7.2).  OpenMP is not touched."""
+    if not any(env.get(v) for v in BLAS_THREAD_VARS):
+        env["OPENBLAS_NUM_THREADS"] = "1"
+    return env

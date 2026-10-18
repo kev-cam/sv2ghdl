@@ -6,17 +6,29 @@
 Both legs, no engine:
   TestReplay          the state replay (e2e 6: the PULSE in the tran deck only; a card and a group
                       parameter; the renames reversed; an r/c/l value; temp; a variable and its
-                      dependents in the deck's .param)
+                      dependents in the deck's .param); phase 2c2: a gain, gm, rm, coupling and area
+                      into Instance.value, an alter of isnoisy switching the form per deck
   TestRenderDecks     render_decks reproduces the chain's render goldens of e2e 1-10; xf refused
   TestPlaceVa         the Verilog-A copies: base names, the relative includes beside them, a base-name
-                      clash or a climbing include under vamos_va<k>/
+                      clash or a climbing include under vamos_va<k>/; phase 2c2 (F4): no directory but
+                      run_dir holds two modules' files
   TestCheckOutput     §7.2's print-file rule on hand-written rawfiles and .PRINT tables
   TestHelpers         ended_by, diagnostics, trim_partial_line, planned, Signals
   TestRunFake         run() against a fake Xyce (a script named by VAMOS_XYCE that writes what
                       fake.json in the run directory says): the order of the runs, the -norun check,
                       a problem named by the alter or sweep that introduced it, a failed analysis
                       among good ones, a failed .STEP point, a crash, a kill from outside, the
-                      verbose echo, a Xyce that cannot start
+                      grace-period kill (its 0.5 s grace measured, the kill named), the verbose
+                      echo, a Xyce that cannot start, OpenBLAS's threads bounded unless the user
+                      set a thread count, the tolerance notices of the options the netlist set
+  TestVerilogAChecks  phase 2c, R-run-3: a module PyMS cannot build ($abstime, a timeout, any
+                      exception of its build) and a missing `include (also one only CDS_VLOGA_INCLUDE
+                      finds) are status 2, never a run; the headers PyMS finds or does without pass
+  TestRunFakeSignals  Linux: the stop signals reach the fake's child, as they must PyMS's compile
+                      (R-run-5); a second signal raises stop.Stop before the deck is classified
+                      (R-run-8); SIGUSR1 during the -norun check (R-run-11); SIGUSR2's one notice,
+                      stop.CHECKPOINT (R-run-14)
+  TestProgress        the status-line text while the -norun check runs (R-run-11)
 WSL (needs_xyce; needs_pyms for the Verilog-A decks):
   TestRunE2E          e2e 1-10 through spectre.parse -> plan.build -> signals.resolve -> run(), against
                       the xyce parts of their engine_expect.json (05_xf and 10's deck_cross are
@@ -24,25 +36,32 @@ WSL (needs_xyce; needs_pyms for the Verilog-A decks):
   TestRunXyceFailures a singular .OP (exit 1: that step failed, status 1); a tran failing part-way
                       among good analyses [E66]; a .STEP point failing part-way (Xyce goes on and
                       exits 0: failed_points); an alter and a sweep of a parameter Xyce does not
-                      know (status 2 naming them)
+                      know (status 2 naming them); R-run-3: $abstime, a missing include on a cold
+                      and a warm PyMS cache (status 2), Spectre's headers (the module runs); phase
+                      2c2 (F4): two modules of one library sharing ../inc keep their parameters
   TestRunXyceSignals  SIGTERM and SIGINT on a long tran (status 3, the partial rawfile readable, the
                       later deck not run), a second signal (stop.Stop), SIGUSR1 (the status line, the
-                      run goes on) and SIGUSR2 (the notice)
+                      run goes on) and SIGUSR2 (the notice), the grace-period kill of the real Xyce
+                      (stopped first with SIGSTOP; R-tests-13)
 """
 
+import glob
 import json
 import os
 import shutil
 import signal
 import stat
+import subprocess
 import sys
 import threading
 import time
 import unittest
+import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
+from unittest import mock
 
-from vamos_testlib import LINUX, TempDir, reap  # noqa: F401
+from vamos_testlib import LINUX, TempDir, procs_under, reap  # noqa: F401
 from spectre_testlib import SPECTRE_FIXTURES, have_xyce, needs_pyms, needs_xyce  # noqa: E402
 
 from vamos.banner import Banner  # noqa: E402
@@ -185,19 +204,25 @@ def good_output(step: PL.AnalysisStep, deck_text: str) -> str:
 
 FAKE = '''#!%(python)s
 """A fake Xyce for test_spectre_run_xyce: what it prints, writes and returns comes from fake.json
-in its working directory, keyed by the deck ("norun <deck>" for the -norun check)."""
-import json, os, signal, sys, time
+in its working directory, keyed by the deck ("norun <deck>" for the -norun check).  Each run appends
+its arguments to fake.calls and its thread variables to fake.env; "spawn" starts a child process (in
+the fake's process group, as PyMS's compile is in Xyce's) whose command line holds the given marker."""
+import json, os, signal, subprocess, sys, time
 args = sys.argv[1:]
 norun = "-norun" in args
 deck = [a for a in args if a != "-norun"][-1]
 with open("fake.calls", "a") as fh:
     fh.write(" ".join(args) + "\\n")
+with open("fake.env", "a") as fh:
+    fh.write(json.dumps({k: os.environ.get(k) for k in %(threads)r}) + "\\n")
 try:
     with open("fake.json") as fh:
         spec = json.load(fh)
 except (OSError, ValueError):
     spec = {}
 b = spec.get(("norun " if norun else "") + deck, {})
+if b.get("spawn"):
+    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)", b["spawn"]])
 sys.stdout.write(b.get("out", ""))
 sys.stdout.flush()
 if "write" in b:
@@ -216,6 +241,41 @@ sys.exit(b.get("rc", 0))
 '''
 
 
+# the variables that bound the engines' OpenBLAS (and OpenMP) threads (R-run-4)
+THREAD_VARS = ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
+
+
+def marker_pids(marker: str) -> List[int]:
+    """The processes whose command line holds `marker` (from /proc; [] where there is none)."""
+    out = []
+    for p in glob.glob("/proc/[0-9]*/cmdline"):
+        try:
+            with open(p, "rb") as fh:
+                if marker.encode() in fh.read():
+                    out.append(int(p.split("/")[2]))
+        except (OSError, ValueError):
+            continue
+    return [pid for pid in out if pid != os.getpid()]
+
+
+def gone(marker: str, timeout: float = 5.0) -> bool:
+    """Whether every process holding `marker` is gone within `timeout` seconds (a zombie counts as
+    gone: its parent, which vamos no longer is, reaps it)."""
+    end = time.time() + timeout
+    while True:
+        alive = []
+        for pid in marker_pids(marker):
+            try:
+                with open("/proc/%d/stat" % pid) as fh:
+                    if fh.read().rsplit(")", 1)[-1].split()[0] != "Z":
+                        alive.append(pid)
+            except (OSError, IndexError):
+                continue
+        if not alive or time.time() > end:
+            return not alive
+        time.sleep(0.05)
+
+
 class FakeCase(TempDir):
     """A TempDir with the fake Xyce on VAMOS_XYCE."""
 
@@ -223,7 +283,7 @@ class FakeCase(TempDir):
         super().setUp()
         self.fake = os.path.join(self.tmp, "fake_xyce.py")
         with open(self.fake, "w") as fh:
-            fh.write(FAKE % {"python": sys.executable})
+            fh.write(FAKE % {"python": sys.executable, "threads": THREAD_VARS})
         os.chmod(self.fake, os.stat(self.fake).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         os.environ["VAMOS_XYCE"] = self.fake
         os.environ.pop("VAMOS_VERBOSE", None)
@@ -248,6 +308,14 @@ class FakeCase(TempDir):
             return []
         with open(p) as fh:
             return fh.read().splitlines()
+
+    def envs(self, run_dir: str) -> List[Dict[str, Optional[str]]]:
+        """The thread variables each fake run saw, in order."""
+        p = os.path.join(run_dir, "fake.env")
+        if not os.path.exists(p):
+            return []
+        with open(p) as fh:
+            return [json.loads(x) for x in fh if x.strip()]
 
 
 SWEEP3 = """// three .STEP points of a tran, then an op
@@ -292,8 +360,222 @@ save a
 
 NOPARAM = "Netlist warning: No model parameter TLEV found for model DMOD of type D, parameter ignored.\n"
 
+OPTS_DECK = """// D2: an options statement that sets reltol, three analyses (three Xyce decks)
+simulator lang=spectre
+o1 options reltol=1e-4
+V1 (in 0) vsource dc=1 mag=1
+R1 (in out) resistor r=1k
+C1 (out 0) capacitor c=1u
+op1 dc
+ac1 ac start=1 stop=1k dec=2
+tr1 tran stop=1m
+save out
+"""
+
+# -- R-run-3: Verilog-A that PyMS cannot build, or builds without a missing include ------------------------
+
+VRAMP_VA = """`include "disciplines.vams"
+// test_spectre_run_xyce: a voltage ramp through $abstime, V = 1000 * t (1 V at 1 ms): VACASK runs it, PyMS
+// cannot build it (R-run-3)
+module vramp(p, n);
+  inout p, n; electrical p, n;
+  analog V(p, n) <+ 1000.0 * $abstime;
+endmodule
+"""
+
+RAMP_DECK = """// a Verilog-A ramp across a resistor (R-run-3)
+simulator lang=spectre
+ahdl_include "vramp.va"
+X1 (out 0) vramp
+R1 (out 0) resistor r=1k
+op1 dc
+tr1 tran stop=1m maxstep=10u
+save out
+"""
+
+VINC_VA = """`include "disciplines.vams"
+`include "rdefs.vams"
+// test_spectre_run_xyce: a resistor whose value comes from a header (R-run-3)
+module vinc(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = `RDEF;
+  analog I(a, b) <+ V(a, b) / r;
+endmodule
+"""
+
+INC_DECK = """// a Verilog-A resistor whose value comes from a header, over 1k (R-run-3)
+simulator lang=spectre
+ahdl_include "vinc.va"
+V1 (a 0) vsource dc=1
+X1 (a b) vinc
+R2 (b 0) resistor r=1k
+op1 dc
+save b
+"""
+
+HCONST_VA = """`include "discipline.h"
+`include "constants.h"
+// test_spectre_run_xyce: Spectre's own headers (ref19 pp.452, 541), which PyMS skips and does without (R-run-3)
+module hconst(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = 2000.0;
+  analog I(a, b) <+ V(a, b) / (r * `M_PI / 3.141592653589793);
+endmodule
+"""
+
+HCONST_DECK = """// Spectre's headers in a Verilog-A resistor: b = 1/3 V (R-run-3)
+simulator lang=spectre
+ahdl_include "hconst.va"
+V1 (a 0) vsource dc=1
+X1 (a b) hconst
+R2 (b 0) resistor r=1k
+op1 dc
+save b
+"""
+
+# PyMS's -norun output for a module it cannot build (measured 2026-10-17 on vramp.va, the cache path
+# shortened): the full build fails, the retry without zero-valued parameters fails the same way, and
+# Xyce registers the module and goes on without an evaluator
+PYMS_TRACE = """***** Reading and parsing netlist...
+Netlist warning: .HDL: compiled and registered vramp from vramp.va
+***** Setting up topology...
+
+preprocess: warning: 'disciplines.vams' not found (skipped)
+build_vae_so: full build failed (g++ -O2 -std=c++17 -o /c/vae_vramp_c42ffd32ff07b125.so.build/ginac /c/vae_vramp_c42ffd32ff07b125.so.build/ginac.); retrying without zero-valued params
+Traceback (most recent call last):
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 150, in main
+    _attempt(params, "full")
+    ~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 30, in _run
+    raise BuildError("%s\\n%s" % (cmd, r.stderr[:4000]))
+BuildError: g++ -O2 -std=c++17 -o /c/vae_vramp_c42ffd32ff07b125.so.build/ginac /c/vae_vramp_c42ffd32ff07b125.so.build/ginac.cpp -lginac -lcln
+/c/vae_vramp_c42ffd32ff07b125.so.build/ginac.cpp: In function 'int main()':
+/c/vae_vramp_c42ffd32ff07b125.so.build/ginac.cpp:127:40: error: '$abstime' was not declared in this scope
+  127 |         F_contribs[br_idx] += 1000.0 * $abstime - (V_p - V_n);
+      |                                        ^~~~~~~~
+
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 163, in <module>
+    main()
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 159, in main
+    _attempt(nz, "nonzero-only")
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 30, in _run
+    raise BuildError("%s\\n%s" % (cmd, r.stderr[:4000]))
+BuildError: g++ -O2 -std=c++17 -o /c/vae_vramp_c42ffd32ff07b125.so.build/ginac /c/vae_vramp_c42ffd32ff07b125.so.build/ginac.cpp -lginac -lcln
+/c/vae_vramp_c42ffd32ff07b125.so.build/ginac.cpp: In function 'int main()':
+/c/vae_vramp_c42ffd32ff07b125.so.build/ginac.cpp:127:40: error: '$abstime' was not declared in this scope
+  127 |         F_contribs[br_idx] += 1000.0 * $abstime - (V_p - V_n);
+      |                                        ^~~~~~~~
+
+***** Device Count Summary ...
+       R level 1 (Resistor) 1
+       VRAMP (vramp)        1
+       ----------------------
+       Total Devices        2
+***** Syntax and topology analysis complete
+"""
+
+# a build step that timed out (build_vae_so allows 900 s), and an exception that names no library
+PYMS_TIMEOUT = """Traceback (most recent call last):
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 163, in <module>
+    main()
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 94, in _attempt
+    _run("%s > %s" % (g_bin, eval_cpp), timeout=900)
+  File "/usr/lib/python3.14/subprocess.py", line 556, in run
+    raise TimeoutExpired(process.args, timeout, output=stdout,
+subprocess.TimeoutExpired: Command '/c/vae_vramp_0a1b2c.so.build/ginac > /c/vae_vramp_0a1b2c.so.build/eval.cpp' timed out after 900 seconds
+***** Device Count Summary ...
+"""
+
+PYMS_OTHER = """Traceback (most recent call last):
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 163, in <module>
+    main()
+  File "/usr/local/share/xyce/PyMS/vae/build_vae_so.py", line 76, in main
+    mod = parse_file(va)
+  File "/usr/local/share/xyce/PyMS/vae/parser.py", line 1371, in parse_file
+    raise NotImplementedError("analog function idt")
+NotImplementedError: analog function idt
+***** Device Count Summary ...
+"""
+
+# the retry builds the module: only a warning (q.64)
+PYMS_RETRIED = """build_vae_so: full build failed (g++ -O2 -std=c++17 -o /c/vae_vramp_1.so.build/ginac /c/vae_vramp_1.so.build/ginac.); retrying without zero-valued params
+build_vae_so: built /c/vae_vramp_1.so (2 params, nonzero-only)
+"""
+
 
 # -- both legs -----------------------------------------------------------------------------------------
+
+# phase 2c2 (F4): two Verilog-A modules of one library sharing ../inc, the pair of e2e 8 (vares carries the xyce
+# attributes, vres none); the include gives both defaults
+VARES_VA = """`include "disciplines.vams"
+`include "../inc/rdefs.include"
+(*xyceModelGroup="Resistor", xyceSpiceDeviceName="R", xyceLevelNumber="6"*)
+module vares (p,n);
+   electrical p,n;
+   inout p,n;
+   (*desc="Resistance", type="instance"*) parameter real R=`RDEF from (0:inf);
+   analog I(p,n) <+ V(p,n)/R;
+endmodule
+"""
+VRES_INC_VA = """`include "disciplines.vams"
+`include "../inc/rdefs.include"
+module vres(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = `RDEF;
+  analog I(a, b) <+ V(a, b) / r;
+endmodule
+"""
+RDEFS = "`define RDEF 4000.0\n"
+# b = 1k/(3k+1k) = 0.25 (vares R=3k), c = 1k/(4k+1k) = 0.2 (vres at the include's r = 4k); VACASK gives both exactly
+TWOLIB_DECK = """// F4: two Verilog-A modules of one library sharing ../inc
+simulator lang=spectre
+ahdl_include "lib/vares.va"
+ahdl_include "lib/vres.va"
+V1 (a 0) vsource dc=1
+X1 (a b) vares R=3k
+R2 (b 0) resistor r=1k
+X2 (a c) vres
+R3 (c 0) resistor r=1k
+save b c
+op1 dc
+"""
+
+# phase 2c2: alters of every master's value parameter (the op2 reference values: out 3, o1 2, o2 2, o4 4)
+F3_ALTERS = """simulator lang=spectre
+V1 (in 0) vsource dc=1
+E1 (out 0 in 0) vcvs gain=2
+R1 (out 0) resistor r=1k
+Vc (c 0) vsource dc=1
+Vs (c s1) vsource dc=0
+Rs1 (s1 0) resistor r=1k
+G1 (0 o1 c 0) vccs gm=1m
+Ro1 (o1 0) resistor r=1k
+H1 (o2 0) ccvs rm=1k probe=Vs
+F1 (0 o4) cccs gain=2 probe=Vs
+Ro4 (o4 0) resistor r=1k
+Iac (0 p) isource dc=0 mag=1m
+L1 (p 0) inductor l=1m
+L2 (s 0) inductor l=9m
+K1 mutual_inductor coupling=0.5 ind1=L1 ind2=L2
+Vd (dd 0) vsource dc=1
+Rd (dd a) resistor r=1k
+D1 (a 0) dmod area=1
+model dmod diode is=1e-14
+save out o1 o2 o4 a
+op1 dc
+a1 alter dev=E1 param=gain value=3
+a2 alter dev=G1 param=gm value=2m
+a3 alter dev=H1 param=rm value=2k
+a4 alter dev=F1 param=gain value=4
+a5 alter dev=K1 param=coupling value=0.25
+a6 alter dev=D1 param=area value=2
+op2 dc
+"""
+
 
 class TestReplay(TempDir):
     """§7.2's state replay (test_spectre_chain.replay is the reference)."""
@@ -388,6 +670,42 @@ op2 dc
         with self.assertRaises(KeyError):
             RX.find_instance(ch.nl2, "X1.R9")
 
+    def test_every_value_parameter_goes_into_instance_value(self):
+        """Phase 2c2: an alter of a controlled source's gain, gm or rm, a mutual inductor's coupling or a diode's area
+        went into params, so render refused the deck ("E1: parameter gain not supported on a E element", status 2)
+        or, for the area, printed the nominal one; spectre.parse holds them in Instance.value (VALUE_KEY)."""
+        ch = self.deck(F3_ALTERS)
+        decks, _ = RX.render_decks(ch.nl2, ch.plan, ch.sigmap)
+        before, after = decks[0].text, decks[1].text
+        for line0, line1 in (("E1 out 0 in 0 2.0\n", "E1 out 0 in 0 3.0\n"), ("G1 0 o1 c 0 0.001\n", "G1 0 o1 c 0 0.002\n"),
+                             ("H1 o2 0 Vs 1000.0\n", "H1 o2 0 Vs 2000.0\n"), ("F1 0 o4 Vs 2.0\n", "F1 0 o4 Vs 4.0\n"),
+                             ("K1 L1 L2 0.5\n", "K1 L1 L2 0.25\n"), ("D1 a 0 dmod AREA=1.0\n", "D1 a 0 dmod AREA=2.0\n")):
+            self.assertIn(line0, before)
+            self.assertIn(line1, after)
+        self.assertEqual(RX.VALUE_KEY, PL.VALUE_PARAMS)
+
+    def test_an_alter_of_isnoisy_switches_the_form_per_deck(self):
+        """R-plan-19 (phase 2c2): before the alter R1 is the noisy R, after it the noise-free G form, its saved current
+        through the probe signals.resolve inserts (the guard `needs a probe' stopped the run before)."""
+        ch = self.deck("""simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a b) resistor r=1k
+R2 (b 0) resistor r=1k
+save R1:1 b
+op1 dc
+a1 alter dev=R1 param=isnoisy value=no
+op2 dc
+a2 alter dev=R1 param=isnoisy value=yes
+op3 dc
+""")
+        decks, names = RX.render_decks(ch.nl2, ch.plan, ch.sigmap)
+        self.assertIn("\nR1 vamos_tn1 b 1000.0\n", decks[0].text)
+        self.assertIn("\ngR1 vamos_tn1 b vamos_tn1 b 0.001\n", decks[1].text)
+        self.assertIn("\nR1 vamos_tn1 b 1000.0\n", decks[2].text)
+        for d in decks:
+            self.assertIn("\nvamos_tp1 a vamos_tn1 DC 0.0\n", d.text)
+            self.assertEqual(names[d.step.id][("i", "vamos_tp1")], "I(VAMOS_TP1)")
+
 
 class TestRenderDecks(unittest.TestCase):
     def test_e2e_decks_equal_the_chain_goldens(self):
@@ -462,6 +780,45 @@ class TestPlaceVa(TempDir):
         missing = os.path.join(self.tmp, "nope.va")
         self.assertEqual(RX.place_va([missing], run_dir), [missing])
 
+    def test_two_modules_of_one_library_never_share_a_directory(self):
+        """F4 (phase 2c2): two modules of one lib/ sharing ../inc landed side by side in run_dir/lib/, where PyMS gave
+        the module without xyce attributes those of the one beside it, and both lost their parameters (status 2,
+        E125): the second gets its own vamos_va<k>/ with its include tree, the .hdl names keep the base names."""
+        a = self.src("lib/vares.va", VARES_VA)
+        b = self.src("lib/vres.va", VRES_INC_VA)
+        self.src("inc/rdefs.include", RDEFS)
+        run_dir = os.path.join(self.tmp, "run")
+        os.makedirs(run_dir)
+        names = RX.place_va([a, b], run_dir)
+        self.assertEqual(names, ["lib/vares.va", "vamos_va1/lib/vres.va"])
+        for rel in ("lib/vares.va", "inc/rdefs.include", "vamos_va1/lib/vres.va", "vamos_va1/inc/rdefs.include"):
+            self.assertTrue(os.path.isfile(os.path.join(run_dir, rel)), rel)
+        dirs = [os.path.dirname(n) for n in names]
+        self.assertEqual(len(set(dirs)), len(dirs))                        # one module per directory
+        for d in dirs:                                                     # and no other .va where PyMS looks
+            self.assertEqual(len([f for f in os.listdir(os.path.join(run_dir, d)) if f.endswith(".va")]), 1, d)
+        # a third module and a vamos_va<k>/ another module holds: a fresh vamos_va<k>/ each
+        c = self.src("lib/vres3.va", VRES_INC_VA.replace("module vres(", "module vres3("))
+        self.assertEqual(RX.place_va([a, b, c], os.path.join(self.tmp, "run2")),
+                         ["lib/vares.va", "vamos_va1/lib/vres.va", "vamos_va2/lib/vres3.va"])
+        # base names stay beside the deck, any number of them (E104), also next to a module with a directory
+        d = self.src("flat/one.va", "module one(a, b); endmodule\n")
+        e = self.src("flat/two.va", "module two(a, b); endmodule\n")
+        self.assertEqual(RX.place_va([a, d, e, b], os.path.join(self.tmp, "run3")),
+                         ["lib/vares.va", "one.va", "two.va", "vamos_va1/lib/vres.va"])
+
+    def test_a_module_s_files_never_land_in_another_module_s_directory(self):
+        """F4: a base-named module whose include sits in a subdirectory another module's file holds goes into its
+        own vamos_va<k>/ instead (PyMS would read that include beside the other module)."""
+        a = self.src("models/m.va", '`include "../common/defs.include"\nmodule m(a, b); endmodule\n')
+        self.src("common/defs.include", "`define X 1\n")
+        b = self.src("top/n.va", '`include "models/helper.va"\nmodule n(a, b); endmodule\n')
+        self.src("top/models/helper.va", "`define Y 2\n")
+        run_dir = os.path.join(self.tmp, "run")
+        os.makedirs(run_dir)
+        self.assertEqual(RX.place_va([a, b], run_dir), ["models/m.va", "vamos_va1/n.va"])
+        self.assertEqual(sorted(os.listdir(os.path.join(run_dir, "models"))), ["m.va"])
+
 
 class TestCheckOutput(TempDir):
     """§7.2: a print file that is missing, blank or short is a failed analysis."""
@@ -488,6 +845,22 @@ class TestCheckOutput(TempDir):
         self.assertTrue(RX.check_output(self.op, self.file("o.raw", raw_text(["sweep", "V(OUT)"], [[(0, 1)]]))).complete)
         dc = [(v / 4.0, 1.0) for v in range(5)]
         self.assertTrue(RX.check_output(self.dc, self.file("d.raw", raw_text(["sweep", "V(OUT)"], [dc]))).complete)
+
+    def test_descending_grids_plan_the_plans_points(self):
+        """R-emit-3 (the phase-2c integration's xyce.py seam): render prints a descending dec or lin grid as a LIST
+        or DATA= table of plan.grid_points' points, and a descending step frequency grid as its DATA= table (it
+        printed an empty one), so planned counts every point: the step ac counted 0 rows and failed a run that
+        wrote its 4."""
+        st = self.steps("""simulator lang=spectre
+I1 (0 out) isource dc=1m mag=1
+R1 (out 0) resistor r=1k
+d4 dc dev=I1 param=dc start=1m stop=1u dec=1
+acd ac start=1M stop=1k dec=1
+acl ac start=1M stop=1k lin=3
+afs ac start=1M stop=1k step=-333k
+""")
+        self.assertEqual([(s.name, RX.planned(s)) for s in st],
+                         [("d4", (1, 1, 4)), ("acd", (1, 1, 4)), ("acl", (1, 1, 4)), ("afs", (1, 1, 4))])
 
     def test_missing_blank_short_and_unreadable(self):
         chk = RX.check_output(self.op, os.path.join(self.tmp, "none.raw"))
@@ -605,6 +978,7 @@ build_vae_so: full build failed (g++ -O2 ...); retrying without zero-valued para
         self.assertEqual(s.forward, stop.FORWARD)
         self.assertEqual(s.flags, stop.FLAGS)
         self.assertEqual(s.grace, 0.25)
+        self.assertTrue(s.group)                         # Xyce's process group, its PyMS compile too (R-run-5)
         self.assertIsNone(s.second)
         s._on_signal(signal.SIGINT, None)
         s._on_signal(signal.SIGTERM, None)
@@ -746,10 +1120,9 @@ class TestRunFake(FakeCase):
                       "(vamos_a2.raw) are written", log)
         self.assertNotIn("vamos_a3.cir", self.calls(run_dir))
 
-    @unittest.skipUnless(LINUX, "signals to the test process (Linux/WSL)")
-    def test_the_grace_kill_is_converted_as_status_3(self):
-        """stop.py: a Xyce still running proc.INTERRUPT_GRACE seconds after the forwarded SIGTERM is
-        killed; that is not a second signal: the run is converted (rc 3), no stop.Stop."""
+    def grace_kill(self) -> "tuple":
+        """A Xyce that ignores the forwarded SIGTERM in the second deck, the grace set to 0.5 s:
+        (EngineResult, log, seconds from the SIGTERM to run()'s return)."""
         from vamos import proc
         ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
         run_dir = os.path.join(self.tmp, "run")
@@ -757,27 +1130,82 @@ class TestRunFake(FakeCase):
         late: List[int] = []
         saved = signal.signal(signal.SIGTERM, lambda s, f: late.append(s))
         grace, proc.INTERRUPT_GRACE = proc.INTERRUPT_GRACE, 0.5
+        sent: List[float] = []
 
         def send() -> None:
             t0 = time.time()
             while time.time() - t0 < 60 and "vamos_a2.cir" not in self.calls(run_dir):
                 time.sleep(0.02)
             time.sleep(0.3)
+            sent.append(time.time())
             os.kill(os.getpid(), signal.SIGTERM)
         th = threading.Thread(target=send, daemon=True)
         th.start()
         t0 = time.time()
         try:
             er, log, _ = run_chain(self, ch)
+            ended = time.time()
         finally:
             proc.INTERRUPT_GRACE = grace
             signal.signal(signal.SIGTERM, saved)
-        self.assertLess(time.time() - t0, 30)
+        th.join(10)
+        self.assertLess(ended - t0, 30)
+        self.assertEqual(late, [])
+        self.assertTrue(sent, "the SIGTERM was sent")
+        return er, log, ended - sent[0]
+
+    @unittest.skipUnless(LINUX, "signals to the test process (Linux/WSL)")
+    def test_the_grace_kill_is_converted_as_status_3(self):
+        """stop.py: a Xyce still running proc.INTERRUPT_GRACE seconds after the forwarded SIGTERM is
+        killed; that is not a second signal: the run is converted (rc 3), no stop.Stop.  R-tests-3: the
+        run ends the grace the test sets after the signal (0.5 s), not the 5 s default: a runner that
+        ignored proc.INTERRUPT_GRACE took 5.4 s here."""
+        er, log, took = self.grace_kill()
         self.assertEqual(er.rc, 3, log)
         self.assertEqual(er.status, {"vamos_a1": "ok", "vamos_a2": "interrupted"})
-        self.assertIn("analysis `myac' was interrupted (SIGTERM)", log)
+        self.assertIn("analysis `myac' was interrupted (SIGTERM", log)
         self.assertTrue(any("vamos_a2.cir -> exit -9" in line for line in er.log), er.log)
-        self.assertEqual(late, [])
+        self.assertGreater(took, 0.4, "the grace was waited for")
+        self.assertLess(took, 2.5, "the 0.5 s grace, not the 5 s default")
+
+    @unittest.skipUnless(LINUX, "signals to the test process (Linux/WSL)")
+    def test_the_grace_kill_warning_names_the_kill(self):
+        """R-run-17: the interrupted analysis's warning says that Xyce outlived the grace and was killed,
+        naming the grace, as run_vacask's does (it said only `(SIGTERM)')."""
+        er, log, _took = self.grace_kill()
+        self.assertEqual(er.rc, 3, log)
+        self.assertIn("analysis `myac' was interrupted (SIGTERM; Xyce did not stop within 0.5 s and was killed); "
+                      "its partial results (vamos_a2.raw) are written", log)
+
+    def test_openblas_is_bounded_unless_the_user_sets_a_thread_count(self):
+        """R-run-4: every Xyce process (the -norun check and each deck) runs with OPENBLAS_NUM_THREADS=1:
+        OpenBLAS's pool otherwise starts one thread per CPU, which spins (about 2 s of CPU per process
+        on 32 CPUs, no wall time gained); a thread count the user set (OPENBLAS_NUM_THREADS, or
+        GOTO_NUM_THREADS or OMP_NUM_THREADS, which OpenBLAS falls back on) is left as it is, and
+        vamos's own environment is not changed."""
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        for v in THREAD_VARS:
+            os.environ.pop(v, None)
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch)
+        er, log, _ = run_chain(self, ch)
+        self.assertEqual(er.rc, 0, log)
+        self.assertEqual(self.envs(run_dir), [{"OPENBLAS_NUM_THREADS": "1", "GOTO_NUM_THREADS": None,
+                                               "OMP_NUM_THREADS": None}] * 4)
+        self.assertFalse([v for v in THREAD_VARS if v in os.environ])
+        for var, val in (("OPENBLAS_NUM_THREADS", "8"), ("GOTO_NUM_THREADS", "2"), ("OMP_NUM_THREADS", "4")):
+            with self.subTest(var=var):
+                for v in THREAD_VARS:
+                    os.environ.pop(v, None)
+                os.environ[var] = val
+                name = "run_" + var
+                run_dir = os.path.join(self.tmp, name)
+                self.behave(run_dir, ch)
+                er, log, _ = run_chain(self, ch, name)
+                self.assertEqual(er.rc, 0, log)
+                want: Dict[str, Optional[str]] = {v: None for v in THREAD_VARS}
+                want[var] = val
+                self.assertEqual(self.envs(run_dir), [want] * 4)
 
     def test_verbose_echo_and_no_analyses(self):
         os.environ["VAMOS_VERBOSE"] = "1"
@@ -810,13 +1238,25 @@ class TestRunFake(FakeCase):
         self.assertEqual(self.calls(run_dir), [])
 
     def test_render_notes_are_reported_once(self):
+        """Render's notes print once each, in circuit read-in (§8.7).  D2 (R-run-15): Xyce's tolerance
+        notices name only the settings the netlist set: e2e 01, which sets none, prints none (it printed
+        reltol, vabstol and iabstol, the plan's defaults), and an options statement's reltol is noted
+        once for the run's three decks."""
         ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
         run_dir = os.path.join(self.tmp, "run")
         self.behave(run_dir, ch)
         er, log, _ = run_chain(self, ch)
-        self.assertEqual(log.count("option reltol=0.001 is not mapped on Xyce"), 1, log)
-        self.assertIn("Notice from spectre during circuit read-in.", log)
         self.assertEqual(er.rc, 0)
+        self.assertNotIn("is not mapped on Xyce", log)
+        ch = Chain(write_deck(self.tmp, "opts.scs", OPTS_DECK))
+        run_dir = os.path.join(self.tmp, "run2")
+        self.behave(run_dir, ch)
+        er, log, _ = run_chain(self, ch, "run2")
+        self.assertEqual(er.rc, 0, log)
+        noted = [ln for ln in log.splitlines() if "is not mapped on Xyce" in ln]
+        self.assertEqual(len(noted), 1, log)
+        self.assertIn("reltol", noted[0])
+        self.assertIn("Notice from spectre during circuit read-in.", log)
 
     def test_each_deck_between_its_banner_and_its_time(self):
         ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
@@ -865,6 +1305,306 @@ op1 dc
         self.assertEqual((er.rc, er.status), (2, {}), log)
         self.assertIn("Error from spectre during circuit read-in.", log)
         self.assertEqual(self.calls(run_dir), [])
+
+
+class TestVerilogAChecks(FakeCase):
+    """R-run-3 (§0: never silently mis-simulate): a module PyMS cannot build runs as a device that
+    contributes nothing, and a module whose `include PyMS does not find is built without it; both are
+    exit status 2, never a run (VACASK's openvaf-r refuses the second, and Spectre either)."""
+
+    def va_chain(self, va_name: str, va_text: str, deck_text: str) -> Chain:
+        write_deck(self.tmp, va_name, va_text)
+        return Chain(write_deck(self.tmp, "deck.scs", deck_text))
+
+    def test_a_failed_pyms_build_stops_the_run_after_the_norun_check(self):
+        ch = self.va_chain("vramp.va", VRAMP_VA, RAMP_DECK)
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"norun vamos_a1.cir": {"out": PYMS_TRACE}})
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual((er.rc, er.status), (2, {}), log)
+        self.assertEqual(self.calls(run_dir), ["-norun vamos_a1.cir"])       # no analysis ran
+        self.assertIn("Error from spectre during initial setup.", log)
+        self.assertIn("PyMS could not build Verilog-A module vramp", log)
+        self.assertIn(os.path.join(self.tmp, "vramp.va"), log)
+        self.assertIn("'$abstime' was not declared in this scope", log)
+        self.assertIn("contributes nothing", log)
+
+    def test_a_timeout_or_another_exception_of_the_build_is_a_failed_build_too(self):
+        for name, out, who in (("timeout", PYMS_TIMEOUT, "Verilog-A module vramp"),
+                               ("other", PYMS_OTHER, "a Verilog-A module")):
+            with self.subTest(case=name):
+                ch = self.va_chain("vramp.va", VRAMP_VA, RAMP_DECK)
+                run_dir = os.path.join(self.tmp, "run_" + name)
+                self.behave(run_dir, ch, {"norun vamos_a1.cir": {"out": out}})
+                er, log, run_dir = run_chain(self, ch, "run_" + name)
+                self.assertEqual((er.rc, er.status), (2, {}), log)
+                self.assertEqual(self.calls(run_dir), ["-norun vamos_a1.cir"])
+                self.assertIn("PyMS could not build %s" % who, log)
+                self.assertIn("timed out after 900 seconds" if name == "timeout" else "analog function idt", log)
+
+    def test_a_build_the_retry_saves_is_a_run(self):
+        ch = self.va_chain("vramp.va", VRAMP_VA, RAMP_DECK)
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"norun vamos_a1.cir": {"out": PYMS_RETRIED}})
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual(er.rc, 0, log)
+        self.assertEqual(self.calls(run_dir), ["-norun vamos_a1.cir", "vamos_a1.cir", "vamos_a2.cir"])
+        self.assertNotIn("PyMS could not build", log)
+
+    def test_a_deck_whose_own_build_fails_stops_the_later_decks(self):
+        """A build in a deck run (an alter or a sweep gives the module other parameters, so another
+        library) that fails: that deck is failed, status 2, the later decks are not run, and the
+        build's own lines are not narrated beside the error."""
+        ch = self.va_chain("vramp.va", VRAMP_VA, RAMP_DECK)
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"vamos_a1.cir": {"out": PYMS_TRACE}})
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual((er.rc, er.status), (2, {"vamos_a1": "failed"}), log)
+        self.assertEqual(self.calls(run_dir), ["-norun vamos_a1.cir", "vamos_a1.cir"])
+        self.assertIn("Error from spectre during DC analysis `op1'.", log)
+        self.assertIn("PyMS could not build Verilog-A module vramp", log)
+        self.assertNotIn("Xyce: BuildError", log)
+
+    def test_pyms_failures(self):
+        got = RX.pyms_failures(PYMS_TRACE)
+        self.assertEqual([(f.module, f.detail) for f in got],
+                         [("vramp", "'$abstime' was not declared in this scope")])
+        self.assertTrue(any(ln.startswith("BuildError: g++") for ln in got[0].lines), got[0].lines)
+        self.assertEqual([f.module for f in RX.pyms_failures(PYMS_TIMEOUT)], ["vramp"])
+        self.assertEqual([(f.module, f.detail) for f in RX.pyms_failures(PYMS_OTHER)],
+                         [("", "NotImplementedError: analog function idt")])
+        self.assertEqual(RX.pyms_failures(PYMS_RETRIED), [])
+        self.assertEqual(RX.pyms_failures("Traceback (most recent call last):\n  File \"x.py\", line 1\n"
+                                          "ValueError: not PyMS's\n"), [])
+
+    def test_a_missing_include_is_refused_before_xyce_starts(self):
+        """PyMS skips an `include it does not find and builds the module without it (rc 0, a wrong
+        device, on a cold cache and, with the warning gone, on a warm one): refused before Xyce runs."""
+        ch = self.va_chain("vinc.va", VINC_VA, INC_DECK)
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch)
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual((er.rc, er.status), (2, {}), log)
+        self.assertEqual(self.calls(run_dir), [])                             # Xyce never started
+        self.assertIn("Error from spectre during AHDL read-in.", log)
+        self.assertIn("%s: `include \"rdefs.vams\"" % os.path.join(self.tmp, "vinc.va"), log)
+        self.assertNotIn("disciplines.vams", log)
+
+    def test_a_header_found_only_through_cds_vloga_include_is_refused(self):
+        """§2.8: Xyce's compile searches no include directory, so a header that only CDS_VLOGA_INCLUDE
+        (or -I) finds is missing there (VACASK finds it: b = 1/3 V; Xyce gave b = 0, rc 0)."""
+        ch = self.va_chain("vinc.va", VINC_VA, INC_DECK)
+        hdr = os.path.dirname(self.write("hdr/rdefs.vams", "`define RDEF 2000.0\n"))
+        os.environ["CDS_VLOGA_INCLUDE"] = hdr
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch)
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual((er.rc, er.status), (2, {}), log)
+        self.assertEqual(self.calls(run_dir), [])
+        self.assertIn("rdefs.vams", log)
+        self.assertIn("it is in %s (CDS_VLOGA_INCLUDE or -I)" % hdr, log)
+
+    def test_the_headers_pyms_finds_or_does_without_pass(self):
+        """Spectre's and the standard headers (discipline.h, constants.h, disciplines.vams,
+        constants.vams: PyMS skips the ones it lacks and the module runs, measured), a header beside the
+        top file reached from a nested include (PyMS's second place), one in PYMS_INCLUDE_PATH, and one
+        in a branch of `ifdef that vamos cannot evaluate are not refused; the nested one is copied."""
+        self.write("src/sub/mid.vams", '`include "deep.vams"\n')
+        self.write("src/deep.vams", "`define RT 2000.0\n")
+        pinc = os.path.dirname(self.write("pinc/pyms_only.vams", "// found through PYMS_INCLUDE_PATH\n"))
+        os.environ["PYMS_INCLUDE_PATH"] = pinc
+        top = ('`include "discipline.h"\n`include "constants.h"\n`include "disciplines.vams"\n'
+               '`include "constants.vams"\n`include "sub/mid.vams"\n`include "pyms_only.vams"\n'
+               '`ifdef NOT_DEFINED\n`include "nowhere.vams"\n`endif\n'
+               '// `include "commented.vams"\n'
+               'module vtop(a, b);\n  inout a, b; electrical a, b;\n  parameter real r = `RT;\n'
+               '  analog I(a, b) <+ V(a, b) / r;\nendmodule\n')
+        self.write("src/top.va", top)
+        ch = Chain(write_deck(self.tmp, "deck.scs", INC_DECK.replace("vinc.va", "src/top.va").replace("vinc", "vtop")))
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch)
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual(er.rc, 0, log)
+        self.assertEqual(self.calls(run_dir), ["-norun vamos_a1.cir", "vamos_a1.cir"])
+        self.assertEqual(RX.missing_includes([os.path.join(self.tmp, "src", "top.va")]), [])
+        for rel in ("top.va", os.path.join("sub", "mid.vams"), "deep.vams"):
+            self.assertTrue(os.path.isfile(os.path.join(run_dir, rel)), rel)
+        self.assertFalse(os.path.exists(os.path.join(run_dir, "pyms_only.vams")))
+
+    def test_a_skipped_include_in_xyce_s_output_is_refused(self):
+        """The include vamos cannot judge (in a branch of `ifdef) that PyMS then skips: its preprocessor's
+        warning in the -norun output stops the run; the standard headers' skips do not."""
+        va = VINC_VA.replace('`include "rdefs.vams"\n', '`ifdef insideADMS\n`include "rdefs.vams"\n`endif\n')
+        ch = self.va_chain("vinc.va", va, INC_DECK)
+        out = ("preprocess: warning: 'disciplines.vams' not found (skipped)\n"
+               "preprocess: warning: 'rdefs.vams' not found (skipped)\n"
+               "build_vae_so: built /c/vae_vinc_1.so (1 params, full)\n")
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"norun vamos_a1.cir": {"out": out}})
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual((er.rc, er.status), (2, {}), log)
+        self.assertEqual(self.calls(run_dir), ["-norun vamos_a1.cir"])
+        self.assertIn("PyMS did not find the Verilog-A include \"rdefs.vams\"", log)
+        self.assertNotIn("\"disciplines.vams\"", log)
+        run_dir = os.path.join(self.tmp, "run2")
+        self.behave(run_dir, ch, {"norun vamos_a1.cir": {"out": out.replace("'rdefs.vams'", "'discipline.h'")}})
+        er, log, run_dir = run_chain(self, ch, "run2")
+        self.assertEqual(er.rc, 0, log)
+
+    def test_missing_includes(self):
+        a = self.write("lib/a.va", '`include "disciplines.vams"\n`include "here.vams"\n`include "gone.vams"\n'
+                                   '`ifdef X\n`include "cond.vams"\n`else\n`include "cond2.vams"\n`endif\n'
+                                   '`include "/no/such/abs.vams"\nmodule a(p); endmodule\n')
+        self.write("lib/here.vams", '`include "inner_gone.h"\n')
+        self.assertEqual(RX.missing_includes([a, a]), [
+            (os.path.abspath(a), os.path.abspath(a), "gone.vams"),
+            (os.path.abspath(a), os.path.abspath(a), "/no/such/abs.vams"),
+            (os.path.abspath(a), os.path.join(self.tmp, "lib", "here.vams"), "inner_gone.h")])
+        self.assertEqual(RX.missing_includes([os.path.join(self.tmp, "nope.va")]), [])   # Xyce reports that
+
+
+# -- signals with the fake Xyce (Linux: a signal interrupts a blocked wait at once) ------------------------
+
+@unittest.skipUnless(LINUX, "signals to the test process and the fake Xyce's process group (Linux/WSL)")
+class TestRunFakeSignals(FakeCase):
+    """§2.7 and stop.py with the fake Xyce: the stop signals reach Xyce's whole process group (R-run-5),
+    a second signal raises stop.Stop before anything is classified (R-run-8), SIGUSR1 during the -norun
+    check names it (R-run-11), and SIGUSR2's notice is stop.CHECKPOINT (R-run-14)."""
+
+    SIGS = (signal.SIGINT, signal.SIGTERM, signal.SIGUSR1, signal.SIGUSR2)
+
+    def setUp(self):
+        super().setUp()
+        for s in self.SIGS:
+            if signal.getsignal(s) == signal.SIG_IGN:
+                self.skipTest("%s is ignored in this process (a background launch, E81)" % signal.Signals(s).name)
+        self.late: List[int] = []
+        self.saved = {s: signal.signal(s, lambda signum, frame: self.late.append(signum)) for s in self.SIGS}
+        self.marker = "vamos-test-marker-" + uuid.uuid4().hex
+
+    def tearDown(self):
+        for s, h in self.saved.items():
+            signal.signal(s, h)
+        for pid in marker_pids(self.marker):          # a child that outlived its fake Xyce
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        super().tearDown()
+
+    def sender(self, run_dir: str, call: str, sigs: List[int], gap: float = 0.3,
+               when=None) -> threading.Thread:
+        """Once `call` is in fake.calls (and `when()` holds, when given): each signal of sigs to this
+        process, `gap` seconds apart."""
+        def send() -> None:
+            end = time.time() + 60
+            while time.time() < end and (call not in self.calls(run_dir) or (when is not None and not when())):
+                time.sleep(0.02)
+            time.sleep(0.2)
+            for k, s in enumerate(sigs):
+                if k:
+                    time.sleep(gap)
+                os.kill(os.getpid(), s)
+        th = threading.Thread(target=send, daemon=True)
+        th.start()
+        return th
+
+    def test_the_stop_signal_reaches_the_child_of_the_norun_check(self):
+        """R-run-5: Xyce's PyMS compile runs in children of Xyce (sh, python3, g++, cc1plus); the
+        forwarded SIGTERM reached Xyce's pid only, and the compile went on after vamos ended."""
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"norun vamos_a1.cir": {"spawn": self.marker, "sleep": 60}})
+        th = self.sender(run_dir, "-norun vamos_a1.cir", [signal.SIGINT], when=lambda: marker_pids(self.marker))
+        er, log, run_dir = run_chain(self, ch)
+        th.join(10)
+        self.assertEqual((er.rc, er.status), (3, {}), log)
+        self.assertTrue(gone(self.marker, 2.0), "the child of the -norun check outlived the run")
+        self.assertEqual(self.late, [])
+
+    def test_the_stop_signal_reaches_the_child_of_a_deck(self):
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"vamos_a2.cir": {"spawn": self.marker, "sleep": 60}})
+        th = self.sender(run_dir, "vamos_a2.cir", [signal.SIGINT], when=lambda: marker_pids(self.marker))
+        er, log, run_dir = run_chain(self, ch)
+        th.join(10)
+        self.assertEqual(er.rc, 3, log)
+        self.assertEqual(er.status, {"vamos_a1": "ok", "vamos_a2": "interrupted"})
+        self.assertTrue(gone(self.marker, 2.0), "the child of the deck outlived the run")
+        self.assertEqual(self.late, [])
+
+    def test_a_second_signal_raises_stop_before_the_deck_is_classified(self):
+        """R-run-8: the runner said the interrupted analysis's partial results were written, then the
+        flow that nothing was converted; now only Stop (the deck's time line still closes its banner)."""
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"vamos_a2.cir": {"ignore_term": True, "sleep": 60}})
+        th = self.sender(run_dir, "vamos_a2.cir", [signal.SIGINT, signal.SIGINT])
+        lf = LogFile(self.tmp, profile=True)
+        try:
+            with self.assertRaises(stop.Stop) as cm:
+                RX.run(ch.nl2, ch.plan, ch.sigmap, run_dir, lf.job, lf.log)
+        finally:
+            th.join(10)
+            log = lf.text()
+        self.assertEqual(cm.exception.signum, signal.SIGINT)
+        self.assertNotIn("partial results", log)
+        self.assertNotIn("was interrupted", log)
+        self.assertIn("Total time required for ac analysis `myac' was ", log)
+        self.assertEqual(self.late, [])
+
+    def test_sigusr1_during_the_norun_check_names_it(self):
+        """R-run-11: the status line said `Xyce not running' while the -norun check ran (on a cold PyMS
+        cache it compiles every Verilog-A module, about 15 s for e2e 8)."""
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        run_dir = os.path.join(self.tmp, "run")
+        self.behave(run_dir, ch, {"norun vamos_a1.cir": {"sleep": 1.5}})
+        th = self.sender(run_dir, "-norun vamos_a1.cir", [signal.SIGUSR1])
+        er, log, run_dir = run_chain(self, ch)
+        th.join(10)
+        self.assertEqual(er.rc, 0, log)
+        self.assertIn("spectre status: no analysis running, Xyce checks the netlist (-norun on vamos_a1.cir), "
+                      "elapsed = ", log)
+        self.assertNotIn("Xyce not running", log)
+
+    def test_sigusr2_prints_the_one_checkpoint_notice(self):
+        """R-run-14: SIGUSR2's notice is stop.CHECKPOINT, the text the flow and run_vacask print too."""
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        for text in (None, "a sentinel for stop.CHECKPOINT"):
+            with self.subTest(text=text):
+                name = "run" if text is None else "run_patched"
+                run_dir = os.path.join(self.tmp, name)
+                self.behave(run_dir, ch, {"vamos_a2.cir": {"sleep": 1.5}})
+                th = self.sender(run_dir, "vamos_a2.cir", [signal.SIGUSR2])
+                if text is None:
+                    er, log, run_dir = run_chain(self, ch, name)
+                    want = "checkpoint not supported: SIGUSR2 is ignored and the run continues"
+                    self.assertEqual(stop.CHECKPOINT, want)
+                else:
+                    with mock.patch.object(stop, "CHECKPOINT", text):
+                        er, log, run_dir = run_chain(self, ch, name)
+                    want = text
+                th.join(10)
+                self.assertEqual(er.rc, 0, log)
+                self.assertIn("Notice from spectre during AC analysis `myac'.\n    %s\n" % want, log)
+                self.assertEqual(log.count(want), 1, log)
+
+
+class TestProgress(FakeCase):
+    """R-run-11, both legs: the SIGUSR1 text while the -norun check runs."""
+
+    def test_progress_names_the_norun_check(self):
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        lf = LogFile(self.tmp)
+        r = RX._Runner(ch.nl2, ch.plan, ch.sigmap, os.path.join(self.tmp, "run"), lf.job, lf.log)
+        r.decks, _names = RX.render_decks(ch.nl2, ch.plan, ch.sigmap)
+        self.assertEqual(r.progress(), "Xyce not running")
+        r.checking = r.decks[0]
+        self.assertEqual(r.progress(), "Xyce checks the netlist (-norun on vamos_a1.cir)")
+        r.checking, r.running = None, r.decks[1]
+        self.assertEqual(r.progress(), "Xyce deck vamos_a2.cir (2 of 3)")
+        lf.text()
 
 
 # -- WSL: the real Xyce --------------------------------------------------------------------------------
@@ -1083,6 +1823,82 @@ op1 dc
         self.assertEqual(er.status, {"vamos_a1": "ok", "vamos_a2": "failed"})
         self.assertIn("sweep `swp' sets a parameter Xyce does not know", log)
 
+    @needs_pyms
+    def test_a_module_pyms_cannot_build_is_status_2(self):
+        """R-run-3 on the real Xyce: PyMS's evaluator has no $abstime, so both builds fail; the -norun
+        check's output names it and no analysis runs (the module ran as a device that contributes
+        nothing: out = 0 at 1 ms where VACASK gives 1 V, exit 0, three warnings, even under
+        --vamos-strict)."""
+        write_deck(self.tmp, "vramp.va", VRAMP_VA)
+        ch = Chain(write_deck(self.tmp, "deck.scs", RAMP_DECK))
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual((er.rc, er.status), (2, {}), log + "\n".join(er.log))
+        self.assertIn("Error from spectre during initial setup.", log)
+        self.assertIn("PyMS could not build Verilog-A module vramp", log)
+        self.assertIn(os.path.join(self.tmp, "vramp.va"), log)
+        self.assertIn("$abstime", log)
+        self.assertTrue(os.path.isfile(os.path.join(run_dir, "vamos_a1.norun.log")))
+        self.assertFalse(os.path.exists(os.path.join(run_dir, "vamos_a1.log")))      # no deck ran
+
+    @needs_pyms
+    def test_a_missing_include_is_refused_on_a_cold_and_a_warm_cache(self):
+        """R-run-3 on the real Xyce: PyMS built vinc.va without its missing header (b = 0 V, exit 0, no
+        warning), and once its evaluator library is cached it prints nothing about the header at
+        all; vamos refuses the module before Xyce starts, whatever the cache holds."""
+        cache = os.path.join(self.tmp, "vae")
+        os.environ["PYMS_VAE_CACHE"] = cache
+        write_deck(self.tmp, "vinc.va", VINC_VA)
+        ch = Chain(write_deck(self.tmp, "deck.scs", INC_DECK))
+        er, log, run_dir = run_chain(self, ch, "cold")
+        self.assertEqual((er.rc, er.status), (2, {}), log)
+        self.assertIn("`include \"rdefs.vams\"", log)
+        self.assertEqual([f for f in os.listdir(run_dir) if f.endswith(".log")], [])     # Xyce never started
+        warm = os.path.join(self.tmp, "warm")                 # the cache a run without the check leaves
+        os.makedirs(warm)
+        decks, _names = RX.render_decks(ch.nl2, ch.plan, ch.sigmap, RX.place_va(ch.nl2.hdl, warm))
+        write_deck(warm, decks[0].file, decks[0].text)
+        p = subprocess.run([RX.xyce_exe(), decks[0].file], cwd=warm, env=RX.engines_env(),
+                           stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True, errors="replace", timeout=900)
+        self.assertEqual(p.returncode, 0, p.stdout[-3000:])
+        self.assertIn("'rdefs.vams' not found (skipped)", p.stdout)
+        self.assertTrue(glob.glob(os.path.join(cache, "vae_vinc_*.so")), os.listdir(cache))
+        er, log, run_dir = run_chain(self, ch, "warm_run")
+        self.assertEqual((er.rc, er.status), (2, {}), log)
+        self.assertIn("`include \"rdefs.vams\"", log)
+        self.assertEqual([f for f in os.listdir(run_dir) if f.endswith(".log")], [])
+
+    @needs_pyms
+    def test_the_headers_pyms_does_without_still_run(self):
+        """R-run-3's refusal spares the headers PyMS skips and does without: a module that includes
+        Spectre's discipline.h and constants.h (ref19's examples, pp.452 and 541) runs, b = 1/3 V."""
+        write_deck(self.tmp, "hconst.va", HCONST_VA)
+        ch = Chain(write_deck(self.tmp, "deck.scs", HCONST_DECK))
+        er, log, _ = run_chain(self, ch)
+        self.assertEqual(er.rc, 0, log + "\n".join(er.log))
+        op = rawfile.read(er.files["vamos_a1"])
+        self.assertAlmostEqual(op.points[0][op.exact("V(B)")], 1.0 / 3.0, delta=1e-6)
+
+    @needs_pyms
+    def test_two_modules_of_one_library_keep_their_parameters(self):
+        """F4 (phase 2c2): vares and vres of one lib/ sharing ../inc; place_va put both in run_dir/lib/, where PyMS
+        built vres with vares's attributes and both lost their parameters: "Unrecognized parameter R for device
+        RX1", "Unrecognized parameter A for device YVRES!X2", status 2 for a valid deck.  Now vres sits in its own
+        vamos_va1/ and the deck gives VACASK's values, b = 0.25 (R=3k) and c = 0.2 (the include's r = 4k)."""
+        write_deck(os.path.join(self.tmp, "lib"), "vares.va", VARES_VA)
+        write_deck(os.path.join(self.tmp, "lib"), "vres.va", VRES_INC_VA)
+        write_deck(os.path.join(self.tmp, "inc"), "rdefs.include", RDEFS)
+        ch = Chain(write_deck(self.tmp, "deck.scs", TWOLIB_DECK))
+        er, log, run_dir = run_chain(self, ch)
+        self.assertEqual(er.rc, 0, log + "\n".join(er.log))
+        op = rawfile.read(er.files["vamos_a1"])
+        self.assertAlmostEqual(op.points[0][op.exact("V(B)")], 0.25, delta=1e-6)
+        self.assertAlmostEqual(op.points[0][op.exact("V(C)")], 0.2, delta=1e-6)
+        with open(os.path.join(run_dir, "vamos_a1.cir")) as fh:
+            text = fh.read()
+        self.assertIn('.hdl "lib/vares.va"\n.hdl "vamos_va1/lib/vres.va"\n', text)
+        self.assertNotIn("Unrecognized parameter", log)
+
 
 LONG = """// a long tran for the signal tests (E72's circuit)
 simulator lang=spectre
@@ -1266,9 +2082,69 @@ op2 dc
         self.assertEqual(er.rc, 0, log)
         self.assertEqual(er.status, {"vamos_a1": "ok", "vamos_a2": "ok", "vamos_a3": "ok"})
         self.assertIn("spectre status: analysis `tr1' running, Xyce deck vamos_a2.cir (2 of 3)", log)
-        self.assertIn("checkpoint not supported: SIGUSR2 is ignored and the run continues", log)
-        self.assertIn("Notice from spectre during transient analysis `tr1'.", log)
+        self.assertIn("Notice from spectre during transient analysis `tr1'.\n    %s\n" % stop.CHECKPOINT, log)
         self.assertEqual(self.late, [])
+
+    def test_the_grace_kill_on_the_real_engine(self):
+        """R-tests-13: the grace-period kill on the real Xyce, not a stand-in.  Xyce ends at once on the
+        forwarded SIGTERM [E81], so it is stopped (SIGSTOP) first, which keeps that SIGTERM pending: 0.5 s
+        after the SIGINT, Xyce's process group gets SIGKILL and the run is converted as status 3, its
+        warning naming the kill."""
+        from vamos import proc
+        ch = Chain(write_deck(self.tmp, "deck.scs", LONG % "0.5"))
+        run_dir = os.path.join(self.tmp, "run")
+        os.makedirs(run_dir)
+        sent: List[float] = []
+
+        def send() -> None:
+            log = os.path.join(run_dir, "vamos_a2.log")
+            end = time.time() + 120
+            while time.time() < end:
+                try:
+                    with open(log) as fh:
+                        if "Beginning Transient Calculation" in fh.read():
+                            break
+                except OSError:
+                    pass
+                time.sleep(0.02)
+            time.sleep(0.3)
+            pids = procs_under(run_dir)
+            for pid in pids:
+                os.kill(pid, signal.SIGSTOP)
+            end = time.time() + 10
+            while time.time() < end and not all(_proc_state(pid) in ("T", "t", "") for pid in pids):
+                time.sleep(0.01)
+            sent.append(time.time())
+            os.kill(os.getpid(), signal.SIGINT)
+        th = threading.Thread(target=send, daemon=True)
+        grace, proc.INTERRUPT_GRACE = proc.INTERRUPT_GRACE, 0.5
+        th.start()
+        try:
+            er, log, _ = run_chain(self, ch)
+            ended = time.time()
+        finally:
+            proc.INTERRUPT_GRACE = grace
+            th.join(30)
+        self.assertTrue(sent, "the SIGINT was sent")
+        self.assertEqual(er.rc, 3, log)
+        self.assertEqual(er.status, {"vamos_a1": "ok", "vamos_a2": "interrupted"})
+        self.assertIn("analysis `tr1' was interrupted", log)
+        self.assertIn("(SIGINT; Xyce did not stop within 0.5 s and was killed); its partial results (vamos_a2.raw) "
+                      "are written", log)
+        self.assertGreater(ended - sent[0], 0.4)
+        self.assertLess(ended - sent[0], 2.5)
+        self.assertTrue(any("vamos_a2.cir -> exit -9" in line for line in er.log), er.log)
+        self.assertEqual(procs_under(run_dir), [])
+        self.assertEqual(self.late, [])
+
+
+def _proc_state(pid: int) -> str:
+    """A process's state letter from /proc ("" when it is gone)."""
+    try:
+        with open("/proc/%d/stat" % pid) as fh:
+            return fh.read().rsplit(")", 1)[-1].split()[0]
+    except (OSError, IndexError):
+        return ""
 
 
 if __name__ == "__main__":

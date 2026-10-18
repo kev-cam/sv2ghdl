@@ -24,18 +24,33 @@ TestVocabulary  the ParamRule grammar of §10 (actions, value, when, match, warn
                 eg and fcs, resistor af, mos1 tox), the equal defaults §3.9 says are never written, the
                 folded card geometry §5.2 refuses as a sweep target, the master set, DISPATCH and
                 ELEMENT_OF consistency.
+TestBinning     phase 2c (R-plan-1): bsim3v3 and bsim4 take the BSIM spelling vth0 and the l/w/p binning
+                names of their P0 parameters [M ref5 p.186, pp.208-209], through tables.rule_for (the
+                parser and the card path) and plan.rule_for (sweep and alter targets); ref5's own bsim4
+                sample model, the UG's bsim3v3 cards and a SPICE level-49 card parse.
+TestDiomod      phase 2c (R-plan-8): ref5's diomod readings, bsim3v3 p.197 (0 is the Berkeley junction model,
+                the targets' own) and bsim4 p.219 (BSIM4's own dioMod 0/1/2 on both targets).
 
 Runs on both legs (Cygwin Python 3.9, WSL Python 3.14), no engine.  The data block is pasted into
 vamos/netlist/tables.py by the phase-0 merge (scratchpad sp0/S0C/spectre_masters_data.py); until then
 every test here fails naming the master the table lacks (§12 "Done when").
 """
 
+import os
 import re
+import shutil
+import tempfile
 import unittest
 
 from vamos_testlib import ROOT  # noqa: F401  (puts the repository on sys.path)
 
+from vamos.netlist import plan as PL  # noqa: E402
+from vamos.netlist import spectre  # noqa: E402
 from vamos.netlist import tables  # noqa: E402
+from vamos.netlist.expr_ast import Num  # noqa: E402
+from vamos.netlist.ir import Model  # noqa: E402
+from vamos.notes import NoteError  # noqa: E402
+from vamos.spectre.job import Settings  # noqa: E402
 
 MERGE = ("tables.SPECTRE_MASTERS has no %r: the phase-0 S0C data block (scratchpad sp0/S0C/"
          "spectre_masters_data.py) is not merged into vamos/netlist/tables.py yet "
@@ -657,6 +672,212 @@ class TestVocabulary(MastersCase):
                 self.assertEqual([tables.POLARITY[k] for _p, k in row.kinds], [1.0, -1.0], master)
             else:
                 self.assertLessEqual(len(row.kinds), 1)
+
+
+# -- phase 2c ---------------------------------------------------------------------------------------------------
+
+# The manual's own cards (R-plan-1): ref5 p.209's bsim4 sample model statement and instance (the text dump's
+# joined tokens split, its duplicate a1=0 dropped), the UG's bsim3v3 cards (p.47 from spp, p.299's "Spectre BSIM
+# 3v3 Model"), a SPICE level-49 card (the Spectre path, §3.9) and a binned bsim3v3 card; each with an op.
+REF5_BSIM4_SAMPLE = """simulator lang=spectre
+model pchmod bsim4 type=p mobmod=0 capmod=2 version=4.21 toxe=3e-9 cdsc=2.58e-4 \\
+cdscb=0 cdscd=6.1e-8 cit=0 nfactor=1.1 xj=9e-8 vfb=0.76 vsat=9.2e4 at=3.3e4 a0=1.1 \\
+ags=1.0e-20 a1=0 ngate=9e19 vth0=-0.42 a2=1 delta=0.014 pvag=1e-20 pclm=6.28e-4 \\
+pdits=0.2 pditsl=2.3e6 pditsd=0.23 fprout=0.2 pdiblcb=3.4e-8 pdiblc1=0.81 \\
+drout=0.56 pdiblc2=9.84e-6 pscbe1=8.14e8 pscbe2=9.58e-07 lint=5e-9 wint=5e-9 \\
+dmcg=5e-6 dmci=5e-6 dmdg=5e-6 dmcgt=6e-7 dwj=4.5e-8 rsh=6 cgso=7.43e-10 \\
+cgdo=7.43e-10 cgbo=2.56e-11 cgsl=1e-14 cgdl=1e-14 ckappas=0.5 ckappad=0.5 noff=0.9 \\
+voffcv=0.02 acde=1 moin=15 xpart=0 kt1l=0 kt2=2.2e-2 lpe0=5.75e-8 lpeb=2.3e-10 \\
+dvt0=2.89 dvt1=0.53 dvt2=-3.2e-2 dvt0w=0 dvt1w=0 dvt2w=0 dvtp0=7.32e-7 \\
+dvtp1=0.12 dsub=0.058 eta0=0.001 u0=4.19e-2 ua=8.7e-16 ub=3.06e-18 k1=0.33 uc=4.6e-13 \\
+ute=-1.5 ua1=4.31e-9 ub1=7.61e-18 uc1=-5.6e-11 k2=-1.87e-2 rdsw=369.4 rdw=184.7 \\
+rsw=184.7 prwg=3.22e-8 prwb=6.8e-11 wr=1 rdswmin=0 rdwmin=0 rswmin=0 prt=0 b0=-1e-20 \\
+k3=80 k3b=0 w0=2.5e-6 b1=0 keta=-0.047 alpha0=7.4e-2 alpha1=0.005 beta0=30
+V1 (1 0) vsource dc=-1
+V2 (2 0) vsource dc=-1
+m4 (0 2 1 1) pchmod w=2u l=0.8u as=250p ad=250p pd=168p ps=168p m=1
+op1 dc
+"""
+UG47_BSIM3V3 = """simulator lang=spectre
+m1 ( 1 2 0 0 ) nch
+vdr ( 1 0 ) vsource dc=2
+vg ( 2 0 ) vsource dc=1
+model nch bsim3v3 type=n tox=1e-9 vth0=0.5 vbox=5
+op1 dc
+"""
+UG299_BSIM3V3 = """simulator lang=spectre
+model nch bsim3v3
++version=3.1
++type=n
++tnom=27.0
++nch=2.498E+17 tox=9E-09 xj=1.00000E-07
++lint=9.36e-8 wint=1.47e-7
++vth0=.6322 k1=.756 k2=-3.83e-2 k3=-2.612
++dvt0=2.812 dvt1=0.462 dvt2=-9.17e-2
++nlx=3.52291E-08 w0= 1.163e-6 k3b= 2.233
++vsat=86301.58 ua=6.47e-9 ub=4.23e-18 uc=-4.706281e-11
++rdsw=650 u0=388.3203 wr=1
++a0=.3496967 ags=.1
++b0=0.546 b1= 1
++dwg=-6.0e-09 dwb=-3.56e-09 prwb=-.213
++keta=-3.605872e-02 a1=2.778747e-02 a2=.9
++voff=-6.735529e-02 nfactor=1.139926 cit=1.622527e-04
++cdsc=-2.147181e-05 cdscb= 0
++dvt0w=0 dvt1w=0 dvt2w=0
++cdscd=0 prwg=0
++eta0=1.0281729e-02 etab=-5.042203e-03
++dsub=.31871233
++pclm=1.114846 pdiblc1=2.45357e-03 pdiblc2=6.406289e-03
++drout=.31871233 pscbe1=5000000 pscbe2=5e-09 pdiblcb=-.234
++pvag=0 delta=0.01
++wl=0 ww=-1.420242e-09 wwl = 0
++wln=0 wwn=.2613948 ll=1.300902e-10
++lw=0 lwl=0 lln=.316394 lwn=0
++kt1=-.3 kt2=-.051
++at=22400
++ute=-1.48
++ua1=3.31e-10 ub1=2.61e-19 uc1=-3.42e-10
++kt1l=0 prt=764.3
+Vd (d 0) vsource dc=1
+Vg (g 0) vsource dc=1
+M1 (d g 0 0) nch w=10u l=1u
+op1 dc
+"""
+SPICE_LEVEL49 = """simulator lang=spice
+.model nch nmos level=49 vth0=0.4 tox=4n u0=400 lvth0=1e-8
+m1 d g 0 0 nch w=2u l=0.5u
+vd d 0 1.2
+vg g 0 1.2
+simulator lang=spectre
+op1 dc
+"""
+BINNED_BSIM3V3 = """simulator lang=spectre
+Vg (g 0) vsource dc=1.2
+Vd (d 0) vsource dc=1.2
+M1 (d g 0 0) nch w=2u l=0.5u
+M2 (d g 0 0) nch2 w=2u l=0.5u
+model nch bsim3v3 type=n vth0=0.4 lvth0=1e-8 wu0=1e-9 pk1=1e-8 tox=4n toxm=4n u0=0.04
+model nch2 bsim3v3 type=n vtho=0.4 lvtho=1e-8 tox=4n toxm=4n u0=0.04 lu0=1e-9 wk1=1e-8 pk2=1e-15
+op1 dc
+"""
+
+
+def parse_deck(text):
+    """spectre.parse of a deck written to a temporary directory (the deck is parse-only, no engine)."""
+    d = tempfile.mkdtemp(prefix="vamos_masters_")
+    try:
+        path = os.path.join(d, "deck.scs")
+        with open(path, "w") as fh:
+            fh.write(text)
+        return spectre.parse(path, d, spectre.SpectreParseOpts())
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+class TestBinning(MastersCase):
+    """R-plan-1: "Only the P0 parameters are listed. Pl, Pw, and Pp are not shown but can be recognized. The
+    names of Pl, Pw, and Pp are identical to that of P0 but with a prefix of l, w, and p" [M ref5 p.186,
+    p.209]; the BSIM spelling vth0 beside ref5's vtho (ref5 p.209's own sample model writes vth0)."""
+
+    def test_vth0_is_a_pass_row_beside_the_vtho_rename(self):
+        for master in ("bsim3v3", "bsim4"):
+            rules = self.master_row(master).params
+            self.assertEqual(tables.rule_for(rules, "vth0", Num(0.4), {"vth0"}).action, "pass", master)
+            r = tables.rule_for(rules, "vtho", Num(0.4), {"vtho"})
+            self.assertEqual((r.action, r.value), ("rename", "vth0"), master)
+            self.assertEqual(PL.rule_for(rules, "vth0", {"vth0": Num(0.4)}).action, "pass", master)
+
+    def test_binning_names_follow_their_p0_rule(self):
+        for master in ("bsim3v3", "bsim4"):
+            rules = self.master_row(master).params
+            for name in ("lvth0", "wvth0", "pvth0", "lu0", "wu0", "pu0", "lk1", "wk1", "pk1", "pk2", "lua1", "wute",
+                         "lnfactor", "pvoff", "wdvt0", "lcgsl", "wkt1"):
+                r = tables.rule_for(rules, name, Num(1e-8), {name})
+                self.assertIsNotNone(r, "%s %s" % (master, name))
+                self.assertEqual(r.action, "pass", "%s %s" % (master, name))
+                self.assertRegex(r.cite, r"ref5 p\.\d+")
+                self.assertEqual(PL.rule_for(rules, name, {name: Num(1e-8)}).action, "pass", "%s %s" % (master, name))
+            for name in ("lvtho", "wvtho", "pvtho"):
+                r = tables.rule_for(rules, name, Num(1e-8), {name})
+                self.assertEqual((r.action, r.value), ("rename", name[0] + "vth0"), "%s %s" % (master, name))
+                self.assertEqual(PL.rule_for(rules, name, {name: Num(1e-8)}).value, name[0] + "vth0")
+            # mode selectors, process, junction and noise parameters have no binning names on the targets
+            for name in ("lcapmod", "wmobmod", "pversion", "ltox", "wtoxm", "lcj", "pmj", "lnoia", "ltnom", "ldiomod",
+                         "lnj", "lxpart", "lzzz"):
+                self.assertIsNone(tables.rule_for(rules, name, Num(1.0), {name}), "%s %s" % (master, name))
+                self.assertIsNone(PL.rule_for(rules, name, {name: Num(1.0)}), "%s %s" % (master, name))
+        # a name with a row of its own keeps it: bsim3v3's LOD rows (ref5 p.202), BSIM's lint/ll/wl rows
+        b3 = self.master_row("bsim3v3").params
+        self.assertEqual(tables.rule_for(b3, "lku0", Num(1.0), {"lku0"}).action, "error")
+        self.assertEqual(tables.rule_for(b3, "lku0", Num(0.0), {"lku0"}).action, "strip")
+        for name in ("lint", "ll", "wl", "lmax", "wmlt", "lku0"):
+            self.assertIn(tables.rule_for(b3, name, Num(1e-8), {name}), b3, name)
+        # masters without ref5's binning sentence have no derived names (mos1's lai0 is its own row)
+        m1 = self.master_row("mos1").params
+        self.assertIsNone(tables.rule_for(m1, "lvto", Num(0.1), {"lvto"}))
+        self.assertEqual(tables.rule_for(m1, "lai0", Num(0.1), {"lai0"}).name, "lai0")
+        self.assertIsNone(tables.rule_for(self.master_row("bsim3v3").instance, "lw", Num(1e-6), {"lw"}))
+
+    def test_the_spectre_card_path_prints_the_binning_names(self):
+        b3 = Model("nch", "nmos", 49.0, {"vtho": Num(0.4), "lvtho": Num(1e-8), "wu0": Num(1e-9), "pk1": Num(1e-8),
+                                         "tox": Num(4e-9)}, "t.scs:1", prim="bsim3v3")
+        b4 = Model("pch", "pmos", 54.0, {"vth0": Num(-0.42), "lvth0": Num(1e-9), "pu0": Num(1e-12),
+                                         "toxe": Num(3e-9)}, "t.scs:2", prim="bsim4")
+        for engine in ("vacask", "xyce"):
+            got = dict(tables.model_params(b3, engine, dialect="spectre")[0])
+            self.assertEqual((got["vth0"], got["lvth0"], got["wu0"], got["pk1"]),
+                             (Num(0.4), Num(1e-8), Num(1e-9), Num(1e-8)), engine)
+            self.assertNotIn("lvtho", got)
+            got = dict(tables.model_params(b4, engine, dialect="spectre")[0])
+            self.assertEqual((got["vth0"], got["lvth0"], got["pu0"]), (Num(-0.42), Num(1e-9), Num(1e-12)), engine)
+
+    def test_the_manuals_cards_parse_and_plan(self):
+        for what, text in (("ref5 p.209 bsim4 sample", REF5_BSIM4_SAMPLE), ("UG p.47 bsim3v3", UG47_BSIM3V3),
+                           ("UG p.299 bsim3v3", UG299_BSIM3V3), ("SPICE level 49", SPICE_LEVEL49),
+                           ("binned bsim3v3", BINNED_BSIM3V3)):
+            with self.subTest(deck=what):
+                try:
+                    nl = parse_deck(text)
+                except NoteError as exc:
+                    self.fail("%s: %s" % (what, [n.message for n in exc.notes if n.severity == "error"]))
+                for engine in ("vacask", "xyce"):
+                    PL.build(nl, engine, Settings())
+                    for card in nl.models().values():
+                        tables.model_params(card, engine, dialect="spectre")
+
+
+class TestDiomod(MastersCase):
+    """R-plan-8: ref5 p.197 (bsim3v3) '173 diomod=1 a flag to select junction model. diomod=1 junction model
+    described in Common MOSFET Equations section will be used. diomod=0 Berkeley junction model is used.';
+    ref5 p.219 (bsim4) '147 diomod=1 Diode model selector.', BSIM4's own dioMod on both targets."""
+
+    def test_bsim4_diomod_is_bsim4s_own_selector(self):
+        rules = self.master_row("bsim4").params
+        for v in (0.0, 1.0, 2.0):
+            self.assertEqual(tables.rule_for(rules, "diomod", Num(v), {"diomod"}).action, "pass", v)
+        card = Model("nch", "nmos", 54.0, {"vtho": Num(0.4), "toxe": Num(4e-9), "diomod": Num(2.0)}, "t.scs:1",
+                     prim="bsim4")
+        for engine in ("vacask", "xyce"):
+            got, notes = tables.model_params(card, engine, dialect="spectre")
+            self.assertEqual(dict(got)["diomod"], Num(2.0), engine)
+            self.assertFalse([n for n in notes if "diomod" in n.message], engine)
+
+    def test_bsim3v3_diomod_reading_is_ref5s(self):
+        rules = self.master_row("bsim3v3").params
+        zero = tables.rule_for(rules, "diomod", Num(0.0), {"diomod"})
+        one = tables.rule_for(rules, "diomod", Num(1.0), {"diomod"})
+        self.assertEqual((zero.action, one.action), ("strip", "strip"))
+        self.assertIn("Berkeley", zero.cite)
+        self.assertIn("Berkeley", one.cite)
+        self.assertNotIn("junction model only", zero.cite + one.cite)
+        self.assertEqual(tables.rule_for(rules, "diomod", Num(2.0), {"diomod"}).action, "error")
+        for v in (0.0, 1.0):
+            card = Model("nch", "nmos", 49.0, {"vtho": Num(0.4), "tox": Num(4e-9), "diomod": Num(v)}, "t.scs:1",
+                         prim="bsim3v3")
+            for engine in ("vacask", "xyce"):
+                got, notes = tables.model_params(card, engine, dialect="spectre")
+                self.assertNotIn("diomod", dict(got))
+                self.assertEqual([n.severity for n in notes if "diomod" in n.message], ["note"], (v, engine))
 
 
 if __name__ == "__main__":

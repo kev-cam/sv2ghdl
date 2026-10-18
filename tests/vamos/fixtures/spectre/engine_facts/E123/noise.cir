@@ -1,0 +1,8 @@
+* a noise analysis of 6001 points: Xyce prints no Percent complete for it
+V1 in 0 DC 0 AC 1
+R1 in out 1000.0
+R2 out 0 1000.0
+C1 out 0 1e-09
+.NOISE V(OUT) V1 DEC 1000 1 1MEG
+.PRINT NOISE FILE=noise.prn ONOISE INOISE
+.end

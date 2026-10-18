@@ -1,0 +1,7 @@
+`include "disciplines.vams"
+// E117: a Verilog-A module with a syntax error (a missing semicolon), for openvaf-r's diagnostics
+module bad(a, b);
+  inout a, b; electrical a, b;
+  parameter real r = 1000.0
+  analog I(a, b) <+ V(a, b) / r;
+endmodule

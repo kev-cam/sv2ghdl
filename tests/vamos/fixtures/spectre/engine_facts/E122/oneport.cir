@@ -1,0 +1,10 @@
+* the same subckt with one port (its ground), each instance on node 0
+.subckt s1 g params: p3=1
+I1 g M1 DC 1
+R1 M1 g {p3}
+.ends s1
+X2 0 s1 params: p3=7
+X3 0 s1 params: p3=9
+.OP
+.PRINT DC FORMAT=RAW FILE=oneport.raw V(X2:M1) V(X3:M1)
+.end

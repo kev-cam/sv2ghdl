@@ -1,7 +1,7 @@
 {
  "row": "E105",
  "experiment": "the XDM diode clipper under tran_lteimplicit=0 (phase 1b): vamos's VACASK and Xyce renders of xdm/DIODE_CLIPPER/diodeClipper.cir.spectre (tran stop=2m, maxstep T/50 = 40 us)",
- "result": "VACASK keeps its 40 us maxstep across the clamp knee (points at 1.5144, 1.5544, 1.5944 ms; 70 points) where Xyce refines to 0.84 us steps (208 points): at VACASK's 1.5544 ms point N03179 is -0.86156 V against Xyce's -0.53851 V interpolated there, 5.78 % of full scale (5.587 V), 1 of 70 points; the other points are within 0.48 % (N03179; N03334: 7.24 % at the knee, 0.62 % elsewhere)",
+ "result": "VACASK keeps its 40 us maxstep across the clamp knee (points at 1.5144, 1.5544, 1.5944 ms; 70 points) where Xyce refines to 0.84 us steps (208 points): at VACASK's 1.5544 ms point N03179 is -0.86156 V against Xyce's -0.53851 V interpolated there, 5.78 % of full scale (5.587 V), 1 of 70 points; the other points are within 0.48 % (N03179; N03334: 7.24 % at the knee, 0.62 % elsewhere); stated directly (phase 2c): VACASK's points in [1.50, 1.61] ms are 3, 40 us apart; Xyce's 13 there, its smallest step 0.84 us",
  "rules": [
   "\u00a75.4 / \u00a714 q.22: VACASK's tran_lteimplicit=0 for every errpreset keeps the maxstep across a knee",
   "\u00a711.3 T3a's outlier rule (\u00a714 q.55): a knee the engines step differently"
@@ -19,6 +19,25 @@
      "at": 0.00155441549,
      "value": -0.86156123,
      "rel": 0.01
+    },
+    {
+     "raw": "vamos_a1.raw",
+     "times": {
+      "from": 0.0015,
+      "to": 0.00161,
+      "count": [
+       3,
+       3
+      ],
+      "min_step": [
+       3.99e-05,
+       4.01e-05
+      ],
+      "max_step": [
+       3.99e-05,
+       4.01e-05
+      ]
+     }
     }
    ]
   },
@@ -34,6 +53,21 @@
      "at": 0.00155441549,
      "value": -0.538508159,
      "rel": 0.01
+    },
+    {
+     "raw": "vamos_a1.raw",
+     "times": {
+      "from": 0.0015,
+      "to": 0.00161,
+      "count": [
+       10,
+       1000
+      ],
+      "min_step": [
+       0.0,
+       1e-06
+      ]
+     }
     }
    ]
   }

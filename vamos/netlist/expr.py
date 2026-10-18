@@ -686,6 +686,9 @@ class _Parser:
             raise HspiceExtraFunction("unknown function %s() (not an HSPICE function)" % func, self.text,
                                       name_tok.pos)
         if self.peek().kind == ")":
+            if self.spectre and func in self.funcs and not self.funcs[func][0]:
+                self.next()                                 # real f() { ... } (ref19 p.481): no arguments
+                return self.call_spectre(func, [], name_tok)
             self.fail("%s() needs arguments" % func, self.peek())
         args = [self.expr(0)]
         while self.peek().kind == "OP" and self.peek().val == ",":

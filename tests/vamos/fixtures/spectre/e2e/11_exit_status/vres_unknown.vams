@@ -1,0 +1,2 @@
+// e2e 11: the parameter declaration of vres_unknown.va (vamos-authored)
+`define VRES_UNKNOWN_PARAMS parameter real r = 2000.0;

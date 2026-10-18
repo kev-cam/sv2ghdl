@@ -1,0 +1,7 @@
+* stepped sweep counts on Xyce: .AC LIN 4 from 1 kHz to 4 kHz
+V1 in 0 DC 0 AC 1
+R1 in out 1000.0
+R2 out 0 1000.0
+.AC LIN 4 1K 4K
+.PRINT AC FORMAT=RAW FILE=aclin.raw V(OUT)
+.end

@@ -13,7 +13,8 @@ soon as this module imports; run() never raises (§2.7) and returns the Spectre 
           any run directory exists; then a bad engine choice (exit 2)
   2       the results path that argv and the defaults give (§2.5: -raw, else %C:r.raw moved into
           -outdir when it has no /); its stale logFile (psf) or nutmeg file removed; the run
-          directory tempfile.mkdtemp(prefix="<%C:r:t>.run.", dir=<its directory>)
+          directory tempfile.mkdtemp(prefix="<%C:r:t>.run.", dir=<its directory>), or dir=<the cwd>
+          when the results path is the cwd or holds it (-raw .), or its directory cannot be written
   3       the input: the netlist, or stdin copied to <run>/stdin (%C = stdin, origins stdin:<line>)
   4       cpp when args.cpp_runs: cpp.command echoed under --vamos-verbose, cpp.preprocess, then
           cpp.macro_warnings; without cpp, cpp.directive_errors (§2.6)
@@ -46,14 +47,22 @@ cpp echo under --vamos-verbose, the conversion's messages, the print=yes node vo
 run-directory note and the trailer.
 
 Signals (§2.7).  run() installs handlers in the main thread for INT TERM HUP QUIT (stop.HANDLED),
-USR1 USR2 (stop.FLAGS) and TSTP; one that is ignored at start stays ignored.  Before an engine runs
-a stop signal ends the run at once with status 3 and the trailer.  While a runner runs, its
-proc.Interrupts own the signals (the first is forwarded to the engine; the runner returns rc 3, or
-raises stop.Stop for a second one).  During the conversion the first stop signal ends it before
-the next file (nutmeg: the next plot), a second one at once (the file being written dropped), with
-status 3 and a warning naming the signal; the logFile lists the complete blocks only (an unswept
-analysis, or a whole sweep block), so it stays consistent.  USR1 and USR2 only set flags; the main
-loop prints the status line or the note "checkpoint not supported".
+USR1 USR2 (stop.FLAGS) and TSTP; one that is ignored at start stays ignored.  What cli.py's early
+handlers recorded while vamos started (phase 2c: the imports before these handlers) is taken over
+as if these had received it, and the handlers found are put back at the end (cli.py's, so a signal
+after the trailer neither kills vamos nor prints a traceback).  Before an engine runs a stop signal
+ends the run at once with status 3 and the trailer.  While a runner runs, its proc.Interrupts own
+the signals (the first is forwarded to the engine; the runner returns rc 3, or raises stop.Stop for
+a second one); a stop signal vamos itself got meanwhile (seen through signal.set_wakeup_fd) is the
+first one, and an engine ended from outside (rc 3 too) leaves the next one a first.  During the
+conversion the first stop signal ends it before the next file (nutmeg: the next plot), a second one
+at once (the file being written dropped; nutmeg: the one results file, and the warning names it),
+with status 3 and a warning naming the signal; the logFile lists the complete blocks only (an
+unswept analysis, or a whole sweep block), so it stays consistent.  The writers' progress= callback
+(D3, phase 2c) answers inside the file in hand: a first stop signal at once with the notice
+"stopping after `<analysis>' is written; a second interrupt drops it", USR1 and USR2 as below.
+USR1 and USR2 only set flags; the main loop prints the status line (with the points written so
+far, inside a file) or the note "checkpoint not supported: SIGUSR2 is ignored and the run continues".
 
 Every exception is exit status 2 with the "terminated prematurely" trailer: a NoteError's notes, a
 ToolError, a ScanError, an engine-choice ValueError and an OSError while setting up the run
@@ -70,6 +79,7 @@ reported (its notes and warnings, never an error).
 from __future__ import annotations
 
 import dataclasses
+import errno
 import importlib
 import inspect
 import os
@@ -157,16 +167,19 @@ class _Signals:
     """flow.run's own handlers, outside the engine runs (a runner's proc.Interrupts replaces them
     while its engine runs and restores them afterwards).  The stop signals raise _Interrupted in
     the "now" state; in "deferred" (the conversion) the first one is recorded for the main loop and
-    a second one raises; in "quiet" (the trailer) they are recorded only."""
+    a second one raises; in "held" (while they are installed) and "quiet" (the trailer) they are
+    recorded only.  A handler found in place that offers take_early_signals() is cli.py's early one
+    (phase 2c): what it recorded while vamos started is taken over, in order, as received here."""
 
     def __init__(self) -> None:
         self.signum: Optional[int] = None
         self.count = 0
-        self.state = "now"
+        self.state = "held"
         self._flags: List[int] = []
         self._saved: Dict[int, object] = {}
 
     def install(self) -> None:
+        """The handlers, in the "held" state (_Run.main moves to "now" inside its handlers)."""
         if threading.current_thread() is not threading.main_thread():
             return
         for sig in STOP_SIGNALS:
@@ -176,6 +189,28 @@ class _Signals:
         tstp = getattr(signal, "SIGTSTP", None)
         if tstp is not None:
             self._install(tstp, self._on_tstp)
+        self._take_over()
+
+    def _take_over(self) -> None:
+        """The signals cli.py's early handlers recorded before these were installed (R-tests-2, R-run-6):
+        a stop signal is the run's first (the run then ends at once, _Run.steps), the flags go first to the
+        main loop."""
+        early: List[int] = []
+        seen: List[object] = []
+        for handler in self._saved.values():
+            take = getattr(handler, "take_early_signals", None)
+            if callable(take) and not any(handler is h for h in seen):
+                seen.append(handler)
+                early.extend(take())
+        stops = [s for s in early if s in STOP_SIGNALS]
+        if stops:
+            self.signum = stops[0]
+            self.count += len(stops)
+        self._flags[:0] = [s for s in early if s in stop.FLAGS]
+
+    def pending(self) -> bool:
+        """A USR1 or USR2 the main loop has not printed yet."""
+        return bool(self._flags)
 
     def _install(self, sig: int, handler) -> None:
         try:
@@ -209,6 +244,62 @@ class _Signals:
 
     def _on_tstp(self, signum, frame) -> None:
         os.kill(os.getpid(), signal.SIGSTOP)             # Ctrl-Z stops vamos (no engine runs here)
+
+
+class _Received:
+    """The signals this process gets while the block runs, whichever handler takes them: the interpreter
+    writes each signal's number to the signal.set_wakeup_fd pipe as it arrives (R-run-9: a runner's
+    proc.Interrupts holds the signals while its engine runs, and its rc 3 alone does not tell a signal
+    vamos got from an engine ended from outside).  Main thread only; elsewhere it sees nothing."""
+
+    def __init__(self) -> None:
+        self.data = b""
+        self._pipe: Optional[Tuple[int, int]] = None
+        self._old = -1
+
+    def __enter__(self) -> "_Received":
+        if threading.current_thread() is not threading.main_thread():
+            return self
+        try:
+            r, w = os.pipe()
+        except OSError:
+            return self
+        try:
+            os.set_blocking(r, False)
+            os.set_blocking(w, False)
+            self._old = signal.set_wakeup_fd(w, warn_on_full_buffer=False)
+        except (OSError, ValueError):
+            os.close(r)
+            os.close(w)
+            return self
+        self._pipe = (r, w)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if self._pipe is None:
+            return
+        r, w = self._pipe
+        self._pipe = None
+        try:
+            signal.set_wakeup_fd(self._old)
+        except (OSError, ValueError):
+            pass
+        chunks = []
+        while True:
+            try:
+                chunk = os.read(r, 4096)
+            except OSError:                              # empty (EAGAIN)
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+        os.close(r)
+        os.close(w)
+        self.data = b"".join(chunks)
+
+    def stop_signal(self) -> bool:
+        """Whether one of them was a stop signal (stop.HANDLED)."""
+        return any(b in STOP_SIGNALS for b in self.data)
 
 
 def _signal_name(signum: int) -> str:
@@ -333,12 +424,12 @@ class _Run:
 
     def poll(self) -> None:
         """The flags the handlers set (§2.7): SIGUSR1 prints the status line (with the result being
-        written during the conversion), SIGUSR2 the note."""
+        written during the conversion), SIGUSR2 the note stop.CHECKPOINT (the runners' text too, R-run-14)."""
         for signum in self.sig.take_flags():
             if signum == _SIGUSR1:
                 self.ensure_log().status_line(self.progress)
             else:
-                self.message(note("", "checkpoint not supported"), self.phase)
+                self.message(note("", stop.CHECKPOINT), self.phase)
 
     def internal(self, e: BaseException) -> None:
         """§2.7: one line on the screen; the traceback in the run directory, else the log file,
@@ -388,6 +479,9 @@ class _Run:
     # -- the steps -------------------------------------------------------------------------------
 
     def steps(self) -> int:
+        self.sig.state = "now"               # inside guarded's handlers: from here a stop signal raises
+        if self.sig.signum is not None:      # a stop signal while vamos started (cli.py's early handlers) or
+            raise _Interrupted(self.sig.signum)  # while these were installed: the run ends at once (R-tests-2)
         job, opts = self.job, self.opts
         self.codes = percent.codes(job, self.start)
         self.make_log_dir()
@@ -476,9 +570,10 @@ class _Run:
         if self.say(self.engine_notes(nl), PHASE_SETUP):
             return 2
 
-        # step 8: the plan (§5)
+        # step 8: the plan (§5); state-file names compare as this flow resolves them (D9: the job's cwd, -outdir
+        # expanded)
         try:
-            pl = nplan.build(nl, engine, settings)
+            pl = nplan.build(nl, engine, settings, cwd=job.cwd, outdir=self.outdir())
         except NoteError as e:
             raise _Fail(_without_duplicate_option_notes(nl.notes, e.notes), PHASE_SETUP)
         stop_now = self.say(_without_duplicate_option_notes(nl.notes, pl.notes), PHASE_SETUP)
@@ -560,7 +655,9 @@ class _Run:
             return None
 
     def provenance(self, engine: str) -> None:
-        """§1: banner.provenance over vamos, the engine rows and cpp when it runs."""
+        """§1: banner.provenance over vamos, the engine rows and cpp when it runs.  The engine rows' versions
+        are read under the environment the engine runs with (engines.env_for, OpenBLAS bounded as the runners
+        bound it), so the header names the build the run loads (R-run-13, R-run-4)."""
         used = [("vamos", tools.version_of("vamos", tools.launcher()), tools.launcher())]
         if engine:
             xy = None
@@ -571,8 +668,9 @@ class _Run:
                         xy = tools.find_real("Xyce")
                     except tools.ToolError:
                         xy = None
+            env = tools.bound_blas_threads(engines.env_for(engine, None, tools.child_env()))
             for name, p in engines.tool_rows(engine, xyce=xy):
-                used.append((name, tools.version_of(name, p), p))
+                used.append((name, tools.version_of(name, p, env=env), p))
         if sargs.cpp_runs(self.job):
             cpp = self.cpp_exe()
             if cpp:
@@ -624,14 +722,28 @@ class _Run:
             raise _Fail([error("", "cannot remove the earlier run's %s: %s" % (target, e.strerror or e))], PHASE_SETUP)
 
     def make_run_dir(self, raw: str) -> None:
-        parent = os.path.dirname(raw) or self.job.cwd
+        """§1: the run directory goes beside the results path, into its directory.  A results path that
+        is the cwd or holds it (`-raw .`, ref19 p.27: the results go into the cwd) puts it into the cwd,
+        never the cwd's parent, and so does a parent it cannot be created in (read-only, R-run-7)."""
+        cwd = self.job.cwd
+        parent = os.path.dirname(raw) or cwd
+        if _holds(raw, cwd):
+            parent = cwd
         prefix = percent.expand("%C:r:t", self.codes) + ".run."
         try:
             os.makedirs(parent, exist_ok=True)
             self.run_dir = tempfile.mkdtemp(prefix=prefix, dir=parent)
+            return
         except OSError as e:
-            raise _Fail([error("", "cannot create the run directory in %s: %s" % (parent, e.strerror or e))],
-                        PHASE_SETUP)
+            failed = e
+        if parent != cwd and failed.errno in (errno.EACCES, errno.EPERM, errno.EROFS):
+            try:
+                self.run_dir = tempfile.mkdtemp(prefix=prefix, dir=cwd)
+                return
+            except OSError:
+                pass
+        raise _Fail([error("", "cannot create the run directory in %s: %s" % (parent, failed.strerror or failed))],
+                    PHASE_SETUP)
 
     # -- step 3 ----------------------------------------------------------------------------------
 
@@ -765,13 +877,16 @@ class _Run:
         except (TypeError, ValueError):
             pass
         log = self.ensure_log()
-        er = fn(nl2, pl, sigmap, self.run_dir, self.job, log, **kw)
+        with _Received() as got:
+            er = fn(nl2, pl, sigmap, self.run_dir, self.job, log, **kw)
         # the runner's proc.Interrupts gave the signals back: from here on the conversion rule holds
-        # (§2.7).  An engine run that ended with status 3 was stopped by a signal, which counts as the
-        # first one: the next stop signal is the second, and ends the conversion at once (§2.7: "or at
-        # a second signal, which also makes vamos exit 3 at once without converting")
+        # (§2.7).  A stop signal vamos itself got while the engine ran (the runner passed it on) counts
+        # as the first one: the next stop signal is the second, and ends the conversion at once (§2.7:
+        # "or at a second signal, which also makes vamos exit 3 at once without converting").  An
+        # engine run that ended with status 3 without one (the engine ended from outside vamos,
+        # stop.py) leaves the user's next signal a first one (R-run-9)
         self.sig.state = "deferred"
-        if isinstance(er, results.EngineResult) and er.rc == 3:
+        if got.stop_signal():
             self.sig.count = max(self.sig.count, 1)
         if not isinstance(er, results.EngineResult):
             raise TypeError("run_%s.run returned %r, not an EngineResult" % (self.engine, er))
@@ -813,7 +928,11 @@ class _Run:
         self.sig.state = "quiet"
         self.progress = ""
         self.phase = PHASE_SETUP
-        if self.sig.signum is not None:
+        if self.sig.signum is not None and conv.dropped is not None:
+            # nutmeg: the one results file is what a second signal drops, every plot with it (R-run-10)
+            self.message(warning("", "the conversion was stopped by %s: the results file %s is not written (§2.7)"
+                                 % (_signal_name(self.sig.signum), conv.dropped)), PHASE_SETUP)
+        elif self.sig.signum is not None:
             self.message(warning("", "the conversion was stopped by %s: the analyses converted before it are "
                                      "written%s (§2.7)" % (_signal_name(self.sig.signum),
                                                           " and listed in logFile" if settings.fmt == "psfascii"
@@ -865,6 +984,10 @@ class _Conversion:
         self.seen = 0
         self.failed_results = False
         self.write_error = False
+        self.name = ""                                   # the analysis being written (D3)
+        self.target: Optional[str] = None                # nutmeg: the one results file a second signal drops
+        self.dropped: Optional[str] = None               # ... and dropped (R-run-10)
+        self.noticed = False                             # D3's "stopping after ..." notice is out
 
     def flush(self, phase: str) -> None:
         new = self.cnotes[self.seen:]
@@ -875,7 +998,28 @@ class _Conversion:
         phase = _result_phase(res)
         self.flush(phase)
         self.r.phase = phase
-        self.r.progress = "writing the results of `%s'" % psf.analysis_name(res)
+        self.name = psf.analysis_name(res)
+        self.r.progress = "writing the results of `%s'" % self.name
+
+    def rows_written(self, n: int) -> None:
+        """D3 (phase 2c): the writers' progress= callback, from inside the rows of the file in hand (at
+        least every few thousand rows): the flags are answered at once (SIGUSR1's status line with the
+        points written so far, SIGUSR2's notice), and so is a first stop signal, with one notice; the file
+        in hand is still finished (§2.7), a second signal drops it (its handler raises)."""
+        sig = self.r.sig
+        if not sig.pending() and (sig.signum is None or self.noticed):
+            return
+        base = self.r.progress
+        self.r.progress = "%s, %d point%s written" % (base, n, "" if n == 1 else "s")
+        try:
+            self.r.poll()
+        finally:
+            self.r.progress = base
+        if sig.signum is not None and not self.noticed:
+            self.noticed = True
+            what = "it" if self.target is None else "the results file %s" % self.target
+            self.r.message(note("", "stopping after `%s' is written; a second interrupt drops %s" % (self.name, what)),
+                           self.r.phase)
 
     def psf(self, stream: Iterable[results.AnalysisResult]) -> None:
         """One file per result, then the logFile listing the complete blocks.  A first stop signal
@@ -887,6 +1031,7 @@ class _Conversion:
         done: List[results.AnalysisResult] = []
         current: Optional[results.AnalysisResult] = None
         prev_top = False
+        kw = {"progress": self.rows_written} if _takes_progress(psf.write_analysis) else {}
         try:
             for res in stream:
                 starts, prev_top = _starts_block(res, prev_top, self.r.legacy)
@@ -899,7 +1044,7 @@ class _Conversion:
                 current = res
                 self.track(res)
                 psf.write_analysis(self.raw, res, self.head, escchars=job.escchars, notes=self.cnotes,
-                                   masters=self.masters)
+                                   masters=self.masters, **kw)
                 done.append(res)
                 current = None
                 self.after(res)
@@ -928,6 +1073,7 @@ class _Conversion:
     def nutmeg(self, stream: Iterable[results.AnalysisResult], binary: bool, title: str) -> None:
         path = self.r.nutmeg_file(self.raw)
         written: List[results.AnalysisResult] = []
+        self.target = path
 
         def plots() -> Iterator[results.AnalysisResult]:
             for res in stream:
@@ -938,12 +1084,14 @@ class _Conversion:
                 written.append(res)
                 yield res
                 self.after(res, post=False)
+        kw = {"progress": self.rows_written} if _takes_progress(nutmeg.write) else {}
         try:
-            nutmeg.write(path, plots(), binary, notes=self.cnotes, title=title)
+            nutmeg.write(path, plots(), binary, notes=self.cnotes, title=title, **kw)
         except _Interrupted:
             self.r.sig.state = "quiet"
             _remove(path + ".vamos-tmp")
             written = []
+            self.dropped = path
         except OSError as e:
             _remove(path + ".vamos-tmp")
             self.write_error = True
@@ -1297,6 +1445,23 @@ def _remove(path: str) -> None:
         os.remove(path)
     except OSError:
         pass
+
+
+def _holds(top: str, path: str) -> bool:
+    """Whether the directory `top` is `path` or one of its ancestors (symbolic links resolved)."""
+    try:
+        a, b = os.path.realpath(top), os.path.realpath(path)
+        return os.path.normcase(os.path.commonpath([a, b])) == os.path.normcase(a)
+    except ValueError:                                   # different drives, or not both absolute
+        return False
+
+
+def _takes_progress(fn) -> bool:
+    """Whether a writer takes the progress= keyword (D3; psf.write_analysis and nutmeg.write)."""
+    try:
+        return "progress" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 __all__ = ["run", "PHASE_READ", "PHASE_SETUP", "STDIN_NAME", "TRACEBACK_NAME"]

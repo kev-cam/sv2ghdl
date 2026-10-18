@@ -303,7 +303,7 @@ class TestPlanContracts(unittest.TestCase):
                          ["name", "id", "target", "spec", "continuation", "label", "desc", "units"])
         self.assertEqual(names(plan.AnalysisStep),
                          ["id", "name", "kind", "context", "own", "args", "options", "saves", "full_solution",
-                          "noise_input", "stores", "uses"])
+                          "noise_input", "stores", "uses", "user_options"])
         self.assertEqual(names(plan.Action), ["op", "args", "step", "origin"])
         self.assertEqual(names(plan.RunPlan),
                          ["actions", "variables", "overridden", "options", "notes", "dependents", "engine"])

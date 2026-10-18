@@ -1,0 +1,16 @@
+a tran of a few seconds, for VACASK's output through a pipe and a pseudo-terminal
+ground 0
+load "resistor.osdi"
+load "capacitor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+model vamos_capacitor capacitor
+V1 (in 0) vamos_vsource type="sine" sinedc=0 ampl=1 freq=1k
+R1 (in out) vamos_resistor r=1000.0
+C1 (out 0) vamos_capacitor c=1e-06
+control
+  options rawfile="binary"
+  save v(out)
+  analysis op1 op
+  analysis tr1 tran stop=0.25 maxstep=1e-07
+endc

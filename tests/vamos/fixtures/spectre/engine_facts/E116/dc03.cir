@@ -1,0 +1,7 @@
+* stepped sweep counts on Xyce: .DC from 0 to 0.3 by 0.1
+V1 in 0 DC 0
+R1 in out 1000.0
+R2 out 0 1000.0
+.DC V1 0 0.3 0.1
+.PRINT DC FORMAT=RAW FILE=dc03.raw V(OUT)
+.end

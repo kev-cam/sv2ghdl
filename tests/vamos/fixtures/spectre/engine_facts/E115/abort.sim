@@ -1,0 +1,15 @@
+an op, then a noise analysis whose output string names a node that does not exist ('out' quoted inside the string)
+ground 0
+load "resistor.osdi"
+model vamos_vsource vsource
+model vamos_resistor resistor
+V1 (in 0) vamos_vsource type="dc" dc=1 mag=1
+R1 (in out) vamos_resistor r=1000.0
+R2 (out 0) vamos_resistor r=1000.0
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0
+  analysis op1 op
+  analysis nz1 noise out="'out'" in="V1" values=[1k]
+  analysis op2 op
+endc

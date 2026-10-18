@@ -1,7 +1,9 @@
 """e2e 29 (docs/VAMOS_SPECTRE_DESIGN.md §11.2 item 29): a production Verilog-A model on the default
 engine.  The deck is a Spectre transcription of VACASK's ring benchmark
 (benchmark/ring/vacask/runme.sim: a 9-stage PSP103 ring oscillator), generated at test time from the
-VACASK source tree that VAMOS_VACASK_SRC names (needs_vacask_src); nothing of the tree is vendored:
+VACASK source tree that VAMOS_VACASK_SRC names, by default the tree the VACASK in use was built from
+(needs_vacask_src, D6: the deck is T2, so the gate run needs no variable for it); nothing of the tree
+is vendored:
 
   * `ahdl_include "<tree>/devices/psp103v4/psp103.va"`, read in place: four `include`s of macro files,
     `module PSP103VA(D, G, S, B);`, the 413 parameters declared through macros (§3.1, E98);
@@ -28,8 +30,10 @@ only with the tree).  Measured 2026-10-16 (VACASK 0.3.4-91, openvaf-r 20260616) 
 seams of e2e 29 applied by hand (a card-based Verilog-A instance names its module; VACASK's module
 names are lower case): every check above holds.
 
-    cd tests/vamos && VAMOS_VACASK_SRC=/usr/local/src/VACASK PYTHONDONTWRITEBYTECODE=1 \\
-        python3 -m unittest test_spectre_e2e_29
+    cd tests/vamos && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_spectre_e2e_29
+
+(VAMOS_VACASK_SRC=<tree> names another tree; VAMOS_VACASK_SRC= with no value makes the deck a
+reported skip.)
 """
 
 import os

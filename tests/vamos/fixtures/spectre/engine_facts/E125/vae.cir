@@ -1,0 +1,8 @@
+* ires.va with its include, for the evaluator library's location (PYMS_VAE_CACHE)
+.hdl "lib/ires.va"
+V1 a 0 DC 1.0
+.model ires__vamos ires
+yires X1 a 0 ires__vamos
+.OP
+.PRINT DC FORMAT=RAW FILE=vae.raw I(V1)
+.end

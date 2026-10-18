@@ -4,7 +4,9 @@
              as scan_raw and _fix_points; fix_points streaming through them; iter_rows; the
              read_prn stub (S4 implements it)
     proc:    Interrupts, child_setup and signal_name, moved from backends/nvc.py, which imports
-             them back and keeps its own INTERRUPT_GRACE
+             them back and keeps its own INTERRUPT_GRACE; phase 2c (R-run-5): Interrupts(group=True)
+             signals the child's process group, kill_group, and nvc's default unchanged
+    tools:   phase 2c: version_of(env=) (R-run-13) and bound_blas_threads (R-run-4)
     engines: choose_engine (moved from ams/flow.py, which wraps it), env_for(nvc_libdir=None),
              tool_rows (ams/flow.compile_tools is built on it, its rows unchanged)
 
@@ -15,6 +17,7 @@ Linux only, where a signal interrupts a blocked wait at once (test_vamos_run.Tes
 rule); the handler-table tests run everywhere.
 """
 
+import glob
 import os
 import re
 import shutil
@@ -24,10 +27,12 @@ import sys
 import threading
 import time
 import unittest
+import uuid
+from unittest import mock
 
 from vamos_testlib import LINUX, ROOT, TempDir, fixture
 
-from vamos import proc  # noqa: E402
+from vamos import proc, tools  # noqa: E402
 from vamos.ams import engines, flow  # noqa: E402
 from vamos.ams.config import AmsConfig, Choose  # noqa: E402
 from vamos.backends import cosim, nvc  # noqa: E402
@@ -417,8 +422,10 @@ class TestProc(TempDir):
         self.assertEqual((intr.handled, intr.forward, intr.flags, intr.grace),
                          ((signal.SIGINT, signal.SIGTERM), signal.SIGTERM, (), proc.INTERRUPT_GRACE))
         self.assertEqual((intr.signum, intr.killed, intr.proc, intr.take_flags()), (None, False, None, []))
+        self.assertFalse(intr.group)                          # nvc's: the child's pid only (R-run-5)
         intr = proc.Interrupts([signal.SIGINT], signal.SIGINT, flags=[signal.SIGTERM], grace=0.25)
         self.assertEqual((intr.handled, intr.flags, intr.grace), ((signal.SIGINT,), (signal.SIGTERM,), 0.25))
+        self.assertTrue(proc.Interrupts([signal.SIGINT], signal.SIGINT, group=True).group)
         self.assertIsNone(proc.child_setup()) if not hasattr(os, "setpgid") else \
             self.assertTrue(callable(proc.child_setup()))
 
@@ -480,6 +487,55 @@ class TestProc(TempDir):
         finally:
             for s, h in inherited.items():
                 signal.signal(s, h)
+
+
+def wait_for(cond, timeout: float):
+    end = time.time() + timeout
+    while time.time() < end:
+        v = cond()
+        if v:
+            return v
+        time.sleep(0.02)
+    return None
+
+
+def marker_pids(marker: str) -> list:
+    """The processes whose command line holds `marker` (from /proc; [] where there is none)."""
+    out = []
+    for p in glob.glob("/proc/[0-9]*/cmdline"):
+        try:
+            with open(p, "rb") as fh:
+                if marker.encode() in fh.read():
+                    out.append(int(p.split("/")[2]))
+        except (OSError, ValueError):
+            continue
+    return [pid for pid in out if pid != os.getpid()]
+
+
+def _running(pid: int) -> bool:
+    try:
+        with open("/proc/%d/stat" % pid) as fh:
+            return fh.read().rsplit(")", 1)[-1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return False
+
+
+def gone(marker: str, timeout: float) -> bool:
+    """Whether every process holding `marker` is gone (or a zombie) within `timeout` seconds."""
+    end = time.time() + timeout
+    while True:
+        alive = [pid for pid in marker_pids(marker) if _running(pid)]
+        if not alive or time.time() > end:
+            return not alive
+        time.sleep(0.05)
+
+
+def kill_marked(marker: str) -> None:
+    for pid in marker_pids(marker):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
 
 
 @unittest.skipUnless(LINUX and POSIX_SIGNALS, "signals to a real child: Linux")
@@ -565,6 +621,68 @@ class TestProcChild(unittest.TestCase):
             rc = p.wait(timeout=10)
         self.assertEqual((rc, intr.signum, intr.killed), (-signal.SIGTERM, signal.SIGTERM, False))
 
+    def spawn_with_child(self, marker, ignore_term=False):
+        """A child that starts a child of its own in its process group, as Xyce's PyMS compile runs in
+        Xyce's (sh, python3, g++, cc1plus), the grandchild's command line holding `marker` (the child's
+        holds it reversed); ignore_term: both ignore SIGTERM."""
+        ign = "import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); " if ignore_term else ""
+        code = ("import subprocess, sys, time\n" + ign.replace("; ", "\n") +
+                "subprocess.Popen([sys.executable, '-c', %r, sys.argv[1][::-1]])\n"
+                "time.sleep(30)\n" % (ign + "import time; time.sleep(30)"))
+        p = self.spawn(sys.executable, "-c", code, marker[::-1])
+        self.addCleanup(kill_marked, marker)
+        self.assertTrue(wait_for(lambda: marker_pids(marker), 10), "the grandchild started")
+        time.sleep(0.2)                                             # its SIGTERM disposition is set
+        return p
+
+    def test_group_signalling_reaches_the_child_s_process_group(self):
+        """R-run-5: Interrupts(..., group=True), the spectre runners' choice, passes the forwarded signal
+        (and the grace-period SIGKILL, and Ctrl-Z's SIGSTOP/SIGCONT) to the child's whole process group,
+        which child_setup made it the leader of: its own children end with it (§2.7: the engine never
+        outlives vamos)."""
+        marker = "vamos-test-marker-" + uuid.uuid4().hex
+        with proc.Interrupts((signal.SIGTERM,), signal.SIGTERM, grace=20, group=True) as intr:
+            p = self.spawn_with_child(marker)
+            intr.attach(p)
+            os.kill(os.getpid(), signal.SIGTERM)
+            rc = p.wait(timeout=10)
+        self.assertEqual((rc, intr.signum, intr.killed), (-signal.SIGTERM, signal.SIGTERM, False))
+        self.assertTrue(gone(marker, 5.0), "the grandchild outlived the signal")
+
+    def test_group_signalling_grace_kill(self):
+        """The grace-period SIGKILL reaches the group too (a child and grandchild that ignore SIGTERM)."""
+        marker = "vamos-test-marker-" + uuid.uuid4().hex
+        with proc.Interrupts((signal.SIGTERM,), signal.SIGTERM, grace=0.5, group=True) as intr:
+            p = self.spawn_with_child(marker, ignore_term=True)
+            intr.attach(p)
+            os.kill(os.getpid(), signal.SIGTERM)
+            rc = p.wait(timeout=10)
+        self.assertEqual((rc, intr.killed), (-signal.SIGKILL, True))
+        self.assertTrue(gone(marker, 5.0), "the grandchild outlived the SIGKILL")
+
+    def test_the_default_signals_the_child_alone(self):
+        """nvc's Interrupts (the default, unchanged by phase 2c): the child's pid only."""
+        marker = "vamos-test-marker-" + uuid.uuid4().hex
+        with proc.Interrupts((signal.SIGTERM,), signal.SIGTERM, grace=20) as intr:
+            p = self.spawn_with_child(marker)
+            intr.attach(p)
+            os.kill(os.getpid(), signal.SIGTERM)
+            rc = p.wait(timeout=10)
+        self.assertEqual(rc, -signal.SIGTERM)
+        self.assertFalse(gone(marker, 0.5), "the grandchild lives on")
+
+    def test_kill_group(self):
+        """proc.kill_group: SIGKILL to a running child's process group, then the child reaped; nothing is
+        sent once it has been reaped (its group id may then be reused)."""
+        marker = "vamos-test-marker-" + uuid.uuid4().hex
+        p = self.spawn_with_child(marker)
+        proc.kill_group(p)
+        self.assertEqual(p.returncode, -signal.SIGKILL)
+        self.assertTrue(gone(marker, 5.0))
+        with mock.patch.object(os, "killpg") as kp:
+            proc.kill_group(p)
+        kp.assert_not_called()
+
     def test_pdeathsig_ends_an_orphaned_child(self):
         """A child set up by child_setup gets SIGTERM when the vamos that started it dies."""
         script = ("import subprocess, sys\n"
@@ -586,6 +704,54 @@ class TestProcChild(unittest.TestCase):
         if alive:
             os.kill(pid, signal.SIGKILL)
         self.assertFalse(alive, "the orphaned sleep %d outlived its parent" % pid)
+
+
+# -- tools.py: the provenance versions, the engines' thread bound (phase 2c) ------------------
+
+XYCE_V = "Xyce DEVELOPMENT-202610100047-(Release-7.10.0-212-g7cd78110)-opensource\n"
+
+
+class TestTools(TempDir):
+    def test_version_of_runs_the_tool_under_the_environment_given(self):
+        """R-run-13: version_of(name, path, env=) runs the tool under env, so an engine row can name the
+        build that the engine's run loads (engines.env_for: a launcher without an RPATH loads another
+        library under child_env, E68, E96); without env it stays child_env()."""
+        seen = []
+
+        def fake_run(cmd, **kw):
+            seen.append((cmd, kw.get("env")))
+            return subprocess.CompletedProcess(cmd, 0, stdout=XYCE_V)
+        given = {"LD_LIBRARY_PATH": "/the/engine/libs", "PATH": "/bin"}
+        with mock.patch.object(subprocess, "run", fake_run):
+            self.assertEqual(tools.version_of("Xyce", "/x/Xyce", env=given), "7.10.0-212-g7cd78110")
+            self.assertEqual(tools.version_of("Xyce", "/x/Xyce"), "7.10.0-212-g7cd78110")
+        self.assertEqual(seen[0], (["/x/Xyce", "-v"], given))
+        self.assertEqual(seen[1][1], tools.child_env())
+        self.assertEqual(tools.version_of("nvc", "/nonexistent/nvc", env=given), "?")
+
+    @unittest.skipUnless(LINUX and os.access("/usr/local/bin/Xyce", os.X_OK), "needs /usr/local/bin/Xyce (WSL)")
+    def test_the_engine_row_names_the_build_env_for_loads(self):
+        """R-run-13 on the launcher without an RPATH: under env_for, version_of names what `Xyce -v`
+        prints in the environment every Xyce run of vamos gets."""
+        xy = "/usr/local/bin/Xyce"
+        env = engines.env_for("xyce", None, tools.child_env())
+        p = subprocess.run([xy, "-v"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True, timeout=60)
+        self.assertEqual(tools.version_of("Xyce", xy, env=env), tools.version_text(p.stdout))
+        self.assertNotEqual(tools.version_of("Xyce", xy, env=env), "?")
+
+    def test_bound_blas_threads(self):
+        """R-run-4: OPENBLAS_NUM_THREADS=1 unless the environment names a thread count already
+        (OPENBLAS_NUM_THREADS, or GOTO_NUM_THREADS or OMP_NUM_THREADS, which OpenBLAS falls back on; an
+        empty value is OpenBLAS's unset); the mapping is changed in place and returned."""
+        env = {"X": "1"}
+        self.assertIs(tools.bound_blas_threads(env), env)
+        self.assertEqual(env, {"X": "1", "OPENBLAS_NUM_THREADS": "1"})
+        for var in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS"):
+            with self.subTest(var=var):
+                self.assertEqual(tools.bound_blas_threads({var: "4"}), {var: "4"})
+        self.assertEqual(tools.bound_blas_threads({"OMP_NUM_THREADS": ""}),
+                         {"OMP_NUM_THREADS": "", "OPENBLAS_NUM_THREADS": "1"})
 
 
 # -- engines: choose_engine, env_for, tool_rows ----------------------------------------------

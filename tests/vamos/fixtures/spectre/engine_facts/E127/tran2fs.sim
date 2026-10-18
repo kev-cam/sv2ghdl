@@ -1,0 +1,77 @@
+E127: the bench's transient with transres pulse edges (2 fs) on VACASK (vamos's render of e2e 15, trimmed to the tran)
+ground 0
+global vdd vss
+load "spice/mos3.osdi"
+load "spice/diode.osdi"
+load "capacitor.osdi"
+load "resistor.osdi"
+model vamos_capacitor capacitor
+model vamos_isource isource
+model vamos_vsource vsource
+model vamos_vcvs vcvs
+model vamos_resistor resistor
+parameters VDD=5.0
+parameters GAIN=0.5
+model m_nmos sp_mos3 type=1.0 vto=1.26 gamma=1.62 phi=0.58 nsub=1000000000000000.0 cgso=3.7e-10 cgdo=3.7e-10 cgbo=2.5e-10 cj=0.0004 tox=7.5e-08 pb=0.914 js=0.0001 xj=1e-06 ld=8e-07 uo=717.0 mjsw=0.3333333333333333 badmos3=1.0
+model m_pmos sp_mos3 type=-1.0 vto=-1.11 gamma=0.39 phi=0.72 nsub=1.7e+16 cgso=2.2e-10 cgdo=2.2e-10 cgbo=2.5e-10 cj=0.0001 tox=7.5e-08 pb=0.605 js=0.0001 xj=6.5e-07 ld=5e-07 uo=206.0 mjsw=0.3333333333333333 badmos3=1.0
+model m_dnp sp_diode level=1.0 is=3.1e-10 n=1.12 cjo=3.1e-08 vj=0.914 m=0.5 nbv=1.0 eg=1.124481
+subckt opamp (pout nout pin nin)
+  parameters $mfactor=1.0
+  M1 (4 pin 1 1) m_nmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M2 (5 nin 1 1) m_nmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M18 (1 12 vss vss) m_nmos w=0.00024 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M3 (4 11 vdd vdd) m_pmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M4 (5 11 vdd vdd) m_pmos w=0.0004 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M5 (nout 16 4 vdd) m_pmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M6 (pout 16 5 vdd) m_pmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M7 (nout 13 8 vss) m_nmos w=7e-05 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M8 (pout 13 9 vss) m_nmos w=7e-05 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M9 (8 12 vss vss) m_nmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M10 (9 12 vss vss) m_nmos w=0.00012 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M11 (10 nout vss vss) m_nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M12 (10 pout vss vss) m_nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M13a (11 0 vss vss) m_nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M13b (11 0 vss vss) m_nmos w=1e-05 l=6.26e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M14 (10 10 vdd vdd) m_pmos w=5e-05 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M15 (11 10 vdd vdd) m_pmos w=5e-05 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  Cc1 (nout 11) vamos_capacitor c=1e-12 $mfactor=$mfactor
+  Cc2 (pout 11) vamos_capacitor c=1e-12 $mfactor=$mfactor
+  M16 (12 12 vss vss) m_nmos w=2e-05 l=1.16e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M17 (21 12 vss vss) m_nmos w=2e-05 l=1.16e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M19 (13 13 14 vss) m_nmos w=2e-05 l=2.16e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M20 (13 21 16 vdd) m_pmos w=5e-05 l=7.6e-06 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M21 (21 16 17 vdd) m_pmos w=2.4e-05 l=1.16e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  M22 (16 16 17 vdd) m_pmos w=2.4e-05 l=1.16e-05 nrd=0.0 nrs=0.0 $mfactor=$mfactor
+  D1 (15 vss) m_dnp area=4e-07 $mfactor=$mfactor
+  D2 (14 15) m_dnp area=4e-07 $mfactor=$mfactor
+  D3 (18 17) m_dnp area=4e-07 $mfactor=$mfactor
+  D4 (vdd 18) m_dnp area=4e-07 $mfactor=$mfactor
+  Ib (0 12) vamos_isource type="dc" dc=1e-05 $mfactor=$mfactor
+ends
+Vdd (vdd 0) vamos_vsource type="dc" dc=VDD
+Vss (vss 0) vamos_vsource type="dc" dc=(-VDD)
+Vcm (cmin 0) vamos_vsource type="dc" dc=0.0
+Vdif (in 0) vamos_vsource type="pulse" val0=0.0 val1=2.0 delay=1e-08 rise=2e-15 fall=2e-15 width=1e-06 dc=0.0
+Eicmp (pin cmin in 0) vamos_vcvs gain=GAIN
+Eicmn (nin cmin in 0) vamos_vcvs gain=(-GAIN)
+A1 (pout nout pvg nvg) opamp
+Cf1 (pout t1) vamos_capacitor c=8e-12
+Cf2 (nout t2) vamos_capacitor c=8e-12
+Vt1 (t1 nvg) vamos_vsource type="dc" dc=0.0 mag=0.0 phase=0.0
+Vt2 (t2 pvg) vamos_vsource type="dc" dc=0.0 mag=0.0 phase=0.0
+Cl1 (pout 0) vamos_capacitor c=8e-12
+Cl2 (out 0) vamos_capacitor c=8e-12
+Ci1 (pin pvg) vamos_capacitor c=2e-12
+Ci2 (nin nvg) vamos_capacitor c=2e-12
+Rgp (pvg 0) vamos_resistor r=1000000000000.0 noisy=0
+Rgn (nvg 0) vamos_resistor r=1000000000000.0 noisy=0
+Edif (out 0 pout nout) vamos_vcvs gain=1.0
+Ecmp (cmout mid pout 0) vamos_vcvs gain=GAIN
+Ecmn (mid 0 nout 0) vamos_vcvs gain=GAIN
+control
+  abort except analysis
+  options rawfile="ascii" strictoutput=0 strictsave=2 tran_lteimplicit=0 temp=27.0 tnom=27.0 vntol=1e-06 abstol=1e-12 gmin=1e-12
+  save v(out)
+  options reltol=0.0001 relref="alllocal" tran_method="gear2" tran_lteratio=10.0
+  analysis tr2fs tran step=1.9999999999999997e-09 stop=2e-06 maxstep=2e-08
+endc

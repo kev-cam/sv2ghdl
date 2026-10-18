@@ -1,0 +1,7 @@
+* a negative resistor (e2e 11) on Xyce
+V1 in 0 DC 1
+R1 in out -1000.0
+R2 out 0 2000.0
+.OP
+.PRINT DC FORMAT=RAW FILE=negr.raw V(OUT)
+.end

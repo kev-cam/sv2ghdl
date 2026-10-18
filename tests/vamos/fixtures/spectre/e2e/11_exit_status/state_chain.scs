@@ -1,0 +1,12 @@
+// e2e 11: exit status 2 on both engines, a state file chained between analyses: tr2 reads the file tr1 writes
+// in the same run, which vamos would read before the run (a previous run's, as chain.ic beside the deck, or
+// none): refused before any analysis runs (sec. 5.4)
+simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a b) resistor r=1k
+C1 (b 0) capacitor c=1u
+ic b=0
+tr1 tran stop=1m writefinal="chain.ic" ic=node
+off alter dev=V1 param=dc value=0
+tr2 tran stop=1m readic="chain.ic"
+save b

@@ -134,7 +134,7 @@
      "R4": "DNO(R4)",
      "Rn": "DNO(RN)",
      "out": "ONOISE",
-     "gain": "INOISE",
+     "gain": "VM(NQ)",
      "in": "INOISE"
     },
     "signals": [

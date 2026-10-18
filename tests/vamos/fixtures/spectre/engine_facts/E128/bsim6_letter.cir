@@ -1,0 +1,9 @@
+* E128: the letter-device route to a CMC module, only level on the card and the instance parameters on the M line (BSIM6, level 77)
+.hdl "@CMC@/BSIM6.1.1/code/BSIM6.1.1.va"
+.model nch nmos level=77
+vdrain drain 0 DC 0.1
+vgate gate 0 DC 1.0
+MX1 drain gate 0 0 nch W=1e-05 L=1e-05
+.DC vgate 0 1 0.5
+.PRINT DC FORMAT=RAW FILE=bsim6_letter.raw I(vdrain)
+.end
