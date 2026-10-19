@@ -3483,10 +3483,17 @@ NSRA=$(printf '%s' "$nso" | grep -oE 'YN=-?[0-9]+'); WSRA=$(printf '%s' "$nso" |
 nsrWins=$(printf '%s' "$nso" | grep -cE "ACTIVE .*'nsr'"); wsrWins=$(printf '%s' "$nso" | grep -cE "ACTIVE .*'wsr'")
 rm -rf "$W/.cache/nvc/accel"
 nsdiv=$(env "${AE[@]}" NVC_ACCEL_RTLIL=1 NVC_ACCEL_VERIFY=1     timeout 120 $NVC -M 256m -H 256m --std=2008 --work="$NSR/w" -L "$VLIB" -r --accel nsr_tb 2>&1 | grep -ciE diverg)
-if [ -n "$NSRI" ] && [ "$NSRA" = "$NSRI" ] && [ "$nsrWins" -eq 0 ] \
+# The narrowing case may EITHER reach interp (the text path declines it) OR
+# install through the rtlil walker, which renders {sign, low nw-1} at the
+# product's true L+R width (r2_width_or_operands' mul bump, 2026-10-18) --
+# what must never happen is an install that disagrees with interp.  Before the
+# builder fitted widths (sv2ghdl e64a153) the walker's 32-bit temp for the
+# 40-bit product was a width-mismatch error, so "reaches interp" was the only
+# green; after it, the fit truncated the product silently (bit 31 as sign).
+if [ -n "$NSRI" ] && [ "$NSRA" = "$NSRI" ] \
    && [ -n "$WSRI" ] && [ "$WSRA" = "$WSRI" ] && [ "$wsrWins" -ge 1 ] && [ "$nsdiv" -eq 0 ]; then
-  ok "resweep-D: narrowing resize of a wide signed product reaches interp; widening still installs (silent-wrong)" "(text path declines narrowing signed resize/to_signed; widening unaffected; VERIFY 0)"
-else bad "resweep-D: narrowing resize of a wide signed product reaches interp; widening still installs (silent-wrong)" "narrow:acc=$NSRA int=$NSRI wins=$nsrWins | widen:acc=$WSRA int=$WSRI wins=$wsrWins | div=$nsdiv"; fi
+  ok "resweep-D: narrowing resize of a wide signed product matches interp (declined or installed); widening installs (silent-wrong)" "(narrow wins=$nsrWins; text path declines, rtlil walker sizes the product L+R and keeps {sign,low}; VERIFY 0)"
+else bad "resweep-D: narrowing resize of a wide signed product matches interp (declined or installed); widening installs (silent-wrong)" "narrow:acc=$NSRA int=$NSRI wins=$nsrWins | widen:acc=$WSRA int=$WSRI wins=$wsrWins | div=$nsdiv"; fi
 
 echo "== $pass passed, $fail failed =="
 rm -rf "$W"
