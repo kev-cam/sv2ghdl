@@ -185,6 +185,12 @@ static inline bool is_wide(int w) { return w > 64; }
 // GSM_WIDE64: 64-bit limbs for wide signals (x86-64 native; halves the limb
 // ops on 256-bit datapaths).  Default stays 32-bit limbs, byte-identical.
 static bool g_w64 = false;
+// GSM_PORTS=1: emit a boundary-port table (sm_ports[]) listing every input,
+// register and output with direction, width and packed offset inside
+// inputs_t/state_t/outputs_t.  Consumed by the ldx mailbox array placement
+// map (fpga/zcu104/rtl/mailbox/m3c) to bind ports to BRAM words and match
+// cross-core edges by name.  Opt-in so default output stays byte-identical.
+static bool g_ports = false;
 static inline int  nlimbs(int w)  { return g_w64 ? (w + 63) / 64
                                                  : (w + 31) / 32; }
 static inline const char *lt() { return g_w64 ? "uint64_t" : "uint32_t"; }
@@ -1163,6 +1169,8 @@ static int gsm_run(int argc, const char *const *argv)
         g_census_block = atoi(getenv("GSM_CENSUS_BLOCK"));
     if (getenv("GSM_WIDE64"))
         g_w64 = true;
+    if (getenv("GSM_PORTS"))
+        g_ports = true;
     if (getenv("GSM_COMB_SPLIT"))
         g_comb_split = atoi(getenv("GSM_COMB_SPLIT"));
     if (getenv("GSM_GATED")) {
@@ -2722,6 +2730,52 @@ static int gsm_run(int argc, const char *const *argv)
         }
     }
     fprintf(out, "} outputs_t;\n\n");
+
+    // Boundary-port table (GSM_PORTS=1) — for array placement / mailbox
+    // routing.  Every mappable boundary signal (inputs + registers + outputs)
+    // with direction, width and its packed offset within inputs_t/state_t/
+    // outputs_t, so a placement map can bind each port to a BRAM location
+    // and match cross-core edges by name.  Names follow the sm_reg_names
+    // convention (strip leading '_', uppercase).  Wide (>64b) entries point
+    // at the limb array; memories are not listed (they are not nets).
+    if (g_ports) {
+        auto port_name = [](const std::string &cn) {
+            std::string nm = cn;
+            if (!nm.empty() && nm[0] == '_') nm = nm.substr(1);
+            for (auto &c : nm) c = toupper(c);
+            return nm;
+        };
+        fprintf(out, "#include <stddef.h>\n");
+        fprintf(out, "typedef struct { const char *name; int width; char dir; unsigned off; } sm_port_t;\n");
+        fprintf(out, "// dir: 'i'=input  'r'=register/state  'o'=output\n");
+        fprintf(out, "const sm_port_t sm_ports[] = {\n");
+        int n_ports = 0;
+        for (auto &w : mod->wires_) {
+            auto *wire = w.second;
+            if (!wire->port_input) continue;
+            std::string wn = cname(wire->name.str());
+            if (wn == "_clk" || wn == "_rst") continue;
+            fprintf(out, "    { \"%s\", %d, 'i', (unsigned)offsetof(inputs_t, %s) },\n",
+                    port_name(wn).c_str(), wire->width, wn.c_str());
+            n_ports++;
+        }
+        for (auto &reg : registers) {
+            fprintf(out, "    { \"%s\", %d, 'r', (unsigned)offsetof(state_t, %s) },\n",
+                    port_name(reg.name).c_str(), reg.width, reg.name.c_str());
+            n_ports++;
+        }
+        for (auto &w : mod->wires_) {
+            auto *wire = w.second;
+            if (!wire->port_output) continue;
+            std::string wn = cname(wire->name.str());
+            fprintf(out, "    { \"%s\", %d, 'o', (unsigned)offsetof(outputs_t, %s) },\n",
+                    port_name(wn).c_str(), wire->width, wn.c_str());
+            n_ports++;
+        }
+        fprintf(out, "    { 0, 0, 0, 0 }\n");   // sentinel keeps the array non-empty
+        fprintf(out, "};\n");
+        fprintf(out, "const int sm_n_ports = %d;\n\n", n_ports);
+    }
 
     // --- sliced (merged) register emission helpers ---------------------
     // Power-on limbs for a merged register: per-bit `init` attr if defined,
