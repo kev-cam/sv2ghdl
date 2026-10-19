@@ -130,6 +130,45 @@ Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, �
             parameter is on its per-instance card, model="<inst>__va" (hierarchical inside a subckt:
             model="X2:Y1__va"); a mod= target on a Verilog-A card names the cards of the instances
             that read its value (the card's parameters are merged into its instances, §3.9)
+    hooks   (phase 2c4, H1) VACASK re-evaluates every parameter its netlist binds to an expression at
+            each elaboration after a change of a variable, temp or tnom (inside a subckt instance after a
+            change of its parameters or m; before the first analysis when temp or tnom differ from 27 at
+            the first elaboration, E151), which lost an alter of such a parameter, and it cannot sweep one
+            ('is bound to an expression', E102).  A sweep or alter target bound to an expression that
+            reads a name, temp or tnom (an instance's value or parameter, a source field, an m, an X-line
+            binding, a card's parameter) prints as (vamos_af<k> ? vamos_av<k> : expr), both declared
+            0 by a var statement before the first elaboration; the alter is var vamos_af<k>=1
+            vamos_av<k>=<value> (a source's alter statement follows it), a sweep sweeps vamos_av<k> with
+            vamos_af<k> set around it (VACASK restores the swept variable after a sweep).  Inside a
+            subckt body the hook is per instance path: the body declares vamos_hf<n>=0 vamos_hv<n>=0 for
+            the site, and the X lines down the altered path pass them on (vamos_hf<n>=vamos_af<k>, ...).
+            A plan variable defined by an expression that reads another one, temp or tnom prints as
+            p=(vamos_af<k> ? vamos_v_p : expr), so that it follows its inputs until an alter or a sweep
+            sets it.  hook_key names what can be hooked (plan.build keeps G1's rule (b) and E102's
+            refusal for the rest); in the control block a source field bound to a parameter is left out
+            of an alter or a source switch, which keeps it (VACASK cannot read a netlist parameter there:
+            `Variable or constant 'vv' not defined')
+    statements (phase 2c6, K2) an alter, a source switch or a sweep of an instance names the instance the run
+            takes (run_instance), so that an if and its else that both hold V1 give the taken one, whose netlist
+            source is the base of a source statement (printed_items, which plan.build's rule (b) reads too).
+            Phase 2c7 (L1): the taken branch is resolved in the state of the statement being printed, as
+            plan.build's walk resolves it (run_map: plan.run_values and plan.run_paths with the plan variables'
+            values the control block set so far, temp, tnom and the X-line values of the sub= alters), never
+            _resolve's first match (a failure to resolve is an error); so are the current saves (current_directive,
+            column) and the X lines a multiplier or a coupled inductor's fold reads (run_chain).  L3: the var
+            statement that sets a hooked sweep's flag sets its value to the sweep's first point too, so VACASK's
+            setup before the first point never sees the declared 0 (an exp's td2, a sine's freq: exit 1 before)
+    phase 2c8  a dev= sweep of a rise or a fall prints a point of 0 as Spectre's default edge, transres (edge_grid:
+            VACASK read a swept fall of 0 as none and stopped at a rise of 0); a sine of constant freq 0 reaches the
+            deck in tables.constant_sine's form (signals.resolve's render copy, plan.build's states and alters: its
+            given dc under type="dc", the sine itself at freq=1e-30 for a tran, its value the constant), and
+            hook_key reads the IR's in that form, so that plan.build and the deck agree on its places; a sweep of
+            its freq prints a point of 0 as that 1e-30 (edge_grid; VACASK stops at a sine of freq 0)
+    phase 2c9  a swept point's substitute (a rise or fall of 0, the constant sine's freq of 0) is plan.swept_points',
+            read in the source state of the statement being printed (state_source: the last alter's or switch's
+            Source, track_source, else the instance line's), as plan.build reads it: 2c8 read the instance line, so a
+            sine an alter made the constant sine printed its freq of 0 raw and VACASK stopped (N1); a tran's sweep of
+            the dc of a sine whose sinedc defaults to dc sweeps its sinedc, which the tran reads (type="sine"; N3)
 """
 
 from __future__ import annotations
@@ -138,11 +177,12 @@ import math
 import os
 import re
 import subprocess
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Set, Tuple
+from dataclasses import replace
+from typing import TYPE_CHECKING, Collection, Dict, List, Optional, Sequence, Set, Tuple
 
 from vamos.netlist import expr as X
 from vamos.netlist import tables as T
-from vamos.netlist.expr_ast import Binary, Expr, Name, Num, Str, Ternary
+from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary, Unary
 from vamos.netlist.ir import Cond, Instance, Model, Netlist, Param, ParamTest, Source, Subckt, flat_items
 from vamos.netlist.numbers import fmt
 from vamos.notes import ERROR, Note, NoteError, error, note, warning
@@ -193,6 +233,382 @@ _GAIN_PARAM = {"e": "gain", "g": "gm", "h": "rm", "f": "gain"}
 # (Spectre's keys; tables.SPECTRE_OPTIONS["vacask"] spells VACASK's).
 _OPTION_ORDER = ("temp", "tnom", "reltol", "vabstol", "iabstol", "chargeabstol", "gmin")
 _HEAD_OPTIONS = ('rawfile="binary"', "strictoutput=0", "strictsave=2", "tran_lteimplicit=0")
+
+# Phase 2c4 (H1): the switchable hooks of a sweep or alter target bound to an expression (the module docstring)
+HOOK_FLAG = "vamos_af"          # vamos_af<k>: 1 while an alter or a sweep sets the hooked parameter (a var)
+HOOK_VALUE = "vamos_av"         # vamos_av<k>: the value it sets (a var)
+BODY_FLAG = "vamos_hf"          # vamos_hf<n>, vamos_hv<n>: a subckt's parameters carrying a hook down an instance path
+BODY_VALUE = "vamos_hv"
+VALUE_KEY = "@value"            # the site key of an instance's value parameter (Instance.value)
+# The Spectre name of the value parameter each kind's Instance.value holds (plan.VALUE_PARAMS by master)
+_VALUE_PARAM = {"r": "r", "c": "c", "l": "l", "e": "gain", "g": "gm", "h": "rm", "f": "gain", "k": "coupling",
+                "d": "area", "q": "area", "j": "area"}
+
+
+def reads_something(e: object) -> bool:
+    """H1: an expression that reads a parameter, temp or tnom, the kind of binding VACASK re-evaluates at its
+    elaborations (phase 2c3, G1 [E148]); a number, a word or a vector is not one."""
+    if e is None or isinstance(e, (Num, Str, list, tuple, str, bool, int, float)):
+        return False
+    try:
+        return bool(X.names(e)) or any(isinstance(n, Name) and n.name in ("temper", "$tnom")    # type: ignore[arg-type]
+                                       for n in X.walk(e))                                    # type: ignore[arg-type]
+    except Exception:  # noqa: BLE001  (not an expression)
+        return False
+
+
+def source_locations(src: Source, field: str) -> List[Tuple]:
+    """H1: the places of a Source that hold exactly the expression its Spectre field was written as (src.spectre[field],
+    by identity: Source.dc, an ac part, an args field, a pwl point), [] when there is none or when the parser derived
+    another place from it (a pulse's rise becomes (rise == 0 ? transres : rise), an exp's td2 delay + td2): such a
+    field has no single place a hook could take."""
+    obj = src.spectre.get(field)
+    if obj is None or isinstance(obj, (list, Str, str)):
+        return []
+    places: List[Tuple[Tuple, object]] = [(("dc",), src.dc)]
+    if src.ac is not None:
+        places += [(("ac", 0), src.ac[0]), (("ac", 1), src.ac[1])]
+    places += [(("args", k), v) for k, v in src.args.items()]
+    places += [(("points", i, j), p[j]) for i, p in enumerate(src.points) for j in (0, 1)]
+    found: List[Tuple] = []
+    for where, e in places:
+        if e is None:
+            continue
+        if e is obj:
+            found.append(where)
+            continue
+        try:
+            if any(n is obj for n in X.walk(e)):          # type: ignore[arg-type]
+                return []                                  # derived: the hook would miss that place
+        except Exception:  # noqa: BLE001  (not an expression)
+            continue
+    return found
+
+
+def hook_key(inst: Instance, param: str) -> Optional[str]:
+    """H1: the site key under which the VACASK deck prints the target parameter `param` of `inst` (the spelling a plan
+    target carries) through a switchable hook: VALUE_KEY for the value parameter Instance.value holds, "m" for the
+    multiplier ($mfactor), a source field's or an X line's name, a Verilog-A parameter in lower case (openvaf-r's
+    names), else the parameter.  None where VACASK cannot hook it: isnoisy (the noisy switch, §4.5 item 7), the m of a
+    kind whose multiplier is no device parameter (tables.MULT), a behavioral source, a source field without a single
+    place (source_locations).  plan.build keeps G1's rule (b) and E102's refusal for those only (§5.3)."""
+    k = inst.kind
+    if k == "b" or param == "isnoisy":
+        return None
+    if param == "m":
+        return "m" if T.MULT[ENGINE].get(k) == "param" else None
+    if k == "x":
+        return param
+    if k in ("v", "i"):
+        src = inst.source
+        if src is None or src.code_uri is not None:
+            return None
+        # phase 2c8 (M2): a sine of constant freq 0 as the render copy prints it (tables.constant_sine), so that plan.build
+        # (on the IR) and the deck (on signals.resolve's copy) read the same places
+        if not source_locations(T.constant_sine(src) or src, param):
+            return None
+        return param
+    if _VALUE_PARAM.get(k) == param and inst.value is not None:
+        return VALUE_KEY
+    if k == "y":
+        return param.lower()
+    return param
+
+
+def _target_expr(inst: Instance, key: str, param: str) -> object:
+    """H1: the IR expression a hooked target is bound to (plan._bound_expr's reading): Instance.value, the m, a source
+    field as written, a Verilog-A parameter whatever its case, a parameter under its name or the name a master's rename
+    gives it."""
+    if key == VALUE_KEY:
+        return inst.value
+    if key == "m" or inst.kind == "x":
+        return inst.params.get(key)
+    if inst.kind in ("v", "i"):
+        return inst.source.spectre.get(param) if inst.source is not None else None
+    if inst.kind == "y":
+        return next((v for k, v in inst.params.items() if k.lower() == key), None)
+    if param in inst.params:
+        return inst.params[param]
+    row = T.SPECTRE_MASTERS.get(inst.prim or "")
+    for r in (row.instance if row is not None else ()):
+        if r.action == "rename" and r.value in (param, "instance_" + param) and r.name in inst.params:
+            return inst.params[r.name]
+    return None
+
+
+def path_resolutions(nl: Netlist, path: str, cache: Optional[Dict[str, List]] = None
+                     ) -> List[Tuple[List[Tuple[Instance, Subckt]], Instance]]:
+    """Every way an IR path resolves through the definitions: (the X instances on it with their subckts, outermost
+    first, the instance it names), each body's instances of the name in every Cond branch counted (an if and its else
+    may both hold R1; the run takes one of them, which plan.build's walk chose and _resolve's first match need not
+    be); [] when it does not resolve.  cache (phase 2c5): path -> resolutions, for the callers of one netlist."""
+    if cache is not None and path in cache:
+        return cache[path]
+    parts = path.split(".")
+    out: List[Tuple[List[Tuple[Instance, Subckt]], Instance]] = []
+    if cache is not None:
+        cache[path] = out
+
+    def walk(items: Sequence[object], scope: T.Scope, k: int, chain: List[Tuple[Instance, Subckt]]) -> None:
+        for it in flat_items(items):
+            if not isinstance(it, Instance) or it.name != parts[k]:
+                continue
+            if k == len(parts) - 1:
+                out.append((list(chain), it))
+                continue
+            sub = scope.find_subckt(it.master or "") if it.kind == "x" else None
+            if sub is not None:
+                walk(sub.body, T.Scope(sub.body, scope, sub), k + 1, chain + [(it, sub)])
+    walk(nl.body, T.Scope(nl.body), 0, [])
+    return out
+
+
+def _is_va_card(nl: Netlist, m: Model) -> bool:
+    return bool(m.prim) and m.prim.lower() in {k.lower() for k in nl.va_modules}     # type: ignore[union-attr]
+
+
+def _target_cards(nl: Netlist, name: str) -> List[Model]:
+    """The cards a mod= target names: the card, or every entry of a model group (by base name)."""
+    return [m for m in _all_models(nl) if m.name == name or m.base == name]
+
+
+def _card_expr(nl: Netlist, m: Model, param: str) -> object:
+    """H1: the card's value of a target parameter (the spelling a plan target carries): under its name or the name a
+    master's rename gives it; a Verilog-A card's whatever its case; None when the card leaves it out."""
+    if _is_va_card(nl, m):
+        return next((v for k, v in m.params.items() if k.lower() == param.lower()), None)
+    if param in m.params:
+        return m.params[param]
+    row = T.SPECTRE_MASTERS.get(m.prim or "")
+    return next((m.params[r.name] for r in (row.params if row is not None else ())
+                 if r.action == "rename" and r.value == param and r.name in m.params), None)
+
+
+def hookable(nl: Netlist, target: Tuple[str, str, str], cache: Optional[Dict[str, List]] = None) -> bool:
+    """H1: whether the VACASK deck can print a sweep or alter target through a switchable hook, should the netlist bind
+    it to an expression: an instance's when hook_key accepts it on every resolution of its path (path_resolutions); a
+    card's when every card it names (each entry of a model group) gives the parameter, the deck then printing it through
+    the hook on each of them, and a Verilog-A card's (on the per-instance cards of the instances that read its value)
+    when its cards all bind it or none does.  plan.build keeps G1's rule (b), E151 and E102's refusal for the others only
+    (plan.vacask_hooked).  cache: path_resolutions'."""
+    if target[0] == "model":
+        cards = _target_cards(nl, target[1])
+        exprs = [_card_expr(nl, m, target[2]) for m in cards]
+        if not cards or any(e is None for e in exprs):
+            return False
+        va = {reads_something(e) for m, e in zip(cards, exprs) if _is_va_card(nl, m)}
+        return len(va) <= 1
+    if target[0] != "instance":
+        return False
+    res = path_resolutions(nl, target[1], cache)
+    return bool(res) and all(hook_key(inst, target[2]) is not None for _chain, inst in res)
+
+
+def prints_hook(nl: Netlist, target: Tuple[str, str, str], dependents: Collection[str] = (),
+                cache: Optional[Dict[str, List]] = None) -> bool:
+    """Whether a plan's VACASK deck prints this sweep or alter target through a switchable hook (_Deck._plan_hooks's
+    rule), so that its alter is the var statement `var vamos_af<k>=1 vamos_av<k>=<value>' and its sweep sweeps
+    vamos_av<k> with the flag set around the nest: an instance's or a card's that hookable accepts when one of its
+    resolutions (one of its cards) binds it to an expression that reads a name, temp or tnom, and (phase 2c5, R3) the
+    m of an instance inside a subckt body, whose printed $mfactor reads the holder's ($mfactor=$mfactor), unless an X
+    line on its path gives m (mfactor_param's refusal stands there); a plan variable's whose expression reads one of
+    dependents (plan.dependents), temp or tnom.  plan.build counts those var statements as VACASK's variable changes
+    (phase 2c5, R1).  cache: path_resolutions'."""
+    kind, name, param = target
+    if kind == "instance":
+        res = [(chain, inst, hook_key(inst, param)) for chain, inst in path_resolutions(nl, name, cache)]
+        if not res or any(key is None for _chain, _inst, key in res):
+            return False                                   # hookable's rule
+        for chain, inst, key in res:
+            if reads_something(_target_expr(inst, key, param)):    # type: ignore[arg-type]
+                return True
+            if key == "m" and chain and not any("m" in x.params for x, _sub in chain):
+                return True
+        return False
+    if kind == "model":
+        return hookable(nl, target) and any(reads_something(_card_expr(nl, m, param)) for m in _target_cards(nl, name))
+    if kind == "variable":
+        p = next((p for p in nl.body if isinstance(p, Param) and p.name == name), None)
+        if p is None:
+            return False
+        try:
+            return bool(X.names(p.expr) & set(dependents)) or any(
+                isinstance(n, Name) and n.name in ("temper", "$tnom") for n in X.walk(p.expr))   # type: ignore[arg-type]
+        except Exception:  # noqa: BLE001  (not an expression)
+            return False
+    return False
+
+
+# Phase 2c5 (R4): the control block's statements about a source, an alter of one of its fields or a switch of its type,
+# print every field of its state; VACASK's control block cannot read a netlist parameter (`Variable or constant 'rt'
+# not defined', exit 1), so a field that reads a name, temp or tnom is left out of them, the instance's binding keeping
+# it, which is right where nothing the alters set reaches the field except through a hook the instance line prints.
+
+def _source_items(src: Source, f: Dict[str, Expr]) -> List[Tuple[str, object, str]]:
+    """The fields _Deck.source_fields prints after a waveform's type, in its order: (VACASK key, expression, what its
+    messages call it); a pwl's points as ("wave", [(time, value), ...]) and an exp's td2 relative to its delay."""
+    w = src.wave
+    if w == "pulse":
+        items: List[Tuple[str, object, str]] = [
+            (key, f[k], what) for key, k, what in (("val0", "v1", "v1"), ("val1", "v2", "v2"), ("delay", "td", "td"),
+                                                   ("rise", "tr", "tr"), ("fall", "tf", "tf"), ("width", "pw", "pw"))]
+        if "per" in f:
+            items.append(("period", f["per"], "per"))
+        return items
+    if w == "sin":
+        return [(key, f[k], what) for key, k, what in (("sinedc", "vo", "vo"), ("ampl", "va", "va"),
+                                                       ("freq", "freq", "freq"), ("delay", "td", "td"),
+                                                       ("theta", "theta", "theta"), ("tdphase", "phase", "phase"))]
+    if w == "exp":
+        td1, td2 = f["td1"], f["td2"]
+        rel: Expr = (Num(td2.value - td1.value) if isinstance(td1, Num) and isinstance(td2, Num)
+                     else Binary("-", td2, td1))       # VACASK td2 is relative to delay
+        return [("val0", f["v1"], "v1"), ("val1", f["v2"], "v2"), ("delay", td1, "td1"), ("tau1", f["tau1"], "tau1"),
+                ("td2", rel, "td2-td1"), ("tau2", f["tau2"], "tau2")]
+    items = [("wave", list(src.points), "")]           # pwl
+    if "td" in f:
+        items.append(("delay", f["td"], "td"))
+    return items
+
+
+def _item_exprs(key: str, e: object) -> List[object]:
+    return [x for pt in e for x in pt] if key == "wave" else [e]          # type: ignore[union-attr]
+
+
+def _holds(e: object, obj: object) -> bool:
+    try:
+        return any(n is obj for n in X.walk(e))                          # type: ignore[arg-type]
+    except Exception:  # noqa: BLE001  (not an expression)
+        return False
+
+
+def _printed_items(src: Optional[Source]) -> Optional[Dict[str, object]]:
+    """The fields the instance line or a control-block statement prints for src after its type, key -> expression (a
+    pwl's points as a list of (time, value) pairs); None when its waveform does not resolve (the render reports it)."""
+    items: Dict[str, object] = {}
+    if src is None or src.code_uri is not None:
+        return items
+    if src.wave is not None:
+        try:
+            items.update((k, e) for k, e, _what in _source_items(src, T.wave(src, "")))
+        except T.TableError:
+            return None
+    if src.dc is not None:
+        items["dc"] = src.dc
+    if src.ac is not None:
+        items["mag"], items["phase"] = src.ac[0], src.ac[1]
+    return items
+
+
+def printed_items(src: Optional[Source]) -> Optional[Dict[str, object]]:
+    """Phase 2c6 (K1): the fields the instance line or a control-block statement prints for src after its type (VACASK
+    key -> expression; a pwl's points as a list of (time, value) pairs), None when its waveform does not resolve:
+    plan.build's rule (b) compares a statement's constants with the instance line's bindings field by field."""
+    return _printed_items(src)
+
+
+def holds(e: object, obj: object) -> bool:
+    """Phase 2c6: whether the expression e holds the node obj, by identity."""
+    return _holds(e, obj)
+
+
+def swap(e: object, mapping: Dict[int, object]) -> object:
+    """Phase 2c6: e with every node that is, by identity, a key of mapping replaced by its value (_swap)."""
+    return _swap(e, mapping)
+
+
+def is_va_card(nl: Netlist, m: Model) -> bool:
+    """Phase 2c6: whether a card's master is a Verilog-A module of the netlist (its parameters compare in any case)."""
+    return _is_va_card(nl, m)
+
+
+def _swap(e: object, mapping: Dict[int, object]) -> object:
+    """e with every node that is, by identity, a key of mapping replaced by its value (lists and pairs elementwise)."""
+    if isinstance(e, list):
+        return [_swap(x, mapping) for x in e]
+    if isinstance(e, tuple):
+        return tuple(_swap(x, mapping) for x in e)
+    if id(e) in mapping:
+        return mapping[id(e)]
+    if isinstance(e, Binary):
+        return Binary(e.op, _swap(e.left, mapping), _swap(e.right, mapping))              # type: ignore[arg-type]
+    if isinstance(e, Unary):
+        return Unary(e.op, _swap(e.arg, mapping))                                         # type: ignore[arg-type]
+    if isinstance(e, Ternary):
+        return Ternary(_swap(e.cond, mapping), _swap(e.a, mapping), _swap(e.b, mapping))   # type: ignore[arg-type]
+    if isinstance(e, Call):
+        return Call(e.func, tuple(_swap(a, mapping) for a in e.args))                     # type: ignore[misc]
+    return e
+
+
+def control_source_problems(src: Source, base: Optional[Source], hooked: Collection[str] = ()) -> List[Tuple[str, object]]:
+    """R4 (phase 2c5): the fields a control-block statement about src (an alter of one of its fields, a switch of its
+    type) prints that read a name, temp or tnom and that it cannot leave out either.  A field left out keeps the
+    instance's binding of it, the field as the instance line prints it from base (the netlist's source), so leaving it
+    out is right when that binding gives what the statement would print: the same expression, or the same once each
+    altered field it derives from (a field src.spectre holds otherwise than base wrote it) is replaced by its altered
+    value, which the instance line reads through that field's hook (hooked: the Spectre names of the fields it prints
+    through one).  So a pulse's (rt == 0 ? transres : rt) and an exp's delay=td that the alters leave alone, or the
+    relative td2 ((vamos_af1 ? vamos_av1 : t2) - td) after an alter of the hooked td2, are left out; the relative td2
+    after an alter of an exp's constant td2 beside td1=td (no hook), or a field the instance line does not print (an
+    alter of the type of a dc source whose pulse fields read vv; 2c4 left val1=vv out, and VACASK took its default 1),
+    would be wrong left out: [(VACASK key, expression)]."""
+    now = _printed_items(src)
+    if not now:
+        return []
+    was = _printed_items(base) or {}
+    written = {k: (list(v) if isinstance(v, list) else [v]) for k, v in src.spectre.items()}
+    altered = {k for k, v in src.spectre.items() if base is None or k not in base.spectre or v != base.spectre[k]}
+    out: List[Tuple[str, object]] = []
+    for key, e in now.items():
+        exprs = _item_exprs(key, e)
+        if not any(reads_something(x) for x in exprs):
+            continue
+        deps = {k for k, objs in written.items() if any(_holds(x, o) for x in exprs for o in objs)}
+        moved = deps & altered
+        ok = (base is not None and key in was and bool(deps)
+              and all(k in hooked and k in base.spectre for k in moved))
+        if ok and base is not None:
+            swap: Dict[int, object] = {}
+            for k in moved:                                # the hooked fields' values, as the instance line reads them
+                old, new = base.spectre[k], src.spectre[k]
+                olds = old if isinstance(old, list) else [old]
+                news = new if isinstance(new, list) else [new]
+                swap.update((id(o), n) for o, n in zip(olds, news))
+            ok = _swap(was[key], swap) == e
+        if not ok:
+            out.append((key, e))
+    return out
+
+
+def control_source_message(what: str, statement: str, path: str, key: str, e: object) -> str:
+    """The refusal of a control-block statement that can neither print nor leave out a field (control_source_problems):
+    what names the alter or analysis, statement the control block's statement ("alter", "switch")."""
+    exprs = _item_exprs(key, e)
+    text = ("[%s]" % ", ".join(X.to_text(x) for x in exprs)) if key == "wave" else X.to_text(e)   # type: ignore[arg-type]
+    reads: Set[str] = set()
+    for x in exprs:
+        try:
+            reads |= set(X.names(x))                                     # type: ignore[arg-type]
+            reads |= {"temp" if n.name == "temper" else "tnom" for n in X.walk(x)          # type: ignore[arg-type]
+                      if isinstance(n, Name) and n.name in ("temper", "$tnom")}
+        except Exception:  # noqa: BLE001  (not an expression)
+            continue
+    return ("%s: on VACASK the control block's %s of %s would print %s=%s, which reads %s: a VACASK control-block "
+            "statement cannot read a netlist parameter, temp or tnom ('Variable or constant ... not defined'), and left "
+            "out the field would keep the instance's own value (its binding on the instance line, or VACASK's default "
+            "where that line prints none), not this one: not supported on VACASK in v1 (Xyce runs it)"
+            % (what, statement, path, key, text, ", ".join(sorted(reads))))
+
+
+class _Hook:
+    """H1: one switchable hook: its flag and value variables (the value of a plan variable's hook is the variable
+    vamos_v_<p> itself), the plan target it serves and the sites it is printed at (instance hooks)."""
+    __slots__ = ("flag", "value", "target", "var", "sites")
+
+    def __init__(self, flag: str, value: str, target: Tuple[str, str, str], var: bool = False):
+        self.flag, self.value, self.target, self.var = flag, value, target, var
+        self.sites: List[Tuple] = []
 
 
 def emit(nl: Netlist, path: str, analysis_name: str = "vamos_tran", osdi: Sequence[str] = (),
@@ -254,6 +670,19 @@ class _Deck:
         self.lift_queue: List[Tuple[Subckt, T.Scope]] = []
         self.va_cards: Dict[int, str] = {}        # id(Verilog-A instance) -> its per-instance card (i_y)
         self.variables: Dict[str, float] = dict(plan.variables) if plan is not None else {}
+        # L1 (phase 2c7): the state the control block's statements run in (the plan variables' values, temp, tnom, the
+        # X-line values sub= alters set), as plan.build's walk evaluates it, and the instance paths it takes there
+        glob = plan.options if plan is not None else {}
+        self.run_vars: Dict[str, float] = dict(self.variables)
+        self.run_temp = _float_or(glob.get("temp"), 27.0)
+        self.run_tnom = _float_or(glob.get("tnom"), 27.0)
+        self.run_x: Dict[Tuple[str, str], float] = {}
+        self.run_maps: Dict[Tuple, Tuple[Dict[str, Instance], Dict[str, T.PathEnv]]] = {}
+        self.run_sites: Optional[object] = None
+        self.transres: Optional[float] = None     # phase 2c8: Spectre's default pulse edge (plan.edge_default), once
+        # phase 2c9 (N1): source path -> the Source the plan's alter and source actions so far set (plan.build's source
+        # state, in the statement being printed); a path no action set is in its instance line's state
+        self.src_now: Dict[str, Source] = {}
         for items in [nl.body] + [s.body for s in T.all_subckts(nl)]:
             for it in flat_items(items):          # X lines inside Cond branches too (§4.5 item 1)
                 if isinstance(it, Instance) and it.kind == "x" and it.master:
@@ -264,6 +693,7 @@ class _Deck:
         self._names()
         if self.spectre:
             self._lift_plan()
+        self._plan_hooks()
 
     # -- diagnostics
     def err(self, origin: str, msg: str) -> None:
@@ -295,6 +725,191 @@ class _Deck:
             self.missing[base] = _fresh("m_" + base, taken)
         self.taken = taken                         # per-instance Verilog-A cards are allocated later
 
+    # -- the switchable hooks (phase 2c4, H1; the module docstring) ----------------------------------------------------
+    def _plan_hooks(self) -> None:
+        """The hooks of the plan's sweep and alter targets bound to an expression that reads a name, temp or tnom, in
+        the order the plan first names them: an instance's (hook_key; inside a subckt body a site whose hook the X
+        lines of the target's path pass down), a card's (on its model line), a plan variable's that reads another one
+        (or temp, tnom).  Nothing without a plan or on a HSPICE netlist."""
+        self.hooks: Dict[Tuple[str, str, str], _Hook] = {}       # plan target -> its hook
+        self.hook_list: List[_Hook] = []
+        self.sites: Dict[Tuple[int, str, str], Tuple[str, str, str]] = {}   # (id(body) or 0, instance, key) -> (flag,
+        #                                                                     value, kind) as that body reads them
+        self.site_params: Dict[int, List[Tuple[str, str]]] = {}              # id(subckt) -> its hook parameter pairs
+        self.body_pairs: Dict[Tuple[int, str, str], Tuple[str, str]] = {}    # (id(subckt), path suffix, key) -> pair
+        self.xbind: Dict[Tuple[int, str, int], Dict[str, Tuple[str, str, str, str]]] = {}   # (id(body) or 0, X name,
+        #                                           id(its subckt)) -> child flag -> (child flag, value, flag, value)
+        self.card_hooks: Dict[Tuple[int, str], Tuple[str, str]] = {}         # (id(card), printed key) -> (flag, value)
+        self.va_hooks: Dict[int, Tuple[str, str]] = {}                       # id(Verilog-A card's Expr) -> (flag, value)
+        self.var_hooks: Dict[str, str] = {}                                  # plan variable -> its flag
+        self.hook_flags: Set[str] = set()                                    # every flag name a hook's Ternary tests
+        self.flag_on: Dict[str, bool] = {}                                   # the control block's flags so far
+        self.printed_sites: Set[Tuple] = set()
+        if self.plan is None or not self.spectre:
+            return
+        self.param_names: Set[str] = {p.name for p in self.nl.body if isinstance(p, Param)}
+        for s in T.all_subckts(self.nl):
+            self.param_names |= {p.name for p in _plist(s)}
+        self.hook_k = self.body_n = 0
+        targets: List[Tuple[str, str, str]] = []
+        for act in self.plan.actions:
+            if act.op == "alter":
+                t = act.args.get("target")
+                if isinstance(t, tuple) and len(t) == 3:
+                    targets.append(t)
+            elif act.op == "analysis" and act.step is not None:
+                st = act.step
+                targets += [lv.target for lv in list(st.context) + ([st.own] if st.own is not None else [])]
+        for t in dict.fromkeys(targets):
+            if t[0] == "instance":
+                self._hook_instance(t)
+            elif t[0] == "model":
+                self._hook_model(t)
+            elif t[0] == "variable":
+                self._hook_variable(t)
+
+    def _new_hook(self, target: Tuple[str, str, str], var: bool = False) -> _Hook:
+        while True:
+            self.hook_k += 1
+            flag, value = HOOK_FLAG + str(self.hook_k), HOOK_VALUE + str(self.hook_k)
+            if flag not in self.param_names and value not in self.param_names:
+                break
+        h = _Hook(flag, VAR_PREFIX + target[1] if var else value, target, var)
+        self.hooks[target] = h
+        self.hook_list.append(h)
+        self.hook_flags.add(flag)
+        return h
+
+    def _body_pair(self, sub: Subckt, suffix: str, key: str) -> Tuple[str, str]:
+        """The hook parameters subckt sub declares for the site at path suffix (relative to its body) and key."""
+        mk = (id(sub), suffix, key)
+        pair = self.body_pairs.get(mk)
+        if pair is None:
+            while True:
+                self.body_n += 1
+                pair = (BODY_FLAG + str(self.body_n), BODY_VALUE + str(self.body_n))
+                if pair[0] not in self.param_names and pair[1] not in self.param_names:
+                    break
+            self.body_pairs[mk] = pair
+            self.site_params.setdefault(id(sub), []).append(pair)
+            self.hook_flags.add(pair[0])
+        return pair
+
+    def _hook_instance(self, t: Tuple[str, str, str]) -> None:
+        """An instance target: hooked on every resolution of its path (an alter prints as var statements only, so a
+        resolution left unhooked would miss it) when one of them binds it to an expression; none when one of them
+        cannot be hooked (hookable)."""
+        _kind, path, param = t
+        if not prints_hook(self.nl, t):                     # phase 2c5 (R3): also the m of an instance in a body
+            return
+        res = [(chain, inst, hook_key(inst, param)) for chain, inst in path_resolutions(self.nl, path)]
+        h = self._new_hook(t)
+        names = path.split(".")
+        for chain, inst, key in res:
+            assert key is not None
+            pair = self._body_pair(chain[-1][1], names[-1], key) if chain else (h.flag, h.value)
+            site = (id(chain[-1][1]) if chain else 0, inst.name, key)
+            self.sites[site] = (pair[0], pair[1], inst.kind)
+            h.sites.append(site)
+            for j in range(len(chain) - 1, -1, -1):         # up the path: each X line passes the site's pair on
+                x, sub = chain[j]
+                holder = chain[j - 1][1] if j > 0 else None
+                up = self._body_pair(holder, ".".join(names[j:]), key) if holder is not None else (h.flag, h.value)
+                where = (id(holder) if holder is not None else 0, x.name, id(sub))
+                self.xbind.setdefault(where, {})[pair[0]] = (pair[0], pair[1], up[0], up[1])
+                h.sites.append(where + (pair[0],))
+                pair = up
+
+    def _hook_model(self, t: Tuple[str, str, str]) -> None:
+        """A mod= target: hooked on every card it names (each entry of a model group: the alter is a var statement,
+        which an entry left constant would never see) when one of them binds the parameter to an expression; a
+        Verilog-A card's on the per-instance cards of the instances that read its value (the same Expr objects, §3.9);
+        none when one of the cards cannot take the hook (hookable)."""
+        _kind, name, param = t
+        cards = _target_cards(self.nl, name)
+        exprs = [_card_expr(self.nl, m, param) for m in cards]
+        if not prints_hook(self.nl, t):
+            return
+        h = self._new_hook(t)
+        key = self.card_param(name, param)
+        for m, e in zip(cards, exprs):
+            if self.is_va_card(m):
+                self.va_hooks[id(e)] = (h.flag, h.value)
+            elif id(m) in self.used:                         # an unused card is not printed (T.reachable)
+                self.card_hooks[(id(m), key)] = (h.flag, h.value)
+                h.sites.append(("card", id(m), key))
+
+    def _hook_variable(self, t: Tuple[str, str, str]) -> None:
+        name = t[1]
+        if name not in self.variables:
+            return
+        if prints_hook(self.nl, t, self.plan.dependents if self.plan is not None else ()):
+            h = self._new_hook(t, var=True)
+            self.var_hooks[name] = h.flag
+
+    def hook_expr(self, inst: Instance, scope: T.Scope, key: str, e: Optional[Expr]) -> Optional[Expr]:
+        """The expression of inst's parameter `key` as this body prints it: through its site's hook, else e."""
+        if not self.sites or e is None:
+            return e
+        site = (id(scope.subckt) if scope.in_subckt and scope.subckt is not None else 0, inst.name, key)
+        got = self.sites.get(site)
+        if got is None or got[2] != inst.kind:
+            return e
+        self.printed_sites.add(site)
+        return Ternary(Name(got[0]), Name(got[1]), e)
+
+    def hooked_source(self, inst: Instance, scope: T.Scope, src: Source) -> Source:
+        """src with every hooked field's places (source_locations) reading the field's hook (a copy)."""
+        out: Optional[Source] = None
+        for field in list(src.spectre):
+            hooked = self.hook_expr(inst, scope, field, src.spectre[field])   # type: ignore[arg-type]
+            if hooked is src.spectre[field]:
+                continue
+            if out is None:
+                out = Source(dc=src.dc, ac=src.ac, wave=src.wave, args=dict(src.args), points=list(src.points),
+                             code_uri=src.code_uri, spectre=dict(src.spectre))
+            for where in source_locations(src, field):
+                if where[0] == "dc":
+                    out.dc = hooked                          # type: ignore[assignment]
+                elif where[0] == "ac":
+                    ac = list(out.ac or (Num(0.0), Num(0.0)))  # ref5 p.685: mag defaults to 0
+                    ac[where[1]] = hooked                    # type: ignore[call-overload]
+                    out.ac = (ac[0], ac[1])                  # type: ignore[assignment]
+                elif where[0] == "args":
+                    out.args[where[1]] = hooked              # type: ignore[assignment]
+                else:
+                    pt = list(out.points[where[1]])
+                    pt[where[2]] = hooked                    # type: ignore[call-overload]
+                    out.points[where[1]] = (pt[0], pt[1])    # type: ignore[assignment]
+        return out if out is not None else src
+
+    def x_bindings(self, inst: Instance, scope: T.Scope, sub: Subckt) -> List[str]:
+        """The hook parameters an X line passes into its body (the sites of the altered paths through it)."""
+        if not self.xbind:
+            return []
+        where = (id(scope.subckt) if scope.in_subckt and scope.subckt is not None else 0, inst.name, id(sub))
+        out: List[str] = []
+        for cf, cv, f, v in self.xbind.get(where, {}).values():
+            out += ["%s=%s" % (cf, f), "%s=%s" % (cv, v)]
+            self.printed_sites.add(where + (cf,))
+        return out
+
+    def hook_params(self, s: Subckt, indent: str) -> None:
+        """A body's hook parameters, 0 by default (no alter or sweep on this path)."""
+        for f, v in self.site_params.get(id(s), []):
+            self.body.append("%sparameters %s=0" % (indent, f))
+            self.body.append("%sparameters %s=0" % (indent, v))
+
+    def hook_declarations(self) -> List[str]:
+        """The var statement declaring every hook's flag and value 0, before VACASK's first elaboration."""
+        parts: List[str] = []
+        for h in self.hook_list:
+            parts.append("%s=0" % h.flag)
+            if not h.var:
+                parts.append("%s=0" % h.value)
+            self.flag_on[h.flag] = False
+        return ["  var " + " ".join(parts)] if parts else []
+
     def q(self, name: str) -> str:
         """quote(), plus the Spectre rule for an all-digit name with a leading zero (§4.5 item 9)."""
         if self.spectre and len(name) > 1 and name.isdigit() and name[0] == "0":
@@ -325,6 +940,8 @@ class _Deck:
         except (X.PrintError, X.ExprError) as exc:
             self.err(origin, "%s: %s" % (what, exc))
             raise _Skip()
+        if isinstance(e, Ternary) and isinstance(e.cond, Name) and e.cond.name in self.hook_flags:
+            return t                                # a hook (H1): the printer's own parentheses
         return "(%s)" % t if " " in t else t
 
     def bv(self, e: Expr, origin: str, what: str) -> str:
@@ -357,6 +974,10 @@ class _Deck:
                 pass
             except (T.TableError, X.PrintError) as exc:
                 self.err(s.origin, str(exc))
+        for h in self.hook_list:                   # H1: a hooked site the walk did not print would lose the alter
+            if any(site not in self.printed_sites for site in h.sites):
+                self.err("", "%s %s of %s: the deck does not print the parameter through its switchable hook "
+                         "(phase 2c4; internal)" % (h.target[0], h.target[2], h.target[1]))
         if self.plan is not None:
             self.name_map()                        # every printed Ref's column (§4.5 item 6)
         control = self.plan_control() if self.plan is not None else self.control()
@@ -392,6 +1013,17 @@ class _Deck:
                 self.err(p.origin, "parameter name %r is not a VACASK identifier" % p.name)
                 continue
             if not indent and p.name in self.variables:
+                flag = self.var_hooks.get(p.name)
+                if flag is not None:
+                    # H1 (phase 2c4): defined by an expression that reads another variable (temp, tnom), it reads it
+                    # until an alter or a sweep sets the variable (the hook's flag); rw=vamos_v_rw had stayed at its
+                    # nominal under a sweep of rv (0.333, 0.333 where Xyce gives 0.333, 0.2)
+                    try:
+                        self.body.append("%sparameters %s=%s" % (indent, name, self.pv(
+                            Ternary(Name(flag), Name(VAR_PREFIX + p.name), p.expr), p.origin, "parameter " + p.name)))
+                    except _Skip:
+                        pass
+                    continue
                 # a plan variable: hooked to the var the control block sets (§4.5 item 4) [E2]
                 self.body.append("%sparameters %s=%s" % (indent, name, VAR_PREFIX + p.name))
                 continue
@@ -462,6 +1094,7 @@ class _Deck:
         self.shadow = shadow + tuple(p.name for p in plist)
         try:
             self.subckt_params(s, plist, inner)
+            self.hook_params(s, inner)
             self.body.append("%sparameters $mfactor=1.0" % inner)
             self.items(s.body, scope, inner)
         finally:
@@ -559,6 +1192,7 @@ class _Deck:
         self.shadow = tuple(extra) + tuple(p.name for p in plist)
         try:
             self.subckt_params(s, plist, "  ", extra)
+            self.hook_params(s, "  ")
             self.body.append("  parameters $mfactor=1.0")
             self.items(s.body, scope, "  ")
         finally:
@@ -574,6 +1208,10 @@ class _Deck:
         strings = T.STRING_PARAMS.get(row.vacask_module, frozenset())
         out = []
         for k, v in params:
+            h = self.card_hooks.get((id(m), k)) if self.card_hooks else None
+            if h is not None and k not in strings:
+                v = Ternary(Name(h[0]), Name(h[1]), v)            # H1: a mod= target bound to an expression
+                self.printed_sites.add(("card", id(m), k))
             out.append("%s=%s" % (k, self.string(v, m.origin, k) if k in strings
                                   else self.pv(v, m.origin, "model %s parameter %s" % (m.name, k))))
         self.body.append("%smodel %s %s%s" % (indent, self.q(self.mname[m.name]), row.vacask_module,
@@ -632,7 +1270,17 @@ class _Deck:
                                             master, "".join(" " + p for p in params)))
 
     def mult(self, inst: Instance, scope: T.Scope) -> Optional[Expr]:
-        return T.multiplier(self.params_of(inst, scope).get("m"), scope.in_subckt, ENGINE)
+        m = self.params_of(inst, scope).get("m")
+        if m is None and scope.in_subckt and self.sites:
+            # phase 2c5 (R3): inside a body the printed $mfactor=$mfactor reads the holder's multiplier, a binding VACASK
+            # re-evaluates (an alter of the instance's $mfactor was lost after any change, 0.5 where 0.667, and a sweep
+            # of it failed, `is bound to an expression'): a hooked site's own m is 1 where the netlist leaves it out
+            site = self.sites.get((id(scope.subckt) if scope.subckt is not None else 0, inst.name, "m"))
+            if site is not None and site[2] == inst.kind:
+                m = Num(1.0)
+        if m is not None:
+            m = self.hook_expr(inst, scope, "m", m)         # H1: an m bound to an expression that a target sets
+        return T.multiplier(m, scope.in_subckt, ENGINE)
 
     def mf(self, inst: Instance, scope: T.Scope) -> List[str]:
         """$mfactor=... for an element that takes the multiplier as a parameter."""
@@ -648,6 +1296,12 @@ class _Deck:
         for k, v in params.items():
             if k in skip:
                 continue
+            if self.va_hooks and id(v) in self.va_hooks:   # H1: a Verilog-A card's value a mod= target sets
+                h = self.va_hooks[id(v)]
+                self.printed_sites.add(("va", id(v)))
+                v = Ternary(Name(h[0]), Name(h[1]), v)
+            if scope is not None:
+                v = self.hook_expr(inst, scope, k, v)        # type: ignore[assignment]
             v = T.scaled(element or inst.kind, k, v, self.s, level)
             out.append("%s=%s" % (k, self.pv(v, inst.origin, "%s parameter %s" % (inst.name, k))))
         return out
@@ -706,10 +1360,13 @@ class _Deck:
                     # a parameter (isnoisy=nflag, a subckt's nz): VACASK evaluates noisy= per instance, a real
                     # 0.0 into the integer noisy turning the noise off (raw VACASK, R-emit-6)
                     tail.append("noisy=" + self.pv(switch, inst.origin, "isnoisy of " + inst.name))
+        if value is not None:
+            value = self.hook_expr(inst, scope, VALUE_KEY, value)   # H1: a value a sweep or alter target sets
         if k == "l" and inst.name in scope.coupled:
             # a coupled inductor's multiplier and TCs are folded into its value (tables.coupled_inductance)
             card = self.card(inst, scope) if inst.master is not None else None
-            folded = T.coupled_inductance(inst, self.mult(inst, scope), card, *T.run_temps(self.nl))
+            folded = T.coupled_inductance(inst if value is inst.value else replace(inst, value=value),
+                                          self.mult(inst, scope), card, *T.run_temps(self.nl))
             if folded is not None:
                 value, skip, mf = folded, T.COUPLED_FOLDED + (("ic",) if "ic" in skip else ()), []
         if mf is None:
@@ -736,16 +1393,17 @@ class _Deck:
         if len(inst.ctrl) != 2 or inst.value is None:
             self.err(inst.origin, "mutual inductance %s needs two inductors and a coupling" % inst.name)
             return
-        params = ["k=" + self.pv(inst.value, inst.origin, "coupling of " + inst.name),
+        params = ["k=" + self.pv(self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
+                                 inst.origin, "coupling of " + inst.name),
                   'ind1="%s"' % inst.ctrl[0], 'ind2="%s"' % inst.ctrl[1]]
         self.line(indent, inst, [], self.use_builtin("vamos_mutual"), params)
 
     def i_v(self, inst: Instance, scope: T.Scope, indent: str) -> None:
-        self.line(indent, inst, inst.nodes, self.use_builtin("vamos_vsource"), self.source(inst))
+        self.line(indent, inst, inst.nodes, self.use_builtin("vamos_vsource"), self.source(inst, scope))
 
     def i_i(self, inst: Instance, scope: T.Scope, indent: str) -> None:
         self.line(indent, inst, inst.nodes, self.use_builtin("vamos_isource"),
-                  self.source(inst) + self.mf(inst, scope))
+                  self.source(inst, scope) + self.mf(inst, scope))
 
     def i_e(self, inst: Instance, scope: T.Scope, indent: str) -> None:
         self.controlled(inst, scope, indent, "vamos_vcvs")
@@ -763,7 +1421,8 @@ class _Deck:
         if inst.value is None:
             self.err(inst.origin, "%s has no gain" % inst.name)
             return
-        params = ["gain=" + self.pv(inst.value, inst.origin, "gain of " + inst.name)]
+        params = ["gain=" + self.pv(self.hook_expr(inst, scope, VALUE_KEY, inst.value),     # type: ignore[arg-type]
+                                    inst.origin, "gain of " + inst.name)]
         if inst.kind in ("f", "h"):
             if len(inst.ctrl) != 1:
                 self.err(inst.origin, "%s needs one controlling voltage source" % inst.name)
@@ -795,7 +1454,8 @@ class _Deck:
         lv = T.level_of(m)                       # .option scale reaches a LEVEL 3 diode only
         params = []
         if inst.value is not None:
-            area = T.scaled("d", "area", inst.value, self.s, lv)
+            area = T.scaled("d", "area", self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
+                            self.s, lv)
             params.append("area=" + self.pv(area, inst.origin, "area of " + inst.name))
         self.line(indent, inst, inst.nodes, self.q(self.mname[m.name]),
                   params + self.plist(inst, ("m", "area"), level=lv, scope=scope) + self.mf(inst, scope))
@@ -806,7 +1466,8 @@ class _Deck:
         nodes = list(inst.nodes) + (["0"] if len(inst.nodes) == 3 else [])   # SPICE: substrate on ground
         params = []
         if inst.value is not None:
-            params.append("area=" + self.pv(inst.value, inst.origin, "area of " + inst.name))
+            params.append("area=" + self.pv(self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
+                                            inst.origin, "area of " + inst.name))
         self.line(indent, inst, nodes, self.q(self.mname[m.name]),
                   params + self.plist(inst, ("m", "area"), scope=scope) + self.mf(inst, scope))
 
@@ -815,7 +1476,8 @@ class _Deck:
         T.target(m)
         params = []
         if inst.value is not None:
-            params.append("area=" + self.pv(inst.value, inst.origin, "area of " + inst.name))
+            params.append("area=" + self.pv(self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
+                                            inst.origin, "area of " + inst.name))
         self.line(indent, inst, inst.nodes, self.q(self.mname[m.name]),
                   params + self.plist(inst, ("m", "area"), scope=scope) + self.mf(inst, scope))
 
@@ -890,7 +1552,8 @@ class _Deck:
             if k == "m":
                 continue
             params.append("%s=%s" % (X.param_ident(k, ENGINE),
-                                     self.pv(v, inst.origin, "%s parameter %s" % (inst.name, k))))
+                                     self.pv(self.hook_expr(inst, scope, k, v), inst.origin,   # type: ignore[arg-type]
+                                             "%s parameter %s" % (inst.name, k))))
         lifted = self.lifted.get(id(sub))
         master = sub.name
         if lifted is not None:                     # the lifted definition takes the enclosing parameters
@@ -899,6 +1562,7 @@ class _Deck:
                 if p not in inst.params:
                     params.append("%s=%s" % (X.param_ident(p, ENGINE),
                                              self.pv(Name(p), inst.origin, "%s parameter %s" % (inst.name, p))))
+        params += self.x_bindings(inst, scope, sub)    # H1: the hooks of the altered paths down this X line
         self.line(indent, inst, inst.nodes, self.q(master), params + self.mf(inst, scope))
 
     def i_y(self, inst: Instance, scope: T.Scope, indent: str) -> None:
@@ -921,8 +1585,10 @@ class _Deck:
         self.line(indent, inst, inst.nodes, self.q(card), self.mf(inst, scope))
 
     # -- sources (§4.3.8; Spectre: VAMOS_SPECTRE_DESIGN.md §4.5 item 8)
-    def source(self, inst: Instance) -> List[str]:
+    def source(self, inst: Instance, scope: Optional[T.Scope] = None) -> List[str]:
         src = inst.source or Source()
+        if scope is not None and self.sites:
+            src = self.hooked_source(inst, scope, src)       # H1: a field a sweep or alter target sets, hooked
         return self.source_fields(inst.name, inst.origin, src, self.source_type(src))
 
     def source_type(self, src: Source) -> Optional[str]:
@@ -935,9 +1601,18 @@ class _Deck:
             return "dc"
         return src.wave
 
-    def source_fields(self, name: str, o: str, src: Source, state: Optional[str]) -> List[str]:
+    def source_fields(self, name: str, o: str, src: Source, state: Optional[str], ctl: bool = False,
+                      base: Optional[Source] = None, hooked: Collection[str] = (), path: str = "") -> List[str]:
         """The parameters of a vsource/isource: the waveform fields, dc, mag/phase; state: the type
-        printed on a Spectre source ("dc" or its waveform), None for the HSPICE path."""
+        printed on a Spectre source ("dc" or its waveform), None for the HSPICE path.  ctl (phase 2c4): a
+        control-block alter or source switch, which leaves out a field the netlist binds to a parameter
+        (a field as written, reading a name, temp or tnom): the instance keeps it, re-evaluated as VACASK
+        re-evaluates its bindings, and the control block cannot read a netlist parameter (`Variable or
+        constant 'vv' not defined', exit 1, before).  Phase 2c5 (R4): every field that reads a name, temp
+        or tnom is left out, a derived one too (a pulse's (rt == 0 ? transres : rt), an exp's relative
+        td2, a pwl's wave), which control_source_problems shows keeps the source right, given the
+        instance's netlist source (base) and the fields it prints through a hook (hooked); a field it
+        cannot leave out is an error (plan.build refuses such a statement first)."""
         if src.code_uri is not None:
             if src.dc is not None or src.ac is not None or src.wave is not None:
                 self.err(o, "%s: a bridge source has no dc/ac/wave" % name)
@@ -954,6 +1629,14 @@ class _Deck:
             return ['type="pwl"', 'file="%s"' % src.code_uri]
         out: List[str] = []
         pv = lambda e, what: self.pv(e, o, "%s %s" % (name, what))   # noqa: E731
+        left = False                                        # R4: a field the control-block statement leaves out
+
+        def put(key: str, e: Expr, what: str) -> None:
+            nonlocal left
+            if ctl and reads_something(e):
+                left = True
+                return                                      # it reads a name: the instance keeps its binding
+            out.append("%s=%s" % (key, pv(e, what)))
         w = src.wave
         if state is not None and (w is not None or state == "dc"):
             out.append('type="%s"' % ("sine" if state == "sin" else state))
@@ -963,37 +1646,27 @@ class _Deck:
             except T.TableError as exc:
                 self.err(o, str(exc))
                 raise _Skip()
-            if w == "pulse":
-                out += ([] if state is not None else ['type="pulse"']) + [
-                    "val0=" + pv(f["v1"], "v1"), "val1=" + pv(f["v2"], "v2"),
-                    "delay=" + pv(f["td"], "td"), "rise=" + pv(f["tr"], "tr"),
-                    "fall=" + pv(f["tf"], "tf"), "width=" + pv(f["pw"], "pw")]
-                if "per" in f:
-                    out.append("period=" + pv(f["per"], "per"))
-            elif w == "sin":
-                out += ([] if state is not None else ['type="sine"']) + [
-                    "sinedc=" + pv(f["vo"], "vo"), "ampl=" + pv(f["va"], "va"),
-                    "freq=" + pv(f["freq"], "freq"), "delay=" + pv(f["td"], "td"),
-                    "theta=" + pv(f["theta"], "theta"), "tdphase=" + pv(f["phase"], "phase")]
-            elif w == "exp":
-                td1, td2 = f["td1"], f["td2"]
-                rel: Expr = (Num(td2.value - td1.value) if isinstance(td1, Num) and isinstance(td2, Num)
-                             else Binary("-", td2, td1))       # VACASK td2 is relative to delay
-                out += ([] if state is not None else ['type="exp"']) + [
-                    "val0=" + pv(f["v1"], "v1"), "val1=" + pv(f["v2"], "v2"),
-                    "delay=" + pv(td1, "td1"), "tau1=" + pv(f["tau1"], "tau1"),
-                    "td2=" + pv(rel, "td2-td1"), "tau2=" + pv(f["tau2"], "tau2")]
-            else:                                              # pwl
-                out += ([] if state is not None else ['type="pwl"']) + [
-                    "wave=[%s]" % ", ".join("%s, %s" % (pv(t, "time"), pv(v, "value")) for t, v in src.points)]
-                if "td" in f:
-                    out.append("delay=" + pv(f["td"], "td"))
+            if state is None:
+                out.append('type="%s"' % ("sine" if w == "sin" else w))
+            for key, e, what in _source_items(src, f):
+                if key != "wave":
+                    put(key, e, what)                       # type: ignore[arg-type]
+                elif ctl and any(reads_something(x) for x in _item_exprs(key, e)):
+                    left = True                             # a pwl point reads a name: the instance keeps the wave
+                else:
+                    out.append("wave=[%s]" % ", ".join("%s, %s" % (pv(t, "time"), pv(v, "value"))
+                                                        for t, v in e))   # type: ignore[union-attr]
         if src.dc is not None:
-            out.append("dc=" + pv(src.dc, "dc"))
+            put("dc", src.dc, "dc")
         elif w is None:
             out.append("dc=0.0")
         if src.ac is not None:
-            out += ["mag=" + pv(src.ac[0], "ac magnitude"), "phase=" + pv(src.ac[1], "ac phase")]
+            put("mag", src.ac[0], "ac magnitude")
+            put("phase", src.ac[1], "ac phase")
+        if left:
+            bad = control_source_problems(src, base, hooked)
+            if bad:                                         # plan.build refuses these first (R4); a safety net
+                raise T.TableError(control_source_message("%s (internal)" % o, "statement", path or name, *bad[0]))
         return out
 
     # -- control block (§4.4)
@@ -1103,6 +1776,94 @@ class _Deck:
         return ""
 
     # -- the plan's control block (VAMOS_SPECTRE_DESIGN.md §4.5 items 4-6, §5, §7.1) ---------------
+    def run_instance(self, ir_path: str) -> Optional[Instance]:
+        """K2 (phase 2c6): the Instance an IR path names on the instance paths the run takes, which is what VACASK's
+        control block alters: an if and its else may both hold V1, and the base of a source statement is the taken one's
+        netlist source, as plan.build's R4 check takes it (2c5 took _resolve's first match, the untaken branch's V1, and
+        refused S-2c5's N607 with an `(internal)' message).  L1 (phase 2c7): resolved in the state of the statement being
+        printed, as plan.build's walk resolves it (run_map); 2c6 walked the render copy's values, which hold no plan
+        variable, so a condition reading one (S-2c6's K2b1, K2b2, K2b4) did not evaluate and the error was swallowed
+        for _resolve's first match.  None when the path names no instance there; a TableError when the paths do not
+        resolve.  Without a plan (the vcs-ams deck): _resolve's match."""
+        if self.plan is None:
+            return _resolve(self.nl, ir_path)
+        return self.run_map()[0].get(ir_path)
+
+    def run_map(self) -> Tuple[Dict[str, Instance], Dict[str, T.PathEnv]]:
+        """L1 (phase 2c7): (IR path -> instance, IR path -> PathEnv) of the instance paths the run takes in the control
+        block's current state: plan.run_values and plan.run_paths (strict), with the plan variables' values in force, the
+        temperatures and the X-line values the sub= alters so far set; cached per state.  TableError when they do not
+        resolve (plan.build walked the same state, so it is an internal error; never _resolve's first match)."""
+        key = (tuple(sorted(self.run_vars.items())), self.run_temp, self.run_tnom, tuple(sorted(self.run_x.items())))
+        got = self.run_maps.get(key)
+        if got is not None:
+            return got
+        from vamos.netlist import plan as PL
+        try:
+            if self.run_sites is None:
+                self.run_sites = PL.temp_sites(self.nl)
+            vals = PL.run_values(self.nl, self.run_vars, self.run_temp, self.run_tnom,
+                                 self.plan.dependents if self.plan is not None else ())
+            xv = [(x, p, v) for (path, p), v in sorted(self.run_x.items())
+                  for _chain, x in path_resolutions(self.nl, path) if x.kind == "x"]
+            pes = PL.run_paths(self.nl, vals, self.run_temp, self.run_tnom, xv, self.run_sites)  # type: ignore[arg-type]
+        except (X.EvalError, T.TableError) as exc:
+            state = ", ".join(["%s=%s" % (k, fmt(v)) for k, v in sorted(self.run_vars.items())]
+                              + ["temp=%s" % fmt(self.run_temp), "tnom=%s" % fmt(self.run_tnom)]
+                              + ["%s:%s=%s" % (k[0], k[1], fmt(v)) for k, v in sorted(self.run_x.items())])
+            raise T.TableError("the instance paths the run takes do not resolve in the state of this statement (%s): "
+                               "%s (internal)" % (state, exc))
+        insts: Dict[str, Instance] = {}
+        for pe in pes:
+            for it in pe.items:
+                insts.setdefault(it.name if not pe.path else pe.path + "." + it.name, it)
+        got = self.run_maps[key] = (insts, {pe.path: pe for pe in pes})
+        return got
+
+    def run_chain(self, ir_path: str) -> Tuple[Optional[T.Scope], List[Instance]]:
+        """L1 (phase 2c7): _path_chain on the instance paths the run takes (run_map): the scope of the body that holds
+        the element and the X instances on its path, the taken ones (X lines of two branches may carry different m, or
+        instantiate two subckts); (None, the X instances found) when the path does not resolve.  _path_chain's first
+        match without a plan."""
+        if self.plan is None:
+            return _path_chain(self.nl, ir_path)
+        insts, pes = self.run_map()
+        parts = ir_path.split(".")
+        chain: List[Instance] = []
+        for k in range(1, len(parts)):
+            x = insts.get(".".join(parts[:k]))
+            if x is None or x.kind != "x":
+                return None, chain
+            chain.append(x)
+        pe = pes.get(".".join(parts[:-1]))
+        return (pe.scope if pe is not None else None), chain
+
+    def run_update(self, act: Action) -> None:
+        """L1 (phase 2c7): the state after an options, var or alter action of the plan (run_map's inputs)."""
+        if act.op == "options":
+            for key in ("temp", "tnom"):
+                v = act.args.get(key)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    setattr(self, "run_" + key, float(v))
+            return
+        if act.op == "var":
+            self.run_vars.update({k: float(v) for k, v in act.args.items()
+                                  if isinstance(v, (int, float)) and not isinstance(v, bool)})
+            return
+        t, v = act.args.get("target"), act.args.get("value")
+        if act.op != "alter" or not (isinstance(t, tuple) and len(t) == 3) or isinstance(v, bool) \
+                or not isinstance(v, (int, float)):
+            return
+        kind, name, param = t
+        if kind == "variable":
+            self.run_vars[name] = float(v)
+        elif kind == "option" and name in ("temp", "tnom"):
+            setattr(self, "run_" + name, float(v))
+        elif kind == "instance" and param != "m":
+            inst = self.run_instance(name)
+            if inst is not None and inst.kind == "x":
+                self.run_x[(name, param)] = float(v)
+
     def path(self, ir_path: str) -> str:
         """An IR instance or node path (x1.r1) as VACASK spells it (x1:r1), quoted when needed."""
         return self.q(ir_path.replace(".", ":"))
@@ -1159,24 +1920,31 @@ class _Deck:
                                 vals.append((key, fmt(self.num(27.0 if default is None else default, act.origin, key))))
                         vals.sort(key=lambda kv: _OPTION_ORDER.index(_spectre_key(kv[0])))
                         lines.append("  options " + " ".join(list(_HEAD_OPTIONS) + ["%s=%s" % kv for kv in vals]))
+                        lines += self.hook_declarations()      # H1: before VACASK's first elaboration
                     else:
                         changed = [(k, v) for k, v in vals if self.vstate.get(k) != v]
                         if changed:
                             lines.append("  options " + " ".join("%s=%s" % kv for kv in changed))
                     self.vstate.update(dict(vals))
+                    self.run_update(act)                       # L1 (phase 2c7): temp and tnom
                 elif act.op == "var":
                     lines.append("  var " + " ".join("%s=%s" % (self.var_name(k), self.setting_text(v, act.origin, k))
                                                       for k, v in act.args.items()))
+                    self.run_update(act)                       # L1 (phase 2c7): the variables' values
                 elif act.op == "alter":
                     lines += self.alter_lines(act)
+                    self.run_update(act)                       # L1 (phase 2c7): the next statements' state
+                    self.track_source(act)                     # phase 2c9 (N1): the source state it makes
                 elif act.op == "source":
                     lines += self.source_lines(act)
+                    self.track_source(act)
                 elif act.op == "analysis":
                     if not seen_options:                       # a plan without an options action
                         seen_options = True
                         vals = [("temp", fmt(self.num(27.0 if self.nl.temp is None else self.nl.temp, act.origin, "temp"))),
                                 ("tnom", fmt(self.num(27.0 if self.nl.tnom is None else self.nl.tnom, act.origin, "tnom")))]
                         lines.append("  options " + " ".join(list(_HEAD_OPTIONS) + ["%s=%s" % kv for kv in vals]))
+                        lines += self.hook_declarations()      # H1: before VACASK's first elaboration
                         self.vstate.update(dict(vals))
                     if act.step is None:
                         self.err(act.origin, "analysis action without a step")
@@ -1201,8 +1969,20 @@ class _Deck:
         kind, name, param = target
         value = act.args.get("value")
         o = act.origin or "alter"
+        hook = self.hooks.get(target) if self.hooks else None     # type: ignore[arg-type]
+        lines: List[str] = []
+        if hook is not None:
+            # H1 (phase 2c4): the target is printed through its switchable hook, which VACASK's re-evaluation of the
+            # bindings keeps; a source's alter statement follows (its type and other fields)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise T.TableError("%s: the alter of %s %s of %s sets %r, not a number, where the deck prints the "
+                                   "parameter through a switchable hook; not supported in v1" % (o, kind, param, name, value))
+            self.flag_on[hook.flag] = True
+            lines.append("  var %s=1 %s=%s" % (hook.flag, hook.value, self.setting_text(value, o, param)))
+            if not (kind == "instance" and "source" in act.args):
+                return lines
         if kind == "instance":
-            inst = _resolve(self.nl, name)
+            inst = self.run_instance(name)          # K2 (phase 2c6): an if's taken branch's instance
             if inst is None:
                 self.err(o, "alter: no instance %s" % name)
                 return []
@@ -1214,7 +1994,9 @@ class _Deck:
                 elif param == "dc" or src.wave is None:
                     state = "dc"                          # an alter of dc makes it given from then on
                 self.src_state[name] = state
-                return ['  alter instance("%s") %s' % (self.spath(name), " ".join(self.source_fields(inst.name, o, src, state)))]
+                return lines + ['  alter instance("%s") %s' % (self.spath(name), " ".join(
+                    self.source_fields(inst.name, o, src, state, ctl=True, base=inst.source,
+                                       hooked=self.hooked_fields(name, src), path=name)))]
             card = self.va_card_target(inst, name, param)
             if card is not None:                          # a Verilog-A parameter: on the instance's card (R-plan-4)
                 return ['  alter model("%s") %s=%s' % (card, param.lower(), self.setting_text(value, o, param))]
@@ -1249,13 +2031,19 @@ class _Deck:
         if not isinstance(path, str) or not isinstance(src, Source) or not isinstance(typ, str):
             self.err(act.origin, "source action needs path, type and source")
             return []
-        inst = _resolve(self.nl, path)
+        inst = self.run_instance(path)          # K2 (phase 2c6): an if's taken branch's instance
         if inst is None:
             self.err(act.origin, "source action: no instance %s" % path)
             return []
         state = "dc" if typ == "dc" else typ
         self.src_state[path] = state
-        return ['  alter instance("%s") %s' % (self.spath(path), " ".join(self.source_fields(inst.name, act.origin or "alter", src, state)))]
+        return ['  alter instance("%s") %s' % (self.spath(path), " ".join(
+            self.source_fields(inst.name, act.origin or "alter", src, state, ctl=True, base=inst.source,
+                               hooked=self.hooked_fields(path, src), path=path)))]
+
+    def hooked_fields(self, path: str, src: Source) -> Set[str]:
+        """R4 (phase 2c5): the fields of the source at path that its instance line prints through a hook."""
+        return {k for k in src.spectre if self.hooks and ("instance", path, k) in self.hooks}
 
     def instance_param(self, inst: Instance, param: str, path: str = "") -> str:
         """The VACASK spelling of an instance parameter a sweep or alter targets (the master's instance
@@ -1293,7 +2081,7 @@ class _Deck:
             raise T.TableError("%s: the multiplier of a %s is not a device parameter on VACASK (folded into the "
                                "element, or without effect); a sweep or alter of m is not supported in v1"
                                % (path, T.ELEMENT_NAME.get(inst.kind, inst.kind)))
-        scope, chain = _path_chain(self.nl, path)
+        scope, chain = self.run_chain(path)          # L1 (phase 2c7): the X lines the run takes
         if inst.kind == "l" and scope is not None and inst.name in scope.coupled:
             raise T.TableError("%s: the multiplier of a coupled inductor is folded into its l on VACASK "
                                "(tables.coupled_inductance); a sweep or alter of m is not supported in v1" % path)
@@ -1310,7 +2098,7 @@ class _Deck:
         gave another response than the analysis at the nominal on both engines (X-emit 2c)."""
         if inst.kind != "l":
             return False
-        scope, _chain = _path_chain(self.nl, path)
+        scope, _chain = self.run_chain(path)         # L1 (phase 2c7): the body the run takes
         if scope is None or inst.name not in scope.coupled:
             return False
         return (T.multiplier(self.params_of(inst, scope).get("m"), scope.in_subckt, ENGINE) is not None
@@ -1338,8 +2126,9 @@ class _Deck:
         before, the card itself is never printed): spectre.parse merged the card's parameters into each of its
         instances (§3.9), the same Expr objects, so an instance of m holds one of them; an instance whose own
         value of param replaced the card's does not follow the card (Spectre's instance value wins).  The
-        instance paths are tables.path_envs' (the taken branches: a card in an untaken @if branch does not
-        exist at run time)."""
+        instance paths are the ones the run takes (the taken branches: a card in an untaken @if branch does not
+        exist at run time); L1 (phase 2c7): in the state of the statement (run_map), where 2c6 walked the render copy's
+        values, which hold no plan variable."""
         if not m.params:
             raise T.TableError("%s: the instances of Verilog-A card %s cannot be told apart from those of another "
                                "card of its module (it sets no parameter; §3.9 merges a card into its instances): a "
@@ -1347,10 +2136,13 @@ class _Deck:
                                % (origin, m.name))
         want = param.lower()
         mine = {k.lower(): v for k, v in m.params.items()}
-        try:
-            pes = list(T.path_envs(self.nl, strict=False, dialect=self.nl.dialect))
-        except (X.EvalError, T.TableError) as exc:
-            raise T.TableError("%s: the instances of Verilog-A card %s: %s" % (origin, m.name, exc))
+        if self.plan is not None:
+            pes = list(self.run_map()[1].values())
+        else:
+            try:
+                pes = list(T.path_envs(self.nl, strict=False, dialect=self.nl.dialect))
+            except (X.EvalError, T.TableError) as exc:
+                raise T.TableError("%s: the instances of Verilog-A card %s: %s" % (origin, m.name, exc))
         out: List[str] = []
         for pe in pes:
             for it in pe.items:
@@ -1457,7 +2249,7 @@ class _Deck:
         return None                                        # acxf writes every tf()/zin(); onoise/gain/in always
 
     def current_directive(self, path: str, flow: str, opvar: Optional[str]) -> Optional[str]:
-        inst = _resolve(self.nl, path)
+        inst = self.run_instance(path)               # L1 (phase 2c7): the kind on the taken branch
         if inst is None:
             raise T.TableError("save: no element %s" % path)
         if self.is_short(inst) or inst.kind in ("v", "l", "e", "h") or (inst.kind == "b" and inst.expr_kind == "v"):
@@ -1477,7 +2269,11 @@ class _Deck:
         if kind == "v":
             return ref[1].replace(".", ":")
         if kind == "i":
-            inst = _resolve(self.nl, ref[1])
+            try:
+                inst = self.run_instance(ref[1])     # L1 (phase 2c7): the kind on the taken branch
+            except T.TableError as exc:
+                self.err("", "save %s: %s" % (ref[1], exc))
+                inst = None
             path = ref[1].replace(".", ":")
             if inst is not None and inst.kind == "r" and not self.is_short(inst):
                 return path + ".i"
@@ -1522,17 +2318,77 @@ class _Deck:
             raise T.TableError("sweep mode %r is not one render prints (lin, step, values, log, dec)" % (spec.mode,))
         return " ".join(parts)
 
-    def sweep_line(self, lv: SweepLevel) -> str:
+    def track_source(self, act: Action) -> None:
+        """Phase 2c9 (N1): the source state a plan's alter of a source field (its re-resolved Source) or source switch
+        (the state's Source) makes, for the statements after it (state_source)."""
+        src = act.args.get("source")
+        if not isinstance(src, Source):
+            return
+        if act.op == "source":
+            path = act.args.get("path")
+        else:
+            t = act.args.get("target")
+            path = t[1] if isinstance(t, tuple) and len(t) == 3 and t[0] == "instance" else None
+        if isinstance(path, str) and path:
+            self.src_now[path] = src
+
+    def state_source(self, ir_path: str, inst: Instance) -> Optional[Source]:
+        """Phase 2c9 (N1): the Source of the source at ir_path in the state of the statement being printed, as
+        plan.build's source state holds it: the last alter's or switch's (track_source), else the instance line's (the
+        render copy's, in tables.constant_sine's form as plan._netlist_source reads the IR)."""
+        return self.src_now.get(ir_path, inst.source)
+
+    def engine_points(self, lv: SweepLevel) -> Optional[List[float]]:
+        """Phase 2c8/2c9: the points VACASK is given for a dev= sweep of a source's rise, fall or freq, through
+        plan.swept_points in the source's state at this statement (state_source): a rise or fall of 0 of a pulse is
+        Spectre's default edge, transres (plan.edge_default; VACASK read a fall of 0 as none and stopped at a rise of
+        0), a freq of 0 of the constant sine its CONSTANT_SINE_FREQ (VACASK stops at a sine of freq 0).  2c8 read the
+        instance line, so a sine an alter made the constant sine printed its freq of 0 raw (S-2c8's P873, Q05: exit
+        1).  None for any other level or when no point changes: its grid prints as it is."""
         kind, name, param = lv.target
+        if kind != "instance" or param not in ("rise", "fall", "freq"):
+            return None
+        inst = self.run_instance(name)
+        if inst is None or inst.kind not in ("v", "i"):
+            return None
+        from vamos.netlist import plan as PL
+        if param != "freq" and self.transres is None:
+            self.transres = PL.edge_default(self.nl, self.variables)         # the render copy holds no plan variable
+        return PL.swept_points(param, self.state_source(name, inst), lv.spec, self.transres or 0.0)
+
+    def edge_grid(self, lv: SweepLevel) -> Optional[str]:
+        """Phase 2c8: a dev= sweep of a source's rise, fall or freq whose points VACASK is given otherwise than the plan
+        writes them (engine_points), as values=[...]; None for any other level."""
+        pts = self.engine_points(lv)
+        return None if pts is None else "values=[%s]" % ", ".join(fmt(v) for v in pts)
+
+    def sweep_line(self, lv: SweepLevel, step_kind: str = "", nest: Sequence[SweepLevel] = ()) -> str:
+        """The sweep statement of one level of a step of kind step_kind (nest: the step's levels)."""
+        kind, name, param = lv.target
+        hook = self.hooks.get(lv.target) if self.hooks else None      # type: ignore[arg-type]
+        grid = self.edge_grid(lv) or self.grid(lv.spec)
+        if hook is not None:
+            # H1 (phase 2c4): a target bound to an expression sweeps its hook's value (the flag set around the nest,
+            # analysis_lines); VACASK cannot sweep the parameter itself ('is bound to an expression' [E102])
+            return "sweep %s variable=\"%s\" %s continuation=%d" % (lv.id, hook.value, grid, int(lv.continuation))
         if kind == "instance":
-            inst = _resolve(self.nl, name)
+            inst = self.run_instance(name)          # K2 (phase 2c6): an if's taken branch's instance
             if inst is None:
                 raise T.TableError("sweep %s: no instance %s" % (lv.id, name))
             card = self.va_card_target(inst, name, param)
+            pname = param
+            if param == "dc" and step_kind == "tran" and inst.kind in ("v", "i") \
+                    and ("instance", name, "sinedc") not in [x.target for x in nest]:
+                from vamos.netlist import plan as PL
+                if PL.sinedc_follows_dc(self.state_source(name, inst)):
+                    # phase 2c9 (N3): in a tran the sine acts (type="sine", dc unused), and its sinedc defaults to the dc
+                    # (ref5 p.684): the sweep moves the sinedc, as Spectre's dc sweep does (2c8: the sine stayed centred
+                    # on the instance line's dc, S-2c8's P824, P825); a DC-type analysis sweeps dc under type="dc"
+                    pname = "sinedc"
             if card is not None:                          # a Verilog-A parameter: on the instance's card (R-plan-4)
                 target = 'model="%s" parameter="%s"' % (card, param.lower())
             else:
-                target = 'instance="%s" parameter="%s"' % (self.spath(name), self.instance_param(inst, param, name))
+                target = 'instance="%s" parameter="%s"' % (self.spath(name), self.instance_param(inst, pname, name))
         elif kind == "model":
             cards = self.model_names(name, lv.id, param)
             m = self.nl.models().get(name)
@@ -1549,7 +2405,7 @@ class _Deck:
             target = 'variable="%s"' % self.var_name(name)
         else:
             raise T.TableError("sweep %s: target kind %r is not a sweep statement" % (lv.id, kind))
-        return "sweep %s %s %s continuation=%d" % (lv.id, target, self.grid(lv.spec), int(lv.continuation))
+        return "sweep %s %s %s continuation=%d" % (lv.id, target, grid, int(lv.continuation))
 
     def analysis_lines(self, step: AnalysisStep, origin: str) -> List[str]:
         out: List[str] = []
@@ -1578,14 +2434,31 @@ class _Deck:
         levels = list(step.context)
         if step.own is not None and step.own.target[0] != "freq":
             levels.append(step.own)
+        flags: List[str] = []                        # H1: the hooks this nest sweeps whose flag is off
+        sets: List[str] = []
+        for lv in levels:
+            hook = self.hooks.get(lv.target) if self.hooks else None     # type: ignore[arg-type]
+            if hook is not None and not self.flag_on.get(hook.flag) and hook.flag not in flags:
+                flags.append(hook.flag)
+                sets.append("%s=1" % hook.flag)
+                if not hook.var:
+                    # L3 (phase 2c7): the value with its flag, the sweep's first point: VACASK sets the swept field up
+                    # before the sweep's first point, and at the hook's declared 0 an exp's td2 or a sine's freq stopped
+                    # it ('must be greater than 0', exit 1: S-2c6's S04, E06, E08, R0224); the sweep restores it after
+                    from vamos.netlist import plan as PL
+                    sets.append("%s=%s" % (hook.value, self.setting_text(PL.grid_points(lv.spec)[0], origin, "sweep")))
+        if flags:
+            out.append("  var " + " ".join(sets))
         indent = "  "
         for lv in levels:
-            out.append(indent + self.sweep_line(lv))
+            out.append(indent + self.sweep_line(lv, step.kind, levels))
             indent += "  "
         out.append(indent + self.analysis_line(step, origin))
         if restore:
             out.append("  options " + " ".join("%s=%s" % kv for kv in restore))
             self.vstate.update(dict(restore))
+        if flags:                                    # back to the expression after the sweep
+            out.append("  var " + " ".join("%s=0" % f for f in flags))
         return out
 
     def analysis_line(self, step: AnalysisStep, origin: str) -> str:
@@ -1706,6 +2579,11 @@ def _numv(e: object) -> float:
     if isinstance(e, (int, float)):
         return float(e)
     raise T.TableError("sweep value %s is not a number after plan.build" % (X.to_text(e) if isinstance(e, Expr) else e))
+
+
+def _float_or(v: object, default: float) -> float:
+    """A plan setting as a float (the global temp, tnom), else default."""
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
 
 
 def vacask_step_count(start: float, stop: float, step: float) -> Optional[int]:

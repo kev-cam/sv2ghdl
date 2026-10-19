@@ -73,7 +73,14 @@ replay(nl, act, dependents=None) -> Netlist
     Instance.value, a source field as the re-resolved Source; a model parameter on the card or
     on every card of a group (by base name); temp/tnom on the Netlist; a variable into
     Netlist.values and its top-level Param's expression, its dependents re-evaluated.
-    test_spectre_chain.replay (phase 1b) is the reference.
+    test_spectre_chain.replay (phase 1b) is the reference.  Phase 2c5 (R2): an instance target
+    is set on the instance its path names on the instance path the run takes (taken_instance:
+    every if resolved in the state replayed, as the Xyce deck's elaboration resolves it), never
+    on an untaken branch's duplicate (find_instance's first match was one: out 0.5 where Spectre
+    gives 0.25) nor in the definition an untaken branch instantiates (2c4's find_instances
+    changed it, and another instance of it took the alter: out2 0.25 where 0.5); an instance in
+    a definition another instance path reaches too is a NoteError (plan.build refuses such a
+    target on Xyce, §5.3), so the shared definition is never changed.
 apply_alter(nl, act, dependents=None) -> None
     The same, in place.
 render_decks(nl, plan, sigmap, hdl=None, notes=None) -> (List[Deck], names)
@@ -232,7 +239,10 @@ def render_decks(nl: ir.Netlist, plan: "RunPlan", sigmap: "SignalMap", hdl: Opti
     others: List[Note] = []
     for act in plan.actions:
         if act.op == "alter":
-            apply_alter(work, act, plan.dependents)
+            try:
+                apply_alter(work, act, plan.dependents)
+            except NoteError as exc:                    # R2 (phase 2c5): a target the replay cannot set on its path
+                errors.extend(exc.notes)
             pending.append(act)
             continue
         if act.op != "analysis" or act.step is None:
@@ -296,7 +306,7 @@ def apply_alter(nl: ir.Netlist, act: "Action", dependents: Optional[Set[str]] = 
     kind, name, param = act.args["target"]
     value = act.args["value"]
     if kind == "instance":
-        inst = find_instance(nl, name)
+        inst = taken_instance(nl, name, act.origin)          # R2 (phase 2c5): the run's path only
         if "source" in act.args:
             inst.source = copy.deepcopy(act.args["source"])
             return
@@ -329,6 +339,58 @@ def find_instance(nl: ir.Netlist, path: str) -> ir.Instance:
             body = subs[inst.master].body
     assert inst is not None
     return inst
+
+
+def taken_instance(nl: ir.Netlist, path: str, origin: str = "") -> ir.Instance:
+    """The Instance an IR path names on the instance path the run takes (phase 2c5, R2): every Cond on the way and in
+    the final body resolved with the path's values in nl's state, as the Xyce deck's elaboration resolves them
+    (tables.path_envs, non-strict, nl's values: the state replayed).  An if and its else may both hold R1, or hold an
+    X1 of two subckts: the replay sets the taken one only, so neither an untaken duplicate nor the definition an untaken
+    X line instantiates (which another instance may use) takes the alter.  NoteError when the instance lies in a
+    definition that more than one instance path reaches, which the alter would change for every path (plan.build
+    refuses such a target on Xyce, §5.3), or when the paths do not resolve; KeyError when the path names none."""
+    parent, _, leaf = path.rpartition(".")
+    try:
+        pes = list(T.path_envs(nl, strict=False, dialect=nl.dialect))
+    except (X.EvalError, T.TableError) as exc:
+        raise NoteError([error(origin, "the alter of %s: the instance paths do not resolve for the replay: %s"
+                               % (path, exc))])
+    pe = next((p for p in pes if p.path == parent), None)
+    inst = next((it for it in pe.items if it.name == leaf), None) if pe is not None else None
+    if pe is None or inst is None:
+        raise KeyError("no instance %s on the instance paths" % path)
+    if pe.subckt is not None:
+        users = [p.path for p in pes if p.subckt is pe.subckt]
+        if len(users) > 1:
+            raise NoteError([error(origin, "the replay of an alter: on Xyce %s lies in subckt %s, which %d instance paths "
+                                           "reach (%s): changing the shared definition would change every path; not "
+                                           "supported in v1 (§5.3)" % (path, pe.subckt.name, len(users), ", ".join(users)))])
+    return inst
+
+
+def find_instances(nl: ir.Netlist, path: str) -> List[ir.Instance]:
+    """Every Instance an IR path names through the subckt definitions: in each body every instance of that name,
+    Cond branches included (phase 2c4); KeyError when there is none.  Phase 2c5: a lookup only; the replay sets the
+    run's one (taken_instance), every match having reached the untaken branches' definitions too (R2)."""
+    subs = _subckts(nl)
+    parts = path.split(".")
+    bodies: List[Sequence[object]] = [nl.body]
+    for part in parts[:-1]:
+        nxt: List[Sequence[object]] = []
+        for body in bodies:
+            for it in ir.flat_items(body):
+                if isinstance(it, ir.Instance) and it.name == part and it.kind == "x" and it.master in subs:
+                    b = subs[it.master].body
+                    if not any(b is o for o in nxt):
+                        nxt.append(b)
+        bodies = nxt
+    out: List[ir.Instance] = []
+    for body in bodies:
+        out += [it for it in ir.flat_items(body) if isinstance(it, ir.Instance) and it.name == parts[-1]
+                and not any(it is o for o in out)]
+    if not out:
+        raise KeyError("no instance %s" % path)
+    return out
 
 
 def ir_param(prim: Optional[str], section: str, param: str) -> str:

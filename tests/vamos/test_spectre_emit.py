@@ -1076,7 +1076,12 @@ class TestVacaskSpectre(unittest.TestCase):
                      overridden={"rcsec": {"r"}})
         text = vacask.render(nl, plan=pl, sigmap=sigmap({}, []))
         self.assertIn("  parameters r=-1.2345678901234568e-300\n", text)
-        self.assertIn('  sweep vamos_w1 instance="X1" parameter="r" values=[1000.0, 2000.0] continuation=1\n', text)
+        # X1 binds r to rval: VACASK cannot sweep such a binding (exit 1, `Failed to bind sweep parameters', the 2c2
+        # fixer's open run), so phase 2c4 (H1) prints it through a switchable hook and sweeps the hook's value; this
+        # line pinned the instance sweep before.  Phase 2c7 (L3): the flag's statement sets the value to the first point
+        self.assertIn("X1 (in out) rcsec r=(vamos_af1 ? vamos_av1 : rval)\n", text)
+        self.assertIn('  var vamos_af1=1 vamos_av1=1000.0\n  sweep vamos_w1 variable="vamos_av1" values=[1000.0, 2000.0] '
+                      'continuation=1\n', text)
 
     def test_sources_quoting_zero_resistor_isnoisy_va_names(self):
         nl = Netlist(title="spectre instance rules", dialect="spectre")
@@ -3365,12 +3370,14 @@ class TestFollowUpRuns2c2(_Flow):
         (`Parameter 'coupling' not found' on VACASK, `K1:COUPLING is not defined' on Xyce) equal the reference."""
         sweep_gain = BOUND_DECK % ("1", "dc1 dc dev=E1 param=gain values=[1 2 3]")
         sweep_dc = BOUND_DECK % ("1", "dc1 dc dev=V1 param=dc values=[1 2]")
-        self.refused("bgain", sweep_gain, "vacask", "on VACASK gain of E1 is bound to the expression g")
-        self.refused("bdc", sweep_dc, "vacask", "on VACASK dc of V1 is bound to the expression vv")
-        d, _ = self.run2c2("bgain", sweep_gain, "xyce")
-        self.check_swept(d, "bgain", {"dc1": ("out", [1.0, 2.0, 3.0])}, rel=1e-9, engine="xyce")
-        d, _ = self.run2c2("bdc", sweep_dc, "xyce")
-        self.check_swept(d, "bdc", {"dc1": ("out", [2.0, 4.0])}, rel=1e-9, engine="xyce")
+        # 2c2 refused both on VACASK before the run (status 2, `on VACASK gain of E1 is bound to the expression g');
+        # phase 2c4 (H1) sweeps each one's switchable hook there, and VACASK gives Xyce's values
+        for engine in ("vacask", "xyce"):
+            with self.subTest(engine=engine, construct="bound sweeps"):
+                d, _ = self.run2c2("bgain", sweep_gain, engine)
+                self.check_swept(d, "bgain", {"dc1": ("out", [1.0, 2.0, 3.0])}, rel=1e-9, engine=engine)
+                d, _ = self.run2c2("bdc", sweep_dc, engine)
+                self.check_swept(d, "bdc", {"dc1": ("out", [2.0, 4.0])}, rel=1e-9, engine=engine)
         alters = ("op1 dc\na1 alter dev=E1 param=gain value=3\na2 alter dev=G1 param=gm value=2m\n"
                   "a3 alter dev=H1 param=rm value=2k\na4 alter dev=F1 param=gain value=4\n"
                   "a5 alter dev=D1 param=area value=2\nop2 dc\nac1 ac start=1k stop=1k lin=1\n"
@@ -3470,6 +3477,9 @@ op2 dc
 """
 G1_BOTH = ("whether Spectre keeps the altered value or re-evaluates the expression is not known (VACASK re-evaluates it, "
            "Xyce keeps the alter): not supported in v1")
+# phase 2c5 (R4): for a target vamos's VACASK deck prints through a switchable hook (2c4's H1) that deck keeps the alter
+G1_BOTH_HOOKED = ("whether Spectre keeps the altered value or re-evaluates the expression is not known (VACASK and Xyce "
+                  "keep the alter): not supported in v1")
 G1_VACASK_ONLY = ("VACASK re-evaluates such a binding at the next analysis after a change of a netlist parameter, temp or "
                   "tnom", "not supported on VACASK in v1 (Xyce runs it)")
 
@@ -3486,18 +3496,25 @@ class TestFollowUpRuns2c3(_Flow):
     @needs_vacask
     @needs_xyce
     def test_g1_the_decks_whose_engines_disagreed_are_refused_on_both(self):
+        """Phase 2c5 (R4): R1's r and E1's gain print through switchable hooks on VACASK (2c4), whose deck keeps the
+        alter, so the message says both engines keep it (G1_BOTH_HOOKED)."""
         for engine in ("vacask", "xyce"):
             with self.subTest(engine=engine):
                 self.refused("altthen", ALTTHEN_HEAD + "a1 alter dev=R1 param=r value=1k\ndc1 dc param=rv stop=3k "
                              "step=1k\n", engine, "dc dc1 at rv=0: alter a1 set r of R1, which the netlist binds to the "
-                             "expression rv", "dc dc1 (its sweep of rv) changes rv", G1_BOTH)
+                             "expression rv", "dc dc1 (its sweep of rv) changes rv", G1_BOTH_HOOKED)
                 self.refused("altthen2", ALTTHEN_HEAD + "a1 alter dev=R1 param=r value=1k\ndc1 dc param=rv start=2k "
-                             "stop=3k step=1k\n", engine, "dc dc1 at rv=2000: alter a1 set r of R1", G1_BOTH)
+                             "stop=3k step=1k\n", engine, "dc dc1 at rv=2000: alter a1 set r of R1", G1_BOTH_HOOKED)
                 self.refused("p_altsw", P_ALTSW % "dc2 dc param=g values=[1 2 3]", engine,
                              "dc dc2 at g=1: alter a1 set gain of E1, which the netlist binds to the expression g",
-                             "dc dc2 (its sweep of g) changes g", G1_BOTH)
+                             "dc dc2 (its sweep of g) changes g", G1_BOTH_HOOKED)
                 self.refused("inputalter", ALTTHEN_HEAD + "op0 dc\na1 alter dev=R1 param=r value=3k\na2 alter param=rv "
-                             "value=2k\nop1 dc\n", engine, "dc op1: alter a1 set r of R1", "alter a2 changes rv", G1_BOTH)
+                             "value=2k\nop1 dc\n", engine, "dc op1: alter a1 set r of R1", "alter a2 changes rv",
+                             G1_BOTH_HOOKED)
+                # a target without a hook (a pulse's rise) keeps the words of VACASK's own reading
+                self.refused("risealter", RISE_2C5 + "op0 dc\na1 alter dev=V1 param=rise value=2u\na2 alter param=rt "
+                             "value=3u\ntr1 tran stop=3u\n", engine, "tran tr1: alter a1 set rise of V1, which the netlist "
+                             "binds to the expression rt", "alter a2 changes rt after the alter", G1_BOTH)
 
     @needs_vacask
     @needs_xyce
@@ -3529,7 +3546,9 @@ class TestFollowUpRuns2c3(_Flow):
     def test_g1_what_vacask_alone_re_evaluates(self):
         """m02 (an unrelated variable), m16 (rv changed before the alter, after the last analysis) and TestAlters'
         deck: VACASK gave op1 0.5, 0.333 and op2 0.333 where Xyce (and Spectre under either reading) give 0.25, 0.25 and
-        0.2: status 2 on VACASK before the run; Xyce runs them with those values."""
+        0.2: status 2 on VACASK before the run in 2c3; Xyce runs them with those values.  Phase 2c4 (H1): VACASK's deck
+        prints the bindings through switchable hooks, which its re-evaluation keeps, and VACASK gives Xyce's values
+        (the pieces name what VACASK re-elaborates on, the rule (b) of 2c3 that the hooks retire)."""
         decks = (("m02", ALTTHEN_HEAD + "op0 dc\na1 alter dev=R1 param=r value=3k\na2 alter param=other value=2\nop1 dc\n",
                   "op1", 0.25, "dc op1: on VACASK, alter a1 set r of R1", "alter a2 changes other"),
                  ("m16", ALTTHEN_HEAD + "op0 dc\na0 alter param=rv value=2k\na1 alter dev=R1 param=r value=3k\nop1 dc\n",
@@ -3537,10 +3556,11 @@ class TestFollowUpRuns2c3(_Flow):
                  ("targets", ALTER_TARGETS, "op2", 0.2, "dc op2: on VACASK, alter a4 set r of X1.R1",
                   "or of a parameter of the subckt instance X1 that holds it"))
         for name, text, op, value, *pieces in decks:
-            with self.subTest(deck=name):
-                self.refused(name, text, "vacask", *(list(pieces) + list(G1_VACASK_ONLY)))
-                d, _ = self.run2c2(name, text, "xyce")
-                self.assertAlmostEqual(self.psf(d, name, op + ".dc").value("out"), value, delta=1e-9)
+            for engine in ("vacask", "xyce"):
+                with self.subTest(deck=name, engine=engine, retired=pieces):
+                    d, out = self.run2c2(name, text, engine)
+                    self.assertNotIn(G1_VACASK_ONLY[0], " ".join(out.split()))
+                    self.assertAlmostEqual(self.psf(d, name, op + ".dc").value("out"), value, delta=1e-9)
 
     @needs_vacask
     @needs_xyce
@@ -3561,6 +3581,2099 @@ class TestFollowUpRuns2c3(_Flow):
                         self.assertEqual(got.value(sig), want.value(sig), (engine, r, sig))
                 self.refused("r0rv", ZERO_HEAD % "0*rv" + "op1 dc\n", engine,
                              "dc op1: resistor R1 on path top level: r=0.0 * rv evaluates to 0")
+
+
+# -- phase 2c4: H1-H4 through bin/vamos on both engines ----------------------------------------------------------------
+
+DIV_2C4 = """// 2c4: R1's r is bound to rv; out = 1k/(R1+1k)
+simulator lang=spectre
+parameters rv=1k other=1 rc=1k
+V1 (in 0) vsource dc=1 mag=1
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+"""
+DIODE_2C4 = """// 2c4: a card's is bound to isv; d the diode's voltage at 1 mA
+simulator lang=spectre
+parameters isv=1e-14 other=1
+I1 (0 d) isource dc=1m
+D1 (d 0) dmod
+model dmod diode is=isv
+R3 (d 0) resistor r=other*1G
+save d
+"""
+HALF_2C4 = """// 2c4: X1.R1 r=rr in subckt half (one path); out = 1k/(R1/m+1k)
+simulator lang=spectre
+parameters rv=1k other=1
+subckt half (a b)
+parameters rr=1k q=1
+R1 (a b) resistor r=rr
+R9 (a 0) resistor r=q*1k
+ends half
+V1 (in 0) vsource dc=1
+X1 (in out) half rr=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+"""
+KINDS_2C4 = """// 2c4: a source dc, an m and an X-line binding bound to parameters
+simulator lang=spectre
+parameters vv=1 mm=1 rv=1k g=2 other=1
+subckt half (a b)
+parameters rr=1k
+R1 (a b) resistor r=rr
+ends half
+V1 (in 0) vsource dc=vv
+R1 (in out) resistor r=1k m=mm
+R2 (out 0) resistor r=1k
+V4 (i4 0) vsource dc=1
+X1 (i4 o4) half rr=rv
+R42 (o4 0) resistor r=1k
+E1 (o5 0 i4 0) vcvs gain=g
+R5 (o5 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out o4 o5
+"""
+TWO_PATHS_2C4 = """// 2c4: two paths of subckt half; out = 1k/(X1.R1+1k), out2 = 1k/(X2.R1+1k)
+simulator lang=spectre
+subckt half (a b)
+parameters rr=1k
+R1 (a b) resistor r=rr
+ends half
+V1 (in 0) vsource dc=1
+X1 (in out) half rr=1k
+X2 (in out2) half rr=2k
+R2 (out 0) resistor r=1k
+R4 (out2 0) resistor r=1k
+save out out2
+"""
+NESTED_2C4 = """// 2c4: X0.X1.R1 two levels down, X0b the other path; out = 1k/(R1+1k)
+simulator lang=spectre
+parameters other=1
+subckt inner (a b)
+parameters rr=1k
+R1 (a b) resistor r=rr
+ends inner
+subckt outer (a b)
+parameters p=1
+X1 (a b) inner rr=p*1k
+ends outer
+V1 (in 0) vsource dc=1
+X0 (in out) outer p=1
+X0b (in outb) outer p=2
+R2 (out 0) resistor r=1k
+R4 (outb 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out outb
+"""
+SRC_2C4 = """// 2c4: sources with fields bound to parameters, altered or switched in the control block
+simulator lang=spectre
+parameters vv=1 mm=1
+V1 (in 0) vsource dc=vv mag=mm
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+V2 (i2 0) vsource type=pulse dc=0.5 val0=0 val1=vv delay=1u rise=1n fall=1n width=1u period=4u
+R21 (i2 o2) resistor r=1k
+R22 (o2 0) resistor r=1k
+save out o2
+"""
+EXPR_2C4 = """// 2c4: a netlist parameter defined by an expression (rw=2*rv) or a constant (rk); out = 1k/(R1+1k)
+simulator lang=spectre
+parameters rv=1k other=1 rw=2*rv rk=2k
+V1 (in 0) vsource dc=1
+R1 (in out) resistor r=%s
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+"""
+SUBDEF_2C4 = """// 2c4: a subckt parameter rr whose default is an expression (q*1k) or a constant; out = 1k/(R1+1k)
+simulator lang=spectre
+parameters qv=1 other=1
+subckt half (a b)
+parameters q=1 rr=%s
+R1 (a b) resistor r=rr
+R9 (a 0) resistor r=q*1k
+ends half
+V1 (in 0) vsource dc=1
+X1 (in out) half%s
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+"""
+HOLDER_M_2C4 = """// 2c4 H3: a subckt instance's m (q_holder_m); out = 1k/(R1/m+1k)
+simulator lang=spectre
+subckt half (a b)
+parameters rr=1k
+R1 (a b) resistor r=rr
+ends half
+V1 (in 0) vsource dc=1
+X1 (in out) half rr=1k
+R2 (out 0) resistor r=1k
+save out
+"""
+A1 = "op0 dc\na1 alter dev=R1 param=r value=3k\n"
+HA1 = "op0 dc\na1 alter dev=X1.R1 param=r value=3k\n"
+# 2c3's rule-(b) decks (TestFollowUp2c3's VACASK cases, its fixer's m20, m21, m23 and TestAlters' deck) and the 2c3
+# skeptic's E151 decks (v01-v10, u01-u04): (name, deck, the value of out or d the hook keeps, the analysis)
+RULE_B_2C4 = [
+    ("t01", DIV_2C4 + A1 + "a2 alter param=other value=2\nop1 dc\n", 0.25, "op1"),
+    ("t02", DIV_2C4 + A1 + "dc1 dc param=other values=[1 2]\nop2 dc\n", 0.25, "op2"),
+    ("t03", DIV_2C4 + A1 + "sw1 sweep param=other values=[1 2] {\n  opx dc\n}\n", 0.25, "sw1-001_opx"),
+    ("t04", DIV_2C4 + A1 + "a2 alter param=temp value=50\nop1 dc\n", 0.25, "op1"),
+    ("t05", DIV_2C4 + A1 + "dc1 dc param=temp values=[27 50]\nop2 dc\n", 0.25, "op2"),
+    ("t06", DIV_2C4 + A1 + "s1 set temp=50\nop1 dc\n", 0.25, "op1"),
+    ("t07", DIV_2C4.replace("r=rv", "r=rc") + A1 + "a2 alter param=other value=2\nop1 dc\n", 0.25, "op1"),
+    ("t08", DIODE_2C4 + "op0 dc\na1 alter mod=dmod param=is value=1e-13\na2 alter param=other value=2\nop1 dc\n",
+     0.5955, "op1"),
+    ("t09", HALF_2C4 + HA1 + "dc1 dc sub=X1 param=q values=[1 2]\nop2 dc\n", 0.25, "op2"),
+    ("t10", HALF_2C4 + HA1 + "a2 alter param=other value=2\nop1 dc\n", 0.25, "op1"),
+    ("t11", HALF_2C4 + HA1 + "a2 alter dev=X1 param=m value=2\nop1 dc\n", 0.4, "op1"),
+    ("t12", HALF_2C4 + HA1 + "dc1 dc dev=X1 param=m values=[1 2]\nop2 dc\n", 0.25, "op2"),
+    ("t13", DIV_2C4 + "op0 dc\na0 alter param=other value=2\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("t14", DIV_2C4 + "op0 dc\na0 alter param=rv value=2k\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("t15", DIV_2C4 + "a1 alter dev=R1 param=r value=3k\na2 alter param=rv value=2k\na3 alter dev=R1 param=r "
+     "value=3k\nop1 dc\n", 0.25, "op1"),
+    ("t16", ALTER_TARGETS, 0.2, "op2"),
+    ("m20", KINDS_2C4 + "op0 dc\na1 alter dev=V1 param=dc value=2\na2 alter param=other value=2\nop1 dc\n", 1.0, "op1"),
+    ("m21", KINDS_2C4 + "op0 dc\na1 alter dev=R1 param=m value=2\na2 alter param=other value=2\nop1 dc\n", 2.0 / 3.0,
+     "op1"),
+    ("m23", KINDS_2C4 + "op0 dc\na1 alter sub=X1 param=rr value=3k\na2 alter param=other value=2\nop1 dc\n", None, "op1"),
+    ("v01", DIV_2C4 + "o1 options temp=50\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("v02", DIV_2C4 + "o1 options tnom=25\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("v03", DIV_2C4 + "o1 options temp=50\nop0 dc\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("v04", KINDS_2C4 + "o1 options temp=50\na1 alter dev=E1 param=gain value=3\nop1 dc\n", None, "op1"),
+    ("v05", DIODE_2C4 + "o1 options temp=50\na1 alter mod=dmod param=is value=1e-13\nop1 dc\n", 0.5488, "op1"),
+    ("v06", DIV_2C4 + "o1 options temp=50\na1 alter dev=R1 param=r value=3k\ntr1 tran stop=1u\n", 0.25, "tr1"),
+    ("v07", DIV_2C4.replace("r=rv", "r=2k") + "o1 options temp=50\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25,
+     "op1"),
+    ("v08", DIV_2C4 + "o1 options temp=27\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("v09", DIV_2C4 + "a0 alter param=temp value=50\na1 alter dev=R1 param=r value=3k\nop1 dc\nop2 dc\n", 0.25, "op2"),
+    ("v10", DIV_2C4 + "a0 alter param=other value=2\na9 alter param=temp value=50\na1 alter dev=R1 param=r value=3k\n"
+     "op1 dc\n", 0.25, "op1"),
+    ("u01", DIV_2C4 + "a0 alter param=temp value=50\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("u02", DIV_2C4 + "s0 set temp=50\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("u03", DIV_2C4 + "a0 alter param=tnom value=50\na1 alter dev=R1 param=r value=3k\nop1 dc\n", 0.25, "op1"),
+    ("u04", DIV_2C4 + "a0 alter param=temp value=50\na1 alter dev=R2 param=r value=1k\na2 alter dev=R1 param=r "
+     "value=3k\nop1 dc\n", 0.25, "op1"),
+]
+
+
+class TestFollowUpRuns2c4(_Flow):
+    """Phase 2c4 through bin/vamos: H1 every rule-(b) deck of 2c3 (status 2 on VACASK) and the E151 decks (VACASK 0.5,
+    2, d 0.6130 where Xyce gives 0.25, 3, 0.5488, exit 0) run on VACASK with Xyce's values through the switchable
+    hooks, and so do the dev=, sub= and mod= sweeps of bound parameters; H2 status 2 on both engines for an alter of an
+    expression-defined netlist parameter or subckt default whose inputs change afterwards; H3 Xyce's .DC of a subckt
+    instance's m equals VACASK's; H4 the multiplier message names the vsource."""
+
+    run2c2 = TestFollowUpRuns2c2.run2c2
+    refused = TestFollowUpRuns2c2.refused
+
+    def both(self, name, text):
+        """Run a deck on both engines (status 0 each); (VACASK's run directory, Xyce's)."""
+        dv, _ = self.run2c2(name, text, "vacask")
+        dx, _ = self.run2c2(name, text, "xyce")
+        return dv, dx
+
+    def same_as_xyce(self, name, dv, dx, rel=1e-9):
+        """Every PSF file Xyce wrote equals VACASK's, signal by signal (rel; a tran at its first and last times and at
+        a quarter, a half and three quarters of the run, the engines' time points differing; a complex value by its
+        real and imaginary parts); returns the number of values compared."""
+        import psfcheck
+        n = 0
+        rx, rv = os.path.join(dx, name + ".raw"), os.path.join(dv, name + ".raw")
+        files = sorted(f for f in os.listdir(rx) if f != "logFile")
+        self.assertEqual(files, sorted(f for f in os.listdir(rv) if f != "logFile"), name)
+        for fn in files:
+            fx, fv = psfcheck.read(os.path.join(rx, fn)), psfcheck.read(os.path.join(rv, fn))
+            for sig in fx.names():
+                if fx.swept and fn.endswith(".tran"):
+                    stop = fx.sweep_values()[-1]
+                    times = [fx.sweep_values()[0], 0.25 * stop, 0.5 * stop, 0.75 * stop, stop]
+                    gx, gv = [fx.at(sig, t) for t in times], [fv.at(sig, t) for t in times]
+                elif fx.swept:
+                    gx, gv = fx.column(sig), fv.column(sig)
+                else:
+                    gx, gv = [fx.value(sig)], [fv.value(sig)]
+                self.assertEqual(len(gx), len(gv), (name, fn, sig))
+                for a, b in zip(gv, gx):
+                    pairs = ([(a.real, b.real), (a.imag, b.imag)] if isinstance(b, complex)
+                             else [(a, b)] if isinstance(b, (int, float)) else [])
+                    for x, y in pairs:
+                        self.assertAlmostEqual(x, y, delta=abs(y) * rel + 1e-12, msg="%s %s %s: %s %s" % (name, fn, sig, gv, gx))
+                        n += 1
+        return n
+
+    def value(self, d, name, analysis, sig):
+        f = self.psf(d, name, analysis + (".tran.tran" if analysis.startswith("tr") else ".dc"))
+        return f.column(sig)[-1] if f.swept else f.value(sig)
+
+    @needs_vacask
+    @needs_xyce
+    def test_h1_the_rule_b_and_e151_decks_run_on_vacask_with_xyces_values(self):
+        """Each deck: status 0 on both engines, VACASK's every value equal to Xyce's (rel 1e-9; 2e-4 for the diode
+        decks, whose models differ by that much), and the value the alter sets (the one VACASK lost: 0.5 for 0.25, 0.333
+        for 0.2, d 0.6551 for 0.5955, 0.6130 for 0.5488) at the analysis named."""
+        runs = {}
+        for name, text, want, analysis in RULE_B_2C4:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                runs[name] = dv
+                diode = "is=isv" in text
+                self.assertGreater(self.same_as_xyce(name, dv, dx, rel=2e-4 if diode else 1e-9), 0)
+                sig = "d" if diode else "out"
+                if want is not None:
+                    for d in (dv, dx):
+                        self.assertAlmostEqual(self.value(d, name, analysis, sig), want, delta=abs(want) * 3e-4)
+        # m23's X-line binding and v04's gain act on o4 (0.25 with rr = 3k) and o5 (3 with gain 3)
+        for name, sig, want in (("m23", "o4", 0.25), ("v04", "o5", 3.0)):
+            self.assertIn(name, runs)
+            self.assertAlmostEqual(self.value(runs[name], name, "op1", sig), want, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_h1_sweeps_of_bound_parameters_through_the_hook_equal_xyce(self):
+        """E102/F3 refused a dev= sweep of a bound parameter on VACASK; a sub= sweep of an X-line binding and a mod=
+        sweep of a card's failed at VACASK's run (exit 1, `Failed to bind sweep parameters', `is bound to an
+        expression'): each now sweeps the hook, with Xyce's values; an alter in force comes back after the sweep."""
+        decks = [("sw_dev", DIV_2C4 + "dc1 dc dev=R1 param=r values=[1k 3k]\nop2 dc\n", {"dc1": [0.5, 0.25]}, 0.5),
+                 ("sw_sub", KINDS_2C4 + "dc1 dc sub=X1 param=rr values=[1k 3k]\nop2 dc\n", None, None),
+                 ("sw_mod", DIODE_2C4 + "dc1 dc mod=dmod param=is values=[1e-14 1e-13]\nop2 dc\n", None, None),
+                 ("sw_gain", KINDS_2C4 + "dc1 dc dev=E1 param=gain values=[1 3]\nop2 dc\n", None, None),
+                 ("sw_alt", DIV_2C4 + "a1 alter dev=R1 param=r value=3k\ndc1 dc dev=R1 param=r values=[1k 2k]\nop2 dc\n",
+                  {"dc1": [0.5, 1.0 / 3.0]}, 0.25),
+                 ("sw_blk", DIV_2C4 + "sw1 sweep dev=R1 param=r values=[1k 3k] {\n  op1 dc\n}\nop2 dc\n", None, 0.5),
+                 # the 2c2 fixer's f3j and its skeptic's p_modbound: VACASK exit 1 (`Sweep `dc1': parameter 'rr' of
+                 # instance 'X1' is bound to an expression. Failed to bind sweep parameters.'), status 1, before
+                 ("f3j", "// 2c2 f3j: a sub= sweep of a subckt parameter the X line binds to an expression\n"
+                  "simulator lang=spectre\nsubckt half (a b)\nparameters rr=1k\nR1 (a b) resistor r=rr\nends half\n"
+                  "parameters rv=2k\nV1 (in 0) vsource dc=1\nX1 (in out) half rr=rv\nR2 (out 0) resistor r=1k\nsave out\n"
+                  "dc1 dc sub=X1 param=rr values=[1k 3k]\n", {"dc1": [0.5, 0.25]}, None),
+                 ("p_modbound", "// 2c2 p_modbound: a mod= sweep of a diode card parameter bound to an expression\n"
+                  "simulator lang=spectre\nparameters isv=1e-14\nVd (dd 0) vsource dc=1\nRd (dd a) resistor r=1k\n"
+                  "D1 (a 0) dmod\nmodel dmod diode is=isv\nsave a\ndc1 dc mod=dmod param=is values=[1e-14 2e-14]\n",
+                  None, None)]
+        runs = {}
+        for name, text, swept, op2 in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                runs[name] = dv
+                diode = "is=isv" in text
+                self.assertGreater(self.same_as_xyce(name, dv, dx, rel=2e-4 if diode else 1e-9), 0)
+                if swept:
+                    self.check_swept(dv, name, {k: ("out", v) for k, v in swept.items()}, rel=1e-9, engine="vacask")
+                if op2 is not None:
+                    self.assertAlmostEqual(self.value(dv, name, "op2", "out"), op2, delta=1e-9)
+        for name in ("sw_sub", "sw_gain", "sw_blk", "sw_mod"):
+            self.assertIn(name, runs)
+        self.check_swept(runs["sw_sub"], "sw_sub", {"dc1": ("o4", [0.5, 0.25])}, rel=1e-9, engine="vacask")
+        self.check_swept(runs["sw_gain"], "sw_gain", {"dc1": ("o5", [1.0, 3.0])}, rel=1e-9, engine="vacask")
+        for k, want in enumerate((0.5, 0.25)):
+            self.assertAlmostEqual(self.value(runs["sw_blk"], "sw_blk", "sw1-%03d_op1" % k, "out"), want, delta=1e-9)
+        d = self.psf(runs["sw_mod"], "sw_mod", "dc1.dc").column("d")
+        self.assertEqual(len(d), 2)
+        self.assertLess(d[1], d[0] - 0.05)                     # is = 1e-13 lowers the diode's voltage by about 60 mV
+
+    @needs_vacask
+    def test_h1_hooks_down_the_x_lines_keep_to_their_path(self):
+        """A body site reached by two paths (X1 and X2 of half), and one two levels down (X0.X1.R1, X0b the other
+        path): the hook is passed down the altered path's X lines only (Xyce refuses these alters, §5.3)."""
+        d, _ = self.run2c2("twop", TWO_PATHS_2C4 + "op0 dc\na1 alter dev=X1.R1 param=r value=3k\na2 alter param=temp "
+                           "value=50\nop1 dc\n", "vacask")
+        op0, op1 = self.psf(d, "twop", "op0.dc"), self.psf(d, "twop", "op1.dc")
+        self.assertAlmostEqual(op0.value("out"), 0.5, delta=1e-9)
+        self.assertAlmostEqual(op1.value("out"), 0.25, delta=1e-9)
+        for f in (op0, op1):
+            self.assertAlmostEqual(f.value("out2"), 1.0 / 3.0, delta=1e-9)
+        d, _ = self.run2c2("nest", NESTED_2C4 + "op0 dc\na1 alter dev=X0.X1.R1 param=r value=3k\na2 alter param=other "
+                           "value=2\nop1 dc\nsw1 sweep param=other values=[1 3] {\n  op2 dc\n}\n", "vacask")
+        self.assertAlmostEqual(self.psf(d, "nest", "op0.dc").value("out"), 0.5, delta=1e-9)
+        self.assertAlmostEqual(self.psf(d, "nest", "op1.dc").value("out"), 0.25, delta=1e-9)
+        for k in range(2):
+            self.assertAlmostEqual(self.psf(d, "nest", "sw1-%03d_op2.dc" % k).value("out"), 0.25, delta=1e-9)
+            self.assertAlmostEqual(self.psf(d, "nest", "sw1-%03d_op2.dc" % k).value("outb"), 1.0 / 3.0, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_h1_sources_altered_beside_a_bound_field_and_a_variable_defined_by_an_expression(self):
+        """VACASK stopped with exit 1 (`Variable or constant 'vv' not defined', status 2) when the control block's
+        alter or source switch printed a field bound to a netlist parameter (an alter of mag beside dc=vv, of dc beside
+        mag=mm, a pulse's val1=vv around a tran): such a field is now left out of the statement, which keeps it; and
+        parameters rw=2*rv swept through rv before its alter follows rv on VACASK (0.333, 0.333 before; Xyce 0.333,
+        0.2)."""
+        decks = [("s01", SRC_2C4 + "op1 dc\na1 alter dev=V1 param=mag value=2\nop2 dc\nac2 ac start=1k stop=1k lin=1\n"),
+                 ("s02", SRC_2C4 + "op1 dc\ntr1 tran stop=3u\nop2 dc\n"),
+                 ("s03", SRC_2C4 + "op1 dc\na1 alter dev=V1 param=dc value=2\nop2 dc\n"),
+                 ("c03", EXPR_2C4 % "rw" + "dc1 dc param=rv values=[1k 2k]\na1 alter param=rw value=3k\nop1 dc\n")]
+        for name, text in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+        dv, _ = self.run2c2("s03", decks[2][1], "vacask")
+        self.assertAlmostEqual(self.psf(dv, "s03", "op2.dc").value("out"), 1.0, delta=1e-9)
+        dv, _ = self.run2c2("c03", decks[3][1], "vacask")
+        self.check_swept(dv, "c03", {"dc1": ("out", [1.0 / 3.0, 0.2])}, rel=1e-9, engine="vacask")
+        self.assertAlmostEqual(self.psf(dv, "c03", "op1.dc").value("out"), 0.25, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_h2_an_alter_of_an_expression_defined_parameter_then_a_change_of_its_inputs_is_refused_on_both(self):
+        """u08 and u06 of the 2c3 skeptic: both engines kept the alter (0.25, 0.25), whether Spectre re-evaluates is
+        not known: status 2 before any engine runs; the controls keep today's values on both engines."""
+        refused = [("u08", EXPR_2C4 % "rw" + "a1 alter param=rw value=3k\ndc1 dc param=rv values=[1k 2k]\n",
+                    "dc dc1 at rv=2000: alter a1 set rw, which the netlist binds to the expression 2.0 * rv (it reads rv), "
+                    "and dc dc1 (its sweep of rv) changes rv after the alter"),
+                   ("w02", EXPR_2C4 % "rw" + "op0 dc\na1 alter param=rw value=3k\na2 alter param=rv value=2k\nop1 dc\n",
+                    "dc op1: alter a1 set rw", "alter a2 changes rv after the alter"),
+                   ("u06", SUBDEF_2C4 % ("q*1k", "") + "op0 dc\na1 alter sub=X1 param=rr value=3k\ndc1 dc sub=X1 "
+                    "param=q values=[1 2]\nop2 dc\n", "dc dc1 at X1:q=2: alter a1 set rr of X1, which subckt half binds "
+                    "to the default q * 1000.0 (it reads q)", "dc dc1 (its sweep of X1:q) changes q after the alter"),
+                   ("w07", SUBDEF_2C4 % ("q*1k", " q=qv") + "a1 alter sub=X1 param=rr value=3k\ndc1 dc param=qv "
+                    "values=[1 2]\n", "dc dc1 at qv=2: alter a1 set rr of X1", "changes q after the alter")]
+        both_keep = ("whether Spectre keeps the altered value or re-evaluates the expression is not known (VACASK and "
+                     "Xyce keep the alter): not supported in v1")
+        for engine in ("vacask", "xyce"):
+            for name, text, *pieces in refused:
+                with self.subTest(deck=name, engine=engine):
+                    self.refused(name, text, engine, both_keep, *pieces)
+            with self.subTest(engine=engine, construct="controls"):
+                d, _ = self.run2c2("c01", EXPR_2C4 % "rk" + "a1 alter param=rk value=3k\ndc1 dc param=rv "
+                                   "values=[1k 2k]\n", engine)
+                self.check_swept(d, "c01", {"dc1": ("out", [0.25, 0.25])}, rel=1e-9, engine=engine)
+                d, _ = self.run2c2("c02", EXPR_2C4 % "rw" + "a1 alter param=rw value=3k\nop1 dc\ndc1 dc param=other "
+                                   "values=[1 2]\n", engine)
+                self.assertAlmostEqual(self.psf(d, "c02", "op1.dc").value("out"), 0.25, delta=1e-9)
+                self.check_swept(d, "c02", {"dc1": ("out", [0.25, 0.25])}, rel=1e-9, engine=engine)
+                d, _ = self.run2c2("c05", SUBDEF_2C4 % ("q*1k", "") + "a1 alter sub=X1 param=rr value=3k\nop1 dc\n"
+                                   "dc1 dc param=other values=[1 2]\n", engine)
+                self.assertAlmostEqual(self.psf(d, "c05", "op1.dc").value("out"), 0.25, delta=1e-9)
+                self.check_swept(d, "c05", {"dc1": ("out", [0.25, 0.25])}, rel=1e-9, engine=engine)
+
+    @needs_vacask
+    @needs_xyce
+    def test_h3_a_sweep_of_a_subckt_instance_m_on_xyce_equals_vacask(self):
+        """q_holder_m: Xyce ended with status 2 (`Device instance X1:R1: Multiplicity Factor (M) must be
+        non-negative') where VACASK gives [0.5, 0.667]; now Xyce gives VACASK's values, as a sweep block and from a
+        nominal m=2 too."""
+        decks = [("hm", HOLDER_M_2C4 + "op0 dc\ndc1 dc dev=X1 param=m values=[1 2]\nop2 dc\n"),
+                 ("hmblk", HOLDER_M_2C4 + "sw1 sweep dev=X1 param=m values=[1 2] {\n  op1 dc\n}\n"),
+                 ("hm2", HOLDER_M_2C4.replace("half rr=1k", "half rr=1k m=2") + "dc1 dc dev=X1 param=m values=[1 3]\n"
+                  "op2 dc\n"),
+                 ("hmalt", HOLDER_M_2C4 + "op0 dc\na1 alter dev=X1 param=m value=2\nop1 dc\n")]
+        for name, text in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+        dx, _ = self.run2c2("hm", decks[0][1], "xyce")
+        self.check_swept(dx, "hm", {"dc1": ("out", [0.5, 2.0 / 3.0])}, rel=1e-9, engine="xyce")
+        self.assertAlmostEqual(self.psf(dx, "hm", "op2.dc").value("out"), 0.5, delta=1e-9)
+        dx, _ = self.run2c2("hm2", decks[2][1], "xyce")
+        self.check_swept(dx, "hm2", {"dc1": ("out", [0.5, 0.75])}, rel=1e-9, engine="xyce")
+        self.assertAlmostEqual(self.psf(dx, "hm2", "op2.dc").value("out"), 2.0 / 3.0, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_h1_the_hook_on_branches_lifted_definitions_names_sources_cards_and_coupled_inductors(self):
+        """R1 in both branches of an if (VACASK refused, rule (b); Xyce's replay altered the untaken branch's R1, op1
+        0.5 where Spectre gives 0.25), a lifted nested definition, a netlist parameter named vamos_af1, two hooks on one
+        resistor (its r altered, its m swept and altered), a pulse's dc and val1 around trans, a dev= sweep in a body
+        two paths share, a card in a subckt, a coupled inductor's l: VACASK equals Xyce."""
+        cond = """// 2c4: R1 in both branches of an if; the taken one (sel=0: else) reads rr; out = 1k/(R1+1k)
+simulator lang=spectre
+parameters other=1
+subckt half (a b)
+parameters rr=1k sel=0
+if (sel > 0) {
+R1 (a b) resistor r=1k
+} else {
+R1 (a b) resistor r=rr
+}
+ends half
+V1 (in 0) vsource dc=1
+X1 (in out) half rr=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+op0 dc
+a1 alter dev=X1.R1 param=r value=3k
+a2 alter param=other value=2
+op1 dc
+"""
+        lifted = NESTED_2C4.replace("subckt inner (a b)\nparameters rr=1k\nR1 (a b) resistor r=rr\nends inner\n", "") \
+            .replace("X1 (a b) inner rr=p*1k\n", "subckt inner (c d)\nR1 (c d) resistor r=p*1k\nends inner\nX1 (a b) inner\n") \
+            .replace("X0b (in outb) outer p=2\n", "").replace("R4 (outb 0) resistor r=1k\n", "").replace("save out outb", "save out")
+        decks = [("cond", cond, 0.25, "op1"),
+                 ("lifted", lifted + "op0 dc\na1 alter dev=X0.X1.R1 param=r value=3k\na2 alter param=other value=2\nop1 dc\n"
+                  "sw1 sweep param=other values=[1 3] {\n  op2 dc\n}\n", 0.25, "op1"),
+                 ("names", DIV_2C4.replace("rc=1k", "rc=1k vamos_af1=5 vamos_av1=7") + A1 + "a2 alter param=other value=2\n"
+                  "op1 dc\n", 0.25, "op1"),
+                 ("twohooks", DIV_2C4.replace("rc=1k", "rc=1k mm=1").replace("r=rv\n", "r=rv m=mm\n") + A1
+                  + "a2 alter param=other value=2\nop1 dc\ndc1 dc dev=R1 param=m values=[1 2 3]\nop2 dc\na3 alter dev=R1 "
+                  "param=m value=3\nop3 dc\n", 0.5, "op3"),
+                 ("pulsehooks", SRC_2C4.replace("val1=vv", "val1=v1").replace("parameters vv=1 mm=1",
+                  "parameters vv=1 mm=1 v1=1 other=1").replace("dc=0.5", "dc=vv/2") + "R9 (i2 0) resistor r=other*1G\n"
+                  "op0 dc\na1 alter dev=V2 param=val1 value=2\na2 alter param=other value=2\ntr1 tran stop=3u\n"
+                  "a3 alter dev=V2 param=dc value=0.8\nop1 dc\ntr2 tran stop=3u\n", None, None),
+                 ("shared", TWO_PATHS_2C4 + "dc1 dc dev=X1.R1 param=r values=[1k 3k]\nop2 dc\n", 0.5, "op2"),
+                 ("cardsub", "// 2c4: a card in a subckt\nsimulator lang=spectre\nparameters other=1\nsubckt dsub (a)\n"
+                  "parameters isx=1e-14\nmodel dmod diode is=isx\nD1 (a 0) dmod\nends dsub\nI1 (0 d) isource dc=1m\n"
+                  "X1 (d) dsub\nR3 (d 0) resistor r=other*1G\nsave d\nop0 dc\na1 alter mod=dmod param=is value=1e-13\n"
+                  "a2 alter param=other value=2\nop1 dc\n", None, None),
+                 ("coupled", "// 2c4: a coupled inductor's l bound to lv, its m=2 folded into it\nsimulator lang=spectre\n"
+                  "parameters lv=1m other=1\nIac (0 p) isource dc=0 mag=1m\nL1 (p 0) inductor l=lv m=2\nL2 (s 0) "
+                  "inductor l=9m\nK1 mutual_inductor coupling=0.5 ind1=L1 ind2=L2\nR3 (p 0) resistor r=other*1G\nsave s\n"
+                  "ac1 ac start=1k stop=1k lin=1\na1 alter dev=L1 param=l value=4m\na2 alter param=other value=2\n"
+                  "ac2 ac start=1k stop=1k lin=1\n", None, None),
+                 ("holderm", HOLDER_M_2C4.replace("half rr=1k", "half rr=1k m=mm").replace(
+                     "subckt half", "parameters mm=1 other=1\nsubckt half") + "R3 (in 0) resistor r=other*1k\nop0 dc\n"
+                  "a1 alter dev=X1 param=m value=2\na2 alter param=other value=2\nop1 dc\ndc1 dc dev=X1 param=m "
+                  "values=[1 3]\nop2 dc\n", 2.0 / 3.0, "op2"),
+                 ("srcbody", "// 2c4: a source in a subckt, dc=vd\nsimulator lang=spectre\nparameters other=1\n"
+                  "subckt cell (o)\nparameters vd=1\nV1 (i 0) vsource dc=vd\nR1 (i o) resistor r=1k\nR2 (o 0) resistor "
+                  "r=1k\nends cell\nX1 (out) cell vd=1\nR3 (out 0) resistor r=other*1G\nsave out\nop0 dc\na1 alter "
+                  "dev=X1.V1 param=dc value=2\na2 alter param=other value=2\nop1 dc\ndc1 dc dev=X1.V1 param=dc "
+                  "values=[3 4]\nop2 dc\n", None, None),
+                 ("acmag", "// 2c4: an ac magnitude bound to mm\nsimulator lang=spectre\nparameters mm=1 other=1\n"
+                  "V1 (in 0) vsource dc=0 mag=mm\nR1 (in out) resistor r=1k\nR2 (out 0) resistor r=1k\nR3 (in 0) "
+                  "resistor r=other*1k\nsave out\nac0 ac start=1k stop=1k lin=1\na1 alter dev=V1 param=mag value=4\n"
+                  "a2 alter param=other value=2\nac1 ac start=1k stop=1k lin=1\nac2 ac dev=V1 param=mag values=[2 6] "
+                  "freq=1k\n", None, None),
+                 # a model group whose entry 2 holds a constant vtho: both entries take the alter (Vd2:p -3.18e-5 ->
+                 # -1.95e-5 on both engines; BSIM4 on VACASK and Xyce agree to about 1e-6)
+                 ("group", "// 2c4: a BSIM4 model group, entry 1's vtho bound to vt\nsimulator lang=spectre\n"
+                  "parameters vt=0.40 other=1\nmodel nch bsim4 {\n  1: type=n lmin=0.1u lmax=1u wmin=0.1u wmax=10u "
+                  "vtho=vt toxe=2n\n  2: type=n lmin=1u lmax=10u wmin=0.1u wmax=10u vtho=0.45 toxe=2n\n}\n"
+                  "Vg (g 0) vsource dc=1.2\nVd1 (d1 0) vsource dc=1.2\nVd2 (d2 0) vsource dc=1.2\nM1 (d1 g 0 0) nch "
+                  "w=0.5u l=0.5u\nM2 (d2 g 0 0) nch w=0.5u l=2u\nR3 (g 0) resistor r=other*1G\nsave Vd1:p Vd2:p\n"
+                  "op0 dc\na1 alter mod=nch param=vtho value=0.6\na2 alter param=other value=2\nop1 dc\n", None, None)]
+        runs = {}
+        for name, text, want, analysis in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                runs[name] = dv
+                rel = 2e-4 if "diode" in text else 1e-6 if "bsim4" in text else 1e-9
+                self.assertGreater(self.same_as_xyce(name, dv, dx, rel=rel), 0)
+                if want is not None:
+                    for d in (dv, dx):
+                        self.assertAlmostEqual(self.value(d, name, analysis, "out"), want, delta=1e-9)
+        self.assertIn("coupled", runs)
+        a1, a2 = (abs(self.psf(runs["coupled"], "coupled", f + ".ac").column("s")[0]) for f in ("ac1", "ac2"))
+        self.assertAlmostEqual(a2, 2 * a1, delta=1e-9 * a2)             # l 1m -> 4m: M = k sqrt(L1 L2) doubles
+        self.assertIn("group", runs)
+        g0, g1 = (self.psf(runs["group"], "group", f + ".dc") for f in ("op0", "op1"))
+        self.assertLess(abs(g1.value("Vd2:p")), 0.7 * abs(g0.value("Vd2:p")))   # entry 2 took vtho 0.6 as well
+
+    @needs_vacask
+    def test_h1_verilog_a_instance_and_card_parameters_through_the_hook(self):
+        """A Verilog-A instance's r=rv and a card's r=rm (per-instance cards on VACASK; Xyce refuses Verilog-A parameters,
+        PyMS ignoring them): a dev= and a mod= sweep, and alters followed by an unrelated variable, give the divider's
+        1k/(r+1k) (VACASK refused the sweeps, E102, and the alters, rule (b))."""
+        text = """// 2c4: Verilog-A parameters bound to netlist parameters; b, c = 1k/(r+1k)
+simulator lang=spectre
+ahdl_include "vres2c.va"
+parameters rv=1k rm=1k other=1
+V1 (a 0) vsource dc=1
+X1 (a b) vres2c r=rv
+R2 (b 0) resistor r=1k
+model vm vres2c r=rm
+X2 (a c) vm
+R3 (c 0) resistor r=1k
+R4 (a 0) resistor r=other*1k
+save b c
+sw1 dc dev=X1 param=r values=[1k 3k]
+sw2 dc mod=vm param=r values=[1k 3k]
+op1 dc
+al alter dev=X1 param=r value=3k
+am alter mod=vm param=r value=3k
+a2 alter param=other value=2
+op2 dc
+"""
+        d, _ = self.run2c2("vahook", text, "vacask", files={"vres2c.va": VRES_VA})
+        self.check_swept(d, "vahook", {"sw1": ("b", [0.5, 0.25]), "sw2": ("c", [0.5, 0.25])}, rel=1e-9, engine="vacask")
+        for op, want in (("op1", 0.5), ("op2", 0.25)):
+            for sig in ("b", "c"):
+                self.assertAlmostEqual(self.psf(d, "vahook", op + ".dc").value(sig), want, delta=1e-9, msg=(op, sig))
+
+    @needs_vacask
+    def test_h4_the_multiplier_message_names_the_vsource(self):
+        """`V1: the multiplier of a v is not ...' named the kind letter; the message names the master (exit 2)."""
+        _d, out = self.run2c2("vm", DIV_2C4 + "op1 dc\na1 alter dev=V1 param=m value=2\nop2 dc\n", "vacask", rc=2)
+        flat = " ".join(out.split())
+        self.assertIn("V1: the multiplier of a vsource is not a device parameter on VACASK (folded into the element, or "
+                      "without effect); a sweep or alter of m is not supported in v1", flat)
+        self.assertNotIn("multiplier of a v is", flat)
+
+
+# -- phase 2c5 (the repair of 2c4), through bin/vamos on both engines --------------------------------------------------
+RISE_2C5 = """// 2c5: a pulse whose rise is bound to rt, R1's r to rv; in(1.5u) = 0.25 with rise 2u (0.5 with 1u)
+simulator lang=spectre
+parameters rt=1u rv=1k other=1
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=1u rise=rt fall=1u width=5u period=20u
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+CELL_2C5 = """// 2c5: the pulse and R1 inside X1; out = in/4 with R1 3k
+simulator lang=spectre
+parameters rt=1u other=1
+subckt cell (o)
+parameters rr=1k
+V1 (i 0) vsource type=pulse val0=0 val1=1 delay=1u rise=rt fall=1u width=5u period=20u
+R1 (i o) resistor r=rr
+R2 (o 0) resistor r=1k
+ends cell
+X1 (out) cell rr=1k
+R3 (out 0) resistor r=other*1G
+save out
+"""
+NOISY_2C5 = """// 2c5: R1's isnoisy bound to nflag, R2's r to rv
+simulator lang=spectre
+parameters nflag=1 rv=1k other=1
+V1 (in 0) vsource dc=0 mag=1
+R1 (in out) resistor r=1k isnoisy=nflag
+R2 (out 0) resistor r=rv
+R3 (in 0) resistor r=other*1k
+save out
+"""
+GROUP_2C5 = """// 2c5: a BSIM4 group whose entry 2 lacks vtho (entry 1 binds it to vt), R5's r bound to rv
+simulator lang=spectre
+parameters vt=0.40 other=1 rv=1k
+model nch bsim4 {
+  1: type=n lmin=0.1u lmax=1u wmin=0.1u wmax=10u vtho=vt toxe=2n
+  2: type=n lmin=1u lmax=10u wmin=0.1u wmax=10u toxe=2n
+}
+Vg (g 0) vsource dc=1.2
+Vd1 (d1 0) vsource dc=1.2
+Vd2 (d2 0) vsource dc=1.2
+M1 (d1 g 0 0) nch w=0.5u l=0.5u
+M2 (d2 g 0 0) nch w=0.5u l=2u
+V5 (i5 0) vsource dc=1
+R5 (i5 o5) resistor r=rv
+R6 (o5 0) resistor r=1k
+R3 (g 0) resistor r=other*1G
+save Vd1:p Vd2:p o5
+"""
+CONDX_2C5 = """// 2c5: X1 is half in the taken branch, other in the untaken one, X2 another other; out = 1k/(R1+1k)
+simulator lang=spectre
+parameters sel=%s
+subckt half (a b)
+R1 (a b) resistor r=1k
+ends half
+subckt other (a b)
+R1 (a b) resistor r=1k
+ends other
+V1 (in 0) vsource dc=1
+if (sel > 0) {
+X1 (in out) %s
+} else {
+X1 (in out) %s
+}
+X2 (in out2) other
+R2 (out 0) resistor r=1k
+R4 (out2 0) resistor r=1k
+save out out2
+op0 dc
+a1 alter dev=X1.R1 param=r value=3k
+op1 dc
+"""
+BODYM_2C5 = """// 2c5: R1 in subckt half without an m; out = 1k/(1k/m+1k)
+simulator lang=spectre
+parameters other=1
+subckt half (a b)
+R1 (a b) resistor r=1k
+ends half
+V1 (in 0) vsource dc=1
+X1 (in out) half
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+"""
+EXP_2C5 = """// 2c5: an exp whose td1 reads td; in(3u) = exp(-1) - exp(-4) with td2 2u
+simulator lang=spectre
+parameters td=1u t2=10u rv=1k other=1
+V1 (in 0) vsource type=exp val0=0 val1=1 td1=td tau1=0.5u td2=%s tau2=1u
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+
+
+class TestFollowUpRuns2c5(_Flow):
+    """Phase 2c5 through bin/vamos: R1 S-2c4's A01-A11 (VACASK status 0 with the alter of a target the hook does not
+    print lost after a hooked alter or sweep: in 0.5 against 0.25, noise 3.526e-9 against 1.763e-9) are status 2 on
+    VACASK, Xyce runs them, and the controls and O01 (refused before) run with Xyce's values; R2 B01-B04 (Xyce out2 0.25
+    where 0.5) give VACASK's values on Xyce; R3 G01-G06 (VACASK 0.5 where Xyce 0.667, a sweep exit 1) give Xyce's
+    values on VACASK; R4 the probe1 decks (VACASK exit 1) give Xyce's values, the one field the control block can
+    neither print nor leave out is status 2 on VACASK."""
+
+    run2c2 = TestFollowUpRuns2c2.run2c2
+    refused = TestFollowUpRuns2c2.refused
+    both = TestFollowUpRuns2c4.both
+    same_as_xyce = TestFollowUpRuns2c4.same_as_xyce
+    value = TestFollowUpRuns2c4.value
+
+    def at(self, d, name, analysis, sig, t):
+        return self.psf(d, name, analysis + ".tran.tran").at(sig, t)
+
+    @needs_vacask
+    @needs_xyce
+    def test_r1_a_target_the_hook_does_not_print_is_refused_on_vacask_after_a_hooked_change(self):
+        a1, a2 = "a1 alter dev=V1 param=rise value=2u\n", "a2 alter dev=R1 param=r value=3k\n"
+        tr1 = "tr1 tran stop=3u\n"
+        refused = [
+            ("A01", RISE_2C5 + a1 + a2 + tr1, "tran tr1: on VACASK, alter a1 set rise of V1", "alter a2 changes r of R1"),
+            ("A02", RISE_2C5 + a1 + "dc1 dc dev=R1 param=r values=[1k 3k]\n" + tr1,
+             "dc dc1 at R1:r=1000: on VACASK, alter a1 set rise of V1", "dc dc1 (its sweep of R1:r) changes r of R1"),
+            ("A03", RISE_2C5 + "op0 dc\n" + a1 + a2 + tr1, "tran tr1: on VACASK, alter a1 set rise of V1",
+             "alter a2 changes r of R1"),
+            ("A04", CELL_2C5 + "a1 alter dev=X1.V1 param=rise value=2u\na2 alter dev=X1.R1 param=r value=3k\n" + tr1,
+             "tran tr1: on VACASK, alter a1 set rise of X1.V1", "alter a2 changes r of X1.R1"),
+            ("A06", RISE_2C5 + "op0 dc\n" + a2 + a1 + tr1, "tran tr1: on VACASK, alter a1 set rise of V1",
+             "alter a2 changes r of R1"),
+            ("A07", RISE_2C5 + a1 + "tr0 tran stop=3u\n" + a2 + tr1, "tran tr1: on VACASK, alter a1 set rise of V1",
+             "alter a2 changes r of R1"),
+            ("A09", NOISY_2C5 + "a1 alter dev=R1 param=isnoisy value=0\na2 alter dev=R2 param=r value=3k\n"
+             "n1 (out 0) noise start=1k stop=1k lin=1 iprobe=V1\n", "noise n1: on VACASK, alter a1 set isnoisy of R1",
+             "alter a2 changes r of R2"),
+            ("A10", RISE_2C5 + a1 + "sw1 sweep dev=R1 param=r values=[1k 3k] {\n  op1 dc\n}\n" + tr1,
+             "dc op1 at R1:r=1000: on VACASK, alter a1 set rise of V1", "sweep sw1 changes r of R1"),
+            ("A11", GROUP_2C5 + "op0 dc\na1 alter mod=nch param=vtho value=0.6\na2 alter dev=R5 param=r value=3k\n"
+             "op1 dc\n", "dc op1: on VACASK, alter a1 set vtho of model nch", "alter a2 changes r of R5"),
+            ("A12", RISE_2C5 + "dc1 dc dev=R1 param=r values=[1k 3k]\n" + a1 + tr1,
+             "tran tr1: on VACASK, alter a1 set rise of V1", "dc dc1 (its sweep of R1:r) changes r of R1"),
+            ("X07", RISE_2C5.replace("other=1", "other=1 vv=1") + "V5 (i5 0) vsource dc=vv\nR5 (i5 0) resistor r=1k\n"
+             "dc1 dc dev=V5 param=dc values=[1 2]\n" + a1 + tr1, "tran tr1: on VACASK, alter a1 set rise of V1",
+             "dc dc1 (its sweep of V5:dc) changes dc of V5"),
+            ("X13", RISE_2C5.replace("other=1", "other=1 rw=2*rv").replace("r=rv", "r=rw")
+             + "dc0 dc param=rv values=[1k 2k]\ndc1 dc param=rw values=[1k 3k]\n" + a1 + tr1,
+             "tran tr1: on VACASK, alter a1 set rise of V1", "dc dc1 (its sweep of rw) changes rw")]
+        xyce_values = {"A01": ("in", 0.25), "A03": ("in", 0.25), "A06": ("in", 0.25), "A07": ("in", 0.25),
+                       "A04": ("out", 0.0625), "X07": ("in", 0.25), "X13": ("in", 0.25)}
+        for name, text, *pieces in refused:
+            with self.subTest(deck=name):
+                self.refused(name, text, "vacask", "which the VACASK deck sets through a variable",
+                             "not supported on VACASK in v1 (Xyce runs it)", *pieces)
+                dx, _ = self.run2c2(name, text, "xyce")
+                if name in xyce_values:
+                    sig, want = xyce_values[name]                    # A04: R3's 1G load takes 1e-6 of it
+                    self.assertAlmostEqual(self.at(dx, name, "tr1", sig, 1.5e-6), want, delta=2e-6 * want)
+        dx, _ = self.run2c2("A09", refused[6][1], "xyce")
+        self.assertAlmostEqual(abs(self.psf(dx, "A09", "n1.noise").column("out")[0]), 1.763e-9, delta=2e-12)
+        dx, _ = self.run2c2("A11", refused[8][1], "xyce")
+        self.assertAlmostEqual(self.psf(dx, "A11", "op1.dc").value("Vd1:p"), -6.555e-5, delta=2e-8)
+        # X02: isnoisy=nflag altered with the word no, then a variable change (VACASK's noise 2.879e-9, Xyce's 2.036e-9)
+        x02 = (NOISY_2C5 + "a1 alter dev=R1 param=isnoisy value=no\na2 alter param=other value=2\n"
+               "n1 (out 0) noise start=1k stop=1k lin=1 iprobe=V1\n")
+        self.refused("X02", x02, "vacask", "noise n1: on VACASK, alter a1 set isnoisy of R1, which the netlist binds to "
+                     "the expression nflag", "alter a2 changes other", "not supported on VACASK in v1 (Xyce runs it)")
+        dx, _ = self.run2c2("X02", x02, "xyce")
+        self.assertAlmostEqual(abs(self.psf(dx, "X02", "n1.noise").column("out")[0]), 2.0357e-9, delta=2e-12)
+
+    @needs_vacask
+    @needs_xyce
+    def test_r1_the_controls_and_o01_run_on_both_with_xyces_values(self):
+        a1, tr1 = "a1 alter dev=V1 param=rise value=2u\n", "tr1 tran stop=3u\n"
+        decks = [("A01c", RISE_2C5.replace("R3 (in 0)", "R5 (out 0) resistor r=1G\nR3 (in 0)") + a1
+                  + "a2 alter dev=R5 param=r value=2G\n" + tr1, 0.25),
+                 ("A05", RISE_2C5 + "a2 alter dev=R1 param=r value=3k\n" + a1 + tr1, 0.25),
+                 ("A07c", RISE_2C5.replace("r=rv", "r=1k") + a1 + "tr0 tran stop=3u\na2 alter dev=R1 param=r value=3k\n"
+                  + tr1, 0.25),
+                 ("O01", RISE_2C5 + "a0 alter dev=R1 param=r value=3k\na1 alter param=other value=2\na2 alter dev=V1 "
+                  "param=rise value=2u\n" + tr1, 0.25),
+                 ("A12c", RISE_2C5 + "dc1 dc dev=R1 param=r values=[1k 3k]\nop9 dc\n" + a1 + tr1, 0.25),
+                 ("A14", RISE_2C5 + "a0 alter dev=R1 param=r value=3k\ndc1 dc dev=R1 param=r values=[1k 3k]\n" + a1
+                  + tr1, 0.25),
+                 ("A09c", NOISY_2C5.replace("r=rv", "r=3k").replace("R3 (in 0)", "R5 (out 0) resistor r=1G\nR3 (in 0)")
+                  + "a1 alter dev=R1 param=isnoisy value=0\na2 alter dev=R5 param=r value=2G\n"
+                  "n1 (out 0) noise start=1k stop=1k lin=1 iprobe=V1\n", None),
+                 ("X03", NOISY_2C5 + "a1 alter dev=R1 param=isnoisy value=no\n"
+                  "n1 (out 0) noise start=1k stop=1k lin=1 iprobe=V1\n", None),
+                 ("X13c", RISE_2C5.replace("other=1", "other=1 rw=2*rv").replace("r=rv", "r=rw")
+                  + "dc0 dc param=rv values=[1k 2k]\ndc1 dc param=rw values=[1k 3k]\nop9 dc\n" + a1 + tr1, 0.25),
+                 ("A11c", GROUP_2C5 + "op0 dc\na1 alter mod=nch param=vtho value=0.6\nop1 dc\n", None)]
+        for name, text, in15 in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx, rel=1e-6 if "bsim4" in text else 1e-9), 0)
+                if in15 is not None:
+                    self.assertAlmostEqual(self.at(dv, name, "tr1", "in", 1.5e-6), in15, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_r2_xyce_alters_the_taken_branch_only(self):
+        b04 = (CONDX_2C5.replace("R1 (a b) resistor r=1k", "parameters rr=1k\nR1 (a b) resistor r=rr")
+               .replace("parameters sel=%s", "parameters sel=%s other=1")
+               .replace("save out out2", "R3 (in 0) resistor r=other*1k\nsave out out2")
+               .replace("op1 dc", "a2 alter param=other value=2\nop1 dc"))
+        b02 = CONDX_2C5.replace("if (sel > 0) {", "subckt top (a b)\nparameters sel=1\nif (sel > 0) {") \
+            .replace("X1 (in out) %s\n}\nX2", "X1 (a b) %s\n}\nends top\nXT (in out) top\nX2") \
+            .replace("X1 (in out) %s\n} else", "X1 (a b) %s\n} else").replace("dev=X1.R1", "dev=XT.X1.R1")
+        cond = ("// 2c4 e01: R1 in both branches of an if in half; the taken one (sel=0: else) reads rr\n"
+                "simulator lang=spectre\nparameters other=1\nsubckt half (a b)\nparameters rr=1k sel=0\nif (sel > 0) {\n"
+                "R1 (a b) resistor r=1k\n} else {\nR1 (a b) resistor r=rr\n}\nends half\nV1 (in 0) vsource dc=1\n"
+                "X1 (in out) half rr=1k\nR2 (out 0) resistor r=1k\nR3 (in 0) resistor r=other*1k\nsave out\nop0 dc\n"
+                "a1 alter dev=X1.R1 param=r value=3k\na2 alter param=other value=2\nop1 dc\n")
+        decks = [("B01", CONDX_2C5 % ("1", "half", "other")), ("B02", b02 % ("1", "half", "other")),
+                 ("B03", CONDX_2C5 % ("0", "other", "half")), ("B04", b04 % ("1", "half", "other")), ("e01", cond)]
+        for name, text in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                op1 = self.psf(dx, name, "op1.dc")
+                self.assertAlmostEqual(op1.value("out"), 0.25, delta=1e-9)
+                if name != "e01":
+                    self.assertAlmostEqual(op1.value("out2"), 0.5, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_r3_the_m_of_an_instance_in_a_body_on_vacask_equals_xyce(self):
+        nested = BODYM_2C5.replace("subckt half (a b)\nR1", "subckt inner (a b)\nR1").replace(
+            "ends half", "ends inner\nsubckt outer (a b)\nX1 (a b) inner\nends outer").replace(
+            "X1 (in out) half", "X0 (in out) outer")
+        decks = [("G01", BODYM_2C5 + "op0 dc\na1 alter dev=X1.R1 param=m value=2\na2 alter param=other value=2\nop1 dc\n",
+                  2.0 / 3.0),
+                 ("G01c", BODYM_2C5 + "op0 dc\na1 alter dev=X1.R1 param=m value=2\nop1 dc\n", 2.0 / 3.0),
+                 ("G02", BODYM_2C5.replace("r=1k\nends", "r=1k m=1\nends") + "op0 dc\na1 alter dev=X1.R1 param=m value=2\n"
+                  "a2 alter param=other value=2\nop1 dc\n", 2.0 / 3.0),
+                 ("G04", nested + "op0 dc\na1 alter dev=X0.X1 param=m value=2\na2 alter param=other value=2\nop1 dc\n",
+                  2.0 / 3.0),
+                 ("G05", BODYM_2C5 + "op0 dc\na1 alter dev=X1.R1 param=m value=2\na2 alter param=temp value=50\nop1 dc\n",
+                  2.0 / 3.0),
+                 ("G06", BODYM_2C5 + "dc1 dc dev=X1.R1 param=m values=[1 2]\nop1 dc\n", 0.5),
+                 ("E02", BODYM_2C5.replace("subckt half (a b)\nR1 (a b) resistor r=1k", "subckt half (a b)\n"
+                  "parameters rr=1k\nR1 (a b) resistor r=rr").replace("X1 (in out) half", "X1 (in out) half rr=1k")
+                  + "dc1 dc dev=X1.R1 param=m values=[1 2]\nop1 dc\n", 0.5),
+                 # X1's m altered to 3 and swept (no m on its line): the holder's $mfactor times R1's own 2
+                 ("G08", BODYM_2C5 + "op0 dc\na0 alter dev=X1 param=m value=3\na1 alter dev=X1.R1 param=m value=2\n"
+                  "dc1 dc dev=X1 param=m values=[1 2]\nop1 dc\n", 1.0 / (1.0 / 6.0 + 1.0))]
+        for name, text, op1 in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                self.assertAlmostEqual(self.value(dv, name, "op1", "out"), op1, delta=1e-9)
+        dv, _ = self.run2c2("G06", decks[5][1], "vacask")
+        self.check_swept(dv, "G06", {"dc1": ("out", [0.5, 2.0 / 3.0])}, rel=1e-9, engine="vacask")
+        dv, _ = self.run2c2("G08", decks[7][1], "vacask")
+        self.check_swept(dv, "G08", {"dc1": ("out", [2.0 / 3.0, 0.8])}, rel=1e-9, engine="vacask")
+        # X1's own m=3 on its line: VACASK's $mfactor of R1 carries it, so the alter of R1's m stays refused there
+        # (status 2 before any engine runs); Xyce gives 1k/(1k/6+1k)
+        g07 = (BODYM_2C5.replace("X1 (in out) half", "X1 (in out) half m=3") + "op0 dc\na1 alter dev=X1.R1 param=m "
+               "value=2\na2 alter param=other value=2\nop1 dc\n")
+        d, out = self.run2c2("G07", g07, "vacask", rc=2)             # refused at the deck's render (read-in)
+        self.assertIn("X1.R1: VACASK sets the device's $mfactor, which also carries the multiplier of the enclosing "
+                      "instance X1 (m=3.0)", " ".join(out.split()))
+        res = os.path.join(d, "G07.raw")
+        self.assertFalse(os.path.isdir(res) and any(f != "logFile" for f in os.listdir(res)), out)
+        dx, _ = self.run2c2("G07", g07, "xyce")
+        self.assertAlmostEqual(self.psf(dx, "G07", "op0.dc").value("out"), 0.75, delta=1e-9)
+        self.assertAlmostEqual(self.psf(dx, "G07", "op1.dc").value("out"), 1.0 / (1.0 / 6.0 + 1.0), delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_r4_control_block_statements_on_vacask_equal_xyce(self):
+        exp3 = math.exp(-1.0) - math.exp(-4.0)
+        decks = [("val1rise", RISE_2C5.replace("rv=1k ", "").replace("r=rv", "r=1k") + "a1 alter dev=V1 param=val1 value=2\n"
+                  "tr1 tran stop=3u\n", 1e-9, ("in", 1.5e-6, 1.0)),
+                 ("width", RISE_2C5.replace("rt=1u", "wd=1u rt=1u").replace("delay=1u", "delay=wd").replace(
+                     "width=5u", "width=wd") + "a1 alter dev=V1 param=width value=2u\na2 alter param=other value=2\n"
+                  "tr1 tran stop=5u\n", 1e-9, ("in", 3.5e-6, 1.0)),
+                 ("exptd2", EXP_2C5 % "t2" + "a1 alter dev=V1 param=td2 value=2u\na2 alter param=other value=2\n"
+                  "tr1 tran stop=3u\n", 5e-3, ("in", 3e-6, exp3)),
+                 ("pdc", RISE_2C5.replace("type=pulse", "type=pulse dc=0.5") + "op0 dc\ntr1 tran stop=3u\nop2 dc\n", 1e-9,
+                  ("in", 1.5e-6, 0.5)),
+                 ("pdcalt", RISE_2C5.replace("type=pulse", "type=pulse dc=0.5") + "op0 dc\na1 alter dev=V1 param=val1 "
+                  "value=2\na2 alter param=other value=2\ntr1 tran stop=3u\nop2 dc\n", 1e-9, ("in", 1.5e-6, 1.0)),
+                 ("pwl", RISE_2C5.replace("rt=1u", "vp=1").replace("type=pulse val0=0 val1=1 delay=1u rise=rt fall=1u "
+                                                                   "width=5u period=20u", "type=pwl dc=0 wave=[0 0 1u vp 3u vp]")
+                  + "op0 dc\ntr1 tran stop=3u\nop2 dc\n", 1e-9, ("in", 0.5e-6, 0.5))]
+        for name, text, rel, (sig, t, want) in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx, rel=rel), 0)
+                for d in (dv, dx):
+                    self.assertAlmostEqual(self.at(d, name, "tr1", sig, t), want, delta=1e-9 if rel < 1e-6 else 2e-3)
+                    if name == "exptd2":
+                        self.assertAlmostEqual(self.psf(d, name, "tr1.tran.tran").column("in")[-1], exp3, delta=1e-6)
+
+    @needs_vacask
+    @needs_xyce
+    def test_r4_a_field_the_control_block_cannot_leave_out_is_refused_on_vacask(self):
+        text = EXP_2C5 % "10u" + "a1 alter dev=V1 param=td2 value=2u\ntr1 tran stop=3u\n"
+        self.refused("exp10", text, "vacask", "alter a1: on VACASK the control block's alter of V1 would print td2=",
+                     "not supported on VACASK in v1 (Xyce runs it)")
+        dx, _ = self.run2c2("exp10", text, "xyce")
+        self.assertAlmostEqual(self.psf(dx, "exp10", "tr1.tran.tran").column("in")[-1],
+                               math.exp(-1.0) - math.exp(-4.0), delta=1e-6)
+        # X14: a dc source with pulse fields (val1=vv, vv=2) switched to pulse by an alter: 2c4 left val1 out of the
+        # alter, and VACASK took its default 1 (in 1.0 where Xyce gives 2.0 at 2.5u); X15, the fields constant, runs
+        x14 = (RISE_2C5.replace("rt=1u", "vv=2").replace("type=pulse val0=0 val1=1 delay=1u rise=rt",
+                                                          "type=dc dc=0 val0=0 val1=vv delay=1u rise=1u")
+               + "a1 alter dev=V1 param=type value=pulse\ntr1 tran stop=3u\n")
+        self.refused("x14", x14, "vacask", "alter a1: on VACASK the control block's alter of V1 would print val1=vv, "
+                     "which reads vv", "not supported on VACASK in v1 (Xyce runs it)")
+        dx, _ = self.run2c2("x14", x14, "xyce")
+        self.assertAlmostEqual(self.at(dx, "x14", "tr1", "in", 2.5e-6), 2.0, delta=1e-9)
+        x15 = x14.replace("val1=vv", "val1=2")
+        dv, dx = self.both("x15", x15)
+        self.assertGreater(self.same_as_xyce("x15", dv, dx), 0)
+        self.assertAlmostEqual(self.at(dv, "x15", "tr1", "in", 2.5e-6), 2.0, delta=1e-9)
+
+
+# -- phase 2c6 (the repair of 2c4 and 2c5), through bin/vamos on both engines ------------------------------------------
+PWL_SMALL_2C6 = """// 2c6: V1's wave reads vp; out = in*1k/(R1+1k)
+simulator lang=spectre
+parameters vp=1 rv=1k other=1
+V1 (in 0) vsource type=pwl wave=[0 0 1u vp 3u vp]
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+PWL_BIG_2C6 = """// 2c6: V1's wave reads vp, a second source and a subckt; out = in*1k/(R1+1k)
+simulator lang=spectre
+parameters vp=1 rv=1k other=1 vv=1
+subckt half (a b)
+R1 (a b) resistor r=1k
+ends half
+V1 (in 0) vsource type=pwl wave=[0 0 1u vp 3u vp]
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+V5 (i5 0) vsource dc=vv
+X5 (i5 0) half
+save in out
+"""
+PWL_XLINE_2C6 = """// 2c6: V1's wave reads vp, X1's rr=rq; out = in*1k/(rr+1k)
+simulator lang=spectre
+parameters vp=1 rq=1k other=1
+subckt half (a b)
+parameters rr=1k
+R1 (a b) resistor r=rr
+ends half
+V1 (in 0) vsource type=pwl wave=[0 0 1u vp 3u vp]
+X1 (in out) half rr=rq
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+PWL_BODYM_2C6 = """// 2c6: V1's wave reads vp, R1 in subckt half without an m; out = in/2
+simulator lang=spectre
+parameters vp=1 other=1
+subckt half (a b)
+R1 (a b) resistor r=1k
+ends half
+V1 (in 0) vsource type=pwl wave=[0 0 1u vp 3u vp]
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+V5 (i5 0) vsource dc=1
+X5 (i5 0) half
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+WAVE_A1_2C6 = "a1 alter dev=V1 param=wave value=[0 0 1u 2 3u 2]\n"
+TR1_2C6 = "tr1 tran stop=3u\n"
+# S-2c5's decks (name, deck, R1 in force at tr1): status 0 on both engines with VACASK's in(2u) 1 where Xyce's is 2
+K1_RUNS_2C6 = [
+    ("N427", PWL_SMALL_2C6.replace("r=rv", "r=1k").replace(" rv=1k", "") + WAVE_A1_2C6 + "a2 alter param=other value=2\n"
+     + TR1_2C6, 1e3),
+    ("N601", PWL_SMALL_2C6 + WAVE_A1_2C6 + "a2 alter dev=R1 param=r value=3k\n" + TR1_2C6, 3e3),
+    ("N602", PWL_SMALL_2C6 + WAVE_A1_2C6 + "a2 alter param=temp value=50\n" + TR1_2C6, 1e3),
+    ("N603", PWL_SMALL_2C6 + "op0 dc\n" + WAVE_A1_2C6 + "a2 alter param=other value=2\n" + TR1_2C6, 1e3),
+    ("N606", PWL_SMALL_2C6 + WAVE_A1_2C6 + "dc1 dc param=other values=[1 2]\n" + TR1_2C6, 1e3),
+    ("N701", PWL_BIG_2C6 + WAVE_A1_2C6 + "a2 alter dev=R1 param=r value=3k\n" + TR1_2C6, 3e3),
+    ("N702", PWL_BIG_2C6 + WAVE_A1_2C6 + "dc1 dc dev=R1 param=r values=[1k 3k]\n" + TR1_2C6, 1e3),
+    ("N703", PWL_BIG_2C6 + WAVE_A1_2C6 + "a2 alter dev=X5.R1 param=m value=2\n" + TR1_2C6, 1e3),
+    ("N704", PWL_BIG_2C6 + WAVE_A1_2C6 + "a2 alter dev=V5 param=dc value=2\n" + TR1_2C6, 1e3),
+    ("N705", PWL_BIG_2C6 + "op0 dc\n" + WAVE_A1_2C6 + "a2 alter dev=R1 param=r value=3k\n" + TR1_2C6, 3e3),
+    ("N803", PWL_SMALL_2C6.replace("rv=1k", "rv=1k rw=2*rv").replace("r=rv", "r=rw") + "dc0 dc param=rv values=[1k 2k]\n"
+     + WAVE_A1_2C6 + "a2 alter param=rw value=3k\n" + TR1_2C6, 3e3),
+    ("N804", PWL_XLINE_2C6 + WAVE_A1_2C6 + "a2 alter dev=X1 param=rr value=3k\n" + TR1_2C6, 3e3),
+    ("N805", PWL_BODYM_2C6 + WAVE_A1_2C6 + "dc1 dc dev=X5.R1 param=m values=[1 2]\n" + TR1_2C6, 1e3),
+    ("N806", PWL_BODYM_2C6 + "op0 dc\na2 alter dev=X5.R1 param=m value=2\n" + WAVE_A1_2C6 + TR1_2C6, 1e3),
+]
+SINE_2C6 = """// 2c6: a sine whose sinedc defaults to its dc, bound to vv; in(t) = sinedc + 0.5 sin(2 pi 1e6 t)
+simulator lang=spectre
+parameters vv=0.5 other=1
+V1 (in 0) vsource type=sine dc=vv ampl=0.5 freq=1e6
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+EXP_2C6 = """// 2c6: an exp whose td2 reads t2 (altered: hooked on VACASK), td1 1u (altered to 0.5u)
+simulator lang=spectre
+parameters td=1u t2=10u rv=1k other=1
+V1 (in 0) vsource type=exp val0=0 val1=1 td1=%s tau1=0.5u td2=%s tau2=1u
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+GROUP_2C6 = """// 2c6: a BSIM4 group whose entry 1 binds its threshold (vtho or vth0) to vt, entry 2 lacks it
+simulator lang=spectre
+parameters vt=0.40 other=1 rv=1k
+model nch bsim4 {
+  1: type=n lmin=0.1u lmax=1u wmin=0.1u wmax=10u %s=vt toxe=2n
+  2: type=n lmin=1u lmax=10u wmin=0.1u wmax=10u toxe=2n
+}
+Vg (g 0) vsource dc=1.2
+Vd1 (d1 0) vsource dc=1.2
+Vd2 (d2 0) vsource dc=1.2
+M1 (d1 g 0 0) nch w=0.5u l=0.5u
+M2 (d2 g 0 0) nch w=0.5u l=2u
+V5 (i5 0) vsource dc=1
+R5 (i5 o5) resistor r=rv
+R6 (o5 0) resistor r=1k
+R3 (g 0) resistor r=other*1G
+save Vd1:p Vd2:p o5
+"""
+COND_SRC_2C6 = """// 2c6 (S-2c5's N607): V1 in both branches of an if; in = val1 on the flat top (1u-3u), out = in/2
+simulator lang=spectre
+parameters sel=%s vv=2 other=1
+if (sel > 0) {
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.5u rise=0.5u fall=0.5u width=1u period=20u
+} else {
+V1 (in 0) vsource type=pulse val0=0 val1=vv delay=0.5u rise=0.5u fall=0.5u width=1u period=20u
+}
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+a1 alter dev=V1 param=%s value=%s
+a2 alter param=other value=2
+tr1 tran stop=4u
+"""
+
+
+class TestFollowUpRuns2c6(_Flow):
+    """Phase 2c6 through bin/vamos: K1 S-2c5's decks, an alter of a pwl wave followed by a change VACASK re-elaborates
+    on (VACASK in(2u) 1 where Xyce and the analytic value give 2, status 0 on both), are status 2 on VACASK and give the
+    analytic values on Xyce, N605 (a change of what the wave reads) is status 2 on both, the controls give equal values;
+    the audit's other forms (a sine's sinedc defaulting to a bound dc, an exp's td2 derived through a hook, a card's other
+    spelling, the sweeps of a bound or derived target) end refused or right; K2 a source in both branches of an if, each
+    branch taken in turn, with an alter of a field, runs on both engines with the analytic values (N607 was refused at
+    VACASK's render)."""
+
+    run2c2 = TestFollowUpRuns2c2.run2c2
+    refused = TestFollowUpRuns2c2.refused
+    both = TestFollowUpRuns2c4.both
+    same_as_xyce = TestFollowUpRuns2c4.same_as_xyce
+    value = TestFollowUpRuns2c4.value
+    at = TestFollowUpRuns2c5.at
+
+    @needs_vacask
+    @needs_xyce
+    def test_k1_a_pwl_wave_alter_is_refused_on_vacask_and_right_on_xyce(self):
+        for name, text, r1 in K1_RUNS_2C6:
+            with self.subTest(deck=name):
+                self.refused(name, text, "vacask", "on VACASK, alter a1 set wave of V1, which the netlist binds to the "
+                             "expression [0.0 0.0 1e-06 vp 3e-06 vp] (it reads vp)",
+                             "not supported on VACASK in v1 (Xyce runs it)")
+                dx, _ = self.run2c2(name, text, "xyce")
+                self.assertAlmostEqual(self.at(dx, name, "tr1", "in", 2e-6), 2.0, delta=1e-9)
+                self.assertAlmostEqual(self.at(dx, name, "tr1", "out", 2e-6), 2.0 * 1e3 / (r1 + 1e3), delta=2e-9)
+        n605 = PWL_SMALL_2C6 + WAVE_A1_2C6 + "a2 alter param=vp value=3\n" + TR1_2C6
+        for engine in ("vacask", "xyce"):
+            with self.subTest(deck="N605", engine=engine):
+                self.refused("N605", n605, engine, "tran tr1: alter a1 set wave of V1, which the netlist binds to the "
+                             "expression [0.0 0.0 1e-06 vp 3e-06 vp] (it reads vp), and alter a2 changes vp after the alter",
+                             "not supported in v1")
+
+    @needs_vacask
+    @needs_xyce
+    def test_k1_the_wave_controls_run_on_both_with_equal_values(self):
+        """S-2c5's N428 (no later change), N604 (a constant wave), N706 (the hooked alter first), N707 (a constant alter
+        after), and an alter to the values the binding gives: in(2u) = 2 (1 for the last), equal on both engines."""
+        decks = [("N428", PWL_SMALL_2C6.replace("r=rv", "r=1k").replace(" rv=1k", "") + WAVE_A1_2C6 + TR1_2C6, 2.0),
+                 ("N604", PWL_SMALL_2C6.replace("1u vp 3u vp", "1u 1 3u 1") + WAVE_A1_2C6 + "a2 alter param=other value=2\n"
+                  + TR1_2C6, 2.0),
+                 ("N706", PWL_BIG_2C6 + "a2 alter dev=R1 param=r value=3k\n" + WAVE_A1_2C6 + TR1_2C6, 2.0),
+                 ("N707", PWL_BIG_2C6 + WAVE_A1_2C6 + "a2 alter dev=R2 param=r value=3k\n" + TR1_2C6, 2.0),
+                 ("same", PWL_SMALL_2C6 + "a1 alter dev=V1 param=wave value=[0 0 1u 1 3u 1]\na2 alter param=other value=2\n"
+                  + TR1_2C6, 1.0)]
+        for name, text, in2 in decks:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                for d in (dv, dx):
+                    self.assertAlmostEqual(self.at(d, name, "tr1", "in", 2e-6), in2, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_k1_the_audit_s_other_forms_end_refused_or_right(self):
+        """A sine's sinedc altered where it defaults to dc=vv, then a variable (VACASK in 0.5 + ... where Xyce 1 + ...); an
+        exp's td1 altered beside a hooked td2, then a variable (VACASK's line gave td2 1u where 1.5u); a group's threshold
+        altered under its other spelling, then a hooked change (VACASK Vd1:p -1.185e-4 where -6.555e-5): status 2 on
+        VACASK, Xyce right.  A sweep of R1's r=rv around a sweep of rv: status 2 on both.  A sweep of the derived sinedc:
+        status 2 on VACASK (exit 1 before), Xyce [0.25, 1]; of an exp's delay: status 2 on both (VACASK set its absolute
+        td1, Xyce nothing).  The controls run equal."""
+        a2 = "a2 alter param=other value=2\n"
+        sine = SINE_2C6 + "a1 alter dev=V1 param=sinedc value=1\n" + a2 + "tr1 tran stop=1u\n"
+        self.refused("sinedc", sine, "vacask", "alter a1 set sinedc of V1, whose default, the dc, the netlist binds to the "
+                     "expression vv (it reads vv)", "not supported on VACASK in v1 (Xyce runs it)")
+        dx, _ = self.run2c2("sinedc", sine, "xyce")
+        self.assertAlmostEqual(self.at(dx, "sinedc", "tr1", "in", 0.0), 1.0, delta=1e-9)
+        exp = EXP_2C6 % ("1u", "t2") + "a1 alter dev=V1 param=td2 value=2u\na2 alter dev=V1 param=td1 value=0.5u\n"
+        self.refused("exptd", exp + "a3 alter param=other value=2\ntr1 tran stop=3u\n", "vacask",
+                     "alter a2 set td1 of V1, so the control block's statement of V1 prints td2=1.5e-06, which its instance "
+                     "line binds to the expression t2 - 1e-06 (it reads t2)", "not supported on VACASK in v1 (Xyce runs it)")
+        dx, _ = self.run2c2("exptd", exp + "a3 alter param=other value=2\ntr1 tran stop=3u\n", "xyce")
+        in3 = math.exp(-1.0) - math.exp(-5.0)                 # td1 0.5u tau1 0.5u, td2 2u tau2 1u, at 3u
+        self.assertAlmostEqual(self.at(dx, "exptd", "tr1", "in", 3e-6), in3, delta=2e-3)
+        dv, dx = self.both("exptdc", exp + "tr1 tran stop=3u\n")
+        self.assertGreater(self.same_as_xyce("exptdc", dv, dx, rel=5e-3), 0)
+        for card, alter in (("vtho", "vth0"), ("vth0", "vtho")):
+            name = "grp_" + card
+            text = GROUP_2C6 % card + ("op0 dc\na1 alter mod=nch param=%s value=0.6\na2 alter dev=R5 param=r value=3k\n"
+                                       "op1 dc\n" % alter)
+            with self.subTest(card=card, alter=alter):
+                self.refused(name, text, "vacask", "dc op1: on VACASK, alter a1 set %s of model nch, which the netlist binds "
+                             "to the expression vt (it reads vt)" % alter, "not supported on VACASK in v1 (Xyce runs it)")
+                dx, _ = self.run2c2(name, text, "xyce")
+                self.assertAlmostEqual(self.psf(dx, name, "op1.dc").value("Vd1:p"), -6.555e-5, delta=2e-8)
+        div = ("// 2c6: R1's r=rv; out = 1k/(R1+1k)\nsimulator lang=spectre\nparameters rv=1k other=1\nV1 (in 0) vsource dc=1\n"
+               "R1 (in out) resistor r=rv\nR2 (out 0) resistor r=1k\nR3 (in 0) resistor r=other*1k\nsave in out\n")
+        # the nests of a bound target around what it reads: VACASK kept the swept value, Xyce re-evaluated the X line's
+        # rr=rv and the source's dc=vv at the first point (out 0.333, in 2) and r=1k*(1+0.01*(temp-27)) at every point
+        nests = [("nest", div + "sw1 sweep dev=R1 param=r values=[1k 3k] {\n  dc1 dc param=rv values=[1k 2k]\n}\n",
+                  "sweep sw1 sets r of R1, which the netlist binds to the expression rv (it reads rv), and dc dc1 (its "
+                  "sweep of rv) changes rv inside it"),
+                 ("nestx", div.replace("R1 (in out) resistor r=rv", "subckt half (a b)\nparameters rr=1k\nR1 (a b) resistor "
+                                       "r=rr\nends half\nX1 (in out) half rr=rv")
+                  + "sw1 sweep sub=X1 param=rr values=[1k 3k] {\n  dc1 dc param=rv values=[1k 2k]\n}\n",
+                  "sweep sw1 sets rr of X1, which the netlist binds to the expression rv (it reads rv)"),
+                 ("nestv", div.replace("rv=1k", "rv=1k vv=1").replace("vsource dc=1", "vsource dc=vv").replace("r=rv",
+                                                                                                          "r=1k")
+                  + "sw1 sweep dev=V1 param=dc values=[1 3] {\n  dc1 dc param=vv values=[1 2]\n}\n",
+                  "sweep sw1 sets dc of V1, which the netlist binds to the expression vv (it reads vv)"),
+                 ("nestt", div.replace("r=rv", "r=1k*(1+0.01*(temp-27))")
+                  + "sw1 sweep dev=R1 param=r values=[1k 3k] {\n  dc1 dc param=temp values=[27 127]\n}\n",
+                  "sweep sw1 sets r of R1, which the netlist binds to the expression")]
+        for engine in ("vacask", "xyce"):
+            for name, text, head in nests:
+                with self.subTest(construct=name, engine=engine):
+                    self.refused(name, text, engine, head, "VACASK keeps it, Xyce re-evaluates the expression at some "
+                                 "points", "not supported in v1")
+            with self.subTest(construct="exp delay", engine=engine):
+                self.refused("expdl", EXP_2C6 % ("1u", "10u") + "sw1 sweep dev=V1 param=delay values=[0 0.5u] {\n"
+                             "  tr1 tran stop=3u\n}\n", engine, "the delay of the exp source V1 is folded into its td1 and "
+                             "td2", "not supported in v1")
+        dv, dx = self.both("nestc", div + "sw1 sweep param=rv values=[1k 2k] {\n  dc1 dc dev=R1 param=r values=[1k 3k]\n}\n")
+        self.assertGreater(self.same_as_xyce("nestc", dv, dx), 0)
+        # a hooked field altered, then swept through its hook (S-2c4's e12, a source in a body, and e13): the sweep sets the
+        # field, so the statement's constant is no loss; out = V1/2, ac out = mag/2 (this round's first cut refused both)
+        e12 = ("// 2c6 (S-2c4's e12): X1.V1's dc reads vd; out = V1/2\nsimulator lang=spectre\nparameters other=1\n"
+               "subckt cell (o)\nparameters vd=1\nV1 (i 0) vsource dc=vd\nR1 (i o) resistor r=1k\nR2 (o 0) resistor r=1k\n"
+               "ends cell\nX1 (out) cell vd=1\nR3 (out 0) resistor r=other*1G\nsave out\nop0 dc\n"
+               "a1 alter dev=X1.V1 param=dc value=2\na2 alter param=other value=2\nop1 dc\n"
+               "dc1 dc dev=X1.V1 param=dc values=[3 4]\nop2 dc\n")
+        dv, dx = self.both("e12", e12)
+        self.assertGreater(self.same_as_xyce("e12", dv, dx, rel=1e-6), 0)
+        self.check_swept(dv, "e12", {"dc1": ("out", [1.5, 2.0])}, rel=1e-6, engine="vacask")
+        for op, want in (("op0", 0.5), ("op1", 1.0), ("op2", 1.0)):
+            self.assertAlmostEqual(self.psf(dv, "e12", op + ".dc").value("out"), want, delta=1e-6)
+        e13 = ("// 2c6 (S-2c4's e13): V1's mag reads mm; ac out = mag/2\nsimulator lang=spectre\nparameters mm=1 other=1\n"
+               "V1 (in 0) vsource dc=0 mag=mm\nR1 (in out) resistor r=1k\nR2 (out 0) resistor r=1k\n"
+               "R3 (in 0) resistor r=other*1k\nsave out\nac0 ac start=1k stop=1k lin=1\na1 alter dev=V1 param=mag value=4\n"
+               "a2 alter param=other value=2\nac1 ac start=1k stop=1k lin=1\nac2 ac dev=V1 param=mag values=[2 6] freq=1k\n")
+        dv, dx = self.both("e13", e13)
+        self.assertGreater(self.same_as_xyce("e13", dv, dx), 0)
+        self.assertAlmostEqual(abs(self.psf(dv, "e13", "ac1.ac").column("out")[0]), 2.0, delta=1e-9)
+        self.assertEqual([round(abs(x), 9) for x in self.psf(dv, "e13", "ac2.ac").column("out")], [1.0, 3.0])
+        sweep = SINE_2C6 + "sw1 sweep dev=V1 param=sinedc values=[0.25 1] {\n  tr1 tran stop=1u\n}\n"
+        self.refused("sinesw", sweep, "vacask", "on VACASK sinedc of V1 is printed on its instance line as sinedc=vv",
+                     "VACASK cannot sweep such a parameter")
+        dx, _ = self.run2c2("sinesw", sweep, "xyce")
+        for k, want in ((0, 0.25), (1, 1.0)):
+            self.assertAlmostEqual(self.psf(dx, "sinesw", "sw1-%03d_tr1.tran.tran" % k).at("in", 0.0), want, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_k2_a_source_in_both_branches_of_an_if_on_both_engines(self):
+        """Each branch taken in turn (sel=0: the else, val1=vv=2; sel=1: the if, val1=1), an alter of the width (N607 was
+        refused at VACASK's render with an `(internal)' message) or of the bound val1 (S-2c5's N608), then a variable:
+        status 0 on both engines, VACASK equal to Xyce, in = val1 on the flat top (1u-3u with width 2u, 1u-2u with
+        width 1u) and 0 after the fall."""
+        cases = [("w0", ("0", "width", "2u"), 2.5e-6, 2.0, 3.75e-6), ("w1", ("1", "width", "2u"), 2.5e-6, 1.0, 3.75e-6),
+                 ("v0", ("0", "val1", "3"), 1.5e-6, 3.0, 3e-6), ("v1", ("1", "val1", "3"), 1.5e-6, 3.0, 3e-6)]
+        for name, args, t_top, top, t_low in cases:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, COND_SRC_2C6 % args)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                for d in (dv, dx):
+                    self.assertAlmostEqual(self.at(d, name, "tr1", "in", t_top), top, delta=1e-9)
+                    self.assertAlmostEqual(self.at(d, name, "tr1", "out", t_top), top / 2.0, delta=1e-9)
+                    self.assertAlmostEqual(self.at(d, name, "tr1", "in", t_low), 0.0, delta=1e-9)
+
+
+# -- phase 2c7: L1 the branch the run takes with the plan's variables, L2 §3.7's nominal structure, L3 a hooked
+# sweep's value before its flag, L4 the source constraints in every state (bin/vamos on both engines) ------------------
+
+# V1 in both branches of an if, the else's val1 reading vv; %s: the condition, then the statements before a1
+COND_2C7 = """// 2c7: V1 in both branches of an if; in = val1 on the flat top (1u-3u), out = in/2, in(3.75u) = 0
+simulator lang=spectre
+parameters sel=0 vv=2 other=1
+if (%s) {
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.5u rise=0.5u fall=0.5u width=1u period=20u
+} else {
+V1 (in 0) vsource type=pulse val0=0 val1=vv delay=0.5u rise=0.5u fall=0.5u width=1u period=20u
+}
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+%sa1 alter dev=V1 param=width value=2u
+a2 alter param=other value=2
+tr1 tran stop=4u
+"""
+KINDS_2C7 = """// 2c7: X1 of two subckts in an if, X1.Z1 a resistor in cella, an inductor in cellb (sel=0)
+simulator lang=spectre
+parameters sel=%s other=1
+subckt cella (a b)
+Z1 (a b) resistor r=1k
+ends cella
+subckt cellb (a b)
+Z1 (a b) inductor l=1u
+ends cellb
+V1 (in 0) vsource dc=1
+if (sel > 0) {
+X1 (in out) cella
+} else {
+X1 (in out) cellb
+}
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out X1.Z1:1
+%sop1 dc
+"""
+XM_2C7 = """// 2c7: X1 in both branches of an if with its own m each; out = 1k/(1k + 1k/(m_X1 * m_R1))
+simulator lang=spectre
+parameters sel=%s other=1
+subckt half (a b)
+R1 (a b) resistor r=1k
+ends half
+V1 (in 0) vsource dc=1
+if (sel > 0) {
+X1 (in out) half%s
+} else {
+X1 (in out) half%s
+}
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+op0 dc
+a1 alter dev=X1.R1 param=m value=2
+op1 dc
+"""
+COUPLED_2C7 = """// 2c7: X1 of two subckts; cellb's L1 (l=1m m=2) alone; ac out = 500/(500 + j w L)
+simulator lang=spectre
+parameters sel=%s other=1
+subckt cella (a b)
+L1 (a b) inductor l=1m
+L2 (b c) inductor l=1m
+K1 mutual_inductor coupling=0.5 ind1=L1 ind2=L2
+R9 (b 0) resistor r=1k
+R10 (c 0) resistor r=1k
+ends cella
+subckt cellb (a b)
+L1 (a b) inductor l=1m m=2
+R9 (b 0) resistor r=1k
+ends cellb
+V1 (in 0) vsource dc=0 mag=1
+if (sel > 0) {
+X1 (in out) cella
+} else {
+X1 (in out) cellb
+}
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save out
+ac0 ac start=1k stop=1k lin=1
+a1 alter dev=X1.L1 param=l value=2m
+ac1 ac start=1k stop=1k lin=1
+"""
+TEMP_COND_2C7 = """// 2c7: R8 in both branches of an if reading temp (1k above 40 C, else 3k); o8 = 1k/(R8 + 1k)
+simulator lang=spectre
+parameters other=1
+V1 (in 0) vsource dc=1
+if (temp > 40) {
+R8 (in o8) resistor r=1k
+} else {
+R8 (in o8) resistor r=3k
+}
+R9 (o8 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save o8
+"""
+BODY_COND_2C7 = """// 2c7: an if in a body chosen by the subckt's s (R1 1k for s > 0, else 3k); o1 = 1k/(R1 + 1k)
+simulator lang=spectre
+parameters other=1
+subckt cellc (o)
+parameters s=0
+V1 (i 0) vsource dc=1
+if (s > 0) {
+R1 (i o) resistor r=1k
+} else {
+R1 (i o) resistor r=3k
+}
+R2 (o 0) resistor r=1k
+ends cellc
+X1 (o1) cellc
+R3 (o1 0) resistor r=other*1G
+save o1
+"""
+EXP_TD2_2C7 = """// 2c7 (S-2c6's S04, E08): an exp whose td2 reads t2 (hooked on VACASK); td1 0.5u, tau1 = tau2 = 2u
+simulator lang=spectre
+parameters t2=2u other=1
+V1 (in 0) vsource type=exp val0=0 val1=1 td1=0.5u tau1=2u td2=t2 tau2=2u
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+SINE_FR_2C7 = """// 2c7 (S-2c6's E06): a sine whose freq reads fr (hooked on VACASK); in = 0.5 sin(2 pi f t)
+simulator lang=spectre
+parameters fr=100k other=1
+V1 (in 0) vsource type=sine sinedc=0 ampl=0.5 freq=fr
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+R0224_2C7 = """// 2c7 (S-2c6's R0224): I1's td2 swept inside a sweep of t2; then tau1 altered: in = I1 * 375 (R0 || R3 || R1+R2)
+simulator lang=spectre
+parameters rv=1k other=1 td=0.5u tau=2u t2=2u
+I1 (0 in) isource type=exp val0=0 val1=0.001 td1=td tau1=tau td2=t2 tau2=tau
+R0 (in 0) resistor r=1k
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+sw1 sweep param=t2 values=[2 3] {
+  dc1 dc dev=I1 param=td2 values=[2.5e-06 3.75e-06]
+}
+a1 alter dev=I1 param=tau1 value=3e-06
+a2 alter dev=R2 param=r value=500
+dc2 dc dev=R1 param=r values=[1000 3000]
+tr1 tran stop=3u
+"""
+PULSE_WD_2C7 = """// 2c7: a pulse whose width, rise and fall read wd and rt, period 20u
+simulator lang=spectre
+parameters wd=1u rt=0.5u other=1
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.5u rise=rt fall=rt width=wd period=20u%s
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+"""
+TR_2C7 = "tr1 tran stop=3u\n"
+
+
+def _exp_2c7(t, td1, tau1, td2, tau2):
+    """Spectre's exp from 0 to 1 (ref5 p.685): the rise from td1, the fall from td2."""
+    v = 0.0 if t < td1 else 1.0 - math.exp(-(t - td1) / tau1)
+    return v - (0.0 if t < td2 else 1.0 - math.exp(-(t - td2) / tau2))
+
+
+class TestFollowUpRuns2c7(_Flow):
+    """Phase 2c7 through bin/vamos.  L1: S-2c6's K2b1, K2b2 and K2b4 (an if whose condition reads a netlist parameter the
+    deck alters or sweeps) were refused on VACASK with an `(internal)' message where Xyce gave the analytic values; a
+    current save of a name an if and its else give two kinds failed on both engines (VACASK `Output variable 'i' ... not
+    found', Xyce `undefined symbol in .PRINT command'); an X line's m and a coupled inductor took the first match.  L2:
+    S-2c6's H05h gave in(2u) = 2 on both engines where 1 (an alter of the condition's parameter before the first analysis,
+    taken as the nominal one).  L3: S04, E06, E08, R0224 (a hooked sweep of an exp's td2 or a sine's freq) stopped VACASK
+    with exit 1.  L4: R0080 (a pulse's width altered past its period) stopped VACASK with exit 1 while Xyce ran it."""
+
+    run2c2 = TestFollowUpRuns2c2.run2c2
+    refused = TestFollowUpRuns2c2.refused
+    both = TestFollowUpRuns2c4.both
+    same_as_xyce = TestFollowUpRuns2c4.same_as_xyce
+    value = TestFollowUpRuns2c4.value
+    at = TestFollowUpRuns2c5.at
+
+    def render_refused(self, name, text, engine, *pieces):
+        """Status 2 at the render, before the engine ran: an error during circuit read-in holding every piece, no
+        analysis data file (a sweep's PSF header may be there)."""
+        d, out = self.run2c2(name, text, engine, rc=2)
+        self.assertIn("Error from spectre during circuit read-in.", out)
+        flat = " ".join(out.split())
+        for piece in pieces:
+            self.assertIn(piece, flat, "%s on %s:\n%s" % (name, engine, out[-3000:]))
+        res = os.path.join(d, name + ".raw")
+        self.assertFalse(os.path.isdir(res) and any(not f.endswith((".sweep", "logFile")) for f in os.listdir(res)), out)
+
+    @needs_vacask
+    @needs_xyce
+    def test_l1_the_branch_the_run_takes_on_both_engines(self):
+        """K2b4 (`if (other > 5)', other altered), K2b1 (sel swept by a dc keeping the else), K2b2 (sel altered to -1),
+        K2b3 (sel=1 altered to 2) and an if kept by a condition on other: status 0 on both engines, VACASK equal to Xyce,
+        in = val1 on the flat top (2 for the else, 1 for the if), out = in/2, 0 after the fall."""
+        cases = [("k2b4", COND_2C7 % ("other > 5", ""), 2.0),
+                 ("k2b1", COND_2C7 % ("sel > 0", "dc0 dc param=sel values=[-1 -0.5]\n"), 2.0),
+                 ("k2b2", COND_2C7 % ("sel > 0", "a0 alter param=sel value=-1\n"), 2.0),
+                 ("k2b3", (COND_2C7 % ("sel > 0", "a0 alter param=sel value=2\n")).replace("sel=0", "sel=1"), 1.0),
+                 ("ifother", COND_2C7 % ("other > 0.5", ""), 1.0)]
+        for name, text, top in cases:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                for d in (dv, dx):
+                    self.assertAlmostEqual(self.at(d, name, "tr1", "in", 2.5e-6), top, delta=1e-9)
+                    self.assertAlmostEqual(self.at(d, name, "tr1", "out", 2.5e-6), top / 2.0, delta=1e-9)
+                    self.assertAlmostEqual(self.at(d, name, "tr1", "in", 3.75e-6), 0.0, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_l1_kinds_multipliers_and_coupled_inductors_on_the_taken_branch(self):
+        """X1.Z1 a resistor in cella, an inductor in cellb: the current save is the taken kind's on both engines (1 mA through
+        the inductor, 0.5 mA through the resistor), VACASK equal to Xyce.  X lines with their own m: the alter of X1.R1's m is
+        refused on VACASK naming the taken X1's m, Xyce gives 1k/(1k + 1k/(m_X1*2)); with m on one X line only both engines
+        give it.  cellb's lone L1 altered: both engines give 500/(500 + j w L); cella's coupled L1 stays refused on VACASK."""
+        for sel, pre, cur, out in (("0", "", 1e-3, 1.0), ("1", "", 0.5e-3, 0.5), ("0", "a0 alter param=sel value=-1\n", 1e-3, 1.0)):
+            name = "kinds%s%s" % (sel, "a" if pre else "")
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, KINDS_2C7 % (sel, pre))
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                for d in (dv, dx):
+                    self.assertAlmostEqual(self.psf(d, name, "op1.dc").value("X1.Z1:1"), cur, delta=1e-12)
+                    self.assertAlmostEqual(self.psf(d, name, "op1.dc").value("out"), out, delta=1e-9)
+        for sel, m in (("0", 3.0), ("1", 2.0)):
+            name = "xm%s" % sel
+            with self.subTest(deck=name):
+                self.render_refused(name, XM_2C7 % (sel, " m=2", " m=3"), "vacask", "X1.R1: VACASK sets the device's "
+                                    "$mfactor, which also carries the multiplier of the enclosing instance X1 (m=%s)" % m,
+                                    "not supported on VACASK in v1 (Xyce runs it)")
+                dx, _ = self.run2c2(name, XM_2C7 % (sel, " m=2", " m=3"), "xyce")
+                for op, k in (("op0", 1.0), ("op1", 2.0)):
+                    self.assertAlmostEqual(self.psf(dx, name, op + ".dc").value("out"), 1e3 / (1e3 + 1e3 / (m * k)),
+                                           delta=1e-9)
+        for sel, m in (("0", 3.0), ("1", 1.0)):
+            name = "xm1%s" % sel
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, XM_2C7 % (sel, "", " m=3"))
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                for d in (dv, dx):
+                    for op, k in (("op0", 1.0), ("op1", 2.0)):
+                        self.assertAlmostEqual(self.psf(d, name, op + ".dc").value("out"), 1e3 / (1e3 + 1e3 / (m * k)),
+                                               delta=1e-9)
+        dv, dx = self.both("coupled0", COUPLED_2C7 % "0")
+        self.assertGreater(self.same_as_xyce("coupled0", dv, dx), 0)
+        w = 2 * math.pi * 1e3
+        for d in (dv, dx):
+            for ac, ell in (("ac0", 0.5e-3), ("ac1", 1e-3)):
+                got = self.psf(d, "coupled0", ac + ".ac").column("out")[0]
+                want = 500.0 / complex(500.0, w * ell)
+                self.assertAlmostEqual(abs(got - want), 0.0, delta=1e-9, msg=(ac, got, want))
+        self.render_refused("coupled1", COUPLED_2C7 % "1", "vacask", "X1.L1: a coupled inductor's multiplier and TCs are "
+                            "folded into its l on VACASK")
+        self.run2c2("coupled1", COUPLED_2C7 % "1", "xyce")
+
+    @needs_vacask
+    @needs_xyce
+    def test_l2_an_alter_that_changes_a_branch_before_the_first_analysis_is_refused_on_both(self):
+        """H05h (sel altered to 1 before the first analysis, then V1's width: both engines gave in(2u) = 2 where Spectre's
+        if branch gives 1), the same with val1=vv (H05), temp, a subckt's s: status 2 on both engines before any engine
+        runs, naming the alter, the condition and the branches.  An alter that keeps the branch runs with the values of
+        its taken branch: s=-1 (o1 1k/(3k + 1k), both engines); temp 30 under 40 (o8 0.25) and R8's r in the else (o8
+        1/3) on VACASK, Xyce's emitter refusing an if that reads temp at read-in (as before this round, open)."""
+        h05h = (COND_2C7.replace("val1=vv", "val1=2") % ("sel > 0", "a0 alter param=sel value=1\n")).replace(
+            "a2 alter param=other value=2\n", "")
+        # phase 2c8 (M4) re-decided the condition's text to the netlist's spelling (2c7: sel > 0.0, s > 0.0)
+        cases = [("h05h", h05h, "top level", "sel > 0"),
+                 ("h05", COND_2C7 % ("sel > 0", "a0 alter param=sel value=1\n"), "top level", "sel > 0"),
+                 ("tmp", TEMP_COND_2C7 + "a0 alter param=temp value=50\nop1 dc\n", "top level", "temp > 40"),
+                 ("bdy", BODY_COND_2C7 + "a0 alter sub=X1 param=s value=1\nop1 dc\n", "X1", "s > 0")]
+        for engine in ("vacask", "xyce"):
+            for name, text, path, cond in cases:
+                with self.subTest(deck=name, engine=engine):
+                    self.refused(name, text, engine, "alter a0 changes a structural condition on path %s: the condition %s"
+                                 % (path, cond), "takes its if branch, where it takes its else branch at the netlist's own "
+                                 "values", "vamos refuses a sweep or alter that changes an if branch, as Spectre does")
+        rp = 1.0 / (1e-3 + 1e-9)                          # R2 || R3 (other*1G) under the body's R1
+        keep = [("bdyk", BODY_COND_2C7 + "a0 alter sub=X1 param=s value=-1\nop1 dc\n", "o1", rp / (3e3 + rp), True),
+                # Xyce's emitter refuses any if that reads temp at read-in (`temper is not a constant', open): VACASK only
+                ("tmpk", TEMP_COND_2C7 + "a0 alter param=temp value=30\nop1 dc\n", "o8", 0.25, False),
+                ("rk", TEMP_COND_2C7 + "a0 alter dev=R8 param=r value=2k\nop1 dc\n", "o8", 1.0 / 3.0, False)]
+        for name, text, sig, want, on_xyce in keep:
+            with self.subTest(deck=name):
+                if on_xyce:
+                    dv, dx = self.both(name, text)
+                    self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                    runs = (dv, dx)
+                else:
+                    runs = (self.run2c2(name, text, "vacask")[0],)
+                for d in runs:
+                    self.assertAlmostEqual(self.psf(d, name, "op1.dc").value(sig), want, delta=1e-9)
+
+    @needs_vacask
+    @needs_xyce
+    def test_l3_hooked_sweeps_of_fields_vacask_checks_at_setup_run(self):
+        """S04 (an exp's td2 swept through its hook), E08 (the same in a dc, then a tran at the nominal), R0224 (td2 swept
+        inside a sweep of t2): VACASK stopped with exit 1, the hook's value 0 when its flag was set; it runs now with the
+        analytic values, and Xyce refuses the td2 sweep at render as before (its deck prints a derived value for td2).
+        E06 (a sine's freq): both engines, equal to 0.5 sin(2 pi f t)."""
+        s04 = EXP_TD2_2C7 + "sw1 sweep dev=V1 param=td2 values=[1.5u 2.5u] {\n  tr1 tran stop=3u\n}\n"
+        dv, _ = self.run2c2("s04", s04, "vacask")
+        for k, td2 in ((0, 1.5e-6), (1, 2.5e-6)):
+            f = self.psf(dv, "s04", "sw1-%03d_tr1.tran.tran" % k)
+            for t in (1e-6, 2e-6, 2.5e-6, 3e-6):
+                self.assertAlmostEqual(f.at("in", t), _exp_2c7(t, 0.5e-6, 2e-6, td2, 2e-6), delta=2e-3, msg=(k, t))
+        self.render_refused("s04", s04, "xyce", "V1: the vsource field td2 cannot be swept on Xyce in v1")
+        e08 = EXP_TD2_2C7 + "dc1 dc dev=V1 param=td2 values=[1.5u 2.5u]\ntr1 tran stop=3u\n"
+        dv, _ = self.run2c2("e08", e08, "vacask")
+        self.assertEqual([round(x, 12) for x in self.psf(dv, "e08", "dc1.dc").column("in")], [0.0, 0.0])
+        for t in (1e-6, 2e-6, 2.5e-6):
+            self.assertAlmostEqual(self.at(dv, "e08", "tr1", "in", t), _exp_2c7(t, 0.5e-6, 2e-6, 2e-6, 2e-6), delta=2e-3)
+        self.render_refused("e08", e08, "xyce", "V1: the vsource field td2 cannot be swept on Xyce in v1")
+        dv, _ = self.run2c2("r0224", R0224_2C7, "vacask")
+        for k in (0, 1):
+            self.assertEqual([round(x, 12) for x in self.psf(dv, "r0224", "sw1-%03d_dc1.dc" % k).column("in")], [0.0, 0.0])
+        for t in (1e-6, 2e-6, 2.5e-6):
+            self.assertAlmostEqual(self.at(dv, "r0224", "tr1", "in", t), 1e-3 * 375.0 * _exp_2c7(t, 0.5e-6, 3e-6, 2e-6, 2e-6),
+                                   delta=1e-3)
+        self.render_refused("r0224", R0224_2C7, "xyce", "I1: the isource field td2 cannot be swept on Xyce in v1")
+        e06 = SINE_FR_2C7 + "sw1 sweep dev=V1 param=freq values=[100k 200k] {\n  tr1 tran stop=3u\n}\n"
+        dv, dx = self.both("e06", e06)
+        for d in (dv, dx):
+            for k, fr in ((0, 1e5), (1, 2e5)):
+                f = self.psf(d, "e06", "sw1-%03d_tr1.tran.tran" % k)
+                for t in (0.5e-6, 1.25e-6, 2e-6, 3e-6):
+                    self.assertAlmostEqual(f.at("in", t), 0.5 * math.sin(2 * math.pi * fr * t), delta=2e-3, msg=(k, t))
+
+    @needs_vacask
+    @needs_xyce
+    def test_l4_a_state_that_breaks_a_source_constraint_is_refused(self):
+        """R0080 (width=wd altered to 2 s under period=20u, VACASK exit 1, Xyce ran it), a width altered or swept past the
+        period, a negative rise, pwl times that do not increase, an exp's td2 before its td1: status 2 on both engines,
+        no data file, naming the source, the constraint and the state (phase 2c8 re-decided p10, a pwl's first time point
+        before 0, to both engines: vamos refuses the constant on both; and p04, a derived dc's pulse broken for an op: both
+        engines read the waveform's value at t = 0).  A sine's freq altered to 0 and VACASK's first elaboration at an
+        alter instance after a var broke the pulse: status 2 on VACASK, Xyce running them (in = 0.45 for the sine's
+        constant).  The
+        controls run equal: a valid width, a given dc's broken pulse under an op (VACASK prints type="dc"), a broken state
+        an alter undoes before the tran."""
+        r0080 = (PULSE_WD_2C7 % " dc=0.5" + "a1 alter param=rt value=2.5e-07\na2 alter param=wd value=2\n"
+                 "sw1 sweep param=other values=[1 2] {\n  tr1 tran stop=3u\n}\na3 alter dev=R2 param=r value=2000\n"
+                 "a4 alter param=other value=3\ndc1 dc dev=R3 param=r values=[1000 2000]\ntr2 tran stop=3u\n")
+        period = "an explicit period no longer than rise+fall+width is an error (§3.8.1"
+        both = [("r0080", r0080, "tran tr1 at other=1 (sweep sw1; after alter a2): the pulse of V1 has period=2e-05 s, not "
+                 "longer than rise+fall+width = 2.0000005 s", period),
+                ("p01", PULSE_WD_2C7 % "" + "a1 alter param=wd value=30u\n" + TR_2C7, "tran tr1 (after alter a1): the pulse "
+                 "of V1 has period=2e-05 s", period),
+                ("p02", PULSE_WD_2C7.replace("width=wd", "width=1u") % "" + "sw1 sweep dev=V1 param=width values=[1u 25u] "
+                 "{\n  tr1 tran stop=3u\n}\n", "tran tr1 at V1:width=2.5e-05 (sweep sw1): the pulse of V1 has period=2e-05 s",
+                 period),
+                ("p08", PULSE_WD_2C7 % "" + "a1 alter param=rt value=-0.1u\n" + TR_2C7, "tran tr1 (after alter a1): the pulse "
+                 "of V1 has rise=-1e-07 s", "a negative rise is an error"),
+                ("p09", PULSE_WD_2C7.replace("type=pulse val0=0 val1=1 delay=0.5u rise=rt fall=rt width=wd period=20u",
+                                             "type=pwl wave=[0 0 tp 1 3u 1]").replace("wd=1u", "tp=1u") % ""
+                 + "a1 alter param=tp value=4u\n" + TR_2C7, "tran tr1 (after alter a1): the pwl of V1 has time points that do "
+                 "not increase (4e-06 s, then 3e-06 s)", "pwl time points must increase"),
+                ("p07", EXP_TD2_2C7.replace("tau1=2u", "tau1=1u") + "a1 alter param=t2 value=0.25u\n" + TR_2C7,
+                 "tran tr1 (after alter a1): the exp of V1 has td2=2.5e-07 s, not later than its td1=5e-07 s",
+                 "an exp whose td2 is not later than its td1 is an error in v1"),
+                # phase 2c8 (M1) re-decided p10 from VACASK only: vamos refuses a constant pwl time point before 0 on both
+                # engines, so it refuses one in every state on both (Xyce ran it)
+                ("p10", PULSE_WD_2C7.replace("type=pulse val0=0 val1=1 delay=0.5u rise=rt fall=rt width=wd period=20u",
+                                             "type=pwl wave=[t0 0 1u 1 3u 1]").replace("wd=1u", "t0=0") % ""
+                 + "a1 alter param=t0 value=-1u\n" + TR_2C7, "tran tr1 (after alter a1): the pwl of V1 has its first time "
+                 "point at -1e-06 s", "a pwl time point before 0 is an error, as the constant is (§3.8.1"),
+                # phase 2c8 (M1, M4) re-decided p04 from VACASK only: an op whose dc is derived reads the waveform on both
+                # engines, so the rule refuses it on both (Xyce ran it)
+                ("p04", PULSE_WD_2C7 % "" + "a1 alter param=wd value=30u\nop1 dc\n", "dc op1 (after alter a1): the pulse of "
+                 "V1 has period=2e-05 s", period + "; its dc is the waveform's value at t = 0)")]
+        for engine in ("vacask", "xyce"):
+            for name, text, head, piece in both:
+                with self.subTest(deck=name, engine=engine):
+                    self.refused(name, text, engine, head, piece)
+        vacask_only = [("p05", SINE_FR_2C7.replace("sinedc=0", "sinedc=0.2").replace("freq=fr", "freq=fr sinephase=30")
+                        + "a1 alter param=fr value=0\n" + TR_2C7, "tran tr1 (after alter a1): on VACASK the sine of V1 has "
+                        "freq=0 Hz"),
+                       ("p12", PULSE_WD_2C7 % "" + "a1 alter param=wd value=30u\na2 alter dev=R2 param=r value=2k\n"
+                        "a3 alter param=wd value=1u\n" + TR_2C7, "alter a2, VACASK's first elaboration (after alter a1): on "
+                        "VACASK the pulse of V1 has period=2e-05 s")]
+        for name, text, head in vacask_only:
+            with self.subTest(deck=name, engine="vacask"):
+                self.refused(name, text, "vacask", head, "not supported on VACASK in v1 (Xyce runs it)")
+            with self.subTest(deck=name, engine="xyce"):
+                dx, _ = self.run2c2(name, text, "xyce")
+                if name == "p05":
+                    self.assertAlmostEqual(self.at(dx, name, "tr1", "in", 1e-6), 0.45, delta=1e-9)
+                if name == "p12":                         # the final state: width 1u, R2 2k
+                    self.assertAlmostEqual(self.at(dx, name, "tr1", "out", 1.5e-6), 2.0 / 3.0, delta=1e-9)
+        controls = [("c01", PULSE_WD_2C7 % "" + "a1 alter param=wd value=1.5u\n" + TR_2C7, "tr1", 2e-6, 1.0),
+                    ("c02", PULSE_WD_2C7 % " dc=0.5" + "a1 alter param=wd value=30u\nop1 dc\n", "op1", None, 0.5),
+                    ("c03", PULSE_WD_2C7 % "" + "a1 alter param=wd value=30u\na2 alter param=wd value=1u\n" + TR_2C7, "tr1",
+                     1.5e-6, 1.0)]
+        for name, text, analysis, t, want in controls:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                for d in (dv, dx):
+                    got = self.at(d, name, analysis, "in", t) if t is not None else self.psf(d, name, "op1.dc").value("in")
+                    self.assertAlmostEqual(got, want, delta=1e-9)
+
+
+# -- phase 2c8: the 2c7 skeptic's decks (its sets p7c, p7d, p7e, g7a, g7b); V1 drives in, out = in/2
+HEAD_2C8 = "simulator lang=spectre\nparameters other=1 ft=0.5u wd=2u tau=1u fr=100k dl=0.5u\n"
+LOAD_2C8 = "R1 (in out) resistor r=1k\nR2 (out 0) resistor r=1k\nR3 (in 0) resistor r=other*1k\nsave in out\n"
+TR_2C8 = "tr1 tran stop=3.5u maxstep=2n\n"
+
+
+def _pulse_2c8(fall="0.5u", width="2u", tail=TR_2C8, delay="0.5u", rise="0.5u"):
+    return (HEAD_2C8 + "V1 (in 0) vsource type=pulse val0=0 val1=1 delay=%s rise=%s fall=%s width=%s period=20u\n"
+            % (delay, rise, fall, width) + LOAD_2C8 + tail)
+
+
+def _sine_2c8(fields="sinedc=0.2 ampl=0.5 freq=100k", tail=TR_2C8):
+    return HEAD_2C8 + "V1 (in 0) vsource type=sine %s\n" % fields + LOAD_2C8 + tail
+
+
+def _exp_2c8(tau1="1u", tau2="1u", tail=TR_2C8, td1="0.5u"):
+    return (HEAD_2C8 + "V1 (in 0) vsource type=exp val0=0 val1=1 td1=%s tau1=%s td2=2u tau2=%s\n" % (td1, tau1, tau2)
+            + LOAD_2C8 + tail)
+
+
+def _sweep_2c8(head, values):
+    return "sw1 sweep %s values=[%s] {\n  tr1 tran stop=3.5u maxstep=2n\n}\n" % (head, values)
+
+
+S0290_RUN_2C8 = """// S-2c7's S0290 (g7a): fall=rt altered to -1e-07, the width past the period and back to 2u, R2 2k
+simulator lang=spectre
+parameters other=1 wd=1u rt=0.5u per=20u fr=100k dm=0 td=0.5u t2=2u tp=1u t0=0
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.5u rise=0.5u fall=rt width=1u period=per mag=1
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+a1 alter param=rt value=-1e-07
+a2 alter dev=V1 param=width value=3e-05
+a3 alter dev=R2 param=r value=2000
+a4 alter dev=V1 param=width value=2e-06
+tr1 tran stop=3u maxstep=2n
+tr2 tran stop=3u maxstep=2n
+"""
+S0013_RUN_2C8 = """// S-2c7's S0013 (g7a): sinedc=0 ampl=0.5 sinephase=30 dc=0.5, freq altered to 0: op 0.5, tran 0.25
+simulator lang=spectre
+parameters other=1 wd=1u rt=0.5u per=20u fr=100k dm=0 td=0.5u t2=2u tp=1u t0=0
+V1 (in 0) vsource type=sine sinedc=0 ampl=0.5 freq=fr sinephase=30 dc=0.5
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+a1 alter dev=V1 param=freq value=0
+tr1 tran stop=3u maxstep=2n
+op1 dc
+tr2 tran stop=3u maxstep=2n
+"""
+S0110_RUN_2C8 = """// S-2c7's S0110 (g7a): a dev= sweep of a sine's freq to -50k
+simulator lang=spectre
+parameters other=1 wd=1u rt=0.5u per=20u fr=100k dm=0 td=0.5u t2=2u tp=1u t0=0
+V1 (in 0) vsource type=sine sinedc=0.2 ampl=0.5 freq=fr
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+R3 (in 0) resistor r=other*1k
+save in out
+sw1 sweep dev=V1 param=freq values=[200000 -50000] {
+  tr1 tran stop=3u maxstep=2n
+}
+tr2 tran stop=3u maxstep=2n
+tr3 tran stop=3u maxstep=2n
+"""
+
+
+class TestFollowUpRuns2c8(_Flow):
+    """Phase 2c8 through bin/vamos on both engines.  M1: a negative pulse fall through a netlist parameter, a param= or a
+    dev= sweep ran on both engines with status 0 and different values (VACASK never fell, Xyce ended the plateau at 2.9
+    us); a negative width likewise; a swept rise or fall of 0 stopped VACASK (rise) or left it at val1 (fall).  M2: a
+    sine whose freq is the constant 0 gave its folded constant to every DC-type solve, where Spectre gives the given dc.
+    M3: an exp time constant of 0 stopped VACASK with NaN.  M4: a negative freq was VACASK's refusal alone while Xyce ran
+    a sweep to it."""
+
+    run2c2 = TestFollowUpRuns2c2.run2c2
+    refused = TestFollowUpRuns2c2.refused
+    both = TestFollowUpRuns2c4.both
+    same_as_xyce = TestFollowUpRuns2c4.same_as_xyce
+    at = TestFollowUpRuns2c5.at
+
+    def refused_both(self, cases):
+        for engine in ("vacask", "xyce"):
+            for name, text, *pieces in cases:
+                with self.subTest(deck=name, engine=engine):
+                    self.refused(name, text, engine, *pieces)
+
+    def op_in(self, d, name, analysis="op1"):
+        return self.psf(d, name, analysis + ".dc").value("in")
+
+    @needs_vacask
+    @needs_xyce
+    def test_m1_negative_falls_and_widths_are_refused_and_a_swept_edge_of_0_runs(self):
+        """N07, N09, N10, N12, S0290 and its reference (a negative fall), C01 and N02 (a negative width): status 2 on both
+        engines, no data file.  A dev= sweep of the fall or the rise through 0: status 0 on both engines, VACASK equal to
+        Xyce, the 0 point Spectre's default edge (the fall at 3 us within 4 ns, the rise at 0.5 us)."""
+        fall = "a negative fall is an error (§3.8.1"
+        width = "a negative width is an error in v1"
+        ref = S0290_RUN_2C8.replace("rt=0.5u", "rt=-1e-07").replace("width=1u", "width=2e-06").replace(
+            "R2 (out 0) resistor r=1k", "R2 (out 0) resistor r=2000").split("a1 alter")[0] + "ref tran stop=3u maxstep=2n\n"
+        self.refused_both([
+            ("n07", _pulse_2c8("ft", tail="a1 alter param=ft value=-0.1u\n" + TR_2C8), "tran tr1 (after alter a1): the "
+             "pulse of V1 has fall=-1e-07 s", fall),
+            ("n09", _pulse_2c8(tail="a1 alter dev=V1 param=fall value=-0.1u\n" + TR_2C8), "tran tr1 (after alter a1): the "
+             "pulse of V1 has fall=-1e-07 s", fall),
+            ("n10", _pulse_2c8(tail=_sweep_2c8("dev=V1 param=fall", "-0.1u 0.5u")), "tran tr1 at V1:fall=-1e-07 (sweep "
+             "sw1)", fall),
+            ("n12", _pulse_2c8("ft", tail=_sweep_2c8("param=ft", "0.5u -0.1u")), "tran tr1 at ft=-1e-07 (sweep sw1)", fall),
+            ("s0290", S0290_RUN_2C8, "tran tr1 (after alter a1): the pulse of V1 has fall=-1e-07 s", fall),
+            ("s0290r", ref, "tran ref: the pulse of V1 has fall=-1e-07 s", fall),
+            ("c01", _pulse_2c8(width="-1u"), "tran tr1: the pulse of V1 has width=-1e-06 s", width),
+            ("n02", _pulse_2c8(width="wd", tail="a1 alter param=wd value=-1u\n" + TR_2C8), "tran tr1 (after alter a1): the "
+             "pulse of V1 has width=-1e-06 s", width)])
+        for param, t_on, t_edge in (("fall", 2.0e-6, 3.0e-6), ("rise", 0.6e-6, 0.5e-6)):
+            name = "edge0_" + param
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, _pulse_2c8(tail=_sweep_2c8("dev=V1 param=%s" % param, "0 0.5u")))
+                for d in (dv, dx):
+                    f = self.psf(d, name, "sw1-000_tr1.tran.tran")
+                    self.assertAlmostEqual(f.at("in", t_on), 1.0, delta=1e-6, msg=(param, d))
+                    if param == "fall":
+                        self.assertAlmostEqual(f.at("in", t_edge + 4e-9), 0.0, delta=1e-6, msg=d)
+                    else:
+                        self.assertAlmostEqual(f.at("in", t_edge - 1e-8), 0.0, delta=1e-6, msg=d)
+                    g = self.psf(d, name, "sw1-001_tr1.tran.tran")
+                    self.assertAlmostEqual(g.at("in", 0.75e-6), 0.5, delta=1e-6, msg=d)    # the 0.5u edges: mid-rise
+
+    @needs_vacask
+    @needs_xyce
+    def test_m2_a_constant_sine_keeps_its_given_dc_on_both_engines(self):
+        """Z01 (freq=0 with dc=0.25: op 0.25, tran 0), Z02 and Z06 (freq altered to 0), S0013 (sinephase 30, dc 0.5: tran
+        0.25, op 0.5), the references S0013__op1 and T0255's (op of a constant sine with a given dc), and the same sine
+        without a dc (op = tran = sinedc + ampl sin(30 deg)): status 0 on both engines, VACASK equal to Xyce.  A dev=
+        sweep of its ampl, sinedc, sinephase, delay or freq runs the sine at each point on both engines (a freq point of
+        0 the constant); a damp point other than 0 is refused on both."""
+        c30 = 0.5 * math.sin(math.pi / 6.0)
+        cases = [("z01", _sine_2c8("sinedc=0 ampl=0.5 freq=0 dc=0.25", "op1 dc\n" + TR_2C8), {"op1": 0.25}, {"tr1": 0.0}),
+                 ("z02", _sine_2c8("sinedc=0 ampl=0.5 freq=100k dc=0.25", "a1 alter dev=V1 param=freq value=0\nop1 dc\n"
+                                   + TR_2C8), {"op1": 0.25}, {"tr1": 0.0}),
+                 ("z06", _sine_2c8("sinedc=0 ampl=0.5 freq=100k dc=0.25", "op0 dc\na1 alter dev=V1 param=freq value=0\n"
+                                   "op1 dc\n"), {"op0": 0.25, "op1": 0.25}, {}),
+                 ("s0013", S0013_RUN_2C8, {"op1": 0.5}, {"tr1": c30, "tr2": c30}),
+                 ("s0013r", S0013_RUN_2C8.replace("freq=fr sinephase", "freq=0 sinephase").split("a1 alter")[0] + "op1 dc\n",
+                  {"op1": 0.5}, {}),
+                 ("t0255r", _sine_2c8("sinedc=0 ampl=0.5 freq=0 dc=0.25", "op1 dc\n"), {"op1": 0.25}, {}),
+                 ("nodc", _sine_2c8("sinedc=0.2 ampl=0.5 freq=0 sinephase=30", "op1 dc\n" + TR_2C8), {"op1": 0.2 + c30},
+                  {"tr1": 0.2 + c30})]
+        for name, text, ops, trans in cases:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx), 0)
+                for d in (dv, dx):
+                    for op, want in ops.items():
+                        self.assertAlmostEqual(self.op_in(d, name, op), want, delta=1e-9, msg=(name, op, d))
+                    for tr, want in trans.items():
+                        for t in (0.0, 1e-6, 2.9e-6):
+                            self.assertAlmostEqual(self.at(d, name, tr, "in", t), want, delta=1e-9, msg=(name, tr, t))
+        # a dev= sweep of its fields reaches the sine itself on both engines (2c7: the nominal constant at every point):
+        # sinedc + ampl sin(sinephase) at each point, before the delay and after it; a freq point a real sine
+        fields = "sinedc=0.2 ampl=0.5 freq=0 sinephase=30"
+        swept = [("swampl", "ampl", "0.5 1", [0.2 + c30, 0.2 + 2.0 * c30]),
+                 ("swdc", "sinedc", "0 0.3", [c30, 0.3 + c30]),
+                 ("swphase", "sinephase", "0 90", [0.2, 0.7]),
+                 ("swdelay", "delay", "0 0.3u", [0.2 + c30, 0.2 + c30]),
+                 ("swdamp0", "damp", "0 0", [0.2 + c30, 0.2 + c30])]
+        for name, field, values, wants in swept:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, _sine_2c8(fields, _sweep_2c8("dev=V1 param=%s" % field, values)))
+                for d in (dv, dx):
+                    for k, want in enumerate(wants):
+                        f = self.psf(d, name, "sw1-%03d_tr1.tran.tran" % k)
+                        for t in (0.0, 1e-6, 2.9e-6):
+                            self.assertAlmostEqual(f.at("in", t), want, delta=1e-9, msg=(name, d, k, t))
+        with self.subTest(deck="swfreq"):              # a point of 0: the constant (VACASK runs its own 1e-30)
+            dv, dx = self.both("swfreq", _sine_2c8(fields, _sweep_2c8("dev=V1 param=freq", "0 100k 200k")))
+            for d in (dv, dx):
+                for k, f0 in ((0, 0.0), (1, 1e5), (2, 2e5)):
+                    f = self.psf(d, "swfreq", "sw1-%03d_tr1.tran.tran" % k)
+                    for t in (0.0, 1e-6, 2.9e-6):
+                        want = 0.2 + 0.5 * math.sin(2.0 * math.pi * f0 * t + math.pi / 6.0)
+                        self.assertAlmostEqual(f.at("in", t), want, delta=1e-4, msg=(d, k, t))
+        self.refused_both([("swdamp", _sine_2c8(fields, _sweep_2c8("dev=V1 param=damp", "0 1e5")),
+                            "sweep sw1 at V1:damp=100000: the sine of V1 has freq=0 and damp=100000: ",
+                            "a sine with freq=0 and damp != 0 is not a constant: give the frequency (§3.8.1)")])
+
+    @needs_vacask
+    @needs_xyce
+    def test_m3_an_exp_time_constant_of_0_is_refused_on_both_engines(self):
+        """C05 (tau1=0), N05 (tau=1u altered to 0), a constant tau2=0: status 2 on both engines (VACASK stopped with NaN,
+        Xyce made a step for tau1 and stopped for tau2: 'time step too small'), naming the field, and an op whose derived
+        dc reads the exp at its start (VACASK's NaN; Xyce printed the first value); with a given dc the op runs.  A
+        negative tau runs equal on both engines (the exp's formula)."""
+        rule = "an exp time constant of 0 is an error in v1"
+        self.refused_both([
+            ("c05", _exp_2c8("0"), "tran tr1: the exp of V1 has tau1=0 s", rule),
+            ("n05", _exp_2c8("tau", tail="a1 alter param=tau value=0\n" + TR_2C8), "tran tr1 (after alter a1): the exp of "
+             "V1 has tau1=0 s", rule),
+            ("t2c", _exp_2c8(tau2="0"), "tran tr1: the exp of V1 has tau2=0 s", rule),
+            ("opdc", _exp_2c8("tau", tail="a1 alter param=tau value=0\nop1 dc\n", td1="0"), "dc op1 (after alter a1): the "
+             "exp of V1 has tau1=0 s", rule + " (ref5 p.685 gives no exp formula that defines it; its dc is the waveform's "
+             "value at t = 0)")])
+        dv, dx = self.both("opgiven", _exp_2c8("tau dc=0.3", tail="a1 alter param=tau value=0\nop1 dc\n", td1="0"))
+        for d in (dv, dx):
+            self.assertAlmostEqual(self.op_in(d, "opgiven"), 0.3, delta=1e-9, msg=d)      # a given dc reads no waveform
+        dv, dx = self.both("negtau", _exp_2c8("-1u"))
+        for d in (dv, dx):
+            for t in (0.4e-6, 1.0e-6, 1.6e-6):
+                want = 1.0 - math.exp((t - 0.5e-6) / 1e-6) if t > 0.5e-6 else 0.0
+                self.assertAlmostEqual(self.at(d, "negtau", "tr1", "in", t), want, delta=2e-3 * max(1.0, abs(want)))
+        # a dev= sweep of tau1 (Xyce refused it at render before): both engines, the exp's formula at each point
+        dv, dx = self.both("tausw", _exp_2c8(tail=_sweep_2c8("dev=V1 param=tau1", "1u 2u")))
+        for d in (dv, dx):
+            for k, tau in ((0, 1e-6), (1, 2e-6)):
+                f = self.psf(d, "tausw", "sw1-%03d_tr1.tran.tran" % k)
+                for t in (1.0e-6, 1.8e-6, 2.5e-6):
+                    want = 1.0 - math.exp(-(t - 0.5e-6) / tau) - (1.0 - math.exp(-(t - 2e-6) / 1e-6) if t > 2e-6 else 0.0)
+                    self.assertAlmostEqual(f.at("in", t), want, delta=2e-3, msg=(d, k, t))
+
+    @needs_vacask
+    @needs_xyce
+    def test_m4_a_negative_freq_is_refused_on_both_and_a_negative_delay_s_dc_is_its_t0_value(self):
+        """N13 (an alter of freq to -50k), N14 and S0110 (a dev= sweep to -50k): status 2 on both engines with the
+        constant's rule.  A negative delay puts t = 0 inside the waveform: an op after it reads the waveform's t = 0 value
+        on both engines (Xyce printed the first value: 0 where 0.4 for the pulse, 0.1 for the sine, 0 for the pwl and the
+        exp), through a constant and through an altered netlist parameter (a pwl's delay too); a pwl's first time point
+        altered below 0 is the rule's refusal on both engines before such an op."""
+        rule = "a sine with a negative freq is an error in v1, as the constant is"
+        self.refused_both([
+            ("n13", _sine_2c8(tail="a1 alter dev=V1 param=freq value=-50k\n" + TR_2C8), "tran tr1 (after alter a1): the "
+             "sine of V1 has freq=-50000 Hz", rule),
+            ("n14", _sine_2c8(tail=_sweep_2c8("dev=V1 param=freq", "100k -50k")), "tran tr1 at V1:freq=-50000 (sweep sw1)",
+             rule),
+            ("s0110", S0110_RUN_2C8, "tran tr1 at V1:freq=-50000 (sweep sw1)", rule)])
+        pwl = HEAD_2C8 + "V1 (in 0) vsource type=pwl wave=[0 0 1u 1 3u 1] delay=-0.5u\n" + LOAD_2C8 + "op1 dc\n"
+        cases = [("pdl", _pulse_2c8(delay="-0.2u", tail="op1 dc\n"), 0.4),
+                 ("pdlp", _pulse_2c8(delay="dl", tail="op0 dc\na1 alter param=dl value=-0.2u\nop1 dc\n"), 0.4),
+                 ("sdl", _sine_2c8("sinedc=0.1 ampl=0.5 freq=100k delay=-0.3u", "op1 dc\n"),
+                  0.1 + 0.5 * math.sin(2 * math.pi * 1e5 * 0.3e-6)),
+                 ("wdl", pwl, 0.5),
+                 ("edl", _exp_2c8(td1="-0.5u", tail="op1 dc\n"), 1.0 - math.exp(-0.5))]
+        for name, text, want in cases:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                for d in (dv, dx):
+                    self.assertAlmostEqual(self.op_in(d, name), want, delta=1e-9, msg=(name, d))
+        # a pwl whose delay reads a parameter altered to -0.5u: the op after it reads the value at t = 0 between (-0.5u, 0)
+        # and (0.5u, 1), 0.5, on both engines (Xyce's dc a ternary on the shifted time points); a first time point that
+        # reads a parameter altered to -0.5u is the rule's refusal on both (VACASK alone before, Xyce giving 1/3)
+        pwld = (HEAD_2C8.replace("dl=0.5u", "dl=0") + "V1 (in 0) vsource type=pwl wave=[0 0 1u 1 3u 1] delay=dl\n"
+                + LOAD_2C8 + "op0 dc\na1 alter param=dl value=-0.5u\nop1 dc\n")
+        dv, dx = self.both("pwld", pwld)
+        for d in (dv, dx):
+            self.assertAlmostEqual(self.op_in(d, "pwld", "op0"), 0.0, delta=1e-9, msg=d)
+            self.assertAlmostEqual(self.op_in(d, "pwld"), 0.5, delta=1e-9, msg=d)
+        pwlp = (HEAD_2C8.replace("dl=0.5u", "dl=0.5u t0=0") + "V1 (in 0) vsource type=pwl wave=[t0 0 1u 1 3u 1]\n"
+                + LOAD_2C8 + "op0 dc\na1 alter param=t0 value=-0.5u\nop1 dc\n")
+        self.refused_both([("pwlp", pwlp, "dc op1 (after alter a1): the pwl of V1 has its first time point at -5e-07 s",
+                            "a pwl time point before 0 is an error, as the constant is (§3.8.1; its dc is the waveform's "
+                            "value at t = 0)")])
+
+
+# -- phase 2c9: the 2c8 skeptic's decks (its sets p8, p8b, p8c, p8e, g8sa, g8sb) -----------------
+SINE_2C9 = "sinedc=0.2 ampl=0.5 freq=200k sinephase=30"
+ALTER0_2C9 = "a1 alter dev=V1 param=freq value=0\n"
+C45_2C9 = 0.2 + 0.5 * math.sin(math.pi / 6.0)           # the constant sine sinedc=0.2 ampl=0.5 sinephase=30: 0.45
+
+
+def _block_2c9(head, values, body="tr1 tran stop=3.5u maxstep=2n"):
+    return "sw1 sweep %s values=[%s] {\n  %s\n}\n" % (head, values, body)
+
+
+def _src_2c9(line, tail, params=""):
+    return HEAD_2C8.replace("dl=0.5u", "dl=0.5u" + params) + line + "\n" + LOAD_2C8 + tail
+
+
+def _sine_at_2c9(t, dc, freq, ampl=0.5, phase_deg=0.0):
+    return dc + ampl * math.sin(2.0 * math.pi * freq * t + math.radians(phase_deg))
+
+
+class TestFollowUpRuns2c9(_Flow):
+    """Phase 2c9 through bin/vamos on both engines.  N1: a sine an alter made the constant sine, then a dev= sweep of its
+    freq through 0, stopped VACASK (`Frequency of sinusoidal transient must be greater than 0', exit 1; S-2c8's P873
+    and Q05 ran right in 2c7).  N2: a dc analysis sweeping a rise, a fall or the constant sine's freq through 0 wrote
+    the engines' transres or 1e-30 to the PSF axis.  N3: a dev= sweep of dc left a sinedc that defaults to dc where it
+    was (P824, P825).  N4: Xyce repeated a pulse without a period whose delay is negative (P868, G10127).  N5: VACASK
+    stopped at its setup before a sweep's first point (G20073), and tau2's refusal gave tau1's clause."""
+
+    run2c2 = TestFollowUpRuns2c2.run2c2
+    refused = TestFollowUpRuns2c2.refused
+    both = TestFollowUpRuns2c4.both
+    same_as_xyce = TestFollowUpRuns2c4.same_as_xyce
+    at = TestFollowUpRuns2c5.at
+    op_in = TestFollowUpRuns2c8.op_in
+
+    def tran_is(self, d, name, fn, want, times=(0.0, 0.4e-6, 1.0e-6, 2.1e-6, 2.9e-6), delta=1e-4):
+        f = self.psf(d, name, fn)
+        for t in times:
+            self.assertAlmostEqual(f.at("in", t), want(t), delta=delta, msg=(d, fn, t))
+
+    def axis(self, d, name, fn):
+        return self.psf(d, name, fn).sweep_values()
+
+    @needs_vacask
+    @needs_xyce
+    def test_n1_a_sine_an_alter_made_the_constant_sine_sweeps_its_freq_through_0_on_both_engines(self):
+        """P873 (a dc analysis), Q05 (around an op), P870 (around a tran), P871 (a given dc) and P874 (an alter of the
+        type to sine without a freq): status 0 on both engines, VACASK equal to Xyce, the point of 0 the constant 0.45
+        (the dc analysis's and op's derived dc, the tran's constant), the 100 kHz point the sine.  P872 (the constant sine
+        an alter made a real sine, swept through 0): VACASK's refusal alone, Xyce's SIN at freq 0 the constant."""
+        const = lambda t: C45_2C9                                                      # noqa: E731
+        sine = lambda t: _sine_at_2c9(t, 0.2, 1e5, phase_deg=30.0)                     # noqa: E731
+        p873 = _sine_2c8(SINE_2C9, ALTER0_2C9 + "dc1 dc dev=V1 param=freq values=[0 100k]\n")
+        dv, dx = self.both("p873", p873)
+        self.assertGreater(self.same_as_xyce("p873", dv, dx), 0)
+        for d in (dv, dx):
+            f = self.psf(d, "p873", "dc1.dc")
+            self.assertEqual(f.sweep_values(), [0.0, 1e5])                                # N2: the deck's 0
+            for v in f.column("in"):
+                self.assertAlmostEqual(v, C45_2C9, delta=1e-9, msg=d)
+        q05 = _sine_2c8(SINE_2C9, ALTER0_2C9 + _block_2c9("dev=V1 param=freq", "0 100k", "op1 dc"))
+        dv, dx = self.both("q05", q05)
+        self.assertGreater(self.same_as_xyce("q05", dv, dx), 0)
+        for d in (dv, dx):
+            for k in (0, 1):
+                self.assertAlmostEqual(self.op_in(d, "q05", "sw1-%03d_op1" % k), C45_2C9, delta=1e-9, msg=(d, k))
+        trans = [("p870", _sine_2c8(SINE_2C9, ALTER0_2C9 + _block_2c9("dev=V1 param=freq", "0 100k")), "tr1", {}),
+                 ("p871", _sine_2c8(SINE_2C9 + " dc=0.25", ALTER0_2C9 + "op1 dc\n" + _block_2c9(
+                     "dev=V1 param=freq", "0 100k", "tr2 tran stop=3.5u maxstep=2n")), "tr2", {"op1": 0.25}),
+                 ("p874", _src_2c9("V1 (in 0) vsource type=dc dc=0.25 sinedc=0.2 ampl=0.5 sinephase=30",
+                                   "a1 alter dev=V1 param=type value=sine\nop1 dc\n" + _block_2c9(
+                                       "dev=V1 param=freq", "0 100k", "tr2 tran stop=3.5u maxstep=2n")), "tr2",
+                  {"op1": 0.25})]
+        for name, text, tr, ops in trans:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                self.assertGreater(self.same_as_xyce(name, dv, dx, rel=1e-4), 0)
+                for d in (dv, dx):
+                    for op, want in ops.items():
+                        self.assertAlmostEqual(self.op_in(d, name, op), want, delta=1e-9, msg=(name, d))
+                    self.tran_is(d, name, "sw1-000_%s.tran.tran" % tr, const)
+                    self.tran_is(d, name, "sw1-001_%s.tran.tran" % tr, sine)
+        p872 = _sine_2c8("sinedc=0.2 ampl=0.5 freq=0 sinephase=30", "a1 alter dev=V1 param=freq value=100k\n"
+                         + _block_2c9("dev=V1 param=freq", "0 200k"))
+        self.refused("p872", p872, "vacask", "tran tr1 at V1:freq=0 (sweep sw1; after alter a1): on VACASK the sine of "
+                     "V1 has freq=0 Hz", "not supported on VACASK in v1 (Xyce runs it)")
+        dx, _ = self.run2c2("p872", p872, "xyce")
+        self.tran_is(dx, "p872", "sw1-000_tr1.tran.tran", const)
+        self.tran_is(dx, "p872", "sw1-001_tr1.tran.tran", lambda t: _sine_at_2c9(t, 0.2, 2e5, phase_deg=30.0))
+
+    @needs_vacask
+    @needs_xyce
+    def test_n2_the_sweep_axis_holds_the_deck_s_0_on_every_analysis_kind(self):
+        """E01 (a dc analysis sweeping a rise through 0), E04 (a fall, with a tran: transres 3.5e-15), E02 and P832 (the
+        constant sine's freq through 0, without and with a given dc), an ac and a noise at a fixed frequency sweeping a
+        rise, an xf (VACASK) sweeping the constant sine's freq, T0132 (a bound rise, Xyce; VACASK refuses the sweep of a
+        bound rise): the PSF axis reads the deck's 0 on both engines (2c8: 1e-09, 3.5e-15 or 1e-30), the circuit values
+        as before."""
+        pulse = "V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.5u rise=0.5u fall=0.5u width=2u period=20u%s"
+        csine = "V1 (in 0) vsource type=sine sinedc=0.2 ampl=0.5 freq=0 sinephase=30%s"
+        cases = [("e01", _src_2c9(pulse % "", "dc1 dc dev=V1 param=rise values=[0 0.5u]\n"), "dc1.dc", [0.0, 5e-7], 0.0),
+                 ("e04", _src_2c9(pulse % "", "dc1 dc dev=V1 param=fall values=[0 0.5u]\n" + TR_2C8), "dc1.dc",
+                  [0.0, 5e-7], 0.0),
+                 ("e02", _src_2c9(csine % "", "dc1 dc dev=V1 param=freq values=[0 100k]\n"), "dc1.dc", [0.0, 1e5],
+                  C45_2C9),
+                 ("p832", _src_2c9(csine % " dc=0.25", "dc1 dc dev=V1 param=freq values=[0 100k]\n"), "dc1.dc",
+                  [0.0, 1e5], 0.25),
+                 ("ac", _src_2c9(pulse % " mag=1", "ac1 ac dev=V1 param=rise values=[0 0.5u] freq=1k\n"), "ac1.ac",
+                  [0.0, 5e-7], None),
+                 ("noise", _src_2c9(pulse % " mag=1", "n1 (out 0) noise dev=V1 param=rise values=[0 0.5u] freq=1k "
+                                                     "iprobe=V1\n"), "n1.noise", [0.0, 5e-7], None)]
+        for name, text, fn, axis, dc in cases:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, text)
+                for d in (dv, dx):
+                    self.assertEqual(self.axis(d, name, fn), axis, d)
+                    if dc is not None:
+                        for v in self.psf(d, name, fn).column("in"):
+                            self.assertAlmostEqual(v, dc, delta=1e-9, msg=(name, d))
+        xf = _src_2c9(csine % " dc=0.25", "x1 (out 0) xf dev=V1 param=freq values=[0 100k] freq=1k\n")
+        dv, _ = self.run2c2("xf", xf, "vacask")
+        self.assertEqual(self.axis(dv, "xf", "x1.xf"), [0.0, 1e5])
+        # a sweep block's parent wrote the plan's own points already (S-2c8's E03, the control)
+        dv, dx = self.both("e03", _src_2c9(pulse % "", _block_2c9("dev=V1 param=fall", "0 0.5u", "op1 dc")))
+        for d in (dv, dx):
+            self.assertEqual(self.axis(d, "e03", "sw1_op1.sweep"), [0.0, 5e-7])
+        t0132 = _src_2c9("V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.5u rise=rt fall=0.5u width=1u period=20u "
+                         "dc=0.25", "dc1 dc dev=V1 param=rise values=[0 3e-07]\nop1 dc\n", " rt=0.5u")
+        dx, _ = self.run2c2("t0132", t0132, "xyce")
+        self.assertEqual(self.axis(dx, "t0132", "dc1.dc"), [0.0, 3e-7])
+        self.refused("t0132", t0132, "vacask", "dc dc1: on VACASK rise of V1 is bound to the expression rt")
+
+    @needs_vacask
+    @needs_xyce
+    def test_n3_a_dev_sweep_of_dc_moves_a_sinedc_that_defaults_to_dc_on_both_engines(self):
+        """P824 (dc=0.25 swept to 0.5 around a tran, sinedc left to its default): the 0.5 point centred on 0.5 on both
+        engines (2c8: 0.25 on both, VACASK 0.75 at 2.5 us where 1.0); P825 (the constant sine, sinephase 30): 0.5 then
+        0.75 (2c8: 0.5 at both points); the same without a dc and on an isource, each equal to its alter-free reference
+        (the swept dc written on the instance line); an op beside the tran in the block reads the dc; a given sinedc
+        stays where it is."""
+        cases = [("p824", "ampl=0.5 freq=100k dc=0.25", lambda t, dc: _sine_at_2c9(t, dc, 1e5)),
+                 ("p825", "ampl=0.5 freq=0 sinephase=30 dc=0.25", lambda t, dc: dc + 0.25),
+                 ("nodc", "ampl=0.5 freq=100k", lambda t, dc: _sine_at_2c9(t, dc, 1e5))]
+        for name, fields, want in cases:
+            with self.subTest(deck=name):
+                dv, dx = self.both(name, _sine_2c8(fields, _block_2c9("dev=V1 param=dc", "0.25 0.5")))
+                self.assertGreater(self.same_as_xyce(name, dv, dx, rel=1e-4), 0)
+                for d in (dv, dx):
+                    for k, dc in ((0, 0.25), (1, 0.5)):
+                        self.tran_is(d, name, "sw1-%03d_tr1.tran.tran" % k, lambda t, dc=dc: want(t, dc))
+                ref = _sine_2c8(fields.replace(" dc=0.25", "") + " dc=0.5", TR_2C8)
+                rv, rx = self.both(name + "r", ref)
+                for d, r in ((dv, rv), (dx, rx)):
+                    got, exp = self.psf(d, name, "sw1-001_tr1.tran.tran"), self.psf(r, name + "r", "tr1.tran.tran")
+                    for t in (0.3e-6, 1.7e-6, 3.1e-6):
+                        self.assertAlmostEqual(got.at("in", t), exp.at("in", t), delta=1e-6, msg=(name, d, t))
+        isrc = _src_2c9("I1 (0 in) isource type=sine ampl=0.5m freq=100k dc=0.25m",
+                        _block_2c9("dev=I1 param=dc", "0.25m 0.5m"))
+        iref = _src_2c9("I1 (0 in) isource type=sine ampl=0.5m freq=100k dc=0.5m", TR_2C8)
+        dv, dx = self.both("isrc", isrc)
+        rv, rx = self.both("iref", iref)
+        for d, r in ((dv, rv), (dx, rx)):
+            got, exp = self.psf(d, "isrc", "sw1-001_tr1.tran.tran"), self.psf(r, "iref", "tr1.tran.tran")
+            for t in (0.3e-6, 1.7e-6, 3.1e-6):
+                self.assertAlmostEqual(got.at("in", t), exp.at("in", t), delta=1e-6, msg=(d, t))
+        block = _sine_2c8("ampl=0.5 freq=100k dc=0.25", "sw1 sweep dev=V1 param=dc values=[0.25 0.5] {\n  op1 dc\n"
+                          "  tr1 tran stop=3.5u maxstep=2n\n}\n")
+        dv, dx = self.both("block", block)
+        for d in (dv, dx):
+            self.assertAlmostEqual(self.op_in(d, "block", "sw1-001_op1"), 0.5, delta=1e-9, msg=d)
+            self.tran_is(d, "block", "sw1-001_tr1.tran.tran", lambda t: _sine_at_2c9(t, 0.5, 1e5))
+        given = _sine_2c8("sinedc=0.1 ampl=0.5 freq=100k dc=0.25", _block_2c9("dev=V1 param=dc", "0.25 0.5"))
+        dv, dx = self.both("given", given)
+        for d in (dv, dx):
+            for k in (0, 1):
+                self.tran_is(d, "given", "sw1-%03d_tr1.tran.tran" % k, lambda t: _sine_at_2c9(t, 0.1, 1e5))
+        # the other default §3.8.1 derives, an absent dc (the waveform's value at t = 0), follows the fields it reads
+        pul = _src_2c9("V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0.5u rise=0.5u fall=0.5u width=2u period=20u",
+                       "dc1 dc dev=V1 param=val0 values=[0 0.3]\n")
+        sin = _sine_2c8("sinedc=0.2 ampl=0.5 freq=100k sinephase=30", "dc1 dc dev=V1 param=sinedc values=[0 0.3]\n")
+        for name, text, want in (("dval0", pul, [0.0, 0.3]), ("dsinedc", sin, [0.25, 0.55])):
+            dv, dx = self.both(name, text)
+            for d in (dv, dx):
+                got = self.psf(d, name, "dc1.dc").column("in")
+                self.assertEqual(len(got), 2, (name, d))
+                for g, w in zip(got, want):
+                    self.assertAlmostEqual(g, w, delta=1e-9, msg=(name, d, got))
+
+    @needs_vacask
+    @needs_xyce
+    def test_n4_a_pulse_without_a_period_does_not_repeat_on_xyce(self):
+        """P868 (delay=-2.7u, no period, a 3.5 us tran): Xyce's PULSE repeated at TSTOP, in(1.35 us) = 1 where 0; now 0
+        on both engines, Xyce equal to VACASK over the tran, the op at the t = 0 value 0.6; G10127 (an isource, delay
+        -0.2u): 0 at 3.5 us on both (Xyce 0.27 before); a delay that reads a parameter altered to -2.7u likewise."""
+        line = "V1 (in 0) vsource type=pulse val0=0 val1=1 delay=%s rise=0.5u fall=0.5u width=2u"
+        dv, dx = self.both("p868", _src_2c9(line % "-2.7u", "op1 dc\n" + TR_2C8))
+        self.assertGreater(self.same_as_xyce("p868", dv, dx, rel=1e-6), 0)
+        for d in (dv, dx):
+            self.assertAlmostEqual(self.op_in(d, "p868"), 0.6, delta=1e-9, msg=d)
+            for t, want in ((0.1e-6, 0.4), (1.35e-6, 0.0), (2.5e-6, 0.0), (3.4e-6, 0.0)):
+                self.assertAlmostEqual(self.at(d, "p868", "tr1", "in", t), want, delta=1e-6, msg=(d, t))
+        g = _src_2c9("I1 (0 in) isource type=pulse val0=0 val1=0.001 delay=-0.2u rise=0.5u fall=0.5u width=1u "
+                     "dc=0.0003", TR_2C8 + "op2 dc\n")
+        dv, dx = self.both("g10127", g)
+        for d in (dv, dx):
+            for t in (2.5e-6, 3.3e-6, 3.5e-6):
+                self.assertAlmostEqual(self.at(d, "g10127", "tr1", "in", t), 0.0, delta=1e-9, msg=(d, t))
+        dl = _src_2c9(line % "dl", "a1 alter param=dl value=-2.7u\n" + TR_2C8)
+        dv, dx = self.both("dl", dl)
+        for d in (dv, dx):
+            self.assertAlmostEqual(self.at(d, "dl", "tr1", "in", 1.35e-6), 0.0, delta=1e-6, msg=d)
+
+    @needs_vacask
+    @needs_xyce
+    def test_n5_tau2_s_clause_and_vacask_s_setup_before_a_sweep(self):
+        """tau2 = 0 (S-2c8's Q01) is refused on both engines with its own clause (VACASK's NaN at the fall's start, Xyce's
+        `Time step too small'), tau1 = 0 with tau1's.  G20073 (freq=qfr, qfr 0 at the netlist's values, swept to 100k and
+        200k): VACASK exit 1 at its initial setup before; refused on VACASK now, Xyce right (0.5 at both points); an
+        alter of qfr to 0 before such a sweep likewise; a given dc around an op runs on VACASK (type="dc")."""
+        exp = "V1 (in 0) vsource type=exp val0=0 val1=1 td1=0.5u tau1=%s td2=2u tau2=%s"
+        self.refused_both([("q01", _src_2c9(exp % ("1u", "0"), TR_2C8), "tran tr1: the exp of V1 has tau2=0 s",
+                            "VACASK would divide by it at the fall's start, delay + td2, and stop with 'NaN found in "
+                            "vector', and Xyce would stop with 'Time step too small')"),
+                           ("c05", _src_2c9(exp % ("0", "1u"), TR_2C8), "tran tr1: the exp of V1 has tau1=0 s",
+                            "VACASK would divide by it at the exp's start and stop with 'NaN found in vector', and "
+                            "Xyce would make a step or, for some start times, stop with 'Time step too small')")])
+        head = "simulator lang=spectre\nparameters other=1 qfr=%s\n"
+        sine = "V1 (in 0) vsource type=sine sinedc=0 ampl=0.5 freq=qfr sinephase=90%s\n"
+        g20073 = head % "0" + sine % "" + LOAD_2C8 + _block_2c9("param=qfr", "100k 200k", "op1 dc")
+        x4 = head % "50k" + sine % "" + LOAD_2C8 + "a1 alter param=qfr value=0\n" + _block_2c9("param=qfr", "100k",
+                                                                                             "op1 dc")
+        for name, text, piece in (("g20073", g20073, "dc op1, VACASK's setup before the first point of sweep sw1: on "
+                                   "VACASK the sine of V1 has freq=0 Hz"),
+                                  ("x4", x4, "dc op1, VACASK's setup before the first point of sweep sw1 (after alter a1): "
+                                   "on VACASK the sine of V1 has freq=0 Hz")):
+            with self.subTest(deck=name):
+                self.refused(name, text, "vacask", piece, "not supported on VACASK in v1 (Xyce runs it)")
+                dx, _ = self.run2c2(name, text, "xyce")
+                self.assertAlmostEqual(self.op_in(dx, name, "sw1-000_op1"), 0.5, delta=1e-9)
+        given = head % "0" + sine % " dc=0.1" + LOAD_2C8 + _block_2c9("param=qfr", "100k 200k", "op1 dc")
+        dv, dx = self.both("given", given)
+        for d in (dv, dx):
+            self.assertAlmostEqual(self.op_in(d, "given", "sw1-001_op1"), 0.1, delta=1e-9, msg=d)
+
+    def refused_both(self, cases):
+        for engine in ("vacask", "xyce"):
+            for name, text, *pieces in cases:
+                with self.subTest(deck=name, engine=engine):
+                    self.refused(name, text, engine, *pieces)
+
+
+PHASE_ONLY_2C9D = """simulator lang=spectre
+V1 (in 0) vsource dc=0 phase=45
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+save out
+ac1 ac start=1k stop=1k
+"""
+ALTER_PHASE_2C9D = """simulator lang=spectre
+V1 (in 0) vsource dc=0
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+save out
+a1 alter dev=V1 param=phase value=45
+ac1 ac start=1k stop=1k
+"""
+SWEEP_PHASE_2C9D = """simulator lang=spectre
+V1 (in 0) vsource dc=0
+R1 (in out) resistor r=1k
+R2 (out 0) resistor r=1k
+save out
+sw1 sweep dev=V1 param=phase values=[0 45] {
+  ac1 ac start=1k stop=1k
+}
+"""
+MAG_ONLY_2C9D = PHASE_ONLY_2C9D.replace("phase=45", "mag=1 phase=45")
+
+
+class TestDriverRuns2c9(_Flow):
+    """The driver's fix after the 2c9 skeptic, through bin/vamos on both engines: a source's mag defaults to 0 when
+    the netlist gives only phase (ref5 p.685), in the parse, after an alter of phase and in a sweep of phase; out was
+    0.5 at 45 degrees on both engines (the 2c9 skeptic's K61).  The control: mag=1 phase=45 gives 0.5 at 45 degrees."""
+
+    @needs_vacask
+    @needs_xyce
+    def test_a_phase_alone_excites_nothing_on_both_engines(self):
+        import cmath
+        for engine in ("vacask", "xyce"):
+            for name, text, files in (("ph1", PHASE_ONLY_2C9D, ("ac1.ac",)), ("ph2", ALTER_PHASE_2C9D, ("ac1.ac",)),
+                                      ("ph3", SWEEP_PHASE_2C9D, ("sw1-000_ac1.ac", "sw1-001_ac1.ac"))):
+                d, _out = self.spectre(name, text, engine)
+                for fn in files:
+                    for v in self.psf(d, name, fn).column("out"):
+                        self.assertLessEqual(abs(complex(v)), 1e-12, msg=(engine, name, fn, v))
+            d, _out = self.spectre("ph4", MAG_ONLY_2C9D, engine)
+            v = complex(self.psf(d, "ph4", "ac1.ac").column("out")[0])
+            self.assertAlmostEqual(abs(v), 0.5, delta=1e-9, msg=engine)
+            self.assertAlmostEqual(cmath.phase(v), cmath.pi / 4, delta=1e-9, msg=engine)
 
 
 if __name__ == "__main__":

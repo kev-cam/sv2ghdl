@@ -903,13 +903,36 @@ def fold_constant_shorts(nl: Netlist) -> None:
     walk(nl.body)
 
 
+def unfold_constant_sines(nl: Netlist) -> None:
+    """Phase 2c8 (M2): every independent source spectre.resolve_source folded from a sine whose freq is the constant 0
+    takes tables.constant_sine's form in place, at every level (Cond branches and subckt bodies): its given dc for the
+    DC-type solves, the sine itself at 1e-30 Hz for a tran (its value the constant), which both emitters print as any
+    waveform with a given (or derived) dc; plan.build reads the same form in its source states (the fold had replaced
+    the given dc: S-2c7's Z01 gave 0 in an op where Spectre gives the dc, 0.25)."""
+    def walk(items: Sequence[object]) -> None:
+        for it in items:
+            if isinstance(it, Instance):
+                if it.kind in ("v", "i"):
+                    got = T.constant_sine(it.source)
+                    if got is not None:
+                        it.source = got
+            elif isinstance(it, Cond):
+                for _cond, body in it.branches:
+                    walk(body)
+                walk(it.default)
+            elif isinstance(it, Subckt):
+                walk(it.body)
+    walk(nl.body)
+
+
 def resolve(nl: Netlist, plan: RunPlan) -> Tuple[Netlist, SignalMap, List[Note]]:
     """The render copy (a copy.deepcopy of nl with the probes, Netlist.values reduced per engine from
-    plan.dependents, §4.1, and a constant expression equal to 0 folded to a resistor's short, G3), the SignalMap
-    and the notes (§6)."""
+    plan.dependents, §4.1, a constant expression equal to 0 folded to a resistor's short, G3, and a sine of constant
+    freq 0 in tables.constant_sine's form, phase 2c8), the SignalMap and the notes (§6)."""
     notes: List[Note] = []
     nl2 = copy.deepcopy(nl)
     fold_constant_shorts(nl2)
+    unfold_constant_sines(nl2)
     flat = _Flat(nl2, plan, notes)
     options = _output_options(nl2, notes)
     allpub_all = flat.allpub(None)                       # before any insertion (§6.1)

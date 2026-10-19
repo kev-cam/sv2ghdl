@@ -7,7 +7,9 @@ units and descriptions come from each step's SweepLevels (§5.2, §8.3), the tra
 STRUCT types from the SignalMap (§6.4) and the header values from the step's args and options
 (§5.1).  Engine columns are found only through EngineResult.names, by exact name (Raw.exact,
 §4.6, §6.4); the x axis is the engine's own (VACASK: the SweepLevel.id column, `time` or
-`frequency`; Xyce: the first column of each plot, or a .STEP's value, §7.2).
+`frequency`; Xyce: the first column of each plot, or a .STEP's value, §7.2), except that a
+parameter point the plan's grid has as 0 is written 0 (phase 2c9: the engines ran a swept rise or
+fall of 0 at transres and the constant sine's freq of 0 at 1e-30, plan.swept_value).
 
     for res in collect(plan, sigmap, er, "modern"):      # execution order, sweeps point-major (§8.2)
         psf.write_analysis(rawdir, res, head)
@@ -559,12 +561,18 @@ class _Step:
         xpos = self.xpos
         keep = self.tran_filter() if self.kind == "tran" else None
         end = self.end_point()
+        # phase 2c9 (N2): a parameter axis point the deck writes as 0 that the engines ran at a substitute (a pulse's rise
+        # or fall at Spectre's default edge, transres; the constant sine's freq at 1e-30: plan.swept_value) is the deck's
+        # 0, as a sweep block's parent writes the plan's own points (2c8 wrote the engine's 1e-09 or 1e-30)
+        zeros = {i for i, v in enumerate(self.own_values) if v == 0.0} if self.axis == "param" else set()
 
         def it() -> Iterator[Tuple[object, List[object]]]:
             last: Optional[Tuple[object, List[object]]] = None        # one row behind, to pin the last x
-            for row in src():
+            for i, row in enumerate(src()):
                 x = row[xpos]
                 xv = x.real if isinstance(x, complex) else x
+                if i in zeros:
+                    xv = 0.0
                 if keep is not None and not keep(xv):
                     continue
                 if last is not None:

@@ -146,7 +146,10 @@ Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, �
     tnom    an expression reading tnom (Name("$tnom")) reads the deck's tnom, Xyce having no tnom
             expression variable (§3.5, R-lang-7; expr's PrintError stays the guard)
     paths   every .PRINT item, .IC/.NODESET node and DNO() is spelled through printed_path
-            (V(XI2:MID) for IR I2.Mid) [E84]
+            (V(XI2:MID) for IR I2.Mid) [E84]; phase 2c7 (L1): on the instance paths the deck takes
+            (taken_text, at), so a name an if and its else give two kinds, or X lines of two subckts,
+            prints the taken one's (I(X1:LZ1) where the taken X1.Z1 is an inductor); the sweep hooks, the
+            one-path guard, the noise switches and a coupled inductor's fold read the taken instance too
     step    one deck per analysis (§7.2): .options device temp tnom [gmin]; .OP (or .DC vamos_op
             LIST 0 under two or more .STEPs [E20]) / .DC / .AC / .NOISE / .TRAN with .OPTIONS TIMEINT
             METHOD; the context sweeps as .STEP lines innermost first [E20]; a sub= or source-field
@@ -154,13 +157,24 @@ Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, �
             target whose printed value folds something in or that the device does not take by name:
             a controlled source's gain (gain, gm, rm), a JFET's area (its multiplier folded in), the m
             of an isource, a cccs or a JFET, and the m of an instance inside a subckt (printed under
-            vamos_mfactor); the hooks are applied before the multiplier; .IC only in a tran deck
+            vamos_mfactor); a subckt instance's m is the vamos_mfactor its X line passes, the hook
+            starting at the instance's m or 1 (phase 2c4, H3); the hooks are applied before the
+            multiplier; .IC only in a tran deck
             whose ic is all or node, .NODESET in every other deck [E18]; the .PRINT with exactly the
             SignalMap's columns (V(*) plus the currents for allpub)
     notes   the tolerance note of §0 (an option reltol/vabstol/iabstol/chargeabstol is not mapped)
             only for the keys the step's user_options holds (AnalysisStep.user_options: what the
             netlist, +paramdefault or the command line set; D2); a tran's "Xyce takes the method ...
             only" note is plan.build's, under the same rule
+    phase 2c8  a .STEP/.DC of a rise or a fall prints a point of 0 as Spectre's default edge, transres (plan.edge_default;
+            the hook took the raw 0); a derived DC is the waveform's value at t = 0 with a delay below 0 too
+            (tables.wave_t0; the first value before, 0 where 0.4 for a pulse 0.2u into its 0.5u rise); a sine of
+            constant freq 0 arrives in tables.constant_sine's form (DC <the given dc> SIN(<sinedc> <ampl> 1e-30 ...)),
+            a .STEP of its freq printing a point of 0 as that 1e-30, as VACASK's sweep does
+    phase 2c9  the substitutes through plan.swept_points, the predicate plan.build and VACASK's deck read, in this deck's
+            replayed source state (N1); a sine whose sinedc defaults to dc reads the dc's sweep hook as its V0 too (N3);
+            a Spectre pulse without a period whose delay is not a constant >= 0 prints PER PULSE_NO_PERIOD (2e30):
+            Xyce's own default PER is TSTOP, which repeated it inside the tran (N4)
 """
 
 from __future__ import annotations
@@ -193,6 +207,10 @@ SMOKE_NORUN_LOG = "smoke.norun.log"
 MF = T.MF_PARAM[ENGINE]
 HOOK_PREFIX = "vamos_x_"                 # the .param hook of a sub= or source-field sweep target (§7.2)
 OP_DUMMY = "vamos_op"                    # the .DC variable standing for .OP under two or more .STEPs [E20]
+# Phase 2c9 (N4): the PER a Spectre pulse without a period prints on Xyce when its delay is not a constant >= 0 (Xyce's
+# own default is TSTOP, which repeats such a pulse inside the tran): past rise + fall + pw's default 1e30, and no tran
+# reaches delay + PER
+PULSE_NO_PERIOD = 2e30
 
 _LETTER = {"r": "r", "c": "c", "l": "l", "k": "k", "v": "v", "i": "i", "e": "e", "g": "g",
            "f": "f", "h": "h", "b": "b", "d": "d", "q": "q", "m": "m", "j": "j", "x": "x"}
@@ -205,6 +223,9 @@ _SOURCE_FIELD: Dict[str, Tuple[str, object]] = {
     "rise": ("args", "tr"), "fall": ("args", "tf"), "width": ("args", "pw"), "period": ("args", "per"),
     "sinedc": ("args", "vo"), "ampl": ("args", "va"), "freq": ("args", "freq"), "damp": ("args", "theta"),
     "sinephase": ("args", "phase"), "mag": ("ac", 0), "phase": ("ac", 1),
+    # phase 2c8: an exp's time constants are its own fields (refused before, `the deck prints a derived value for it',
+    # which only its td1, td2 and delay are; VACASK sweeps them)
+    "tau1": ("args", "tau1"), "tau2": ("args", "tau2"),
 }
 # The Spectre name of a controlled source's gain, which the IR holds in Instance.value (ref5 pp.681, 679, 289,
 # 286): no Xyce E/G/F/H takes it by name (`Function or variable E1:GAIN is not defined', X-emit 2c), so a sweep
@@ -361,11 +382,18 @@ class _Deck:
             kind, name, param = lv.target
             if kind != "instance":
                 continue
-            inst = _resolve(self.nl, name)
+            inst = self.at(name)                       # L1 (phase 2c7): the taken branch's instance
             if inst is None:
                 continue
             hook = HOOK_PREFIX + "%s_%s" % (name.replace(".", "_"), param)
-            if inst.kind == "x":
+            if inst.kind == "x" and param == "m":
+                # phase 2c4 (H3): a subckt instance's multiplier is the vamos_mfactor its X line passes (i_x, mult), which
+                # every device of the body multiplies by; the hook starts at the instance's m, 1 when it gives none (the
+                # nominal 0 of an absent subckt parameter, and an X-line M= beside it, ended Xyce's .DC with `Device
+                # instance X1:R1: Multiplicity Factor (M) must be non-negative', status 2)
+                m = inst.params.get("m")
+                self.hooks[(name, param)] = (hook, m if m is not None else Num(1.0))
+            elif inst.kind == "x":
                 sub = T.Scope(self.nl.body).find_subckt(inst.master or "")
                 nominal = inst.params.get(param)
                 if nominal is None and sub is not None:
@@ -374,7 +402,7 @@ class _Deck:
                     nominal = Num(0.0)
                 self.hooks[(name, param)] = (hook, nominal)
             elif self.spectre and inst.kind == "l" and param in ("l", "m", "tc1", "tc2", "dtemp") \
-                    and _coupled(self.nl, name, inst):
+                    and self.coupled_at(name, inst):
                 # Xyce's K pass keeps only L of a coupled inductor, its multiplier and TCs folded into it (rcl,
                 # tables.coupled_inductance): a direct .DC L1:L drops the fold and L1:M is ignored (X-emit 2c)
                 if param in ("l", "m"):
@@ -422,11 +450,11 @@ class _Deck:
             names.append(self.noise_input)
         what = "%s %s" % (step.kind, step.name or step.id)
         for name in dict.fromkeys(n for n in names if "." in n):
-            parent = _resolve(self.nl, name.rsplit(".", 1)[0])
+            parent = self.at(name.rsplit(".", 1)[0])
             sub = parent.master if parent is not None else None
             paths = [p for p, pe in self.by_path.items() if pe.subckt is not None and pe.subckt.name == sub]
             if len(paths) > 1:
-                target = _resolve(self.nl, name)
+                target = self.at(name)
                 self.once(target.origin if target is not None else "",
                           "%s: on Xyce %s lies in subckt %s, which %d instance paths reach (%s): changing the "
                           "shared definition would change every path; not supported in v1 (§5.3)"
@@ -435,6 +463,58 @@ class _Deck:
     def hook_name(self, path: str, param: str) -> Optional[str]:
         h = self.hooks.get((path, param))
         return h[0] if h is not None else None
+
+    def at(self, path: str) -> Optional[Instance]:
+        """L1 (phase 2c7): the instance an IR path names on the instance paths this deck takes (tables.path_envs at its
+        values, non-strict, as elaborate walks them: the state the replay gives it), where an if and its else may both
+        hold the name, with two kinds, or X lines of two subckts; _resolve's first match took the untaken one (a current
+        save of X1.Z1 printed I(X1:RZ1) where the taken Z1 is an inductor, `undefined symbol in .PRINT command').
+        _resolve's match on a HSPICE netlist, and where the paths do not resolve (elaborate reports that)."""
+        if not self.spectre:
+            return _resolve(self.nl, path)
+        taken = self.taken_map()
+        return taken.get(path) if taken is not None else _resolve(self.nl, path)
+
+    def taken_map(self) -> Optional[Dict[str, Instance]]:
+        """IR path -> instance on the instance paths this deck takes (at), once per deck (elaborate reuses the walk);
+        None when they do not resolve."""
+        if not hasattr(self, "_taken"):
+            self._taken: Optional[Dict[str, Instance]] = None
+            self._taken_scopes: Dict[str, T.Scope] = {}
+            try:
+                self._pes = list(T.path_envs(self.nl, strict=False, dialect=self.nl.dialect))
+            except (X.EvalError, T.TableError):
+                return None
+            taken: Dict[str, Instance] = {}
+            for pe in self._pes:
+                self._taken_scopes[pe.path] = pe.scope
+                for it in pe.items:
+                    taken.setdefault(it.name if not pe.path else pe.path + "." + it.name, it)
+            self._taken = taken
+        return self._taken
+
+    def coupled_at(self, path: str, inst: Instance) -> bool:
+        """L1 (phase 2c7): _coupled on the taken instance paths (taken_map): a K element of the body the run takes for the
+        inductor's path names it; _coupled's first match on a HSPICE netlist or where the paths do not resolve."""
+        if self.spectre and self.taken_map() is not None:
+            scope = self._taken_scopes.get(path.rpartition(".")[0])
+            return scope is not None and inst.name in scope.coupled
+        return _coupled(self.nl, path, inst)
+
+    def taken_text(self, path: str) -> Optional[str]:
+        """L1 (phase 2c7): printed_path on the taken instance paths (at): every component as Xyce prints it; None where
+        a component is not on them."""
+        taken = self.taken_map() if self.spectre else None
+        if not taken:
+            return None
+        parts = path.split(".")
+        out: List[str] = []
+        for k in range(1, len(parts) + 1):
+            it = taken.get(".".join(parts[:k]))
+            if it is None:
+                return None
+            out.append(printed(it, self.va))
+        return ":".join(out)
 
     # -- elaboration: what each printed body needs ---------------------------------------
     def elaborate(self) -> None:
@@ -457,7 +537,7 @@ class _Deck:
         self.taken = {s.name.lower() for s in T.all_subckts(self.nl)}
         self.top = _Variant(None, "")
         try:
-            pes = list(T.path_envs(self.nl, strict=False, dialect=self.nl.dialect))
+            pes = list(getattr(self, "_pes", None) or T.path_envs(self.nl, strict=False, dialect=self.nl.dialect))
         except X.EvalError as exc:                           # a condition that is not a number on its path
             self.err("", str(exc))
             pes = []
@@ -540,7 +620,7 @@ class _Deck:
             kind, name, param = lv.target
             hit: Optional[Tuple[str, Instance, Expr]] = None
             if kind == "instance" and (name, param) in self.hooks:
-                target = _resolve(self.nl, name)
+                target = self.at(name)
                 if target is not None and target.kind == "x":
                     hit = next(((p, it, v) for p, it, v, _off in self.switches
                                 if p == name or p.startswith(name + ".")), None)
@@ -1237,7 +1317,8 @@ class _Deck:
                 continue
             fields.append("%s=%s" % (X.param_ident(k, ENGINE), self.xv(v, inst.origin, "%s parameter %s"
                                                                           % (inst.name, k))))
-        for k in sorted(hooked - set(inst.params)):        # a swept default the X line did not override
+        for k in sorted(hooked - set(inst.params) - {"m"}):   # a swept default the X line did not override; a swept m
+            #                                                     is the vamos_mfactor below (H3, phase 2c4), never an M=
             fields.append("%s={%s}" % (X.param_ident(k, ENGINE), self.hooks[(path, k)][0]))   # type: ignore[index]
         m = self.mult(inst, scope)
         if m is not None:
@@ -1260,7 +1341,7 @@ class _Deck:
             parts = path.split(".")
             if len(parts) < 2 or parts[-1] != inst.name:
                 continue
-            parent = _resolve(self.nl, ".".join(parts[:-1]))     # the X line whose body this is
+            parent = self.at(".".join(parts[:-1]))               # the X line whose body this is (the taken one)
             if parent is not None and scope.subckt is not None and parent.master == scope.subckt.name:
                 return path
         return None
@@ -1376,7 +1457,16 @@ class _Deck:
                 raise _Skip()
             if w == "pulse":
                 keys = ["v1", "v2", "td", "tr", "tf", "pw"] + (["per"] if "per" in f else [])
-                out.append("PULSE(%s)" % " ".join(xv(f[k], k) for k in keys))
+                fields = [xv(f[k], k) for k in keys]
+                td = f["td"]
+                if self.spectre and "per" not in f and not (isinstance(td, Num) and td.value >= 0.0):
+                    # phase 2c9 (N4): Spectre's period defaults to infinity (ref5 p.683, a single pulse), Xyce's PER to
+                    # TSTOP (N_DEV_SourceData.C, PulseData::initializeSource), so a pulse whose delay may be negative
+                    # started again at delay + TSTOP, inside the tran (S-2c8's P868: in(1.35 us) = 1 where 0): an
+                    # explicit PER no tran reaches, as pw's default is 1e30 (a constant delay >= 0 prints as before:
+                    # its second pulse starts after TSTOP)
+                    fields.append(fmt(PULSE_NO_PERIOD))
+                out.append("PULSE(%s)" % " ".join(fields))
             elif w == "sin":
                 out.append("SIN(%s)" % " ".join(xv(f[k], k) for k in WAVE["sin"]))
             elif w == "exp":
@@ -1503,10 +1593,13 @@ class _Deck:
         if len(parts) == 1:
             return path.upper()
         top = T.Scope(self.nl.body)
-        return (printed_path(self.nl, ".".join(parts[:-1]), top, self.va) + ":" + parts[-1]).upper()
+        holder = self.taken_text(".".join(parts[:-1]))   # L1 (phase 2c7): the taken X lines
+        return ((holder if holder is not None else printed_path(self.nl, ".".join(parts[:-1]), top, self.va))
+                + ":" + parts[-1]).upper()
 
     def element_text(self, path: str) -> str:
-        return printed_path(self.nl, path, T.Scope(self.nl.body), self.va).upper()
+        taken = self.taken_text(path)                    # L1 (phase 2c7): the kind on the taken branch
+        return (taken if taken is not None else printed_path(self.nl, path, T.Scope(self.nl.body), self.va)).upper()
 
     def column(self, ref: Ref, step_kind: str, step: Optional[AnalysisStep] = None) -> Optional[str]:
         """The .PRINT column of a Ref (§6.4), None for one Xyce has no column for.  step: the noise step
@@ -1575,7 +1668,7 @@ class _Deck:
             hook = self.hook_name(name, param)
             if hook is not None:
                 return hook
-            inst = _resolve(self.nl, name)
+            inst = self.at(name)                       # L1 (phase 2c7): the taken branch's instance
             if inst is None:
                 raise T.TableError("sweep %s: no instance %s" % (lv.id, name))
             return "%s:%s" % (self.element_text(name), self.instance_param(inst, param).upper())
@@ -1605,6 +1698,19 @@ class _Deck:
         """`.STEP`/`.DC` with the level's grid: `<T> start stop step`, `<T> LIST ...`, `DEC <T> start stop n`."""
         spec = lv.spec
         target = self.target_text(lv)
+        kind, name, param = lv.target
+        if self.spectre and kind == "instance" and param in ("rise", "fall", "freq"):
+            inst = self.at(name)
+            if inst is not None and inst.kind in ("v", "i"):
+                # phase 2c8: a rise or fall of 0 is Spectre's default edge, transres, in every value that reaches the
+                # engine (§3.8.1); the hook took the raw 0 (an ideal step on Xyce, VACASK no fall or exit 1).  A freq
+                # of 0 of a sine of constant freq 0 is the constant's own, CONSTANT_SINE_FREQ, as VACASK prints it.
+                # Phase 2c9 (N1): plan.swept_points, the predicate plan.build and VACASK's deck read, in the replayed
+                # state of this deck (the source as the alters before the step made it: at, run_xyce.replay)
+                from vamos.netlist import plan as PL
+                pts = PL.swept_points(param, inst.source, spec, PL.edge_default(self.nl) if param != "freq" else 0.0)
+                if pts is not None:
+                    return "%s %s LIST %s" % (keyword, target, " ".join(fmt(v) for v in pts))
         if spec.mode in ("values", "log"):             # log: the values plan.build computed (§5.2)
             return "%s %s LIST %s" % (keyword, target, " ".join(fmt(_numv(v)) for v in spec.values))
         start, stop = _numv(spec.start), _numv(spec.stop)
@@ -1924,8 +2030,11 @@ def _zero_ac(src: Source) -> bool:
 
 
 def _hooked_source(src: Source, hooked: Dict[str, str]) -> Source:
-    """src with every hooked Spectre field replaced by its .param name (a copy; Source.spectre kept)."""
+    """src with every hooked Spectre field replaced by its .param name (a copy; Source.spectre kept).  Phase 2c9 (N3): a
+    sine whose sinedc defaults to dc (plan.sinedc_follows_dc) reads the dc's hook as its V0 too, so a sweep of dc moves
+    it as Spectre's does (2c8's SIN kept the instance line's sinedc: S-2c8's P824 centred on 0.25 at the 0.5 point)."""
     import copy
+    from vamos.netlist import plan as PL
     out = copy.deepcopy(src)
     for param, hook in hooked.items():
         where = _SOURCE_FIELD.get(param)
@@ -1933,6 +2042,8 @@ def _hooked_source(src: Source, hooked: Dict[str, str]) -> Source:
             continue
         if where[0] == "dc":
             out.dc = Name(hook)
+            if PL.sinedc_follows_dc(src) and "sinedc" not in hooked:
+                out.args["vo"] = Name(hook)
         elif where[0] == "args":
             out.args[where[1]] = Name(hook)                  # type: ignore[index]
         else:

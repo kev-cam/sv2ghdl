@@ -1144,7 +1144,7 @@ def resolve_source(params: Mapping[str, Value], type: str, tran_stops: Sequence[
     if "dc" in p:
         src.dc = _one(p["dc"])
     if "mag" in p or "phase" in p:
-        mag = _one(p["mag"]) if "mag" in p else Num(1.0)
+        mag = _one(p["mag"]) if "mag" in p else Num(0.0)     # ref5 p.685: mag defaults to 0 (phase alone excites nothing)
         src.ac = (mag, _one(p["phase"]) if "phase" in p else Num(0.0))
     t = (type or "dc").lower()
     if t == "dc":

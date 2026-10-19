@@ -32,7 +32,7 @@ TestDiomod      phase 2c (R-plan-8): ref5's diomod readings, bsim3v3 p.197 (0 is
                 the targets' own) and bsim4 p.219 (BSIM4's own dioMod 0/1/2 on both targets).
 
 Runs on both legs (Cygwin Python 3.9, WSL Python 3.14), no engine.  The data block is pasted into
-vamos/netlist/tables.py by the phase-0 merge (scratchpad sp0/S0C/spectre_masters_data.py); until then
+vamos/netlist/tables.py by the phase-0 merge (S0C's spectre_masters_data.py); until then
 every test here fails naming the master the table lacks (§12 "Done when").
 """
 
@@ -52,7 +52,7 @@ from vamos.netlist.ir import Model  # noqa: E402
 from vamos.notes import NoteError  # noqa: E402
 from vamos.spectre.job import Settings  # noqa: E402
 
-MERGE = ("tables.SPECTRE_MASTERS has no %r: the phase-0 S0C data block (scratchpad sp0/S0C/"
+MERGE = ("tables.SPECTRE_MASTERS has no %r: the phase-0 S0C data block (S0C's "
          "spectre_masters_data.py) is not merged into vamos/netlist/tables.py yet "
          "(VAMOS_SPECTRE_DESIGN.md §12 phase 0)")
 
@@ -156,7 +156,7 @@ FOLDED_CARD = {"resistor": "r rsh l w etch etchl", "capacitor": "c w l etch cj c
 # (Spectre's default as ref5 states it, VACASK's default, Xyce's default, the sources).  A target default is
 # a number, None (no such parameter) or a string naming a derivation applied when the parameter is not
 # given ("=n": nbv follows n; "derived:nsub": SPICE3 derives it from a given nsub, which the written value
-# pins).  A row whose value is "=p" copies the card's p.  Verified 2026-10-10 (scratchpad sp0/S0C/comparison.md).
+# pins).  A row whose value is "=p" copies the card's p.  Verified 2026-10-10 (phase 0's comparison tables).
 TARGET_DEFAULTS = {
     ("resistor", "card", "af"): ("2", 1.0, None,
         "resistor.va:115 af=1.0; N_DEV_Resistor.C has no AF (no noise parameters)"),

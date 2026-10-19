@@ -3,9 +3,9 @@
 Status: design, revision 3, 2026-10-04, with the fixes of its own adversarial review (three lenses, §16's
 last part) applied the same day; phases 0, 1 and 1b (§12) built and gated on 2026-10-10, phase 2 built and
 integrated on 2026-10-17 (its gate: §12's phase-2 record), and phases 2b and 2c, the review of the whole
-diff and its fix rounds, with the follow-up rounds 2c2 and 2c3, run the same day (§12's 2b and 2c records);
-the contract text brought to what was built (§16's last four bullets). This is the implementation contract
-for the `spectre` personality.
+diff and its fix rounds, with the follow-up rounds 2c2 and 2c3, run the same day, and 2c4-2c9, run on
+2026-10-17 and 2026-10-18 (§12's 2b and 2c records); the contract text brought to what was built (§16's last
+four bullets). This is the implementation contract for the `spectre` personality.
 It reuses the analog netlist package built for `vcs-ams` (`VAMOS_AMS_DESIGN.md` §4: `vamos/netlist/`) and
 follows that document's conventions: the one rule, one disposition per construct, frozen phase-0 contracts,
 and agents that own files. No Spectre binary or licence is available here, so fidelity rests on three kinds
@@ -20,7 +20,7 @@ PSF samples and readers. §16 lists the changes by area.
 |---|---|
 | **[M]** | manual text: `ref19` = Spectre Circuit Simulator Reference PV19.1 (Jan 2020), `UG` = Spectre User Guide PV5.1.41 (Jul 2004), `ref5` = Spectre Reference PV5.0 (Sep 2003, component chapters). Page numbers are the manuals' own. |
 | **[S]** | real Spectre output files and real ADE netlists. Native psfascii: psf-parser (MIT) `tests/data` (Spectre 23.1.0.242.isr1); psf_utils `samples/` `joop-banaan.{dc,tran}` (19.1), `pnoise.raw` (15.1), `fracpole.dc` (20.1). Cadence-converted (psf GROUP layout): `fracpole.ac`, `dan-zilla`, `rushikesh`. Netlists: Xyce_Regression `Netlists/XDM/SPECTRE` (ADE, ic-5.1.41usr5). psf_utils' `escaped-strings.dc` and `bus_chevrons.tran` are hand-edited fixtures, not [S] [E86]. |
-| **[E]** | an experiment on the installed engines, or a check of the vamos code and tools. Revision 3's experiments (§13, E49-E93), those of its review (E94-E101) and its re-runs of E1-E48 used: VACASK 0.3.4-91-g64489cf7 (`/opt/build.VACASK/Release`) with `diode.osdi` and `mos3.osdi` rebuilt from VACASK 3becb73d on 2026-10-03 (sha1 da0cc2e90ce8, adff42fbc900 [E92]); openvaf-r 20260616-3-g0e83f1ed as `engines.openvaf()` resolves it (never `/opt/openvaf-r/openvaf-r`, OpenVAF 23.5.0, whose OSDI files VACASK refuses [E68]); Xyce DEVELOPMENT-202609292309 (`/usr/local/src/xyce-build/src/Xyce`) and DEVELOPMENT-202609292231 (`/usr/local/bin/Xyce`). Both launchers carry PyMS (`.hdl`), and under `engines.env_for`, which vamos always uses, both load the same `libxyce.so`, from xyce 7cd78110 of 2026-10-03; run without it, `/usr/local/bin/Xyce` loads its own 2026-09-29 `/usr/local/lib/libxyce.so`, which vamos never runs [E68, E96]. §13 names the binary and the library where a row depends on them. E1-E48 first ran on the 2026-10-01 builds. Phase 0's gate (2026-10-10) ran on a rebuilt `/usr/local/src/xyce-build/src/Xyce`, DEVELOPMENT-202610100047 (7cd78110, `libxyce.so` of 2026-10-10), while `/usr/local/bin/Xyce` keeps its 2026-09-29 date; on that build E63's built-in binding no longer reproduces (§13 E63, E68; §14 q.50). Phases 1 and 1b (2026-10-10, E102-E114) ran on the same builds: Xyce DEVELOPMENT-202610100047 under `env_for`, and VACASK 0.3.4-91 with the rebuilt `diode.osdi` and `mos3.osdi`. Phase 2 (2026-10-16 and 2026-10-17, E115-E134) ran on them unchanged (re-checked on 2026-10-17: the rebuilt `.osdi` files' sha1 and the `libxyce.so` of 2026-10-10): Xyce DEVELOPMENT-202610100047 (its `-v`: Release-7.10.0-212-g7cd78110) under `env_for`, VACASK 0.3.4-91 with the rebuilt `diode.osdi` and `mos3.osdi`, openvaf-r 20260616-3-g0e83f1ed, and for T3b the Cadnip VACASK 0.3.4-94-gcdf13d22; ngspice 45.2 and GCC cpp 15.2.0 served e2e 13 and the cpp decks. Phases 2b and 2c (2026-10-17, E135-E141) and their follow-up rounds 2c2 and 2c3 (the same day, E142-E152) ran on the same builds, unchanged. |
+| **[E]** | an experiment on the installed engines, or a check of the vamos code and tools. Revision 3's experiments (§13, E49-E93), those of its review (E94-E101) and its re-runs of E1-E48 used: VACASK 0.3.4-91-g64489cf7 (`/opt/build.VACASK/Release`) with `diode.osdi` and `mos3.osdi` rebuilt from VACASK 3becb73d on 2026-10-03 (sha1 da0cc2e90ce8, adff42fbc900 [E92]); openvaf-r 20260616-3-g0e83f1ed as `engines.openvaf()` resolves it (never `/opt/openvaf-r/openvaf-r`, OpenVAF 23.5.0, whose OSDI files VACASK refuses [E68]); Xyce DEVELOPMENT-202609292309 (`/usr/local/src/xyce-build/src/Xyce`) and DEVELOPMENT-202609292231 (`/usr/local/bin/Xyce`). Both launchers carry PyMS (`.hdl`), and under `engines.env_for`, which vamos always uses, both load the same `libxyce.so`, from xyce 7cd78110 of 2026-10-03; run without it, `/usr/local/bin/Xyce` loads its own 2026-09-29 `/usr/local/lib/libxyce.so`, which vamos never runs [E68, E96]. §13 names the binary and the library where a row depends on them. E1-E48 first ran on the 2026-10-01 builds. Phase 0's gate (2026-10-10) ran on a rebuilt `/usr/local/src/xyce-build/src/Xyce`, DEVELOPMENT-202610100047 (7cd78110, `libxyce.so` of 2026-10-10), while `/usr/local/bin/Xyce` keeps its 2026-09-29 date; on that build E63's built-in binding no longer reproduces (§13 E63, E68; §14 q.50). Phases 1 and 1b (2026-10-10, E102-E114) ran on the same builds: Xyce DEVELOPMENT-202610100047 under `env_for`, and VACASK 0.3.4-91 with the rebuilt `diode.osdi` and `mos3.osdi`. Phase 2 (2026-10-16 and 2026-10-17, E115-E134) ran on them unchanged (re-checked on 2026-10-17: the rebuilt `.osdi` files' sha1 and the `libxyce.so` of 2026-10-10): Xyce DEVELOPMENT-202610100047 (its `-v`: Release-7.10.0-212-g7cd78110) under `env_for`, VACASK 0.3.4-91 with the rebuilt `diode.osdi` and `mos3.osdi`, openvaf-r 20260616-3-g0e83f1ed, and for T3b the Cadnip VACASK 0.3.4-94-gcdf13d22; ngspice 45.2 and GCC cpp 15.2.0 served e2e 13 and the cpp decks. Phases 2b and 2c (2026-10-17, E135-E141) and their follow-up rounds 2c2 and 2c3 (the same day, E142-E152) ran on the same builds, unchanged, and so did the follow-up rounds 2c4-2c9 (2026-10-17 and 2026-10-18, E153-E177), whose rows also read VACASK's sources (`lib/devvisrc.cpp`, `lib/coretran.cpp`) and Xyce's (`N_DEV_SourceData.C`) where they say so. |
 | **[I]** | inferred, not verified. Each one names its entry in §14 (open questions) as `[I, §14 q.N]` (a document check in §11 T0 enforces it) and, where it matters, has a fallback that is loud rather than silent. |
 
 **Sources.** Every reused asset this document cites, with its public origin and the commit or version the text
@@ -94,8 +94,9 @@ Spectre-specific readings of the rule:
   signal names, sweep parent and child files, state files, and the `+log` file.
 
 **Approximations (warnings) in v1:**
-- a pulse `rise`/`fall` that is omitted or 0 becomes `transres` = 1e-9 × the shortest `tran` stop (§3.8.1).
-  Spectre's default is undocumented (§14 q.20); VACASK rejects a zero rise and reads a zero fall as "no fall";
+- a pulse `rise`/`fall` that is omitted or 0 becomes `transres` = 1e-9 × the shortest `tran` stop (§3.8.1),
+  a `dev=` sweep point of 0 included since phase 2c8 (§5.2). Spectre's default is undocumented (§14 q.20);
+  VACASK rejects a zero rise and reads a zero fall as "no fall";
 - `prevoppoint=yes` and `useprevic` on Xyce: the operating point is recomputed (VACASK maps them, §5.4);
 - a diode card without `eg` simulated at a temperature other than its `tnom` (a step's `temp`, a point of a
   `temp` or `tnom` sweep, an instance's `trise`): Spectre's default `eg` is temperature dependent, and vamos
@@ -147,13 +148,25 @@ none prints none (phase 2c, D2; §5.4, §8.7, §14 q.71).
   PyMS ignores them on a Y device and gave a wrong value on a letter device [E63, E64];
 - source features `pwlperiod twidth ampl2 freq2 sinephase2`, AM/FM modulation, `tc1`/`tc2` ≠ 0;
   `noisefile`/`noisevec` while a `noise` analysis runs; `xfmag` ≠ 1 while an `xf` runs;
+- a source waveform that breaks a §3.8.1 rule in a state an engine uses it in, a `tran` or an analysis whose
+  dc is derived (its value at t = 0): an explicit `period` no longer than rise+fall+width (0 or below
+  included), a negative `rise`, `fall` or `width`, an exp time constant of 0 or a `td2` not after its `td1`,
+  a negative sine `freq`, pwl time points before 0, not increasing or only one; refused on both engines in
+  every state `plan.build` walks (the netlist's values, each alter and `set`, each sweep point), a constant one
+  in every analysis and in a netlist with no analysis; and a sweep point of a `damp` other than 0 of a sine
+  whose `freq` is the constant 0 (phase 2c7, L4; phase 2c8, M1, M3 and M4; §3.8.1 [E166, E168, E169]);
+- on VACASK, where Xyce runs it, a source state that breaks one of VACASK's own setup checks where VACASK sets
+  the source up and no analysis uses the waveform: at its first elaboration, and before a sweep's first point
+  in the values VACASK sets the circuit up in then; and a sine whose `freq` reaches 0 through a parameter or a
+  sweep (§3.8.1, §7.1; phase 2c7, L4; phase 2c9, N5 [E166, E167]);
 - device `ic=` on a capacitor or inductor (unless every `tran` uses `ic=dc` or `ic=node`), inductor-current
   initial conditions (`L1:1=…`), `force`/`readforce` other than `none`;
 - `tran`: `start` ≠ 0 (§14 q.24), `tpoints`, `skipdc` values other than `no`/`yes`, transient noise (`noisefmax` > 0),
   dynamic parameters (`param=`/`param_vec`), the custom-errpreset parameters `maxstepratio`/`reltolratio`;
   `readtime`; on `ac`, `noise` and `xf`, a `skipdc` other than `no` (§3.11);
 - an `options` statement inside a subckt (Spectre scopes it to that subckt), unless `-mts` is given (§3.6);
-- a sweep or alter value that changes a structural `if` branch or a model-group bin (§3.7); a sweep or alter
+- a sweep or alter value that changes a structural `if` branch or a model-group bin, judged against the
+  netlist's own values, an alter before the first analysis included (§3.7; phase 2c7, L2); a sweep or alter
   of a parameter vamos folded at parse time (a resistor or capacitor card's geometry, or an instance `w`, `l`,
   `area` or `perim` that fed a computed `r` or `c`, §3.8, §5.2);
 - a resistance that is 0 where an analysis runs: a non-constant `r` that evaluates to exactly 0 at the
@@ -163,21 +176,35 @@ none prints none (phase 2c, D2; §5.4, §8.7, §14 q.71).
   engines, and on VACASK an alter of any parameter of such a short, which Xyce runs (phase 2c2, F2; §4.5
   items 7 and 10, §5.2);
 - an alter of a parameter that the netlist binds to an expression reading a parameter, temp or tnom (an
-  instance parameter, a source field, an `m`, a subckt instance's X-line binding, a card parameter), at an
-  analysis where the expression's value differs from the alter's: on both engines when what the expression
-  reads changed after the alter, Spectre's reading of that being unknown (§14 q.79), and on VACASK also
-  when a netlist parameter, temp or tnom (inside a subckt instance, also a parameter or the `m` of the
-  instance that holds it) changed since VACASK's last elaboration before the alter, VACASK then
-  re-evaluating the binding (phase 2c3, G1; §5.3);
+  instance parameter, a source field or a field's default that reads another, an `m`, a subckt instance's
+  X-line binding or the subckt default it leaves, a card parameter under either spelling, a netlist
+  parameter defined by an expression), whatever the altered value's type, at an analysis where the
+  expression's value differs from the alter's (phase 2c3, G1; default-deny since phase 2c6, K1; §5.3): on
+  both engines when what the expression reads changed after the alter, Spectre's reading of that being
+  unknown (§14 q.79), and likewise a sweep of such a target around a sweep of what it reads (phase 2c6);
+  and on VACASK alone, for a target its deck cannot print through a switchable hook (a pulse's `rise` or
+  `fall`, an `isnoisy` expression or word, a pwl's `wave`, a `sinedc` left to a bound `dc`, a `mod=` target
+  in a model group with an entry that leaves the parameter out, a field the control block prints as a
+  constant where the instance line derives it), when anything VACASK re-elaborates on changed since its last
+  elaboration before the alter (a netlist parameter, temp or tnom, inside a subckt instance also a
+  parameter or the `m` of the instance that holds it, a statement the deck prints for a hooked target, a
+  temp or tnom other than 27 at its first elaboration), VACASK then re-evaluating the binding where Xyce
+  keeps the alter (phase 2c4, H1; phase 2c5, R1);
 - on Xyce, an alter, a source-field sweep or a `sub=` sweep whose target lies inside a subckt that more than
-  one instance path reaches (§5.3, §7.2; VACASK maps it per path);
+  one instance path reaches (§5.3, §7.2; VACASK maps it per path), which the state replay also refuses at
+  render, altering only the instance on the branches the run takes (phase 2c5, R2);
 - a sweep or alter that an engine cannot express (phase 2c, §5.2, §7.2): on VACASK, a coupled inductor's
   `m`, its `l`, `tc1`, `tc2` or `dtemp` when its multiplier or TCs are folded into `l`, and the `m` of an
   instance inside a multiplied subckt instance; on Xyce, a coupled inductor's `tc1`, `tc2` or `dtemp`; on
   VACASK, a `mod=` target on a Verilog-A card that sets no parameter, or a sweep of a Verilog-A card that more
-  than one instance reads; and on VACASK, a `dev=` sweep of an instance parameter or a source field that the
-  netlist binds to an expression reading a parameter (§5.2 [E102]; every value parameter and source field
-  since phase 2c2, F3);
+  than one instance reads; on VACASK, a `dev=` sweep of a parameter that the netlist binds to an expression
+  reading a parameter (§5.2 [E102]; every value parameter and source field since phase 2c2, F3) where its
+  deck cannot sweep the parameter's switchable hook instead (a pulse's `rise` or `fall`, a field its instance
+  line derives from a bound one, such as a `sinedc` printed `sinedc=vv`; phase 2c4, H1, mapped the other
+  `dev=` sweeps and the `sub=` and `mod=` ones [E153, E163]), and an alter or source switch whose
+  control-block statement would print a field reading a name, temp or tnom that it cannot leave out (phase
+  2c5, R4; §4.5 item 17 [E154]); and on both engines a sweep of an exp's `delay`, which the parse folds into
+  `td1` and `td2` (phase 2c6 [E163]);
 - reading a state file that an earlier analysis of the same run writes (phase 2c, D9): a `readic=` or `read=`
   of a file an earlier `write=` or `writefinal=` names is an error naming both analyses (exit status 2,
   before any engine runs), and a `readns=` of one is a warning naming both, the file not read (the netlist's
@@ -1007,6 +1034,19 @@ is an error in v1 ("only the top level may hold it"); `options` there follows it
   every instance path.
   - If any value changes a branch, the run is an error, as in Spectre: "this error is produced for any
     analysis that changes the value of the conditional expression" [M UG p.111].
+  - The nominal structure, against which a branch or bin change is judged, is the netlist's own state:
+    every netlist parameter at its own value and temp and tnom at the global options, recorded before any
+    control statement (`plan._record_nominal`; phase 2c7, L2). So an alter before the first analysis that
+    changes a branch or a bin is refused like any later one, status 2 on both engines, naming the alter, the
+    condition and the two branches: `alter a0 changes a structural condition on path top level: the`
+    `condition sel > 0 takes its if branch, where it takes its else branch at the netlist's own values:`
+    `vamos refuses a sweep or alter that changes an if branch, as Spectre does (§3.7, §14 q.13)`; an alter
+    that keeps every branch runs. Before, the first state `plan.build` walked was the nominal one, so the 2c6
+    skeptic's H05h (an `if` and its `else` holding V1 with val1 1 and 2, `alter param=sel value=1`, then an
+    alter of V1's width) ran on both engines with in = 2 where the if branch gives 1, the source alter built
+    from the else's fields [E165]. The condition prints as the netlist spells it (`plan._netlist_text`; phase
+    2c8, M4): temp and tnom by their Spectre names (`temp > 40`, where 2c7 printed `temper > 40.0`), a number
+    as its value in its shortest form (`sel > 0`; `1u` as `1e-06`, `1e3` as `1000`).
   - If any value changes the bin a model-group instance selects, the run is an error in v1. VACASK keeps the
     nominal bin when the instance's own geometry is swept [E41], and the Xyce emitter binds the card at
     emission (§4.5 item 3), so a re-bind would otherwise be silent.
@@ -1056,18 +1096,42 @@ tran_stops, notes) -> Source` applies this table; alters use it again (§5.3).
 
 | Spectre | IR | rule |
 |---|---|---|
-| `dc` | `Source.dc`; None when absent | Given: the value of every DC-type solve, which is `dc` (operating points and sweeps) and the operating point of `ac`, `noise` and `xf`; the waveform acts in `tran` only [M ref5 pp.383, 686]. Absent: the waveform's t = 0 value [M ref5 p.682], kept derived (None) so that it follows alters and sweeps of the waveform fields. The engines need different prints (§4.5 item 8): VACASK ignores `dc` unless `type="dc"` [E17], and Xyce's operating point for a waveform source printed without `DC` is 0, not its t = 0 value [E70], so Xyce gets the derived value written out. The `tran` initial point uses the t = 0 waveform value on both engines [E17; I for Spectre, §14 q.45]. |
+| `dc` | `Source.dc`; None when absent | Given: the value of every DC-type solve, which is `dc` (operating points and sweeps) and the operating point of `ac`, `noise` and `xf`; the waveform acts in `tran` only [M ref5 pp.383, 686]. Absent: the waveform's t = 0 value [M ref5 p.682], kept derived (None) so that it follows alters and sweeps of the waveform fields. The engines need different prints (§4.5 item 8): VACASK ignores `dc` unless `type="dc"` [E17], and Xyce's operating point for a waveform source printed without `DC` is 0, not its t = 0 value [E70], so Xyce gets the derived value written out. The `tran` initial point uses the t = 0 waveform value on both engines [E17; I for Spectre, §14 q.45]. A sine whose `freq` is the constant 0 (written 0 or absent, `damp` 0) keeps a given `dc` (phase 2c8, M2 [E170]): the IR still folds it (`Source.dc` = sinedc + ampl·sin(sinephase), `Source.wave` None), but the render copy (`signals.unfold_constant_sines`) and `plan.build`'s source states, alters and sweep points take `tables.constant_sine`'s form, `Source.dc` the given dc (None when absent, the dc then derived) and the waveform the sine itself at `tables.CONSTANT_SINE_FREQ` = 1e-30 Hz with its written fields, so the DC-type solves read the given dc, a `tran` and its initial point the constant, and sweeps and alters of its fields reach it; the fold had replaced a given dc (the 2c7 skeptic's Z01: op 0 where 0.25; S0013: 0.25 where 0.5). A sine of another `freq` altered to 0 becomes the constant sine too (`plan._resolved_source`, `spectre.resolve_source` followed by `tables.constant_sine`; the 2c8 skeptic's Q04: dc 0.25 where 2c7 gave 0.45). With a negative `delay`, Xyce's derived `DC` is the waveform's value at t = 0 (`tables.wave_t0`: a pulse's, period folded, a sine's, an exp's `td1`/`td2` with the delay folded in, a pwl's, interpolated between the points around 0), a delay or time point that reads a parameter printing `(delay >= 0 ? <first value> : <waveform at -delay>)`, which the deck evaluates; a constant delay ≥ 0 keeps the first value, so the HSPICE path's renders are unchanged; 2c7 printed the first value, 0 where 0.4 for a pulse 0.2 µs into its 0.5 µs rise (phase 2c8 [E171]). |
 | `type=dc` | no active wave (`Source.wave` None) | the waveform fields the instance gives stay in `Source.spectre`, for `alter … param=type` (§5.3) |
-| `type=pulse val0 val1 delay rise fall width period` | `pulse v1 v2 td tr tf pw [per]` | `width` and `period` default to ∞ [M]: `pw` = 1e30 s (accepted by VACASK [E10] and by Xyce, whose default period does not cut it [E73]) and no `per`. `rise`/`fall` absent or 0: Spectre's `tran` default `transres` = 1e-9 × stop [M ref19 p.420], taken from the shortest `tran` (`ir.flat_analyses`, so a `tran` inside a sweep block counts; one edge serves every analysis), with a warning when a `tran` runs (Spectre's default edge is undocumented [M ref5 lists no default]; §14 q.20). The rule applies to every value that reaches the engine, not only to literals: a non-constant `rise`/`fall` prints as `(e==0 ? <transres> : e)`, and an alter or sweep value of 0 becomes transres. VACASK reads `fall` ≤ 0 as "no fall", so the pulse stays at val1, and stops the run on `rise` ≤ 0 [E25, E37]; Xyce makes either an ideal step [E25]. An explicit `period` ≤ rise+fall+width is an error (existing check). |
-| `type=sine sinedc ampl freq sinephase damp delay` | `sin vo va freq td theta phase` | the t = 0 value (the derived `dc`) is `sinedc + ampl·sin(sinephase)`, the phase in degrees [I, §14 q.56]; `sinedc` defaults to `dc`; `freq` defaults to 0, which gives a constant (folded into dc when `damp`=0, else an error); `ampl2 freq2 sinephase2`, `fmmod*`, `ammod*` → error |
-| `type=exp val0 val1 td1 tau1 td2 tau2 delay` | `exp v1 v2 td1' tau1 td2' tau2` | `td1' = delay+td1`, `td2' = delay+td2` [I, §14 q.19]; a missing `tau1`/`tau2` is an error (Spectre's defaults are not given) |
-| `type=pwl wave=[t v …] offset scale stretch delay`, or `file=` | `pwl` with `points` (t·stretch, v·scale+offset), `td=delay` | `file=` holds two columns without scale factors [M UG p.74] and is searched in the cwd, then the `-I` directories; `pwlperiod`/`twidth` → error; `allbrkpts` is ignored |
-| `mag`, `phase` | `Source.ac` | |
+| `type=pulse val0 val1 delay rise fall width period` | `pulse v1 v2 td tr tf pw [per]` | `width` and `period` default to ∞ [M]: `pw` = 1e30 s (accepted by VACASK [E10] and by Xyce, whose default period does not cut it [E73]) and no `per`. `rise`/`fall` absent or 0: Spectre's `tran` default `transres` = 1e-9 × stop [M ref19 p.420], taken from the shortest `tran` (`ir.flat_analyses`, so a `tran` inside a sweep block counts; one edge serves every analysis), with a warning when a `tran` runs (Spectre's default edge is undocumented [M ref5 lists no default]; §14 q.20). The rule applies to every value that reaches the engine, not only to literals: a non-constant `rise`/`fall` prints as `(e==0 ? <transres> : e)`, and an alter or sweep value of 0 becomes transres (a `dev=` sweep point since phase 2c8, on both engines and only in a pulse state since phase 2c9, through `plan.swept_value`, §5.2: the raw 0 before, VACASK reading a swept fall of 0 as none and stopping at a rise of 0). VACASK reads `fall` ≤ 0 as "no fall", so the pulse stays at val1, and stops the run on `rise` ≤ 0 [E25, E37]; Xyce makes either an ideal step [E25]. An explicit `period` ≤ rise+fall+width (a period ≤ 0 included, which VACASK would run as a single pulse), a negative `rise`, a negative `fall` or a negative `width` is an error in every state an engine uses the waveform in, on both engines, with the rule's words (`plan._SRC_RULES`; the note below the table): phase 2c7 (L4) checked the period and the rise in every state, the 2c6 skeptic's R0080 (`width=wd` altered to 2 s under `period=20u`) having stopped VACASK while Xyce ran it, and phase 2c8 (M1) the rest, the 2c7 skeptic's N07, N10, N12, N15 and S0290 (a fall reaching −0.1 µs through a parameter or a sweep) having run with status 0, VACASK never falling and Xyce ending val1 early [E166, E168]. Spectre's manual gives no constraint beyond the fields' meanings [M ref5 pp.682-686; ref19 has no vsource page], so the period rule is vamos's reading and VACASK's own setup check, and Spectre's reading of a negative `fall` or `width` is not known [I, §14 q.85]. Spectre's `period` defaults to ∞, a single pulse; Xyce's `PULSE` without `PER` takes PER = TSTOP, so on Xyce a Spectre pulse without a `period` whose `delay` is not a constant ≥ 0 prints PER 2e30 (`xyce.PULSE_NO_PERIOD`), past `pw`'s default 1e30, which no tran reaches; a constant delay ≥ 0 prints none, its second pulse starting at or after TSTOP, and VACASK, which reads no period as a single pulse, prints none (phase 2c9, N4: the 2c8 skeptic's P868, `delay=-2.7u` in a 3.5 µs tran, gave Xyce in(1.35 µs) = 1 where 0 [E168]). Open (§12): with a delay of exactly minus the rise, Xyce's tran starts at val1 + (val1 − val0)·width/fall [E168]. |
+| `type=sine sinedc ampl freq sinephase damp delay` | `sin vo va freq td theta phase` | the t = 0 value (the derived `dc`) is `sinedc + ampl·sin(sinephase)`, the phase in degrees [I, §14 q.56]; `sinedc` defaults to `dc` [M ref5 p.684], the one field of this table whose default is another field (`width` and `period` default to constants, `rise` and `fall` to transres, an absent `dc` to the waveform's t = 0 value, which follows its fields), and an alter or a sweep of `dc` moves a `sinedc` the source leaves to its default (`plan.sinedc_follows_dc`; phase 2c9, N3): the alter re-resolves the source; a `dev=` sweep of `dc` around a `tran` sweeps the sine's `sinedc` on VACASK, the tran printing `type="sine"`, where `dc` does nothing, while a DC-type analysis sweeps `dc` under `type="dc"`; on Xyce `SIN` reads the dc's hook as its V0; a given `sinedc` stays (written, set by an alter, or swept in the same step); the 2c8 skeptic's P824 had stayed centred on 0.25 at the dc point 0.5 on both engines, and P825, the constant sine, gave 0.5 where 0.75 [E172]; `freq` defaults to 0, which gives a constant: `damp` must be 0, else an error, also at a sweep point of a constant sine's `damp` unless a level keeps its `freq` away from 0 (phase 2c8); the constant prints as the sine itself at 1e-30 Hz (the `dc` row); a `freq` sweep point of 0 is the constant's 1e-30 on both engines when the sine is the constant sine in the state the alters made, the instance line's own or one an alter made (`freq` altered to 0, or `type` altered to sine without a `freq`), while an instance line's constant sine that an alter made a real sine sweeps its `freq` as a sine's, a point of 0 being VACASK's refusal and Xyce's `SIN` at FREQ 0 giving the constant; one predicate, `plan.swept_value`, decides it for `plan.build` and both emitters in the source state of the statement being printed (phase 2c9, N1: 2c8's VACASK deck read the instance line, so the 2c8 skeptic's P873 and Q05, right in 2c7, and its P870, P871 and P874 stopped VACASK with `Frequency of sinusoidal transient must be greater than 0` [E170]); a negative `freq` is an error on both engines, as the constant is (`tables.wave` refuses it at render), in every state an engine uses the waveform in (phase 2c8, M4; Spectre's reading is not known [I, §14 q.85]); a `freq` of 0 that reaches VACASK as a sine, through a parameter or a sweep of a sine of another `freq`, is VACASK's refusal (`Frequency of sinusoidal transient must be greater than 0`), Xyce's `SIN` running the constant with its given dc [E169]; `ampl2 freq2 sinephase2`, `fmmod*`, `ammod*` → error |
+| `type=exp val0 val1 td1 tau1 td2 tau2 delay` | `exp v1 v2 td1' tau1 td2' tau2` | `td1' = delay+td1`, `td2' = delay+td2` [I, §14 q.19]; a missing `tau1`/`tau2` is an error (Spectre's defaults are not given); `tau1` = 0 or `tau2` = 0 is an error in v1 on both engines, in every state an engine uses the waveform in and, as a constant, in every analysis and with no analysis (phase 2c8, M3), since ref5 p.685 gives the fields and no formula that defines it: `tau1` = 0 makes VACASK divide by it at the exp's start, delay + td1 (`NaN found in vector`, `Timestep too small`), at every start measured, while Xyce makes a step at most start times and stops with `Time step too small`, exit 1, at others; `tau2` = 0 makes VACASK divide by it at the fall's start, delay + td2, and Xyce stop with `Time step too small`, at every fall start measured; both run when that start lies after the tran's stop [E169]; each field has its own clause in the refusal (`plan._SRC_RULES`: phase 2c9, N5, for `tau2`, and the driver's fix after 2c9 for `tau1`, `… and Xyce would make a step or, for some start times, stop with 'Time step too small'`); a negative tau runs, the exp formula on both engines; a `td2'` not later than `td1'` is an error on both engines in every state an engine uses the waveform in (VACASK requires its relative td2 > 0 [E166], and Xyce would start the fall before the rise; phase 2c7, L4; Spectre's reading is not known [I, §14 q.85]); a `dev=` sweep of `tau1`/`tau2` runs on both engines (`xyce._SOURCE_FIELD`, phase 2c8), and a sweep of `delay` is an error on both, the parse having folded it into `td1'` and `td2'` (phase 2c6 [E163]; write `delay=<a netlist parameter>` and sweep that with `param=`) |
+| `type=pwl wave=[t v …] offset scale stretch delay`, or `file=` | `pwl` with `points` (t·stretch, v·scale+offset), `td=delay` | `file=` holds two columns without scale factors [M UG p.74] and is searched in the cwd, then the `-I` directories; `pwlperiod`/`twidth` → error; `allbrkpts` is ignored; time points that do not increase, a time point before 0 and a single time point are errors on both engines, as the constants are (`tables.wave` refuses them at render; VACASK alone refused the last two in 2c7), in every state an engine uses the waveform in (VACASK: `Pwl scale is not strictly monotonic`, `First timepoint must be >=0`, `Pwl waveform needs at least two points` [E166]; phase 2c7, L4; phase 2c8, M1); a negative `delay` is allowed, the derived dc being the value between the points around t = 0; an alter of `wave` is compared with its binding point by point (§5.3) |
+| `mag`, `phase` | `Source.ac` | `mag` defaults to 0 [M ref5 p.685: `mag=0 V`, the small-signal voltage], so a source that gives `phase` and no `mag` has no AC excitation; the parse, a sweep's source state and VACASK's hook source printed `mag=1` there until the driver's fix after phase 2c9 (the 2c9 skeptic's K61, `V1 (in 0) vsource dc=0 phase=45` under an ac at 1 kHz, gave 0.7071+0.7071j on both engines where Spectre gives 0 [E177]) |
 | `xfmag` | — | ≠ 1 while an `xf` runs → error |
 | `pacmag pacphase fundname` | — | silent: only `pac`/`pdisto`/`envlp` use them, and none runs |
 | `noisefile noisevec` | — | error while a `noise` analysis runs; otherwise silent |
 | `tc1 tc2 tnom` | — | ≠ 0 → error |
 | `m` | multiplier | existing rules |
+
+**Where the rules apply** (phase 2c7, L4; phase 2c8, M1-M4; phase 2c9, N5). `plan.build` checks the rules of
+the table in every state it walks (the netlist's values, each alter and `set`, each point of a sweep level that
+can change a field, §5.1), the overridden fields re-resolved as `spectre.resolve_source` resolves them
+(`plan._src_override`), wherever the engines use the waveform: in a `tran`, and in an analysis whose dc is
+derived, both engines taking that dc from the waveform (VACASK sets it up; Xyce's `DC` is
+`tables.wave_t0`'s); a given dc uses no waveform outside a `tran`. A state whose violating fields are
+constants is refused in every analysis, as the render refuses the constant whatever runs, and a netlist with
+no analysis gets the constants' refusals too, naming `the netlist` (`plan._constant_sources`). The message
+names the state (the analysis, the sweep point, the alter or `set` since which the source breaks the rule),
+the source with its field values, the rule and what the engines would do:
+`tran tr1 (after alter a1): the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1; VACASK`
+`would stay at val1, as it reads a fall at or below 0 as none, and Xyce would end val1 early)`; a DC-type
+analysis's form ends `(…; its dc is the waveform's value at t = 0)` and a constant's `(§3.8.1)`. A field
+that is not a number (an alter to a word) breaks no rule. VACASK range-checks a source whenever it sets the
+circuit up [E166, E167], also where no analysis uses the waveform, so `plan.build` refuses on VACASK alone,
+`… not supported on VACASK in v1 (Xyce runs it)`, a state that breaks one of those checks at VACASK's first
+elaboration (the first `alter instance` or `alter model`, in the state before its own values) and before a
+sweep's first point, in the values VACASK sets the circuit up in then: the netlist's own at its first
+analysis, else the state after the last change, with hooked levels at their first point and a `tran`'s
+sources in their waveform type (`plan._presweep_source`; phase 2c9, N5: the 2c8 skeptic's G20073, a
+`freq=qfr` that is 0 at the netlist's values and that every analysis sweeps away from 0, stopped VACASK with
+`Initial circuit setup failed`, Xyce running it right); and a sine's `freq` of 0 that reaches it through a
+parameter or a sweep, which Xyce runs as the constant.
 
 ### 3.9 Models and model groups
 - `model name master params` becomes `Model`, with `Model.prim` = the Spectre master (§4.1):
@@ -1777,6 +1841,21 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
 - **`BINNING`** and **`binning_rule(rules, name)`** (phase 2c, R-plan-1): the `l`/`w`/`p` binning names of
   the `bsim3v3` and `bsim4` P0 parameters (§3.9); `tables.rule_for` (the parser's card path) and
   `plan.rule_for` (the sweep and alter targets) both call it.
+- **The constant sine** (phase 2c8, M2; §3.8.1's dc row): `CONSTANT_SINE_FREQ` = 1e-30;
+  `is_constant_sine_spectre(spectre)`, the fields of a sine with `freq` 0 and `damp` 0, as
+  `spectre.resolve_source` folds them; `constant_sine(src)`, the faithful form (the given dc kept, the sine
+  itself at 1e-30 Hz with its written `sinedc`, `ampl`, `delay`, `damp` and `sinephase`), whose value over
+  any tran shorter than about 1e13 s stays within ampl·6.3e-17 of sinedc + ampl·sin(sinephase) [E170]; and
+  `is_constant_sine(src)`. `signals.unfold_constant_sines` puts the form into the render copy, and
+  `plan.build` and `vacask.hook_key` read it, so the plan and the decks agree on its fields.
+- **`wave_t0`** gives the waveform's value at t = 0 for a delay below 0 (phase 2c8 [E171]; §3.8.1's dc row),
+  a delay that reads a parameter printing a ternary on it; a constant delay ≥ 0 keeps the first value, so
+  the HSPICE renders are unchanged.
+- **`ELEMENT_NAME`** names every IR kind by its Spectre master (phase 2c4, H4: v vsource, i isource, e vcvs,
+  g vccs, f cccs, h ccvs, k mutual_inductor, b bsource, x subckt, y Verilog-A module), so the multiplier
+  refusal reads `V1: the multiplier of a vsource is not a device parameter on VACASK (folded into the`
+  `element, or without effect); a sweep or alter of m is not supported in v1`; the seven model kinds, the
+  only ones its other users index, are unchanged.
 
 ### 4.5 `vacask.py` / `xyce.py`
 1. **Every walk sees `Cond`.** The walks that skip non-`Instance` items today use `ir.flat_items` or handle
@@ -1804,7 +1883,10 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
    pinned; `xyce.py`'s remark about `nf` ≠ 1 describes the HSPICE path).
 4. **Variables and overridable subckt parameters.** `variables` (from the plan): a top-level parameter that a
    sweep or alter targets.
-   - VACASK prints it as `parameters p=vamos_v_p`, with `var vamos_v_p=<value>` in the control block [E].
+   - VACASK prints it as `parameters p=vamos_v_p`, with `var vamos_v_p=<value>` in the control block [E]. One
+     whose expression reads another plan variable, temp or tnom prints through a hook,
+     `parameters p=(vamos_af<k> ? vamos_v_p : <expr>)`, so that it follows its inputs until an alter or a
+     sweep sets it (phase 2c4 [E156]; item 16).
    - Xyce keeps `.param p=<nominal>` and sweeps it with `.STEP`/`.DC` [E].
    - Such a parameter and its dependents are never folded into subckt defaults, bin guards or conditions on
      VACASK (§4.1, `Netlist.values` in the render copy [E53]). VACASK's `NOT_GIVEN` scheme keeps those
@@ -1861,7 +1943,10 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
    Xyce an alter to `no` of a resistor with `tc1`/`tc2` or a card keeps it an `R`, noisy, with the static
    case's warning. A sweep of `isnoisy` is an error in v1 on both engines (§5.2). An alter of a netlist
    parameter that an `isnoisy` expression reads is not followed: VACASK still lists the resistor, at 0, and
-   Xyce stops at the probe guard (open, §12).
+   Xyce stops at the probe guard (open, §12). An `isnoisy` that names a parameter (`isnoisy=nflag`, a `Str`
+   word) is a binding for §5.3's G1 as an expression is, compared on or off, so an alter of it followed by a
+   change VACASK re-elaborates on is refused there; 2c4 did not track the word, and VACASK lost such an
+   alter (phase 2c5 [E160]).
 8. **Independent sources** (`Netlist.dialect == "spectre"`; the HSPICE path is unchanged, and vcs-ams runs
    only `tran`, where both engines use the waveform):
    - VACASK uses `dc` only when `type="dc"`. For any other type it takes the t = 0 waveform value in every
@@ -1877,6 +1962,10 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
      `Source.dc` is None (`xyce.py:799-802`), so the rule is necessary. A source whose AC magnitude is the
      number 0 prints no `AC` field on a Spectre netlist (Xyce warns `AC magnitude is set to 0.0` otherwise,
      which counted as a Spectre warning); a hooked magnitude keeps it (phase 2c, R-emit-12).
+   - A constant sine (§3.8.1's dc row) prints as any waveform with a given or derived dc (phase 2c8, M2):
+     VACASK switches it to `type="dc"` around the DC-type solves and back to `type="sine"` for a tran, and
+     Xyce prints `DC <the given dc> SIN(… 1e-30 …)`. Xyce's `PER` of a pulse without a period and its `SIN`
+     V0 under a sweep of the `dc` a `sinedc` defaults to are §7.2's.
 9. **Quoting.** An all-digit node name with a leading zero is printed quoted on VACASK (`'007'`): bare, VACASK
    rejects it, and quoted, `'007'`, `7` and `'00'` are distinct nodes, `'00'` not ground [E35]. Xyce keeps
    them distinct unquoted [E35]. (The HSPICE path never reached this: `spice.py` strips leading zeros.)
@@ -1992,6 +2081,80 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
     when every instance starts with `x`, as HSPICE guarantees. For Spectre (ADE names instances `I0`, `I2`, …
     [S]) every `.PRINT` item, every `.IC`/`.NODESET` node and every `DNO()` is spelled through `printed_path`:
     `.print v(I2:MID)` makes Xyce abort, and `.ic v(I2:MID)` is only warned about and ignored, rc 0 [E84].
+16. **Switchable hooks on VACASK** (`Netlist.dialect == "spectre"`; phase 2c4, H1 [E153]). VACASK
+    re-evaluates every parameter its netlist binds to an expression at each elaboration after a change of a
+    variable, temp or tnom (inside a subckt instance after a change of that instance's parameters or `m`,
+    and at the first analysis when temp or tnom is not 27 [E151]), which loses an alter of such a parameter
+    [E148], and it cannot sweep one (`is bound to an expression` [E102]). So a sweep or alter target that the
+    netlist binds to an expression reading a name, temp or tnom prints as
+    `p=(vamos_af<k> ? vamos_av<k> : <expr>)`, both variables declared 0 by a `var` statement right after the
+    first options line (§7.1), before VACASK's first elaboration; the alter is
+    `var vamos_af<k>=1 vamos_av<k>=<value>` (a source field's `alter instance` statement follows it), which
+    VACASK's re-evaluation then keeps, as Xyce's replay keeps the alter, and a `dev=`, `sub=` or `mod=` sweep
+    sweeps `vamos_av<k>` (§5.2). VACASK's `a ? b : c` has the lowest precedence and is right-associative, and
+    `var` evaluates every right-hand side before it writes them [VACASK `expr-operators.md`, `cmd-var.md`].
+    - `vacask.hook_key` names a site: the value parameter `Instance.value` holds, `m` (`$mfactor`), a source
+      field, an X line's parameter, a Verilog-A parameter in lower case; it gives none for `isnoisy` (the
+      `noisy` switch, item 7), the `m` of a kind whose multiplier is no device parameter, a behavioral source
+      and a source field the parser derives another place from (a pulse's `rise` and `fall`, printed
+      `(rise == 0 ? transres : rise)`; an exp's `td1` and `td2` as written take the hook, `td2` printed
+      `td2=((vamos_af1 ? vamos_av1 : t2)-td)`). `vacask.hookable` accepts an instance target when every
+      resolution of its path has a site (`path_resolutions`: an `if` and its `else` may both hold R1), and a
+      card target when every card it names, each entry of a model group, gives the parameter, and a
+      Verilog-A card's cards all bind it or none does. `vacask.prints_hook` says whether the deck prints a
+      hook for a target, and `plan.build` asks the same predicate (`plan.vacask_hooked`), so the plan's rules
+      and the deck agree (§5.3); no hook is printed for a constant target or for a binding nothing targets,
+      and a hooked instance or card site the deck did not print is an internal error, a safety net.
+    - Inside a subckt body the hook is per instance path: the body declares `vamos_hf<n>=0 vamos_hv<n>=0`
+      for the site, and the X lines of the altered path pass them on
+      (`X1 (in out) half rr=1000.0 vamos_hf1=vamos_af1 vamos_hv1=vamos_av1`; two levels down through each
+      holder's own pair). Lifted nested definitions (item 11), both branches of an `if`, every entry of a
+      model group, Verilog-A instances and cards and a coupled inductor's folded `l` take it too.
+    - The multiplier of an instance inside a subckt body, when an alter or a sweep sets that `m`, prints
+      through its per-path hook, `$mfactor=($mfactor*(vamos_hf<n> ? vamos_hv<n> : 1.0))`, the line's own
+      `m`, or 1, inside the switch (phase 2c5, R3 [E159]): the binding printed before, `$mfactor=$mfactor`,
+      lost such an alter at the next elaboration and failed a `dev=X1.R1 param=m` sweep. A holder that writes
+      its own `m`
+      (`X1 (in out) half m=3`) keeps the refusal, `X1.R1: VACASK sets the device's $mfactor, which also`
+      `carries the multiplier of the enclosing instance X1 (m=3.0)`.
+    - A plan variable whose expression reads another plan variable, temp or tnom prints through a hook too
+      (item 4 [E156]).
+    - The hook's `var` statements are VACASK variable changes, after which VACASK re-evaluates every other
+      binding, so §5.3's rule (b) counts them (phase 2c5, R1 [E160]). A hooked `dev=` sweep is a variable
+      sweep, which re-propagates every expression-bound parameter at each point: 19-22 % more engine time
+      with 400 bound resistors, and nothing measurable while a hook is merely present [E158].
+17. **The control block's statements on VACASK** (phase 2c5, R4; phase 2c6, K2; phase 2c7, L1).
+    - A control-block statement cannot read a netlist parameter, temp or tnom
+      (`alter instance("V1") type="dc" dc=vv mag=2.0` stops VACASK, `Variable or constant 'vv' not defined`,
+      exit 1), while a field left out of it keeps its value and follows its binding [E154]. So an alter or a
+      source-state switch (§5.3) leaves out every field that reads a name, temp or tnom, derived or not (a
+      pulse's `rise` and `fall`, an exp's `td1` and the relative `td2` the parser derives, a pwl's `wave`),
+      but only where leaving it out keeps the right value: the instance line prints the same expression once
+      the altered fields that are themselves hooked are substituted by identity
+      (`vacask.control_source_problems`, `swap`). Otherwise `plan.build` refuses it on VACASK, status 2:
+      `alter a1: on VACASK the control block's alter of V1 would print td2=2e-06 - td, which reads td: a`
+      `VACASK control-block statement cannot read a netlist parameter, temp or tnom ('Variable or constant`
+      `... not defined'), and left out the field would keep the instance's own value (its binding on the`
+      `instance line, or VACASK's default where that line prints none), not this one: not supported on`
+      `VACASK in v1 (Xyce runs it)`. 2c4 left out only the fields as written, so its derived ones stopped
+      VACASK with exit 1, and a type switch that left a bound field out took VACASK's default for it (the
+      2c5 fixer's X14, dc to pulse with `val1=vv`: 0.5 where Xyce gives 1.0). `vacask.printed_items` is the
+      one view of a source's printed fields that this check, §5.3's printed-field bounds and E102's
+      derived-field check share.
+    - Every per-statement instance lookup resolves the instance paths the run takes in the state of the
+      statement printed: an alter, source-switch or sweep target, the X lines' `$mfactor` chain, a coupled
+      inductor's fold, a current save's directive and output column (§6.3) and the Verilog-A cards'
+      instances. The state is the plan's variables (the `var` statement and every alter of a netlist
+      parameter so far), temp, tnom and the X-line parameters the `sub=` alters set, with the dependents
+      re-evaluated (`plan.run_values`, `plan.run_paths`), walked through `tables.path_envs` strictly as
+      `plan.build`'s walk does (`_Deck.run_instance`, `run_map`, `run_chain`; `run_update` after the options,
+      the `var` statement and every alter). A state whose paths do not resolve is an error naming the
+      statement and the state, ending `(internal)`, never `_resolve`'s first match; `plan.build` refuses such
+      a state first, and the error never fired in the 2c7 skeptic's 14,904 runs. 2c5 took the first match,
+      the untaken branch's V1, as a source statement's base and refused with an `(internal)` message (the
+      2c5 skeptic's N607), and 2c6 resolved the paths on the render copy, whose values hold no plan
+      variable, falling back to the first match whenever a condition read one (the 2c6 skeptic's K2b1,
+      K2b2 and K2b4) [E164].
 
 ### 4.6 `rawfile.py`
 - **`Raw.exact(name) -> int`**: the column whose name equals `name` exactly (case-sensitive, no aliasing);
@@ -2067,9 +2230,10 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
   `errpreset` under `+errpreset` or `+aps`. It never holds a Spectre default; §5.4 and §8.7 read it. A
   netlist without analyses runs
   nothing: it exits 0 with `plan.build`'s note "the netlist has no analyses: nothing to run" and no results
-  directory (phase 2: no runner runs, §2.7). `plan.build` collects every note and raises
-  `NoteError` with all of them when any is an error (the convention of `spectre.parse`); warnings and notes
-  return in `RunPlan.notes`, and the Note of a `note` action is not repeated there.
+  directory (phase 2: no runner runs, §2.7), unless a source's constant field breaks a §3.8.1 rule, which
+  is refused there too, status 2 (phase 2c8, `plan._constant_sources`). `plan.build` collects every note
+  and raises `NoteError` with all of them when any is an error (the convention of `spectre.parse`);
+  warnings and notes return in `RunPlan.notes`, and the Note of a `note` action is not repeated there.
 - **Evaluation.** `plan.build` also evaluates, on every instance path:
   - every expression of every reachable item, with the Spectre evaluator, for every parameter state the plan
     sets (§3.5): an out-of-domain value is an error naming the expression and the path, so none reaches an
@@ -2081,7 +2245,8 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
     that resistor alone (`_State.rset`), and every other resistor's value from the walk that computed it,
     so a `dev=` sweep or alter of a resistance adds no walk (phase 2c3, G2: 2c2's check had walked every
     path at each of its points, `plan.build` 0.0045 s → 4.07 s for 401 resistors under a 1001-point sweep,
-    now 0.0047 s [E152]);
+    now 0.0047 s [E152]); §3.8.1's source rules are checked at each point of a level that can change a
+    source's fields as well (phase 2c7, L4; §3.8.1's note below its table);
   - the `ParamTest`s (§3.6) and the condition/bin rule (§3.7);
   - the analysis parameters, `ic` and `nodeset` values with `Netlist.values` (§3.10, §3.11); one that reads a
     plan variable or one of its dependents is an error in v1;
@@ -2148,20 +2313,40 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
   `dev=` without `param=` is `param=dc` on a vsource or isource and an error on any other device (§3.11
   [I, §14 q.53]). A field of an independent source (`dc`, `val0`, `ampl`, …) follows §5.3's source rules;
   the swept fields are those the decks print under an engine name (VACASK `dc val0 val1 delay rise fall
-  width period sinedc ampl freq damp sinephase mag phase tau1 tau2`; Xyce the fields the IR holds directly),
-  and an `exp`'s `td1`/`td2` or a `pwl`'s `wave`/`offset`/`scale`/`stretch` cannot be swept directly in v1
-  (an error). On VACASK a sweep of an instance parameter bound to an expression that reads a subckt or
-  netlist parameter is an error naming what to sweep instead (`sub=`/`param=`): VACASK fails to bind it,
-  while an alter of it works [E102] and stays allowed under §5.3's rules for an alter of a bound parameter
-  (phase 2c3, G1: VACASK re-evaluates the binding at its next elaboration after a change [E148]); Xyce
-  sweeps it natively. The check reads the parameter where the IR holds it (phase 2c2, F3): a master's value
-  parameter in `Instance.value`, which is `plan.VALUE_PARAMS` (`r`, `c`, `l`, the `gain` of a vcvs or
-  cccs, a vccs's `gm`, a ccvs's `rm`, a mutual inductor's `coupling`, and a diode's, bjt's or jfet's
-  `area`), a source field as written (`Source.spectre`: `dc=vv`), any other parameter on the instance;
-  before phase 2c2 it read `r`, `c` and `l` only, so a `dev=` sweep of `vcvs gain=g` or of `dc=vv` failed
-  at VACASK's run (exit 1, `Failed to bind sweep parameters`) [E145]. Two such sweeps still fail there
-  instead of being refused (open, §12): a `sub=` sweep of a subckt parameter that its X line binds to an
-  expression (§14 q.80), and a `mod=` sweep of a card parameter bound to one. A parameter with no rule of
+  width period sinedc ampl freq damp sinephase mag phase tau1 tau2`; Xyce the fields the IR holds directly,
+  an exp's `tau1` and `tau2` among them since phase 2c8, M3), and an `exp`'s `td1`/`td2` or a `pwl`'s
+  `wave`/`offset`/`scale`/`stretch` cannot be swept directly in v1 (an error; on VACASK a `td1` or `td2`
+  that the netlist binds to an expression sweeps through its hook, below), nor an exp's `delay`, which the
+  parse folds into `td1` and `td2`, on either engine: `sweep sw1: the delay of the exp source V1 is folded`
+  `into its td1 and td2 (§3.8.1), so a sweep of it would set VACASK's absolute td1 and nothing in Xyce's`
+  `deck: not supported in v1 (write delay=<a netlist parameter> and sweep that with param=)` (phase 2c6
+  [E163]). VACASK cannot sweep an instance parameter bound to an expression that reads a subckt or netlist
+  parameter: it fails to bind it, while an alter of it works [E102], under §5.3's rules for an alter of a
+  bound parameter (phase 2c3, G1 [E148]); Xyce sweeps it natively. The check
+  reads the parameter where the IR holds it (phase 2c2, F3): a master's value parameter in
+  `Instance.value`, which is `plan.VALUE_PARAMS` (`r`, `c`, `l`, the `gain` of a vcvs or cccs, a vccs's
+  `gm`, a ccvs's `rm`, a mutual inductor's `coupling`, and a diode's, bjt's or jfet's `area`), a source
+  field as written (`Source.spectre`: `dc=vv`), any other parameter on the instance; before phase 2c2 it
+  read `r`, `c` and `l` only, so a `dev=` sweep of `vcvs gain=g` or of `dc=vv` failed at VACASK's run
+  (exit 1, `Failed to bind sweep parameters`) [E145]. Since phase 2c4 (H1 [E153]) the VACASK deck sweeps
+  such a parameter's switchable hook instead (§4.5 item 16): `var vamos_af<k>=1 vamos_av<k>=<the sweep's`
+  `first point>` before the nest, `sweep <id> variable="vamos_av<k>" …` and `var vamos_af<k>=0` after the
+  analysis unless an alter of the target is in force, VACASK restoring the swept variable after the sweep;
+  a flag an alter set keeps the alter's value, with no second statement. The first point is set with the
+  flag since phase 2c7 (L3 [E166]): VACASK sets a swept field up at every elaboration, and the declared 0
+  had stopped it for an exp's `td2` and a sine's `freq`
+  (`Parameter td2 of exponential transient must be greater than 0`). That covers a `dev=` target (every
+  value parameter, a source field, an `m`, the `m` of an instance in a subckt body since phase 2c5, R3), a
+  `sub=` target its X line binds and a `mod=` target its card binds, with Xyce's values: the 2c2 decks `f3j`
+  (`sub=`, [0.5, 0.25]) and `p_modbound` (`mod=`), which had failed at VACASK's run (§14 q.80), now run.
+  E102's error stays for what the hook cannot print:
+  `dc dc1: on VACASK rise of V1 is bound to the expression rt, which reads rt: VACASK cannot sweep such a`
+  `parameter ('is bound to an expression'); sweep what it reads instead (sub= for a subckt parameter,`
+  `param= for a netlist parameter) [E, phase 1b]`, and since phase 2c6 a source field whose parameter on
+  VACASK's instance line derives from a bound one,
+  `sweep sw1: on VACASK sinedc of V1 is printed on its instance line as sinedc=vv, which reads vv: …`
+  (VACASK exit 1 before [E163]). A sweep of such a target around a sweep of what it reads is §5.3's rule
+  (a) on both engines (phase 2c6). A parameter with no rule of
   a master that has rows is an error ("not an instance parameter of …"). A `dev=` target on a Verilog-A
   instance, and a `mod=` target on a Verilog-A card, is checked against the module's declared parameters
   (`VaModule.params`: case-insensitive, `m` allowed, unchecked when the list is unknown, §3.1's note) with
@@ -2182,7 +2367,8 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
   F3 [E145]).
 - `mod=M param=p` → `("model", "<IR card>", p')`, where p' applies the card's `Model.prim` renames from
   `SPECTRE_MASTERS`. VACASK `model="<card>"` [E]; Xyce `.DC M:P …` [E20]. A model group cannot be swept this
-  way (a VACASK sweep names one model): error in v1.
+  way (a VACASK sweep names one model): error in v1, on both engines (the hook could carry it on VACASK,
+  §14 q.84).
 - `sub=X1 param=p` → `("instance", "x1", p)`, with p made overridable on VACASK (§4.5 item 4) [E24]; Xyce
   sweeps a generated `.param` (§7.2) [E20].
 - `param=temp` → `("option", "temp", "")`: VACASK `option="temp"` [E]; Xyce `.DC TEMP` [E].
@@ -2203,6 +2389,22 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
   v1 on both engines, the switch choosing the resistor's form per deck, not per point (VACASK's `noisy`,
   Xyce's noise-free `G` form); an alter of it takes `no`, `false`, `yes`, `true` or a number and is mapped
   (§4.5 item 7 [E143]) (phase 2c2, F2, R-plan-19).
+- **Substituted points** (phase 2c8; phase 2c9, N1 and N2). Some swept source-field points reach the engines
+  otherwise than the deck writes them: a `rise` or a `fall` of 0 of a pulse runs at Spectre's default edge,
+  transres (`plan.edge_default`, §3.8.1's pulse row), and the constant sine's `freq` of 0 at its 1e-30
+  (§3.8.1's sine row). One predicate decides them, `plan.swept_value` per point and `plan.swept_points` per
+  level, read in the source state of the statement being printed: by `plan.build`'s source states
+  (`_src_override`), by VACASK's deck (`vacask._Deck.engine_points`, in the state the plan's alter and
+  source actions make, `track_source` and `state_source`, else the instance line's) and by Xyce's
+  (`sweep_text`, in the replayed state); 2c8 read the instance line on VACASK [E170]. A `damp` point other
+  than 0 of a sine whose `freq` is the constant 0 is refused on both engines unless a level keeps its `freq`
+  away from 0: `sweep sw1 at V1:damp=100000: the sine of V1 has freq=0 and damp=100000: a sine with freq=0`
+  `and damp != 0 is not a constant: give the frequency (§3.8.1)`. The PSF keeps the deck's own values: a
+  sweep block's parent writes the plan's points, and a point that the plan's grid holds as exactly 0 on a
+  dc analysis's axis, or on an ac, noise or xf parameter axis, is written 0 (`results.collect`, §8.3),
+  where 2c8 wrote the engine's 1e-09, 3.5e-15 or 1e-30 [E173]; a lin sweep whose start + k·step rounds
+  near 0 keeps that rounding, the plan's own point and not a substitute (`start=-0.3 stop=0.3 step=0.1`
+  writes `5.551115123125783e-17`).
 
 **Restore.** Spectre returns the swept parameter to its original value after the analysis [M ref19 pp.43, 64,
 406]. VACASK restores a swept instance, model, option or variable after the sweep [E1, E4], although
@@ -2245,7 +2447,15 @@ R-plan-15: E29's Schmitt trigger then gives the fresh operating point's AC value
     the definitions along the changed path is v2. The same rule covers the Xyce sweep hooks of §7.2 and a
     noise `iprobe=` input inside a subckt (§5.6). `xyce.render` repeats the check for a step built by hand
     (`_one_path`), and `path_of` puts a hook or the noise input only on the instance whose parent X line
-    instantiates the body being printed, not on a same-named instance of another subckt (phase 2).
+    instantiates the body being printed, not on a same-named instance of another subckt (phase 2). The state
+    replay sets the one instance that the branches the run takes give the path (`run_xyce.taken_instance`,
+    through `tables.path_envs` on the replayed IR), and refuses at render, status 2 before any engine runs, a
+    target inside a definition that more than one instance path reaches: `the replay of an alter: on Xyce`
+    `X1.R1 lies in subckt cell, which 2 instance paths reach (X1, X2): changing the shared definition would`
+    `change every path; not supported in v1 (§5.3)` (phase 2c5, R2 [E155]); 2c3's replay altered the first
+    match, the untaken branch of an `if` that holds R1 in both, and 2c4's every match, the untaken branch's
+    subckt definition included, which another instance also used. A change of an `if` condition after the
+    alter is refused on both engines (§3.7), so the taken branch cannot change under it.
   - `dev=V param=type`, a waveform field or `dc`, on a vsource or isource: `Source.spectre` is updated and the
     source re-resolved with `spectre.resolve_source`. VACASK gets one complete `alter instance("<v>") type=…
     <every field of the wave> [dc=]`, every field explicit, each from `Source.spectre` or Spectre's defaults:
@@ -2253,7 +2463,11 @@ R-plan-15: E29's Schmitt trigger then gives the fresh operating point's AC value
     its warning. `type` is never printed alone: VACASK would fill in its own defaults (val1 1, delay 0, rise
     1 ns, fall 0 = "no fall", width 0), and with the fields but no `fall` the pulse never falls [E37]. The
     printed `type` follows the source states below. Back to dc: `type="dc" dc=<dc>`. Xyce: the replayed IR
-    copy gets the re-resolved Source.
+    copy gets the re-resolved Source. A field that reads a name, temp or tnom is left out of the VACASK
+    statement where that keeps its value, else refused (§4.5 item 17). An alter that makes a sine the
+    constant sine (its `freq` altered to 0, or `type` to sine with no `freq`) keeps its given dc
+    (`plan._resolved_source`, §3.8.1's dc row; phase 2c8, M2) and changes how a later sweep of its `freq`
+    prints, both engines reading the alter's Source (§5.2; phase 2c9, N1).
   - `mod=M param=p` → `alter model("<card>") p'=v` (renamed per `Model.prim`); for a model group, every bin
     card at once (`alter model("m_b.1", "m_b.2", …)`; `alter` takes several names [VACASK doc]).
   - `sub=X1 param=p` → `alter instance("x1") p=v`, with p overridable (§4.5 item 4) [E24].
@@ -2263,7 +2477,24 @@ R-plan-15: E29's Schmitt trigger then gives the fresh operating point's AC value
 - **An alter of a parameter the netlist binds to an expression** that reads a parameter, temp or tnom (phase
   2c3, G1): an instance's `r=rv`, `gain=g`, `dc=vv` or `m=mm`, a subckt instance's X-line `rr=rv` altered
   with `sub=`, or a card's `is=isv` altered with `mod=`; a constant or a constant expression is not such a
-  binding (VACASK folds them).
+  binding (VACASK folds them). Phase 2c4 (H2) adds an alter of a netlist parameter defined by an expression
+  (`parameters rw=2*rv`, `alter param=rw`) and a `sub=` alter of a subckt parameter that the X line leaves at
+  an expression default (`rr=q*1k`), rule (a)'s alone below, since both engines keep these alters (VACASK's
+  `var`, and the instance parameter its alter gives; Xyce's replay).
+  - **Default-deny** (phase 2c6, K1 [E161]): every alter of such a target is a bound, whatever its value's
+    type, compared as the type fits: a number within 1e-9 relative, an `isnoisy` switch on or off (also
+    `isnoisy=nflag`, a word naming a parameter; phase 2c5), a vector (a pwl's `wave`) element by element,
+    one of another length differing; a value G1 cannot compare (a word or a vector for an expression, a
+    scalar for a vector) is refused at the first change rule (a) or rule (b) watches. The binding is found
+    under every spelling of the target: the alter's name, the engine's spelling and the master's rename rows
+    that give it (`bsim3v3`/`bsim4` `vtho`/`vth0`, `pta`/`tpb`, `ptp`/`tpbsw`, `cta`/`tcj`, `ctp`/`tcjsw`;
+    `bsim4` `js`/`jss`, `n`/`njs`, `cjswg`/`cjswgs`, `mjswg`/`mjswgs`, `pbswg`/`pbswgs`, `xti`/`xtis`; the
+    diode's `pb`/`vj`, `vb`/`bv` and `nz`, the engines' `nbv`), and a Verilog-A instance's or card's
+    parameter in any case. A source field that the netlist leaves to a default reading another field is a
+    bound of that expression, a sine's `sinedc`, whose default is the `dc`:
+    `alter a1 set sinedc of V1, whose default, the dc, the netlist binds to the expression vv (it reads vv)`.
+    2c5 tracked numbers only, so an alter of a pwl's `wave` was lost on VACASK after any later change, status
+    0 (the 2c5 skeptic's N427, N601-N606, N701-N705 and N803-N806: in 1 where Xyce gives 2, N605 3).
   - Spectre's reading is not known (§14 q.79): no manual page read says whether the alter replaces the
     binding or a later change of what the expression reads re-evaluates it. ref19 p.54 (the alter "changes
     the value of any modifiable component or netlist parameter for any analyses that follow"), p.55
@@ -2281,37 +2512,82 @@ R-plan-15: E29's Schmitt trigger then gives the fresh operating point's AC value
     analysis or a sweep point) after any change of a variable, temp, tnom or scale, and inside a subckt
     instance after a change of that instance's parameters or `m`, whatever the expression reads
     (`lib/cirparams.cpp`'s force; `lib/hierdevice.cpp`'s `propagateParameters`, expressions only).
+  - **The switchable hook** (phase 2c4, H1 [E153]; §4.5 item 16): VACASK's deck prints every target that
+    `vacask.hookable` accepts, when the netlist binds it to an expression reading a name, temp or tnom, as
+    `(vamos_af<k> ? vamos_av<k> : <expr>)`, and its alter as `var vamos_af<k>=1 vamos_av<k>=<value>`, so
+    VACASK's re-evaluation keeps the altered value, as Xyce's replay does, and only rule (a) applies to such
+    a target; it is hooked on every resolution of its path, and a `mod=` target on every entry of a model
+    group. What the hook cannot print keeps rule (b): a pulse's `rise` or `fall` bound to a parameter, an
+    `isnoisy` written as an expression or as a word naming a parameter, a pwl's `wave`, a `sinedc` left to a
+    bound `dc`, a `mod=` target in a model group with an entry that leaves the parameter out, a Verilog-A
+    card that mixes bound and unbound values, and the printed fields below.
   - `plan.build` therefore reports, status 2 before any engine runs, at the first analysis point where the
     expression's value differs from the altered value:
     - (a) on both engines, a change after the alter of what the expression reads, by an alter, a `set` or a
       sweep point, a change and a change back included; the message names the alter, the binding and the
       change, `dc dc1 at rv=0: alter a1 set r of R1, which the netlist binds to the expression rv`
-      `(it reads rv), and dc dc1 (its sweep of rv) changes rv after the alter: …`, and ends
-      `not supported in v1 (§5.3; alter what the expression reads instead)`;
-    - (b) on VACASK only, when the expression's inputs did not change: any of VACASK's triggers since its
-      last elaboration before the alter (the previous analysis, else its first `alter instance` or
-      `alter model`), where Xyce, and Spectre under either reading, keep the alter; the message,
+      `(it reads rv), and dc dc1 (its sweep of rv) changes rv after the alter: …`, says what vamos's decks
+      do, `(VACASK and Xyce keep the alter)` for a hooked target and for H2's forms and
+      `(VACASK re-evaluates it, Xyce keeps the alter)` for one without a hook (phase 2c5, R4), and ends
+      `not supported in v1 (§5.3; alter what the expression reads instead)`; H2's forms read
+      `alter a1 set rw, which the netlist binds to the expression 2.0 * rv (it reads rv)` and
+      `alter a1 set rr of X1, which subckt half binds to the default q * 1000.0 (it reads q)`; a change made
+      before the alter, or a later value equal to the alter's, is not refused;
+    - (a) for a sweep (phase 2c6 [E162]): on both engines, a sweep that sets a target whose nominal value is
+      bound to an expression, around a sweep that changes a name the expression reads, at the first point
+      where the expression's value differs from the swept one (`plan._sweep_bounds`; VACASK keeps the swept
+      value, its hook, while Xyce's `.STEP` and `.DC` re-evaluated the expression at some points):
+      `dc dc1 at R1:r=1000, rv=2000: sweep sw1 sets r of R1, which the netlist binds to the expression rv`
+      `(it reads rv), and dc dc1 (its sweep of rv) changes rv inside it: whether Spectre keeps the swept`
+      `value or re-evaluates the expression is not known (VACASK keeps it, Xyce re-evaluates the expression`
+      `at some points): not supported in v1 (§5.3; sweep what the expression reads instead)`; a sweep of a
+      name inside a sweep of the target leaves no doubt and runs;
+    - (b) on VACASK only, for a target the hook cannot print, when the expression's inputs did not change:
+      any of VACASK's triggers since its last elaboration before the alter (the previous analysis, else its
+      first `alter instance` or `alter model`), where Xyce, and Spectre under either reading, keep the
+      alter; the triggers are a change of a netlist parameter, temp or tnom (inside a subckt instance also
+      of that instance's parameters or `m`), every statement the deck prints for a hooked target (a hooked
+      alter's `var vamos_af<k>=1 vamos_av<k>=<v>`, a hooked sweep's flag `var` and its points, and the
+      `var vamos_af<k>=0` printed after the nest, pending at the next elaboration; phase 2c5, R1 [E160]),
+      and a temp or tnom other than 27 at VACASK's first elaboration (E151's, phase 2c4); the message,
       `dc op1: on VACASK, alter a1 set r of R1, …; alter a2 changes other, and VACASK re-evaluates such`
-      `a binding at the next analysis after a change of a netlist parameter, temp or tnom, …`, names the
-      holder inside a subckt instance (`or of a parameter of the subckt instance X1 that holds it`) and
-      ends `not supported on VACASK in v1 (Xyce runs it)`.
+      `a binding at the next analysis after a change of a netlist parameter, temp or tnom, …`, names a
+      hooked change (`alter a2 changes r of R1, which the VACASK deck sets through a variable`, a hooked
+      variable named once), the first elaboration (`the temp=50 in force at VACASK's first elaboration`)
+      and the holder inside a subckt instance (`or of a parameter of the subckt instance X1 that holds it`),
+      and ends `not supported on VACASK in v1 (Xyce runs it)`. A hooked alter sets no instance parameter, so
+      it is not VACASK's first elaboration; only a hooked source field's is, whose `alter instance` statement
+      follows its `var`;
+    - (b) for the printed fields (phase 2c6, K1 [E161]): on VACASK a source alter is one control-block
+      statement printing every field of the new state that reads no name (§4.5 item 17), and VACASK keeps
+      such a constant only until it re-evaluates the instance line's binding of that field; so each field
+      the statement prints as a constant where the instance line's binding reads a name, and which the
+      altered fields' own bounds do not cover (a field the line derives through another field's hook, from
+      fields altered to constants, or by an expression vamos cannot trace), is a rule-(b) bound
+      (`plan._bound_printed`), compared as VACASK re-evaluates it (a hooked field at its hook's value) with
+      the value it is meant to have, the statement's constant or, while a hooked sweep sets a field it
+      derives from, the field re-derived with the swept value:
+      `tran tr1: on VACASK, alter a2 set td1 of V1, so the control block's statement of V1 prints`
+      `td2=1.5e-06, which its instance line binds to the expression t2 - 1e-06 (it reads t2); alter a3`
+      `changes other, and VACASK re-evaluates such a binding … not supported on VACASK in v1 (Xyce runs it)`.
   - What runs as before, with matching values: an alter of a constant or a constant expression, an alter
     after which nothing VACASK re-elaborates on changes, an instance sweep after the alter and a sweep
     before it; a later alter of the same target replaces the earlier one, and an alter of a subckt
     instance's `m` enters the state both rules compare. Rule (b) is conservative for a body nested two
     levels deep: for `X0.X1.R1` it counts any change on `X1`'s path, an outer `X0` parameter that `X1`'s
     line does not read included, so such a deck may get status 2 although it would match, never a silent
-    wrong value (§12).
-  - Rule (b)'s elaboration point holds for variables only (the 2c3 skeptic [E151]; open, §12, §14 q.82):
-    VACASK elaborates at its first `alter instance/model` or its first analysis (`simulator/cmd.cpp`:
+    wrong value (§12); since phase 2c4 that holds for the targets the hook cannot print only.
+  - Rule (b)'s elaboration point held for variables only (the 2c3 skeptic [E151]; closed in phase 2c4, §14
+    q.82): VACASK elaborates at its first `alter instance/model` or its first analysis (`simulator/cmd.cpp`:
     `cmd_alter` → `defaultElaboration`); `CommandInterpreter::elaborate` writes the user options first, and
     `Circuit::elaborate` clears `VariablesChanged` but not `ParametrizationAffectingOptionsChanged`
     (`lib/circuit.cpp:987-990`, against `elaborateChanges`, `lib/cirparams.cpp:501-503`). So when temp or
     tnom differs from VACASK's defaults (27, 27; `lib/options.cpp:48-49`) at that first elaboration,
     through the netlist's global temp or tnom or an alter or `set` of either before it, the first analysis
     propagates every expression-bound parameter again, and an alter of such a parameter made before the
-    first analysis is lost on VACASK (0.5 where Xyce gives 0.25, exit 0), which `plan.build` does not
-    refuse yet.
+    first analysis was lost on VACASK (0.5 where Xyce gives 0.25, exit 0). Since phase 2c4 the hook,
+    declared before that elaboration, keeps the alter of every target it prints (0.25 [E153]), and rule (b)
+    counts a temp or tnom other than 27 at the first elaboration as a trigger for the rest.
 - **Source states on VACASK.** VACASK uses `dc` only when `type="dc"` [E17], so a waveform source whose `dc` is
   given is printed `type="dc"` with its waveform fields (§4.5 item 8), and `plan.build` switches it for every
   `tran`: `alter instance("<v>") type="<wave>"` before the tran action (ahead of its options and sweep
@@ -2321,7 +2597,9 @@ R-plan-15: E29's Schmitt trigger then gives the fresh operating point's AC value
   dc, ac, noise, xf) with `type="dc"` before and `type="<wave>"` after. A `tran` under such a sweep is not
   bracketed, since the waveform acts in `tran` (§3.8.1), and the plan notes once per tran that the swept `dc`
   changes nothing in the transient, also for a given-dc waveform source (phase 2c, R-emit-2: VACASK had run
-  the tran with the source frozen at `type="dc"`). Xyce needs no switching: its decks print `DC` and the
+  the tran with the source frozen at `type="dc"`), except for a sine whose `sinedc` defaults to its `dc`,
+  which the swept `dc` moves: the tran's sweep then sweeps that `sinedc` on VACASK, the swept dc changing the
+  transient (§3.8.1's sine row; phase 2c9, N3 [E172]). Xyce needs no switching: its decks print `DC` and the
   waveform together (§4.5 item 8).
 - **`set`** → an `options` action. Option changes between analyses are accepted by VACASK [E7].
 
@@ -2514,6 +2792,11 @@ two nodes is an error in v1 (§7.2 [E120]).
   node to the new one. Its branch current is the current into the terminal, Spectre's sign, on both engines
   alike. Fewer probes mean fewer added nodes; `names_for` records `<path>.i`, `I(<printed>)` or the probe's
   flow.
+- **On the branch the run takes** (phase 2c7, L1 [E164]): a current save names the instance the run takes in
+  the state of its step (§4.5 item 17, §7.2), so an `if` and its `else` that hold Z1 as an inductor and as a
+  resistor give the taken kind's current, VACASK `i('X1:Z1')` (column `X1:Z1:flow(br)`) and Xyce
+  `I(X1:LZ1)`; the first match had printed `p('X1:Z1', i)` and `I(X1:RZ1)`, and VACASK stopped with
+  `Output variable 'i' of instance 'X1:Z1' not found` and Xyce with `undefined symbol in .PRINT command`.
 
 ### 6.4 Forward name map
 `signals.resolve` lists, per step, the requested signals as `(Ref, Spectre name, psf type)`; `render` records
@@ -2637,6 +2920,29 @@ error ("expecting sweep or analysis") [E16], so per-analysis `options` lines and
 | `ic` / `nodeset` | `ic={"n", v, …}` on `tran` only; `nodeset={…}` on every analysis that solves an operating point (op, swept op, ac, noise, acxf, tran) |
 | saves | `save default` (allpub, with the extra directives of §6.1); otherwise per analysis type, from the SignalMap: `v()`/`i()`/`p(r, i)` for op, dc sweeps and tran; `dv()`/`di()` for ac; `nc(inst)` for noise (§5.5) [E67] |
 
+**Hooks and statements** (phases 2c4-2c9; §4.5 items 16 and 17). With switchable hooks the block's head is
+`options <head>`, then `var vamos_af<k>=0 vamos_av<k>=0 …` declaring every hook, then the plan's
+`var vamos_v_<p>=…`. A hooked alter is `var vamos_af<k>=1 vamos_av<k>=<value>`, a source field's
+`alter instance` following it; a hooked sweep is `var vamos_af<k>=1 vamos_av<k>=<first point>` before the
+nest (phase 2c7, L3), `sweep <id> variable="vamos_av<k>" …` and `var vamos_af<k>=0` after the analysis
+unless an alter of the target is in force. Every statement names the instance the run takes in its state
+(§4.5 item 17), leaves out a field that reads a name where that keeps its value, and prints a swept point's
+substitute as `plan.swept_points` gives it in the source state the plan's alter and source actions made
+(`_Deck.engine_points`, `track_source`, `state_source`; §5.2). In a tran step, a `dc` level of a sine whose
+`sinedc` defaults to its `dc` sweeps `parameter="sinedc"`, which the tran reads under `type="sine"`, while a
+DC-type analysis sweeps `dc` under `type="dc"` (`_Deck.sweep_line`'s `step_kind` and `nest`; phase 2c9,
+N3 [E172]).
+
+**When VACASK sets the circuit up** (phase 2c9, N5 [E167]; the 2c9 skeptic re-ran the facts). VACASK sets
+the circuit up, range-checking every source in its printed type [E166], at three kinds of moment: at its
+first analysis, sweep or `alter instance`/`alter model`, in the state before that statement's own values (an
+`alter instance` that would repair a broken netlist value fails at the netlist's value, `Initial circuit`
+`setup failed`); after a change, at the next analysis or sweep command, before the sweep's first point
+(`Circuit setup failed`, also after a type switch to sine while the swept variable is 0); and never at a
+`var` statement, nor at an `alter instance` after the first setup. A `var` set to a good value between the
+change and the sweep, and an analysis after a sweep that restored its variable, run; under `type="dc"` no
+waveform is set up. `plan._presweep_source` checks the state before a sweep's first point (§3.8.1's note).
+
 **Failures.**
 - An analysis succeeded only if all of these hold:
   - its rawfile `vamos_a<k>.raw` exists;
@@ -2713,9 +3019,26 @@ error ("expecting sweep or analysis") [E16], so per-analysis `options` lines and
   parameter on its card or on every card of a group (by base name), temp/tnom on the Netlist, and a variable
   into `Netlist.values` and its top-level `Param`'s expression, its dependents (`RunPlan.dependents`)
   re-evaluated. An alter of a resistor's `isnoisy` renders the `G` form or the `R` per deck (§4.5 item 7),
-  and an alter of a short's parameters the altered value (§4.5 item 10). Every deck is rendered before Xyce
-  first runs, and the render errors of all decks are reported together (exit status 2, no engine run);
-  render's warnings and notes print once each.
+  and an alter of a short's parameters the altered value (§4.5 item 10). An instance target is set on the
+  one instance the branches the run takes give its path, and a target inside a definition that more than
+  one instance path reaches is refused at render (`run_xyce.taken_instance`, §5.3; phase 2c5, R2 [E155]).
+  Every deck is rendered before Xyce first runs, and the render errors of all decks are reported together
+  (exit status 2, no engine run); render's warnings and notes print once each.
+- **The deck's lookups and sources** (phases 2c7-2c9). A deck's IR-path lookups (a hook's holder, the
+  one-path checks, the swept switches, a sweep target's text, a save's printed path, a coupled inductor's
+  check) take the instance on the paths the deck takes (`xyce._Deck.at`, `taken_map`, `taken_text`,
+  `coupled_at`: `tables.path_envs` at the deck's values, the walk `elaborate` reuses; phase 2c7, L1
+  [E164]), so an `if` and its `else` that hold one name as two kinds print the taken kind, `I(X1:LZ1)`,
+  where the first match printed `I(X1:RZ1)`, an undefined symbol; where `path_envs` raises, `at` falls back
+  to `_resolve` and `elaborate` reports the same `EvalError`, so the deck is refused. A Spectre pulse
+  without a `period` whose `delay` is not a constant ≥ 0 prints `PER` 2e30 (`xyce.PULSE_NO_PERIOD`; §3.8.1's
+  pulse row; phase 2c9, N4 [E168]). `SIN`'s V0 reads the dc's hook when a `dev=` sweep of `dc` moves a
+  `sinedc` that defaults to it (`xyce._hooked_source`; phase 2c9, N3 [E172]). An exp's `tau1` and `tau2`
+  are `.STEP` targets (`_SOURCE_FIELD`; phase 2c8, M3 [E169]). A swept point's substitute is
+  `plan.swept_points`' in the replayed state (`sweep_text`; §5.2; phase 2c9, N1), with Xyce's transres
+  computed from the replayed netlist (`plan.edge_default`, without the plan's nominal stops), so a tran
+  stop that reads an altered parameter could make Xyce's substituted edge differ from the plan's (7e-15
+  against 3.5e-15), both ideal edges (open, §12).
 - **The Verilog-A sources** (phase 2, `run_xyce.place_va`, §4.5 item 13) are copied into the run directory,
   each with the files it includes, and the `.hdl` lines name the copies: base names beside the deck [E104],
   a layout that climbs out of its directory kept under the run directory, and since phase 2c2 (F4) a
@@ -2743,10 +3066,11 @@ error ("expecting sweep or analysis") [E16], so per-analysis `options` lines and
 | `dc param=<top-level param>` | `.DC p …` [E] |
 | `dc dev=R param=r`, `mod=M param=x` | `.DC R1:R …` / `.DC M:X …` (hierarchical `X2:R1:R` too): one DC plot, like every other dc sweep [E20] |
 | `dc sub=X1 param=w` | X1's override becomes `w={vamos_x_x1_w}`, with `.param vamos_x_x1_w=<nominal>`, swept by `.DC vamos_x_x1_w …`: an X-line override follows a swept `.param` [E20]. The `.param` is global, so an X line inside a subckt that more than one instance path reaches would sweep every path: an error in v1 (§5.3) |
-| `dev=` a field of an independent source | the field prints through a generated `.param vamos_x_<src>_<field>` (as for `sub=`), which a derived `DC` expression reads too; `.DC` and `.STEP` of it work, and so does `.STEP V1:V1` [E71]. A source inside a subckt that more than one instance path reaches: an error in v1, as for `sub=` (§5.3). The hooks apply before an isource's multiplier (`DC {vamos_x_Ia_dc*2.0}`; phase 2c, R-emit-7) |
+| `dev=` a field of an independent source | the field prints through a generated `.param vamos_x_<src>_<field>` (as for `sub=`), which a derived `DC` expression reads too; `.DC` and `.STEP` of it work, and so does `.STEP V1:V1` [E71]. A source inside a subckt that more than one instance path reaches: an error in v1, as for `sub=` (§5.3). The hooks apply before an isource's multiplier (`DC {vamos_x_Ia_dc*2.0}`; phase 2c, R-emit-7). A field of a source in a subckt body whose value reads a subckt parameter ends with `Unable to resolve global parameter VAMOS_X_X6_V1_DC found in .PARAM statement VAMOS_X_X6_V1_DC = {{q}}`, as a gain's hook does (the 2c6 skeptic's random decks; open, §12) |
 | `dev=` a controlled source's gain (`gain`, `gm`, `rm`) | a hook, `.param vamos_x_<inst>_<param>`, which an E's or G's `VALUE=` form (below) or an F's or H's positional gain reads: Xyce's E, G, F and H take no named gain (`E1:GAIN` is not defined [E136]) (phase 2c, R-plan-4) |
 | `dev=` a mutual inductor's `coupling` (a Spectre netlist) | a hook, `.param vamos_x_<inst>_coupling`, which the K line's positional coupling reads: `.STEP K1:COUPLING` is "Function or variable K1:COUPLING is not defined" (phase 2c2, F3 [E145]); the HSPICE path's K line is unchanged. As for a gain, a hook inside a subckt whose value the subckt binds to its own parameter ends with Xyce's `Unable to resolve global parameter …` (open, §12) |
 | `dev=` the `m` of an isource, cccs or jfet, a jfet's `area`, the `m` of an instance inside a subckt, a coupled inductor's `l` or `m` | a hook that the printed, folded value reads (`{vamos_x_J1_area*2.0}`, `m={vamos_mfactor*vamos_x_X5_R9_m}`, `{vamos_x_L1_l/2.0}`), since Xyce's own `.DC F1:M`, `J1:AREA` and `X1:R9:M` repeat or drop the fold [E136]; a coupled inductor's `tc1`, `tc2` or `dtemp`: an error (§0) (phase 2c, R-emit-7) |
+| `dev=` a subckt instance's `m` | a hook `.param vamos_x_<X>_m=<the instance's m, or 1>`, reaching the body only as `vamos_mfactor={vamos_x_X1_m}` (`{vamos_mfactor*…}` inside a body), which every device of the body multiplies by, with no X-line `M=` (phase 2c4, H3 [E157]: the hook of an absent `m` had started at 0, and Xyce stopped with `Multiplicity Factor (M) must be non-negative` [E150]); a swept X-line `m` inside a body whose own `m` reads a body parameter would meet the `Unable to resolve global parameter` limit (open, §12) |
 | an E or G whose gain is not a number literal, in a deck that sweeps a `.param` (a variable or any hook) | the behavioral form `E<name> n+ n- VALUE={<gain>*v(c+[,c-])}`, a G's multiplier folded into it and no `m=`: the linear form gives gain 0 at a first point equal to the nominal [E126]; F, H and literal gains keep the linear form (phase 2c, R-plan-5, R-tests-1) |
 | `ac` | `.AC DEC n f1 f2` (integer spans, §5.2) / `.AC LIN N+1 f1 f2` / `.AC DATA=<t>` with `.DATA` [E]; a descending `dec`, `lin` or step grid prints its points as the `DATA=` table, since Xyce's `.AC` rejects start > stop [E116] (phase 2c, R-emit-3) |
 | `ac` parameter sweep at `freq` | `.STEP …` + `.AC DATA=<t>` with one frequency [E] |
@@ -2975,7 +3299,9 @@ END
     The last point of a sweep or a tran is written exactly at its stop when the engine's last x lies within
     1e-9 of it, relative to the larger of |stop| and the span (the runners' tolerance): Spectre writes stop
     exactly [S `myac.ac`, `noiva.noise`, `mytran.tran.tran`], and the engines end 1-3 ulp off it (E74); the
-    other points stay the engine's (phase 2c, R-emit-11);
+    other points stay the engine's (phase 2c, R-emit-11), except that a point the plan's grid holds as
+    exactly 0 on a parameter axis (a dc analysis's, or an ac, noise or xf parameter sweep's at a fixed
+    frequency) is written 0, where the engines were given a substituted point (§5.2; phase 2c9, N2 [E173]);
   - op: `"sig" "V" v`, and for currents `"V1:p" "I" v PROP("units" "A")` [S];
   - complex values are `(re im)`.
 - **Numbers.** VALUE, header and TYPE PROP reals are `%.15e` [S 23.1.0.242; the header and TYPE PROP reals
@@ -3391,6 +3717,13 @@ BINNING: Dict[str, FrozenSet[str]]                # (phase 2c) master -> the P0 
                                                   # targets declare (bsim3v3 84, bsim4 121; §3.9)
 def binning_rule(rules: Sequence[ParamRule], name: str) -> Optional[ParamRule]
     # (phase 2c) the rule of a binning name, derived from its P0 row; tables.rule_for and plan.rule_for call it
+CONSTANT_SINE_FREQ = 1e-30                        # (phase 2c8, M2) the constant sine's frequency (§3.8.1, §4.4)
+def is_constant_sine_spectre(spectre: Mapping[str, object]) -> bool   # (phase 2c8) a sine's fields, freq 0, damp 0
+def constant_sine(src: Optional[Source]) -> Optional[Source]   # (phase 2c8) the faithful form: the given dc, the
+                                                  # sine itself at CONSTANT_SINE_FREQ; None when src is no such sine
+def is_constant_sine(src: Optional[Source]) -> bool   # (phase 2c8) src is in that form
+# (phase 2c4, H4) ELEMENT_NAME: every IR kind by its Spectre master; (phase 2c8) wave_t0: a negative delay's t = 0
+# value (§3.8.1's dc row)
 
 # vamos/netlist/spice.py  (additions, §4.3; Decl, FileRef, Fragment and Resolver are phase-0 stubs that S0
 # adds, with Netlist.left_out; VaModule is ir.py's, imported here; from phase 1 on, S1 owns every spice.py change)
@@ -3563,6 +3896,24 @@ def constant_zero(v: object) -> bool        # (phase 2c3, G3) Num 0, or an expre
                                             # constants there)
 def noise_switch_off(value: object) -> Optional[bool]   # (phase 2c2) an alter's isnoisy (§4.5 item 7): True off
                                             # (no, false, 0), False on (yes, true, another number), None neither
+def vacask_hooked(nl: Netlist, target: Target, cache: Optional[Dict[str, List]] = None) -> bool
+    # (phase 2c4, H1) vacask.hookable: VACASK's deck can print the target through a switchable hook (§4.5 item 16)
+def run_values(nl: Netlist, variables: Mapping[str, float], temp: float, tnom: float,
+               dependents: Collection[str] = ()) -> Dict[str, float]
+def run_paths(nl: Netlist, values: Mapping[str, float], temp: float, tnom: float,
+              xvalues: Sequence[Tuple[Instance, str, float]] = (), sites: Optional[TempSites] = None
+              ) -> List[PathEnv]
+    # (phase 2c7, L1) the top-level values and the instance paths of one state of a run, as build's walk takes
+    # them (the plan variables in force, temp, tnom, the sub= alters' X-line values; strict): the renderers'
+    # lookups (§4.5 item 17, §7.2); EvalError or TableError when they do not resolve
+def edge_default(nl: Netlist, values: Optional[Mapping[str, float]] = None) -> float
+    # (phase 2c8) transres, 1e-9 x the shortest tran stop, which a rise or fall of 0 is (§3.8.1)
+def swept_value(param: str, src: Optional[Source], v: float, transres: float) -> float
+def swept_points(param: str, src: Optional[Source], spec: SweepSpec, transres: float) -> Optional[List[float]]
+    # (phase 2c9, N1) the value an engine is given at a dev= sweep point of a source field in the source state
+    # src: a pulse's rise or fall of 0 transres, the constant sine's freq of 0 CONSTANT_SINE_FREQ, else v; per
+    # level, None when no point changes (§5.2); they replace phase 2c8's edge_points and constant_sine_points
+def sinedc_follows_dc(src: Optional[Source]) -> bool   # (phase 2c9, N3) a sine whose sinedc defaults to its dc
 
 # vamos/netlist/signals.py  (dataclasses frozen in phase 0)
 Ref = Tuple[str, ...]   # ('v', node path) | ('i', element path) | ('noise', instance path) | ('onoise',)
@@ -3589,6 +3940,9 @@ def fold_constant_shorts(nl: Netlist) -> None   # (phase 2c3, G3) in place, at e
                                     # subckt bodies): a resistor whose r is a constant expression equal to 0
                                     # gets Num(0.0); resolve calls it on its copy, so the probes and both
                                     # emitters print the r=0 short (§4.5 item 10)
+def unfold_constant_sines(nl: Netlist) -> None  # (phase 2c8, M2) in place, at every level: a sine of constant
+                                    # freq 0 in tables.constant_sine's form; resolve calls it after
+                                    # fold_constant_shorts (§3.8.1's dc row)
 # (phase 2c2) resolve lists each noise step's noisy instances at the isnoisy the alters before it set (§8.4),
 # probes on Xyce a resistor whose isnoisy an alter sets and on VACASK an instance whose m a sweep or alter
 # sets (§6.3)
@@ -3606,6 +3960,17 @@ def names_for(nl: Netlist, plan: RunPlan, sigmap: SignalMap) -> Dict[str, Dict[R
 # when the two differ, else None; §5.2)
 # vacask.py (phase 2c2): an alter of isnoisy prints noisy=0|1 (R-plan-19, §4.5 item 7), and a coupling target
 # is VACASK's k (F3, §5.2); xyce.py (phase 2c2): a coupling on a Spectre netlist sweeps through a hook (§7.2)
+# vacask.py (phase 2c4, H1; §4.5 item 16): reads_something(e) -> bool (a binding VACASK re-evaluates),
+# source_locations(src, field) -> List[Tuple] (the places a source field prints, [] for a derived one),
+# hook_key(inst, param) -> Optional[str] (a hook's site key), path_resolutions(nl, path, cache=None) (every
+# resolution of an IR path, Cond branches counted), hookable(nl, target, cache=None) -> bool; (phase 2c5)
+# prints_hook(nl, target, dependents=(), cache=None) -> bool (R1, R3), control_source_problems(src, base,
+# hooked=()) and control_source_message(what, statement, path, key, e) (R4, §4.5 item 17); (phase 2c6)
+# printed_items(src), holds(e, obj), swap(e, mapping), is_va_card(nl, m) (K1); (phase 2c7-2c9, private) the
+# _Deck's run_instance, run_map, run_chain and run_update (L1), engine_points, track_source and state_source
+# (N1), sweep_line(lv, step_kind="", nest=()) (N3)
+# xyce.py (phase 2c9, N4): PULSE_NO_PERIOD = 2e30, the PER of a Spectre pulse without a period whose delay is
+# not a constant >= 0 (§3.8.1); (phase 2c7, private) the _Deck's at, taken_map, taken_text, coupled_at (L1)
 # xyce.py (S3): the smoke patterns and the summary check as public functions (§4.5 item 13, §7.2)
 def output_problems(text: str, nl: Netlist) -> List[Note]           # unknown model parameters (binned-card bounds
                                                                     # exempt), unrecognized parameters, netlist errors
@@ -3714,7 +4079,8 @@ def collect(plan: RunPlan, sigmap: SignalMap, er: EngineResult, naming: str,
     # (§8.2), and a passed step with fewer groups than planned gets a warning; (phase 2c) grid_values is
     # plan.grid_points' grid, a descending dec included (R-emit-3), a frequency axis is split by its grid's
     # count (R-emit-4), the last point is written at stop within END_REL = 1e-9 (R-emit-11), Xyce's gain is
-    # |VM(<p>)| when the name map gives one (R-emit-13), and each plot and group is read once (R-emit-9)
+    # |VM(<p>)| when the name map gives one (R-emit-13), and each plot and group is read once (R-emit-9);
+    # (phase 2c9, N2) a parameter-axis row whose plan grid point is exactly 0 is written 0 (§5.2, §8.3)
 
 # vamos/spectre/run_vacask.py, run_xyce.py  (phase 2; the stopping contract is vamos/spectre/stop.py, below)
 def run(nl: Netlist, plan: RunPlan, sigmap: SignalMap, run_dir: str, job: SpectreJob, log: SpectreLog,
@@ -3736,6 +4102,10 @@ def run(nl: Netlist, plan: RunPlan, sigmap: SignalMap, run_dir: str, job: Spectr
 # standard_header and STANDARD_HEADERS (§4.5 item 13); both runners signal the engine's process group
 # run_xyce (phase 2c2): VALUE_KEY, the replay's value parameters, equals plan.VALUE_PARAMS (F3, §7.2), and
 # place_va never lets a directory but run_dir hold two modules' files (F4, §4.5 item 13 [E144])
+# run_xyce (phase 2c4): find_instances(nl, path) -> List[Instance] (every instance of the path's name in each
+# body, Cond branches included; since phase 2c5 a lookup only); (phase 2c5, R2) taken_instance(nl, path,
+# origin="") -> Instance (the instance on the branches the run takes; NoteError for a definition that more
+# than one instance path reaches), which apply_alter sets (§5.3, §7.2)
 
 # vamos/spectre/stop.py  (phase 2, frozen before the runners and the flow: their shared contract, §2.7)
 HANDLED: Tuple[int, ...]     # SIGINT SIGTERM SIGHUP SIGQUIT (where the platform has them), forwarded as FORWARD
@@ -4988,10 +5358,83 @@ tests, 1881 pass, 1129 fail, 2 not implemented, 3 expected failures, test for te
 (2026-10-10, on nvc 5d17e40ff and iverilog 8fd03deda; today's builds are nvc 9bc20df2f and iverilog 82b587169),
 as it must be: that block's iverilog-to-nvc shim runs no vamos code.
 
+**Done (2c4-2c9), 2026-10-18.** Six more follow-up rounds ran on the 2c3 tree, 2c4 on 2026-10-17 and 2c5-2c9
+on 2026-10-18, each one fixer and an independent skeptic on the tree the round before left, each new
+regression test written first and seen failing with the round's base product files put back, on both legs,
+and each skeptic re-running the fixer's decks and its own through `bin/vamos` on both engines, on a base
+tree, on the real one and, from 2c5 on, on 18af05f's product files (§16's last bullet names every item, test
+and re-decided assertion; §13's E153-E177 hold what they measured). 2c4 (H1-H4) printed on VACASK, through
+a switchable hook, every sweep or alter target bound to an expression that a hook can carry, so that VACASK
+keeps an alter of it as Xyce does and sweeps it (§4.5 item 16, §5.3 [E153]), refused under G1's rule (a) an
+alter of a netlist parameter defined by an expression and a `sub=` alter of a subckt default the X line
+leaves (H2), ran Xyce's `.DC` of a subckt instance's `m` (H3 [E157]) and named the master in the multiplier
+message (H4), and fixed three defects found while proving H1 [E154-E156]; its skeptic confirmed H2-H4 and
+refuted H1, whose hooked changes lost an earlier alter of what the hook cannot print on VACASK (in 0.5 where
+0.25, status 0 [E160]), and the replay's fix for an `if`, which altered the untaken branch's definition on
+Xyce [E155]. 2c5 (R1-R4) counted every statement the hook prints as a change for rule (b), replayed only the
+taken branch's instance, hooked the `m` of an instance in a body [E159] and left a control-block field out
+only where that keeps its value (§4.5 item 17 [E154]); its skeptic confirmed R2 and R4 and refuted R1 and
+R3 for one root cause, an alter of a pwl's `wave` that G1 never tracked [E161]. 2c6 (K1, K2) made G1
+default-deny over every value type, spelling and form, and took the run's branch in VACASK's control block;
+its skeptic confirmed K1, refuted K2, whose lookup lost the plan variables [E164], and found H05h, an alter
+before the first analysis that changes an `if` branch, silent on both engines [E165], the hooked sweep's
+setup at 0 and the unchecked pulse period [E166]. 2c7 (L1-L4) resolved every lookup of both decks on the
+run's state, recorded §3.7's nominal structure from the netlist's values, set a hooked sweep's value with
+its flag and checked the §3.8.1 and VACASK source constraints in every state; its skeptic confirmed all four
+and found 14 pre-existing silent decks of two classes, a negative pulse fall reaching the engines through a
+parameter or a sweep and a constant sine losing its given dc [E168, E170]. 2c8 (M1-M4) made every source
+constraint one rule per state on both engines, printed a constant sine as the sine at 1e-30 Hz with its
+given dc kept, refused an exp time constant of 0 and made the negative freq one rule [E166-E171]; its
+skeptic confirmed M1, M3 and M4 and refuted M2 for 2 regressions, a sine an alter made constant whose `freq`
+a sweep takes through 0 stopping VACASK (P873 and Q05), and listed 4 pre-existing silent decks [E168,
+E172]. 2c9 (N1-N5) read every swept point's substitute in the printed statement's source state on both
+engines, wrote the deck's 0 on the PSF axis, moved a `sinedc` that defaults to `dc` under a sweep of `dc`,
+printed Xyce's `PER` for a period-less pulse, gave `tau2` its own clause and refused on VACASK a source its
+setup before a sweep's first point breaks [E167-E173]; its skeptic confirmed N1-N4 and N5b, with 0 new
+silent wrong values and 0 regressions, and refuted N5a for a message only, `tau1`'s clause, Xyce also
+stopping at some start times [E169]. After it the driver made two fixes, each with regression tests seen
+failing on the pre-fix files: a source's `mag` defaults to 0 when the netlist gives only `phase` (ref5
+p.685; `spectre.resolve_source`, `plan._src_override` and VACASK's hook source had used 1, so `phase=45`
+alone excited the ac on both engines, the 2c9 skeptic's K61 [E177]; `test_spectre_plan.TestDriver2c9` and
+`test_spectre_emit.TestDriverRuns2c9`, on both engines), and `tau1`'s clause names both of Xyce's outcomes
+(`… and Xyce would make a step or, for some start times, stop with 'Time step too small'`), the 2c8 tests'
+`TAU_2C8` re-decided to that text. The randomized differentials judged every run against an alter-free
+reference deck or an analytic model of §3.8.1's sources (§13 [E176]): the 2c6 skeptic's seeds 2026 and 4242
+(1000 decks, 3068 reference decks, 557,949 values) found 0 wrong values on the 2c6 tree, where the 2c5 tree
+had 63 silent losses; the 2c7 skeptic's seeds 2027 and 2028 (680 decks, 1657 references) 0 but T0255's
+reference, the constant sine M2 fixed; the 2c8 fixer's field survey (154 decks) and seeds 2029 and 2030 (600
+decks) 0 wrong values and 0 engine errors, against 19 and 15, and 53 and 16, on its base, and its skeptic's
+seeds 2081 and 2082 (480 decks) 0 but two pre-existing decks, G10127 and G20073, which 2c9 closed; the 2c9
+fixer's seeds 2091 and 2092 (300 decks) and its skeptic's 2091-2093 (420 decks) 0 wrong values, 0 engine
+errors and 0 wrong axes, against 110 wrong and 40 engine errors, and 93 wrong, 26 engine errors and 102
+wrong axes, on the 2c8 tree. The regression matrices, 20,352 runs per tree by 2c9 (94 sets: every earlier
+skeptic's and fixer's decks, each random seed with its references), found the regressions named above
+(2c4's, 2c5's and 2c8's) and, at 2c9, none, with no `(internal)` refusal from 2c7 on. The pre-existing
+silent wrong values the 2c9 skeptic still lists are in the carried block below: Xyce's pulse at a delay of
+exactly minus its rise, open, and a `phase` without `mag`, which the driver's fix closed. The tests:
+`test_spectre_plan` 104 → 115 → 123 → 131 → 141 → 155 → 163 over the rounds and 165 with the driver's,
+`test_spectre_emit` 118 → 127 → 133 → 137 → 142 → 146 → 151 and 152, `test_spectre_outputs` 75 → 77 (2c9);
+on the Cygwin leg the whole suite OK after each round, 3154, 3168, 3180, 3195, 3213 and 3228 tests (1393,
+1399, 1403, 1408, 1412 and 1417 skipped), and 3231 (1418 skipped) with the driver's fixes; on the WSL leg,
+with the T3b, T3c and e2e 29 environment, all 32 `test_spectre_*` modules OK, 1487, 1501, 1513, 1528, 1546
+and 1561 tests, 14 skipped, before the driver's three, and the HSPICE and vcs-ams users of the shared
+modules OK (run in 2c4 and 2c5); the fixture and HSPICE-path render differentials (263 decks and 767
+outputs, 271 and 799 from the 2c8 skeptic on) unchanged in every round but for 2c7's two `deck_cross`
+message wordings, the HSPICE path's renders byte-identical throughout.
+The gate for 2c4-2c9, on the committed tree: the whole Cygwin suite with `VAMOS_CMC=1`, 3231 tests, OK, 1366
+skipped, 146 s; the whole WSL suite, run in the foreground of a live session with the T3b, T3c and e2e 29
+environment, 3231 tests, OK, 16 skipped (the same skips as at 18af05f), 3584 s, after a first run had shown two
+subtests of `TestFollowUpRuns2c9.test_n5_tau2_s_clause_and_vacask_s_setup_before_a_sweep` still expecting the
+tau1 clause the driver's message fix replaced (their expected text was updated);
+`regress run hazard3/vamos ivtest/iverilog-nvc` (run 146): `hazard3/vamos` 3 tests, pass, and
+`ivtest/iverilog-nvc` 1881 of 3015 pass, test for test the same as the full run of 2026-10-10.
+
 **Carried from phases 2b and 2c**, for 2d-2f and phase 3 (the reports' open issues and the review's refuted
-triage, and those of the follow-up rounds 2c2 and 2c3; the questions they leave are §14 q.70-q.82, phase-2c
-readings were appended to q.3, q.8, q.11, q.23, q.29, q.35, q.36, q.47, q.48, q.58 and q.64, and the
-follow-up rounds' to q.47 and q.61); an item that 2c2 or 2c3 closed says so, naming the round and its item:
+triage, and those of the follow-up rounds 2c2-2c9; the questions they leave are §14 q.70-q.85, q.80-q.82
+answered in 2c4, phase-2c readings were appended to q.3, q.8, q.11, q.23, q.29, q.35, q.36, q.47, q.48, q.58
+and q.64, and the follow-up rounds' to q.13, q.19, q.20, q.47, q.56 and q.61); an item that a follow-up
+round closed says so, naming the round and its item, and the open items 2c4-2c9 left follow 2c3's, each
+once, as the last skeptic to see it measured it:
 - defects found and not fixed (the first two measured again on the final 2c tree, the others as their
   reporters measured them):
   - R-plan-19: after an analysis that saved a resistor's current, an alter of its `isnoisy` fails, status 2
@@ -5042,7 +5485,9 @@ follow-up rounds' to q.47 and q.61); an item that 2c2 or 2c3 closed says so, nam
     a global `options temp=50` or `tnom=25`, or an alter or `set` of either before the first alter;
     `plan.build` accepts the deck, and VACASK gives 0.5 where Xyce gives 0.25, exit 0 and no message (the
     2c3 skeptic's deck: `o1 options temp=50`, then `a1 alter dev=R1 param=r value=3k` and `op1 dc`, with
-    `R1 r=rv`); the routes are §14 q.82;
+    `R1 r=rv`); the routes are §14 q.82 (closed: phase 2c4, H1: the hook, declared before that elaboration,
+    keeps the alter of every target it prints, 0.25 on the E151 decks, and rule (b) counts the first
+    elaboration for the rest, §5.3 [E153]);
   - an alter of a netlist parameter that a resistor's `isnoisy` reads (`isnoisy=nflag`,
     `alter param=nflag value=0`, `R1:1` saved in an op after it; the 2c2 fixer's and skeptic's decks):
     VACASK still lists R1 in the next noise's STRUCTs, at 0, and Xyce stops with status 2 at the probe guard
@@ -5051,38 +5496,122 @@ follow-up rounds' to q.47 and q.61); an item that 2c2 or 2c3 closed says so, nam
   - a `sub=` sweep of a subckt parameter that its X line binds to an expression fails at VACASK's run (exit
     1, `Failed to bind sweep parameters`) instead of with status 2, where Xyce is right (the 2c2 fixer's
     deck: `X1 (in out) half rr=rv`, `dc sub=X1 param=rr values=[1k 3k]`); four existing `test_spectre_plan`
-    tests pin `plan.build`'s acceptance of such a sweep (§14 q.80);
+    tests pin `plan.build`'s acceptance of such a sweep (§14 q.80) (closed: phase 2c4, H1: VACASK sweeps
+    the binding's hook, the 2c2 deck `f3j` giving Xyce's [0.5, 0.25], and the four tests stand [E153]);
   - a `mod=` sweep of a card parameter bound to an expression fails at VACASK's run (rc 1,
     `parameter is of model m_dmod is bound to an expression`) instead of with status 2, outside F3's `dev=`
     scope (the 2c2 skeptic's deck: `model dmod diode is=isv`, `dc mod=dmod param=is`); Xyce runs it
-    (a = [0.6294, 0.6126]);
+    (a = [0.6294, 0.6126]) (closed: phase 2c4, H1, the card's hook; `p_modbound` agrees to 2.7e-5 [E153]);
   - on Xyce a `dev=` sweep of a hooked parameter inside a subckt, bound to a subckt parameter, ends with
     status 2 (`Unable to resolve global parameter VAMOS_X_X1_E1_GAIN found in .PARAM statement …`), the
     hook's top-level `.param` default reading the subckt-scope expression (the 2c2 skeptic's decks: a vcvs
     `gain=gg`, and since 2c2 a `coupling=kc`, which had failed with `X1:K1:COUPLING is not defined`): a valid
     deck ending with an engine netlist error, not a vamos refusal; a constant gain or coupling runs right,
-    and VACASK refuses the sweep (F3);
+    and VACASK refuses the sweep (F3), since phase 2c4 sweeping it through its hook; still open after 2c9,
+    where the rounds' matrices meet it in 18 runs (the 2c6 skeptic's random R0312, R0364, R0382, Q0051,
+    Q0088, Q0095, Q0132, Q0325, Q0351 and T0053, main and reference decks), also for plain `dev=` and `sub=`
+    sweeps of a source field or a resistor in a body whose hook reads a subckt parameter
+    (`Unable to resolve global parameter VAMOS_X_X6_V1_DC found in .PARAM statement`
+    `VAMOS_X_X6_V1_DC = {{q}}`), and a swept X-line `m` inside a body whose own `m` reads a body parameter
+    would meet it too (the 2c4 fixer);
   - Xyce cannot run a `.DC` or `.STEP` of a subckt instance's `m`: `dc1 dc dev=X1 param=m values=[1 2]`
     ends with status 2, `Device instance X1:R1: Multiplicity Factor (M) must be non-negative`, where VACASK
     runs it (the 2c3 fixer's deck, confirmed by its skeptic) [E150], again a valid deck ending with an
-    engine netlist error;
+    engine netlist error (closed: phase 2c4, H3, the hook's nominal the instance's `m` or 1 and
+    `vamos_mfactor` alone, [0.5, 0.667] on both engines [E157]);
   - `xyce.names_for` maps the nominal IR, without the state replay, so its names after an alter that changes
     a resistor's form (a noise `DNO` after `isnoisy` is turned on) differ from render's; the run reads
     render's, and `test_spectre_chain` compares the two only for the e2e decks (the 2c2 fixer);
+  - a silent wrong value on Xyce, pre-existing (18af05f the same; the 2c9 skeptic): a pulse whose `delay` is
+    exactly minus its `rise` starts Xyce's tran at val1 + (val1 − val0)·width/fall, `N_DEV_SourceData.C`'s
+    `PulseData::updateSource` taking its fall branch at t = 0, where its ramp branch needs
+    fabs(time − TR) < bpTol_, which is 0 at the operating point [E168]; VACASK is right, and so is Xyce when
+    a period wraps t = 0 off TR by rounding (B03). The skeptic's B01, status 0, in(0) = 5 where 1:
+    `simulator lang=spectre`, `parameters other=1`,
+    `V1 (in 0) vsource type=pulse val0=0 val1=1 delay=-0.5u rise=0.5u fall=0.5u width=2u`,
+    `R1 (in out) resistor r=1k`, `R2 (out 0) resistor r=1k`, `R3 (in 0) resistor r=other*1k`, `save in out`,
+    `tr1 tran stop=3.5u maxstep=2n`; its B02, the same with the source
+    `I1 (0 in) isource type=pulse val0=0 val1=1m delay=-0.5u rise=0.5u fall=0.5u width=2u` and
+    `C1 (in 0) capacitor c=1n` added: in = 3.33 V at 0, 2.37 V at 0.3 µs and 0.80 V at 2 µs where VACASK
+    gives 0.667 V; its random W1027 (`parameters other=1 dl=-0.2u`,
+    `V1 (in 0) vsource type=pulse val0=0 val1=1 delay=dl rise=0.2u fall=0.5u width=1u`, the same resistors,
+    `sw1 sweep param=dl values=[-1.5u 0] { tr1 tran stop=2.5u maxstep=2n }`, `tr2 tran stop=2u maxstep=2n`)
+    and W1092 (the same source with `period=4u dc=0.3`, `tr1 tran stop=3.5u maxstep=2n`): in(0) = 3 where
+    1; a fix must keep Xyce's t = 0 off the TR boundary, for example by printing the tran's initial value;
+  - a silent wrong value on both engines, pre-existing (18af05f the same; the 2c9 fixer's M1 and its
+    skeptic's K61): a source that gives `phase` and no `mag` excited the ac with `mag=1`, where ref5 p.685's
+    default is 0: `simulator lang=spectre`, `parameters other=1`, `V1 (in 0) vsource dc=0 phase=45`,
+    `R1 (in out) resistor r=1k`, `R2 (out 0) resistor r=1k`, `R3 (in 0) resistor r=other*1k`, `save in out`,
+    `ac1 ac start=1k stop=1k` gave in = 0.7071+0.7071j at every point where Spectre gives 0 (closed: the
+    driver's fix after 2c9, `mag` defaulting to 0 in `spectre.resolve_source`, a sweep's source state and
+    VACASK's hook source, §3.8.1 [E177]);
+  - an alter value of the wrong type reaches the engines when no change follows it, pre-existing (the 2c6
+    skeptic's Q1-Q8): a quoted or bare word for a number ends with an engine error on both engines
+    (`alter dev=V1 param=rise value="2u"`: VACASK `Operation not supported for string and real`, Xyce
+    `Unrecognized character: "`; `value=abc` on an `r`: Xyce `contains unrecognized symbol: ABC`), a quoted
+    value on a hooked target is refused at VACASK's render, and a vector on a scalar field is taken as its
+    first element by both engines (status 0, equal); G1's opaque bound (§5.3) covers only the case where a
+    change follows;
+  - Xyce's emitter refuses an `if` whose condition reads temp at read-in (`temper is not a constant`), so
+    such decks run on VACASK only (the 2c7 fixer);
+  - `save V8:p` of an instance that only an untaken branch holds is dropped without a message on both
+    engines (the 2c7 skeptic's F02);
+  - a render refusal of a source-field sweep, status 2 before any engine runs, leaves the sweep's PSF header
+    (`sw1_tr1.sweep`) in the results directory (the 2c6 skeptic, the 2c7 fixer; cosmetic);
+  - messages: `vacask.isave` (`i(…): the … element has no branch current`, the HSPICE path, byte-identical
+    by rule) and `vacask.current_directive` (`kind.upper()`) still name a kind letter (the 2c4 skeptic);
+    `spectre.resolve_source`'s parse notice `V1: type=sine with freq=0 is a constant: folded into dc (§3.8.1)`
+    describes the IR only, the engines printing the sine at 1e-30 Hz with the given dc kept, and its alter
+    error for a constant sine's `damp` names no origin or alter (the 2c8 fixer); the constant `period` and
+    pwl-time refusals keep `spectre.parse`'s older wording, `pulse period … is not longer than`
+    `rise+fall+width = …`, not the per-state rule's (the 2c8 skeptic);
+  - Xyce's transres comes from its replayed netlist (`plan.edge_default` without the plan's nominal stops),
+    so a tran `stop` that reads an altered parameter could make Xyce's substituted edge differ from the
+    plan's (7e-15 against 3.5e-15), both ideal edges, no value seen to differ (the 2c9 fixer, §7.2);
 - what stays by design or by measurement: a signal during `bin/vamos`'s shell before its exec, the
   interpreter's start and the first lines of `cli.py` (about 10-30 ms) still ends vamos with no output
   (X-flow); an `` `include`` inside an `` `ifdef`` that PyMS takes and does not find is caught on a cold
   PyMS cache only, and if vamos itself is SIGKILLed PyMS's compile children may outlive it by seconds,
   `PR_SET_PDEATHSIG` covering the engine only (X-runners); `test_netlist_emit`'s golden helper, a
   pre-phase-0 file, still writes a missing golden in place; G1's rule (b) refuses on VACASK decks whose
-  bound inputs never change, each one measured a silent wrong value there before 2c3,
-  `test_spectre_plan.TestAlters`' deck among them (its test re-decided, §14 q.81), and for a body nested two
-  levels deep (`X0.X1.R1`) it counts any change on `X1`'s path, an outer `X0` parameter that `X1`'s line
-  does not read included, so such a deck gets status 2 although it would match, never a silent wrong value
-  (the 2c3 fixer); G2's largest ratio, 300 alters of a resistance each followed by an op at 1.33× the 2c2
-  base's `plan.build` time, +5 ms (the 2c3 skeptic [E152]); the engine facts phase 2c measured
-  (E135-E141), and those of 2c2 and 2c3 (E142-E151), are pinned by their tests or by hand, and harvesting
-  them into `engine_facts/` is open;
+  bound inputs never change, each one measured a silent wrong value there before 2c3, since phase 2c4 only
+  for the targets the hook cannot print, `test_spectre_plan.TestAlters`' deck running on VACASK again (0.2;
+  §14 q.81), and for a body nested two levels deep (`X0.X1.R1`) it counts any change on `X1`'s path, an
+  outer `X0` parameter that `X1`'s line does not read included, so such a deck gets status 2 although it
+  would match, never a silent wrong value (the 2c3 fixer); G2's largest ratio, 300 alters of a resistance
+  each followed by an op at 1.33× the 2c2 base's `plan.build` time, +5 ms (the 2c3 skeptic [E152]); the
+  engine facts phase 2c measured (E135-E141), and those of 2c2 and 2c3 (E142-E151) and of 2c4-2c9
+  (E153-E177), are pinned by their tests or by hand, and harvesting them into `engine_facts/` is open;
+  the refusals 2c4-2c9 added where an engine, or both, had given the reference values, each loud (§14 q.79,
+  q.83 and q.85): on VACASK, an alter of what the hook cannot print followed by a hooked change (the 2c4
+  skeptic's A01, A03, A04, A06, A07, A09, A11 and E151r, right on 18af05f, and the 2c5 skeptic's N113, N115
+  and N612, right on 2c4), rule (b) at an op, a dc or an ac that reads only a pwl's t = 0 value (43 of the
+  2c6 skeptic's random decks) and its H01c (a nested definition: the wave of `X7.X2.V1` altered, then
+  `alter sub=X7 param=q`, VACASK keeping the wave); on both engines, the nests of a bound target around a
+  sweep of what it reads where both engines kept the swept value (the 2c4 skeptic's N02, the 2c6 fixer's
+  P08, Q01 and Q04), rule (a) under a card parameter's other
+  spelling or a Verilog-A parameter's other case (P05, P05b, P06, P07), §3.7's branch changes before the
+  first analysis (135 runs of the 2c7 skeptic, H05b, H05c, H05e, H05i and H05j among them), and the states
+  that break a source rule vamos refuses for the same constant (95 runs on Xyce in 2c7, R0080 among them,
+  and 66 DC-type runs on Xyce in 2c8 whose derived dc reads a broken waveform, which VACASK refused at its
+  setup); a non-constant broken field under a given dc still runs in an op, where its constant twin is
+  refused (the 2c8 skeptic's P808, 0.3, right, and P809), no value being wrong; the VACASK-only refusals
+  that remain where Xyce runs the deck (§14 q.84): an alter of a `rise`, `fall`, `isnoisy`, `wave`, a
+  `sinedc` left to a bound `dc` or a model-group target lacking the parameter before a change VACASK
+  re-elaborates on, a `dev=` sweep of a bound `rise` or `fall` (the 2c8 fixer's P702, S0202, T0024, T0218,
+  T0318) or of a field the instance line derives (an isource's `sinedc` printed `sinedc=vdc`, the 2c9
+  skeptic's W1099), a control-block field that cannot be left out (the 2c5 fixer's X14, X16, X18 and its
+  skeptic's N417), the `m` of an instance in a body whose holder writes its own `m` (G07), a `freq` of 0
+  that reaches a sine through a parameter or a sweep (the 2c8 fixer's survey decks, and by design the 2c8
+  skeptic's P872, an instance line's constant sine that an alter made a real sine, swept to 0), a hooked
+  `freq` altered to 0 (the 2c9 fixer's H1-H3, its skeptic's K13), a bound `freq` altered to 0 before a
+  netlist-parameter change (the 2c8 fixer's Z11) and the state before a sweep's first point that breaks a
+  VACASK setup check (G20073's family; the rule also adds its VACASK-only message to two decks already
+  refused on both engines, the 2c7 skeptic's S0025 and S0193); the cross-engine numerics
+  the rounds' matrices list, the same on every tree: the exp corner at delay + td2 [E174], the diode and
+  BJT cards' ~3e-5, BSIM4's 4e-7, VACASK's reltol-limited continuation in 1000-point sweeps (5e-4), 1 MHz
+  sines, and `useprevic` (C05), which Xyce recomputes with a warning by design; the hooked `dev=` sweep's
+  19-22 % engine time with 400 bound resistors [E158] and the rounds' `plan.build` costs [E175];
 - for 2e's guide trial (GUIDE2C): four prose lines outside the guide's §12 are wider than 112 columns; the
   warning for a `--vamos-*` token in `SPECTRE_DEFAULTS` says "not supported yet" where §1 reads vamos
   options from the command line only, by design (a wording for its owner); and the signal transcripts'
@@ -5187,8 +5716,20 @@ and PyMS's sources where a row says so. E142-E146 and E149 are engine facts pinn
 rounds' tests (`test_spectre_emit`'s `TestFollowUpRuns2c2` and `TestFollowUpRuns2c3`,
 `test_spectre_run_xyce`'s `TestRunXyceFailures`), not harvested into `engine_facts/` (§12); E147 and E148
 hold the engines' disagreement that phase 2c3 refuses, pinned through the refusals and Xyce's values
-(`TestFollowUpRuns2c3`); E150 and E151 were found while measuring and are open (§12), E151 a hole in that
-refusal; E152 is a measurement of the vamos code.
+(`TestFollowUpRuns2c3`); E150 and E151 were found while measuring, E151 a hole in that refusal, and phase
+2c4 closed both [E157, E153]; E152 is a measurement of the vamos code.
+
+E153-E177 come from the follow-up rounds 2c4 (2026-10-17) to 2c9 (2026-10-18) and the driver's fixes after
+2c9, on the same builds, measured by their fixers and skeptics through `bin/vamos -spectre`, on raw VACASK and
+Xyce decks, and in VACASK's sources (`lib/devvisrc.cpp`, `lib/coretran.cpp`) and Xyce's
+(`N_DEV_SourceData.C`) where a row says so. E153-E157, E159-E173 and E177 are engine facts and the engines'
+measured disagreements, pinned through vamos by the rounds' tests (`test_spectre_plan`'s `TestFollowUp2c4`
+to `TestFollowUp2c9` and `TestDriver2c9`, `test_spectre_emit`'s `TestFollowUpRuns2c4` to
+`TestFollowUpRuns2c9` and `TestDriverRuns2c9`, `test_spectre_outputs`' `TestFollowUp2c9Axis`), not harvested
+into `engine_facts/` (§12); E158 and E174 are the engines' cost and numerics, E175 a measurement of the vamos
+code, and E176 holds the rounds' regression matrices and randomized differentials. The decks the rows name
+are the rounds' own, kept outside the repository like the design sessions' (the `TestFollowUp*` classes hold
+the ones the tests run).
 
 | # | experiment | result |
 |---|---|---|
@@ -5293,7 +5834,7 @@ refusal; E152 is a measurement of the vamos code.
 | E99 | the CMC decks on Xyce: which device runs (`sp3/FIX/v1.sh` re-running the completeness lens's `sp3/COMP/w12.sh` on the engine lens's cadence2xyce'd BSIM6 `idvg_nmos.cir`, logs `sp3/FIX/b6/{plain,envfor}/run.log`; `sp3/FIX/v4.sh` over `sp3/ORC/p3all/*/run.log`, the logs of E91's `s26_cmc_all.sh`) | the deck holds `.hdl "BSIM6.1.1_inlined.va"` and `.model nmos nmos level=77`. `/usr/local/bin/Xyce` in a plain environment: "compiled and registered bsim6", the Device Count Summary lists `M level 77 (BSIM6) 1`, "End of Xyce", rc 0. Under `env_for`'s library path: "No model parameter GEOMOD found for model NMOS of type NMOS", no M entry in the summary, rc 139 (a segmentation fault). In the 50 CMC run logs, every summary that lists the device lists a built-in ADMS device, `M level 77 (BSIM6)` (the 9 BSIM6 decks) or `M level 107`, `108` or `110 (BSIM-CMG FINFET v107.0.0`, `v108.0.0`, `v110.0.0)`, never a module name; these are the built-ins' names (`N_DEV_ADMSbsim6.h:3335-3336`: "BSIM6", "M level 77"; registered at `N_DEV_RegisterADMSDevices.C:89-93`), while PyMS names a device after its module (`PyMS/vae/xyce_device_gen.py:513-514`). `s26_cmc_all.sh` runs `/usr/local/bin/Xyce` and sets no `LD_LIBRARY_PATH`. Phase 2, under `env_for` on DEVELOPMENT-202610100047: a letter-route `-norun` lists each CMC module under its own name and no built-in (E128) |
 | E100 | the BSIM-CMG decks and the XDM decks (`sp3/FIX/v1.sh`; first examined by the completeness lens, `sp3/COMP/w7.sh`, `w9.sh`, `w10.sh`) | BSIMCMG108.0.0_20140822: 13 decks, each with `.hdl "bsimcmg.va"`, the modelcards' `.model` type `bsimcmg` (7 cards); `bsimcmg.va:48` is `` `include "bsimcmg_main.va"``, which declares `module bsimcmg_108`; `module bsimcmg` is only in `bsimcmg_nqsmod3.va`, which the tree does not include. BSIMCMG110.0.0_20160101: 13 decks, `.hdl "bsimcmg.va"`, type `bsimcmg`, module `bsimcmg_110`. The XDM SPECTRE decks (Xyce_Regression d4685581): masters `resistor` 46, `vsource` 22, `isource` 9, `inductor` 5, `capacitor` 4, `nfet`/`pfet` 1 each, two diodes; analyses `dc` 1, `tran` 11, `info` 70; no `ac`, `noise`, controlled source, mutual inductor or jfet |
 | E101 | the real samples and the corpus (`sp3/FIX/v1.sh`-`v3.sh`, outputs `v1.out`-`v3.out`) | psf-parser `tests/data` (Spectre 23.1.0.242): `"design" "#RC Low-Pass Filter"` in every file; `myop.dc` in = out = 1 V; `mydc.dc` "Vin:dc = (0 V -> 2 V)", SWEEP `"dc"` (V), step 0.1; `myac.ac` 1 Hz → 1 MHz, grid 3; `mytran.tran.tran` stop 0.5, step 5e-4, maxstep 0.01, errpreset moderate, 6002 points, `in` = 1.0 at t = 0 and 1.5 at t = 8.3333e-5 s (1 + sin(2π·1 kHz·t)); the `mysweep_*.sweep` parents `"R1:r"` (Ohm) 1000/2000/3000, `mysweep-00i_mynestedsweep_ac2.sweep` `"C1:c"` (F) 1e-6/2e-6/3e-6; `binary/logFile` (ASCII) lists the `myinfo_*-info` entries, `myop-dc`, `mydc-dc`, `myac-ac`, `mytran-tran`, the three `mysweep_*-sweep` parents, per point `dc1`, `ac1`, the nested parent and its three `ac2` leaves, then `dc2-dc`, `tran1-tran` (stop 5 ms) and the `mymonte` entries. Dates: `joop-banaan.dc` (19.1, native) `1:07:28 PM, Tue Feb 2, 2021`, `fracpole.dc` (20.1) `11:50:23 AM, Tue Feb 2, 2021`; `bus_chevrons.tran`'s `1:35:51 AM, Mon Dec 1, 2025` sits beside "circuitmuggle". allpub order: `rushikesh-dhanaji-phadtare.tran` (`"BINPSF creation time"`, 19.1.0.063) TRACE `"group" GROUP 5`: `net1 net2 V0:p V1:p vdd!`; the native `joop-banaan.tran` (19.1.0.373.isr7): `V1:p vinp vref_o I2.pup2 I2.pup_b …` (explicit saves, unsorted). NetlistParse.rs `tests/corpus/spectre`: 20 of 126 files cite or quote a manual (`spectre_reference.txt:<line>`, "manual"; the list is in §11), `array_sweep.scs` among them as a "verbatim manual example" |
-| E102 | a VACASK sweep of an instance parameter bound to an expression (VACASK 0.3.4-91 with the rebuilt `.osdi`; e2e 2's `dev=X2.R1`, phase 1b) | `sweep … instance="X2:R1" parameter="r"` with `R1`'s `r=r` reading its subckt's parameter: "Sweep 's1': parameter 'r' of instance 'X2:R1' is bound to an expression." and "Failed to bind sweep parameters." (the texts `engine_facts/E102` pins), rc 0, no rawfile; `alter instance("X2:R1") r=2000` on the same instance works and moves the node, the altered value holding until VACASK's next elaboration after a change of a variable, temp or tnom, or of the holding subckt instance's parameters or `m`, whatever the expression reads (phase 2c3 [E148]; §5.3); Xyce sweeps `.DC X2:R1:R` natively; phase 2c2 measured the same bind failure for every value parameter and source field [E145] |
+| E102 | a VACASK sweep of an instance parameter bound to an expression (VACASK 0.3.4-91 with the rebuilt `.osdi`; e2e 2's `dev=X2.R1`, phase 1b) | `sweep … instance="X2:R1" parameter="r"` with `R1`'s `r=r` reading its subckt's parameter: "Sweep 's1': parameter 'r' of instance 'X2:R1' is bound to an expression." and "Failed to bind sweep parameters." (the texts `engine_facts/E102` pins), rc 0, no rawfile; `alter instance("X2:R1") r=2000` on the same instance works and moves the node, the altered value holding until VACASK's next elaboration after a change of a variable, temp or tnom, or of the holding subckt instance's parameters or `m`, whatever the expression reads (phase 2c3 [E148]; §5.3); Xyce sweeps `.DC X2:R1:R` natively; phase 2c2 measured the same bind failure for every value parameter and source field [E145]; since phase 2c4 vamos's VACASK deck sweeps such a parameter's switchable hook instead, the refusal staying for what the hook cannot print (§5.2 [E153]) |
 | E103 | native currents of `$mfactor` instances (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; XDM `rlc` with m=2 on R, L, C and in a subckt, phase 1b) | VACASK's `r1.i` and `l1:flow(br)` are one unit's current: 6.26e-5 A against Xyce's total `I(RR1)` 1.25e-4 A, which is Spectre's `R1:1`; with a `vamos_tp` probe the three circuits agree |
 | E104 | Xyce PyMS with several `.hdl` modules (Xyce DEVELOPMENT-202610100047 under `env_for`; e2e 8, phase 1b) | two modules named by absolute `.hdl` paths compile but lose their parameters: "Unrecognized parameter R for device RX1", "Unrecognized parameter A for device YVRES!X2", rc 1; one module by an absolute path, and two by relative (base) names beside the deck, work |
 | E105 | the XDM diode clipper under `tran_lteimplicit=0` (VACASK 0.3.4-91 with the rebuilt `.osdi` against Xyce DEVELOPMENT-202610100047 under `env_for`, phase 1b) | VACASK keeps its 40 µs maxstep across the clamp knee where Xyce refines: 5.78 % of full scale at 1.5544 ms, 1 of 70 points; every other point within 0.48 % (N03334: 7.24 % at the knee, 0.62 % elsewhere; the phase-2 harvest corrected the first reading, 0.4 %) (§14 q.22). Phase 2c's `times` check states it directly: VACASK has 3 points 40 µs apart in [1.50, 1.61] ms, Xyce 13 there with a smallest step of 0.84 µs |
@@ -5336,14 +5877,39 @@ refusal; E152 is a measurement of the vamos code.
 | E142 | a resistance driven to 0 by a sweep or an alter (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; through `bin/vamos`, the 2c2 fixer and its skeptic, phase 2c2) | Xyce's resistor swept to `r` = 0 (a `.STEP` or `.DC` of a `.param` it reads) is an open circuit: `R1 (in out) resistor r=rv` under `sweep param=rv stop=3k step=1k` gives out = [0, 0.5, 0.333, 0.25], exit 0, where the short gives 1 V at rv = 0, and so do `dc param=rv` from 0, a `sub=X1` sweep of `rr` from 0, an X-line `rr=rv*2`, an ac's own sweep of rv over [1k 0], `r=1k*abs(temp-27)/27` under a temp sweep, `r=rv-1k` swept from 1k, `set temp=27`, `alter param=temp`, a SPICE-mode `r1 in out rv` and `dev=X1.R1 param=r values=[1k 0]`; VACASK fails the point with NaN (`NaN found in vector, row node in`, `Sweep aborted @ 1/4 (0)`, status 1), and an alter to 0 or `parameters rv=0` likewise, while Xyce had these right, the short's 1 V (its replay prints a constant R=0; F1 refuses them on both engines all the same, its rule being engine-independent); a card `r=rv` (folded into the instance) gives at rv = 0 VACASK's `sp_resistor` clamp of E22, out = 1, not NaN, and Xyce 0; a constant R=0 is Xyce's short [E22], made one when Xyce reads the deck, so a `.DC R1:R` of it from 1k leaves b at 1 V ([1, 1, 1] for 1k-3k), while VACASK's 0 V source has no `r` (`Failed to bind sweep parameters` for a sweep, `Parameter 'r' not found` at an alter); Xyce's replay of an alter of the short's `r` to 1k gives b = 0.5, the r = 1k reference; since phase 2c2 each refused case is status 2 before any engine runs (§3.8, §4.5 item 10), and a static `r=0`, `0.0`, `0k` or `(0)`, a sweep from 1k, a nominal 0 the step's sweep replaces, an alter undone before the next analysis, a source swept from 0 and r = 1 mΩ run as before on both engines; pinned by `TestFollowUpRuns2c2` |
 | E143 | an alter of a resistor's `isnoisy` (VACASK 0.3.4-91 with the rebuilt `.osdi`, `devices/resistor.va:11` and `spice/resistor.va:97`; Xyce DEVELOPMENT-202610100047 under `env_for`; the 2c2 fixer and its skeptic) | VACASK's `resistor` and `sp_resistor` declare `parameter integer noisy`, and `alter instance("R1") noisy=0` (and `=1`) works: a noise after the alter to `no` gives out = 2.035687e-9 V/sqrt(Hz) with R2 alone listed, equal to the deck with `isnoisy=no` from the start, and Xyce's replay 2.035667e-9, equal to its own reference; off to on 2.878896e-9 on VACASK and 2.878867e-9 on Xyce, R1 and R2 listed; the skeptic's divider gives 1.919264182e-9 and 1.91924493e-9 off, √(4kT·2k·(1/3)²), and 3.324263076e-9 and 3.32422973e-9 on, and matches its references inside a subckt (`dev=X1.R1`), with m=2 (1.357124718e-9, 1.357111105e-9), twice in a row, inside a sweep block, and with `tc1` on VACASK; before phase 2c2 VACASK stopped at the alter (`Parameter 'isnoisy' not found`), Xyce at read-in (`… needs a probe (signals.resolve)`), Xyce's off-to-on deck listed R2 alone while its out (3.324e-9) held R1's noise, and a sweep of `isnoisy` was VACASK exit 1 and Xyce `Function or variable R1:ISNOISY is not defined`, now refused (§4.5 item 7, §5.2); pinned by `TestFollowUpRuns2c2` |
 | E144 | PyMS's attributes for two modules of one library (Xyce DEVELOPMENT-202610100047 under `env_for`, `utils/PyMS/vae/xyce_device_gen.py:98-137`; VACASK 0.3.4-91; the 2c2 fixer and its skeptic) | a module without `xyce*` attributes takes those of the first `.va` in `os.path.dirname` of its `.hdl` name that has them (`if d and os.path.isdir(d)`), so a base name, which has no directory, is never affected: with `lib/vares.va`, a Resistor-level-6 module, and `lib/vres.va`, both including `../inc/rdefs.include`, as `.hdl "lib/vares.va"` and `.hdl "lib/vres.va"`, vres became vares's device (`Unrecognized parameter R for device RX1`, `Unrecognized fields for device RX1`, `Unrecognized parameter A for device YVRES!X2`, status 2: the signature of E104's absolute paths and of E125's `mods/` pair), and a third module in `lib/` failed the same way; with vres in `vamos_va1/lib/` Xyce gives b = 0.2499999998 and c = 0.1999999998 against VACASK's 0.25 and 0.2, and three modules 0.25, 0.2 and 0.1111111 (`vamos_va1/lib/vres.va`, `vamos_va2/lib/vres2.va`), vres keeping its parameter through its include default r = 4k, since a Y-form instance takes no overrides in v1; base names, a single module whose include climbs out of its directory and mixed layouts are unchanged; pinned by `test_spectre_run_xyce.TestRunXyceFailures` and `TestFollowUpRuns2c2` |
-| E145 | value-parameter targets on both engines (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; the 2c2 fixer and its skeptic) | VACASK fails a `dev=` sweep of a value parameter or a source field bound to an expression as it fails an `r` [E102] (exit 1, `Sweep dc1: parameter gain of instance E1 is bound to an expression. Failed to bind sweep parameters.`) for a vcvs `gain=g`, a vccs `gm=gg`, a ccvs `rm=rr`, a cccs `gain=fg` in a sweep block, `coupling=kk`, a diode `area=ar`, a vsource `dc=vv`, an isource `dc=iv`, `mag=mv`, a pulse `val0=vv` and a gain inside a subckt, where Xyce sweeps each but the coupling right (gain [1, 2, 3], dc [2, 4], mag and val0 [0.5, 1], the isource [1, 2], a [0.6294, 0.6126]); VACASK's `mutual` takes `k` in alters and sweeps (`Parameter 'coupling' not found` before), s = 4.712389e-3j at k = 0.25 and 9.424778e-3j at 0.5, 2π·1k·k·√(1m·9m)·1 mA, which Xyce's coupling hook gives too (`.STEP K1:COUPLING` was `Function or variable K1:COUPLING is not defined`); alters of a gain to 3, a gm to 2m, an rm to 2k, a cccs gain to 4 and an area to 2 equal the reference decks on both engines (out 3, o1 2, o2 2, o4 4, a = 0.6126583 on VACASK and 0.6126420 on Xyce), where Xyce had stopped at read-in (`E1: parameter gain not supported on a E element`) and had ignored a bjt's or a jfet's area alter silently (op2 equal to op1: c = 4.917894088 where the area-2 reference gives 4.835788186, d = 4.774999995 where it gives 4.549999995); a `mod=` sweep of a card parameter bound to an expression still fails at VACASK's run (rc 1, `parameter is of model m_dmod is bound to an expression`), and on Xyce a hook inside a subckt bound to a subckt parameter ends with `Unable to resolve global parameter VAMOS_X_X1_E1_GAIN found in .PARAM statement VAMOS_X_X1_E1_GAIN = {{gg}}` (both open, §12); 13 HSPICE decks (K, E, F, G and H lines, a diode area and `r=0` among them) render byte-identically on both emitters before and after; pinned by `TestFollowUpRuns2c2` |
-| E146 | the native current of an instance whose `m` an alter or a sweep sets (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; the 2c2 fixer and its skeptic) | as for a nominal `m` [E103], after `alter dev=R1 param=m value=2` VACASK's native `R1:1` is one unit's current, 3.333e-4 A (b = 0.6667), and Xyce's `I(R1)` the total, 6.667e-4 A; the same for `X1.R1` in a subckt (3.333e-4 against 6.667e-4 A) and for an inductor (`L1:1` 0.5 against 1 mA); with the probe of §6.3 both engines give 2/3 mA, and [0.5, 0.75] mA under `dc dev=R1 param=m values=[1 3]`; an alter of a vsource's `m` stays refused on VACASK at read-in (`the multiplier of a v is not a device parameter on VACASK`), Xyce giving V1:p = −1 mA; pinned by `test_spectre_signals.TestTargetedMultiplier` and `TestFollowUpRuns2c2` |
+| E145 | value-parameter targets on both engines (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; the 2c2 fixer and its skeptic) | VACASK fails a `dev=` sweep of a value parameter or a source field bound to an expression as it fails an `r` [E102] (exit 1, `Sweep dc1: parameter gain of instance E1 is bound to an expression. Failed to bind sweep parameters.`) for a vcvs `gain=g`, a vccs `gm=gg`, a ccvs `rm=rr`, a cccs `gain=fg` in a sweep block, `coupling=kk`, a diode `area=ar`, a vsource `dc=vv`, an isource `dc=iv`, `mag=mv`, a pulse `val0=vv` and a gain inside a subckt, where Xyce sweeps each but the coupling right (gain [1, 2, 3], dc [2, 4], mag and val0 [0.5, 1], the isource [1, 2], a [0.6294, 0.6126]); VACASK's `mutual` takes `k` in alters and sweeps (`Parameter 'coupling' not found` before), s = 4.712389e-3j at k = 0.25 and 9.424778e-3j at 0.5, 2π·1k·k·√(1m·9m)·1 mA, which Xyce's coupling hook gives too (`.STEP K1:COUPLING` was `Function or variable K1:COUPLING is not defined`); alters of a gain to 3, a gm to 2m, an rm to 2k, a cccs gain to 4 and an area to 2 equal the reference decks on both engines (out 3, o1 2, o2 2, o4 4, a = 0.6126583 on VACASK and 0.6126420 on Xyce), where Xyce had stopped at read-in (`E1: parameter gain not supported on a E element`) and had ignored a bjt's or a jfet's area alter silently (op2 equal to op1: c = 4.917894088 where the area-2 reference gives 4.835788186, d = 4.774999995 where it gives 4.549999995); a `mod=` sweep of a card parameter bound to an expression still fails at VACASK's run (rc 1, `parameter is of model m_dmod is bound to an expression`), and on Xyce a hook inside a subckt bound to a subckt parameter ends with `Unable to resolve global parameter VAMOS_X_X1_E1_GAIN found in .PARAM statement VAMOS_X_X1_E1_GAIN = {{gg}}` (the first closed in phase 2c4 by the card's hook [E153], the second open, §12); 13 HSPICE decks (K, E, F, G and H lines, a diode area and `r=0` among them) render byte-identically on both emitters before and after; pinned by `TestFollowUpRuns2c2` |
+| E146 | the native current of an instance whose `m` an alter or a sweep sets (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; the 2c2 fixer and its skeptic) | as for a nominal `m` [E103], after `alter dev=R1 param=m value=2` VACASK's native `R1:1` is one unit's current, 3.333e-4 A (b = 0.6667), and Xyce's `I(R1)` the total, 6.667e-4 A; the same for `X1.R1` in a subckt (3.333e-4 against 6.667e-4 A) and for an inductor (`L1:1` 0.5 against 1 mA); with the probe of §6.3 both engines give 2/3 mA, and [0.5, 0.75] mA under `dc dev=R1 param=m values=[1 3]`; an alter of a vsource's `m` stays refused on VACASK at read-in (`the multiplier of a v is not a device parameter on VACASK`, since phase 2c4, H4, `the multiplier of a vsource is not …`), Xyce giving V1:p = −1 mA; pinned by `test_spectre_signals.TestTargetedMultiplier` and `TestFollowUpRuns2c2` |
 | E147 | VACASK re-binding an altered expression-bound parameter when what it reads changes (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; the 2c2 fixer and its skeptic, decks `altthen`, `altthen2` and `p_altsw`) | with `R1 r=rv`, `alter dev=R1 param=r value=1k` and then `dc param=rv start=2k stop=3k step=1k`, VACASK gives out = 0.333, 0.25 and Xyce's replay 0.5, 0.5 (Spectre's reading unknown, §14 q.79); swept from rv = 0 the same deck passed `plan.build` and VACASK failed with NaN (status 1) where Xyce gave [0.5]×4; a vcvs `gain=g` altered to 3 and then `dc param=g values=[1 2 3]` gives [1, 2, 3] on VACASK and [3, 3, 3] on Xyce, where Xyce had stopped with status 2 before phase 2c2's replay of a gain alter; each exit 0 with no message, one engine silently wrong; E148 holds the mechanism, and phase 2c3 refuses these decks (§5.3) |
-| E148 | what VACASK re-elaborates an altered expression-bound parameter on (VACASK 0.3.4-91 with the rebuilt `.osdi` and its sources `lib/cirparams.cpp` and `lib/hierdevice.cpp`; Xyce DEVELOPMENT-202610100047 under `env_for`; through `bin/vamos`, the 2c3 fixer's decks m01-m27 and its skeptic's k01-k23 and u01-u11) | the divider out = 1k/(R1+1k), `R1 r=rv`, rv = 1k, altered to 3k: with no later change (m01, m01b) 0.25 on both engines, another instance swept (m06) [0.25, 0.5], rv set to its own value (m07) 0.25, a sweep before the alter (m15, m15b, m26) op2 0.25, a tran and a `set reltol` (m24, m27) unchanged, a constant or `2*500` (m11) unchanged, VACASK folding them, and on both engines too an alter of other to its own value (k13) 0.25, an alter of another instance, R2 `r=2k` (k14) 0.4, a sweep of other at its nominal only (k20), a `mod=` sweep of an unrelated card (k21), a `sub=` sweep of another subckt's instance (k22) and rv altered to the alter's 3k (k23) 0.25; VACASK alone loses the alter, exit 0 and no message: after an alter of an unrelated variable (m02) 0.5 where Xyce gives 0.25, a sweep of it (m03) [0.25, 0.5] then 0.5, an alter, sweep or `set` of temp, or an alter of tnom (m04, m05, m09, m22) 0.5, `r=rc` with rc not a variable (m10) 0.5, a card `is=isv` (m12) d 0.6551 against 0.5955, `X1.R1 r=rr` under a sweep of X1's q (m13) [0.25, 0.5] and under an alter of a variable (m13c) 0.5, X1's `m` changing (q_holder_m_alter) 0.667 against 0.4, rv changed before the alter and after the last analysis (m16) 0.333 and an unrelated change there (m16b) 0.5, the same with no analysis before (m18) 0.5, while a variable alter before the first `alter instance` (m17) gives 0.25 on both, re-altered after the change (m19) 0.333, a source `dc=vv` altered to 2 (m20) 0.5 against 1, `m=mm` altered to 2 (m21) 0.5 against 0.667, an X-line `rr=rv` altered with `sub=` (m23) 0.5 against 0.25, and `test_spectre_plan.TestAlters`' deck (p_altertargets) op2 0.333 against 0.2; a temp or tnom change before the first alter (u01, u03) or a global temp or tnom other than 27 (v01, v02) gives VACASK 0.5 against 0.25, not refused [E151]; in VACASK's source `elaborateChanges` forces a propagation of every binding on any change of a variable, temp, tnom or scale (`lib/cirparams.cpp` about line 110), `HierarchicalInstance::propagateParameters` rewrites each child's expression-bound parameters (`lib/hierdevice.cpp:579`), and `setVariable` flags a change only when the value differs; an alter of a netlist parameter defined by an expression (`rw=2*rv`, then a sweep of rv, u08) and a `sub=` alter of a parameter whose subckt default is an expression (`rr=q*1k`, then a sweep of q, u06) keep the alter on both engines (0.25; re-evaluating u08's would give 0.333 and 0.2), Spectre's reading unknown (§14 q.79); since phase 2c3 each deck on which the engines differed, and E147's, is status 2 before any engine runs on the engines §5.3's rules name, Xyce's values unchanged; pinned by `test_spectre_plan.TestFollowUp2c3` and `test_spectre_emit.TestFollowUpRuns2c3` |
+| E148 | what VACASK re-elaborates an altered expression-bound parameter on (VACASK 0.3.4-91 with the rebuilt `.osdi` and its sources `lib/cirparams.cpp` and `lib/hierdevice.cpp`; Xyce DEVELOPMENT-202610100047 under `env_for`; through `bin/vamos`, the 2c3 fixer's decks m01-m27 and its skeptic's k01-k23 and u01-u11) | the divider out = 1k/(R1+1k), `R1 r=rv`, rv = 1k, altered to 3k: with no later change (m01, m01b) 0.25 on both engines, another instance swept (m06) [0.25, 0.5], rv set to its own value (m07) 0.25, a sweep before the alter (m15, m15b, m26) op2 0.25, a tran and a `set reltol` (m24, m27) unchanged, a constant or `2*500` (m11) unchanged, VACASK folding them, and on both engines too an alter of other to its own value (k13) 0.25, an alter of another instance, R2 `r=2k` (k14) 0.4, a sweep of other at its nominal only (k20), a `mod=` sweep of an unrelated card (k21), a `sub=` sweep of another subckt's instance (k22) and rv altered to the alter's 3k (k23) 0.25; VACASK alone loses the alter, exit 0 and no message: after an alter of an unrelated variable (m02) 0.5 where Xyce gives 0.25, a sweep of it (m03) [0.25, 0.5] then 0.5, an alter, sweep or `set` of temp, or an alter of tnom (m04, m05, m09, m22) 0.5, `r=rc` with rc not a variable (m10) 0.5, a card `is=isv` (m12) d 0.6551 against 0.5955, `X1.R1 r=rr` under a sweep of X1's q (m13) [0.25, 0.5] and under an alter of a variable (m13c) 0.5, X1's `m` changing (q_holder_m_alter) 0.667 against 0.4, rv changed before the alter and after the last analysis (m16) 0.333 and an unrelated change there (m16b) 0.5, the same with no analysis before (m18) 0.5, while a variable alter before the first `alter instance` (m17) gives 0.25 on both, re-altered after the change (m19) 0.333, a source `dc=vv` altered to 2 (m20) 0.5 against 1, `m=mm` altered to 2 (m21) 0.5 against 0.667, an X-line `rr=rv` altered with `sub=` (m23) 0.5 against 0.25, and `test_spectre_plan.TestAlters`' deck (p_altertargets) op2 0.333 against 0.2; a temp or tnom change before the first alter (u01, u03) or a global temp or tnom other than 27 (v01, v02) gives VACASK 0.5 against 0.25, not refused [E151]; in VACASK's source `elaborateChanges` forces a propagation of every binding on any change of a variable, temp, tnom or scale (`lib/cirparams.cpp` about line 110), `HierarchicalInstance::propagateParameters` rewrites each child's expression-bound parameters (`lib/hierdevice.cpp:579`), and `setVariable` flags a change only when the value differs; an alter of a netlist parameter defined by an expression (`rw=2*rv`, then a sweep of rv, u08) and a `sub=` alter of a parameter whose subckt default is an expression (`rr=q*1k`, then a sweep of q, u06) keep the alter on both engines (0.25; re-evaluating u08's would give 0.333 and 0.2), Spectre's reading unknown (§14 q.79); since phase 2c3 each deck on which the engines differed, and E147's, is status 2 before any engine runs on the engines §5.3's rules name, Xyce's values unchanged; since phase 2c4 VACASK's deck prints such a parameter through a switchable hook where it can, which VACASK's re-evaluation keeps, so the decks VACASK alone lost run there with Xyce's values (`p_altertargets` op2 0.2 [E153]), and u08 and u06 are rule (a)'s on both engines (H2); pinned by `test_spectre_plan.TestFollowUp2c3` and `test_spectre_emit.TestFollowUpRuns2c3` |
 | E149 | a constant expression equal to 0 as a resistance (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; through `bin/vamos`, the 2c3 fixer's 30 decks and its skeptic's 52, each against its `r=0` twin) | `r=1k-1k`, `(0)`, `2*0`, `-(1k-1k)`, `0*1k`, `abs(0)`, `min(0,1)` and `(1-1)*1k` at the top level, in a subckt, with m=2 on the resistor or inside an m=2 instance, in an `if` branch, on a model card, under noise, under an alter on Xyce and under a source sweep: both engines print exactly the twin's netlist (one comment line aside) and give its rc and values, b = 1 V and the short's current 1 mA (2 mA at 2 V), `X1.R1:1` = `X1:1` = 1 mA, noise out 0 with R2 alone listed, and on Xyce after an alter to 1k b = 0.5 and R1:1 = 0.5 mA, while on VACASK the alter is the twin's refusal (`R1 prints as a short`); before phase 2c3, 47 of the skeptic's 52 were status 2 on both engines (F1's `r=1000.0 - 1000.0 evaluates to 0`), the five written `r=(0)` running because the parser folds `(0)` to the number 0; before phase 2c2 Xyce printed `{1000-1000}` as its short (b = 1, R1:1 = 1 mA) and VACASK failed with NaN; `r=0*rv` and `r=(temp-27)*1k` keep F1's error (`r=0.0 * rv evaluates to 0`, §3.8); pinned by `TestFollowUp2c3` and `TestFollowUpRuns2c3` |
-| E150 | Xyce's `.DC` of a subckt instance's `m` (Xyce DEVELOPMENT-202610100047 under `env_for`, VACASK 0.3.4-91 with the rebuilt `.osdi`; the 2c3 fixer, confirmed by its skeptic) | `dc1 dc dev=X1 param=m values=[1 2]` ends on Xyce with `Device instance X1:R1: Multiplicity Factor (M) must be non-negative`, status 2, where VACASK runs it (the fixer names a `.STEP` of it too): a valid deck ending with an engine netlist error, not a vamos refusal (open, §12) |
-| E151 | VACASK's first elaboration at a temp or tnom other than 27 (VACASK 0.3.4-91 with the rebuilt `.osdi` and its sources `simulator/cmd.cpp`, `lib/circuit.cpp`, `lib/cirparams.cpp` and `lib/options.cpp`; Xyce DEVELOPMENT-202610100047 under `env_for`; through `bin/vamos` and on raw VACASK decks, the 2c3 skeptic) | E148's divider with `a1 alter dev=R1 param=r value=3k` before the first analysis: a global `options temp=50` (v01) or `tnom=25` (v02) gives VACASK 0.5 against Xyce's 0.25, a vcvs `gain=g` altered to 3 (v04) 2 against 3, a card `is=isv` altered to 1e-13 (v05) d 0.6130 against 0.5488, a tran (v06) 0.5 against 0.25 throughout, two ops (v09) 0.5, 0.5 against 0.25, 0.25, and an `alter param=temp`, a `set temp=50` or an `alter param=tnom` before the alter (u01-u04, v10) 0.5 against 0.25, each exit 0 with no message and accepted by `plan.build`; an analysis before the alter (v03, v11), a constant `r` (v07), temp = 27 (v08) or a variable alter before it (k15) give 0.25 on both; the cause: `cmd_alter` → `defaultElaboration` → `CommandInterpreter::elaborate`, which writes the user options first, so temp 27 → 50 sets `ParametrizationAffectingOptionsChanged`, which `Circuit::elaborate` does not clear (it clears `VariablesChanged`, `lib/circuit.cpp:987-990`; `elaborateChanges` clears both, `lib/cirparams.cpp:501-503`), and the first analysis forces `propagateParameters` (`lib/cirparams.cpp:114-118`), which re-sets every expression-bound parameter (`lib/hierdevice.cpp:579-621`), VACASK's defaults being 27 and 27 (`lib/options.cpp:48-49`); raw VACASK on vamos's render gives 0.5 as rendered, 0.5 with one `elaborate changes` before the alter and 0.25 with two; the 2c2 tree gives the same values (pre-existing); open (§5.3, §12, §14 q.82) |
+| E150 | Xyce's `.DC` of a subckt instance's `m` (Xyce DEVELOPMENT-202610100047 under `env_for`, VACASK 0.3.4-91 with the rebuilt `.osdi`; the 2c3 fixer, confirmed by its skeptic) | `dc1 dc dev=X1 param=m values=[1 2]` ends on Xyce with `Device instance X1:R1: Multiplicity Factor (M) must be non-negative`, status 2, where VACASK runs it (the fixer names a `.STEP` of it too): a valid deck ending with an engine netlist error, not a vamos refusal (closed: phase 2c4, H3, the hook starting at the instance's `m` or 1 [E157]) |
+| E151 | VACASK's first elaboration at a temp or tnom other than 27 (VACASK 0.3.4-91 with the rebuilt `.osdi` and its sources `simulator/cmd.cpp`, `lib/circuit.cpp`, `lib/cirparams.cpp` and `lib/options.cpp`; Xyce DEVELOPMENT-202610100047 under `env_for`; through `bin/vamos` and on raw VACASK decks, the 2c3 skeptic) | E148's divider with `a1 alter dev=R1 param=r value=3k` before the first analysis: a global `options temp=50` (v01) or `tnom=25` (v02) gives VACASK 0.5 against Xyce's 0.25, a vcvs `gain=g` altered to 3 (v04) 2 against 3, a card `is=isv` altered to 1e-13 (v05) d 0.6130 against 0.5488, a tran (v06) 0.5 against 0.25 throughout, two ops (v09) 0.5, 0.5 against 0.25, 0.25, and an `alter param=temp`, a `set temp=50` or an `alter param=tnom` before the alter (u01-u04, v10) 0.5 against 0.25, each exit 0 with no message and accepted by `plan.build`; an analysis before the alter (v03, v11), a constant `r` (v07), temp = 27 (v08) or a variable alter before it (k15) give 0.25 on both; the cause: `cmd_alter` → `defaultElaboration` → `CommandInterpreter::elaborate`, which writes the user options first, so temp 27 → 50 sets `ParametrizationAffectingOptionsChanged`, which `Circuit::elaborate` does not clear (it clears `VariablesChanged`, `lib/circuit.cpp:987-990`; `elaborateChanges` clears both, `lib/cirparams.cpp:501-503`), and the first analysis forces `propagateParameters` (`lib/cirparams.cpp:114-118`), which re-sets every expression-bound parameter (`lib/hierdevice.cpp:579-621`), VACASK's defaults being 27 and 27 (`lib/options.cpp:48-49`); raw VACASK on vamos's render gives 0.5 as rendered, 0.5 with one `elaborate changes` before the alter and 0.25 with two; the 2c2 tree gives the same values (pre-existing); closed in phase 2c4: the hook, declared before that first elaboration, keeps the alter (0.25 on the E151 decks), and rule (b) counts the first elaboration for the targets the hook cannot print (§5.3, §14 q.82 [E153]) |
 | E152 | the cost of §3.8's zero check (Cygwin Python 3.9.16, `plan.build` alone, median of 3 runs, VACASK / Xyce plans; generated decks: 401 or 2000 resistors under a 1001-point `dev=` sweep of one resistor's `r`, 400 under a 1001-point `param=` sweep; the 2c2 skeptic, the 2c3 fixer and its skeptic; a measurement of the vamos code) | phase 2c2's per-state check, which walked every path at every point of a `dev=` sweep of a resistance, took `plan.build` from 0.0045 / 0.0044 s to 4.07 / 4.05 s for 401 resistors, from 0.016 to 8.42 / 8.44 s for 2000, and from 2.21 / 2.20 s to 4.06 / 4.05 s for the `param=` sweep (the 2c2 skeptic's 0.04 → 4.0 s, 0.17 → 8.6 s and 2.26 → 4.06 s probably included the parse: parse and build of the 401-resistor deck take 0.028 s); phase 2c3 (G2: the `dev=` values applied to that resistor alone, `_State.rset`, and the value each walk computed read once) gives 0.0047 / 0.0047 s, 0.0164 / 0.0164 s and 2.25 / 2.25 s, 1.01-1.07× the 2c2 base (the skeptic's 5-run medians 1.04 / 1.05× for 401 resistors), and the skeptic's other decks (a `dev=` sweep in a subckt, a product of an `r` level and a walked level, G1's bound alters at the top level and in a subckt) 1.00-1.07×, except 300 alters of a resistance each followed by an op, 1.33× (0.0202 against 0.0152 s, +5 ms); F1's messages are identical, in order, before and after on 15 mixed decks, on the 24 decks of the 2c2 tests and on 2200 random decks on both engines; `TestFollowUp2c3`'s G2 tests count the walks and the evaluations, not the times |
+| E153 | VACASK's switchable hook (VACASK 0.3.4-91 with the rebuilt `.osdi` and its documentation, `docs/expr-operators.md`, `cmd-var.md`, `expr-cirvars.md`, `cmd-alter.md`; Xyce DEVELOPMENT-202610100047 under `env_for`; raw VACASK decks and `bin/vamos`, the 2c4 fixer and its skeptic) | E151's deck as vamos rendered it gives 0.5 on raw VACASK, and 0.25 with `R1 (in out) resistor r=(vamos_af1 ? vamos_av1 : rv)`, `var vamos_af1=0 vamos_av1=0` after the head options line and the alter as `var vamos_af1=1 vamos_av1=3000.0`, also at the first elaboration under temp 50; the hook survives a variable change, a sweep of a variable or of temp and an alter of rv, a sweep of `vamos_av1` with its flag set gives [0.5, 0.25], and VACASK restores the alter's value after it; a gain, a card's `is`, a source's `dc` and `mag`, a `$mfactor`, an X-line binding, every entry of a model group, a coupled inductor's folded `l` and Verilog-A instances and cards take it, and passed down the X lines it is per path (X2 unchanged at 0.333), two levels down and through a lifted definition too; VACASK's `a ? b : c` has the lowest precedence and is right-associative, `var` evaluates every right-hand side before it writes them, and its variables are global, a change re-evaluating what depends on one; through `bin/vamos` every 2c3 rule-(b) deck (the 2c3 fixer's 21, its skeptic's 11), the 11 E151 decks, `TestAlters`' deck (op2 0.2), the 2c2 decks `f3j` ([0.5, 0.25]; exit 1 before, `Sweep 'dc1': parameter 'rr' of instance 'X1' is bound to an expression. Failed to bind sweep parameters.`) and `p_modbound` (2.7e-5), the fixer's 62 decks and the skeptic's 24 (nested sweeps of a hooked target and of what it reads, a noise-free R, a MOS `w`, a C in a tran, a BJT `area`, two paths both altered, 0.25 and 0.1667, an `m` in a multiplied holder, 0.8, a coupled inductor's bound `m`, a Verilog-A parameter named `R`) give Xyce's values on VACASK to 1e-9, the diode and BJT decks to 3.5e-5, the gap the engines show before any alter; no hook is printed for a constant target or a binding nothing targets; an exp's `td1` and `td2` as written take it (`delay=(vamos_af1 ? vamos_av1 : td)`, `td2=((vamos_af1 ? vamos_av1 : t2)-td)`); pinned by `TestFollowUp2c4` and `TestFollowUpRuns2c4` |
+| E154 | VACASK's control-block statements and the netlist's parameters (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; raw decks and `bin/vamos`, the 2c4 and 2c5 fixers and skeptics) | a statement that reads a netlist parameter stops VACASK: `alter instance("V1") type="dc" dc=vv mag=2.0` gives `Variable or constant 'vv' not defined`, exit 1 (the 2c4 fixer's s01-s03 on the 2c3 tree: an alter of `mag` beside `dc=vv`, a pulse with `val1=vv` around a tran, an alter of `dc` beside `mag=mm`; Xyce ran all three); a field left out of the statement keeps its value and follows its binding (`dc=vv` gives 0.5, then 1.0 after `vv=2`; a pulse's `val1=vv` survives the switch to pulse), and `alter instance(…) type="pulse"` alone keeps the netlist's given fields; a derived field printed there stops it too, a pulse's `rise=rt` printed `rise=((rt==0.0 ? 3.0000000000000002e-15 : rt))` (the 2c4 skeptic's `x_pulse_val1_rise_bound` and `x_pulse_width`) and an exp's relative `td2=2e-06 - td` (`x_exp_td2`; the 2c5 fixer's X18, a constant `td2` beside `td1=td`), `Variable or constant 'rt'` or `'td' not defined`; left out where the instance line prints the same expression, `x_pulse_width` gives in(3.5 µs) = 1 and `x_exp_td2` e^-1 - e^-4 = 0.3496 at 3 µs on both engines (6e-4 between their time grids); on the 2c4 tree a type switch that left a bound field out took VACASK's default for it, dc to pulse with `val1=vv` (X14) tr1 out 0.5 where Xyce gives 1.0 and pulse to sine with `ampl=vv` (X16) maxrel 1, status 0; the 2c5 skeptic's 43 source decks (every type, a 1 MHz sine, a source in a body, fields reading temp or a hooked X-line binding) match the analytic waveform on each engine to 4e-15 at its own time points; since phase 2c5 a field that cannot be left out is refused on VACASK (§4.5 item 17); pinned by `TestFollowUpRuns2c4` and `TestFollowUpRuns2c5` |
+| E155 | Xyce's state replay and the branches of an `if` (Xyce DEVELOPMENT-202610100047 under `env_for`, VACASK 0.3.4-91 with the rebuilt `.osdi`; `bin/vamos`, the 2c4 and 2c5 fixers and skeptics) | an `if` and its `else` that both hold R1 in one body: 2c3's `run_xyce.find_instance` altered the first match, the untaken branch's, op1 0.5 where VACASK and Spectre's reading give 0.25 (the 2c4 fixer's e01); 2c4's `find_instances` altered every match and descended into the X instances of both branches, so with `if (sel>0) {X1 half} else {X1 other}`, `X2 other` and `alter dev=X1.R1 param=r value=3k` it altered `other`'s definition, which X2 uses too, out2 0.25 where 0.5 (the 2c4 skeptic's B01, B02 inside a subckt and B04 with bound R1s; B03, the masters swapped, wrong on the 2c3 tree too), status 0; 2c5's `taken_instance` resolves the path through `tables.path_envs` on the replayed IR and alters that instance alone: B01-B04 give out 0.25 and out2 0.5 on both engines, e01 0.25, and the 2c5 skeptic's N202 (an `if` inside a subckt that two instances take differently) 0.25, 0.5 and 0.5, N207 (sources in the masters) 2 and 1, N208 and N310 (a body `m` in a branch, 0.667 and 0.5) right; a target in a definition that more than one instance path reaches is refused at render (N201, N209, N309, C07, X12), VACASK running them per path (N309: 0.667 and 0.75); pinned by `TestFollowUp2c4`, `TestFollowUp2c5` and `TestFollowUpRuns2c5` |
+| E156 | a plan variable defined by an expression of another, on VACASK (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c4 fixer and its skeptic) | `parameters rv=1k rw=2*rv` with `rw` altered later printed `rw=vamos_v_rw`, so a sweep of `rv` before the alter left `rw` at its nominal: dc1 [0.333, 0.333] where Xyce gives [0.333, 0.2] (the fixer's c03), op1 after `alter param=rv value=2k` 0.333 against 0.2 (the skeptic's D04), and `rt=1k*(1+0.01*(temp-27))` under a temp sweep or an alter of temp 0.5 against Xyce's 0.448 (V01, V02), each status 0; printed `parameters rw=(vamos_af1 ? vamos_v_rw : 2.0*rv)`, it follows its inputs until an alter or a sweep sets it, and all four equal Xyce; pinned by `TestFollowUp2c4` and `TestFollowUpRuns2c4` |
+| E157 | Xyce's `.DC` and `.STEP` of a subckt instance's `m` through its hook (Xyce DEVELOPMENT-202610100047 under `env_for`, VACASK 0.3.4-91 with the rebuilt `.osdi`; the 2c4 fixer and its skeptic) | with the hook starting at the instance's `m`, or 1 when the line gives none (`.param vamos_x_X1_m=1.0`; 0.0 before), and reaching the body only as `vamos_mfactor={vamos_x_X1_m}` (`{vamos_mfactor*…}` inside a body), no X-line `M=`, `dc1 dc dev=X1 param=m values=[1 2]` gives VACASK's [0.5, 0.667] and op2 0.5 ([0.5, 0.75], then 0.667, with `m=2` on the line), and the sweep block, an ac sweep of it and a sweep block of it around a `sub=` sweep ([[0.5, 0.25], [0.667, 0.4]]) equal VACASK to 1e-9; before, `Device instance X1:R1: Multiplicity Factor (M) must be non-negative`, status 2 [E150]; an alter of the `m` ran before and still does (0.667); pinned by `TestFollowUp2c4` and `TestFollowUpRuns2c4` |
+| E158 | the hook's engine cost (VACASK 0.3.4-91; 1000-point sweeps, engine wall time, the 2c4 fixer's medians of 5 and its skeptic's of 7, raw VACASK on the kept `vamos.sim`) | a 2-resistor divider's `dev=` sweep of R1: 0.023 s as an instance sweep and 0.024 s through the hook (the skeptic: 0.0218 and 0.0227 s); 401 resistors, 400 of them bound: 0.114 against 0.139 s, +22 % (the skeptic: 0.1119 against 0.1334 s, +19 %), and with only R1 bound 0.1129 against 0.1193 s; a `param=` sweep 0.147 s without a hook and 0.145 s with one in force (0.1339 and 0.1342 s): a hooked `dev=` sweep is a variable sweep, which re-propagates every expression-bound parameter at each point, and a hook merely present costs nothing measurable; the hooked and the instance sweeps give bit-identical values at all 1000 points |
+| E159 | VACASK's `$mfactor` of an instance in a subckt body (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c4 skeptic, the 2c5 fixer and its skeptic) | printed `$mfactor=$mfactor` when the line gives no `m`, an alter of it is lost at VACASK's next elaboration: `alter dev=X1.R1 param=m value=2`, then `alter param=other value=2`, gives 0.5 where Xyce gives 0.667 (the 2c4 skeptic's G01; G02 with `m=1` given, G04 two levels down and G05 after a temp alter the same; G01c, with no later change, 0.667), `dc dev=X1.R1 param=m values=[1 2]` exits 1, `parameter '$mfactor' of instance 'X1:R1' is bound to an expression. Failed to bind sweep parameters` (G06, E02), and a binned BSIM4 in a body gives Vd:p -1.185e-4 where Xyce gives -2.370e-4 (the 2c5 fixer's X17); printed `$mfactor=($mfactor*(vamos_hf1 ? vamos_hv1 : 1.0))`, all equal Xyce (G06 and E02 [0.5, 0.667], G08 [0.667, 0.8]), and so do the 2c5 skeptic's 14 body-`m` decks (holder and body `m` 2 each, 0.8; a gain of magnitude 0.4472 in an ac; two levels, 0.667) and a coupled inductor in a body (s 6.664e-3, p 3.142e-3); a holder that writes its own `m` stays refused on VACASK (G07; Xyce 0.75, then 1/(1/6+1)); pinned by `TestFollowUp2c5` and `TestFollowUpRuns2c5` |
+| E160 | a hooked change after an alter of what the hook cannot print, on VACASK (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, and raw VACASK on decks rendered from the Xyce plan, the 2c4 skeptic, the 2c5 fixer and its skeptic) | the hook's `var` statements are variable changes, after which VACASK re-evaluates every other binding: on the 2c4 tree a pulse `rise=rt` altered to 2u and then a hooked alter of `R1 r=rv` (`var vamos_af1=1 vamos_av1=3000.0`) gave in(1.5 µs) 0.5 where Xyce gives 0.25 (the 2c4 skeptic's A01; A02 and A10, a hooked `dev=` sweep and a sweep block, A03 with an op first, A06, A07 a second tran; A04 in a body, out 0.125 against 0.0625), an `isnoisy=nflag` altered to 0 and then a hooked alter a noise of 3.526e-9 against 1.763e-9 (A09), a BSIM4 group whose entry 2 lacks `vtho` Vd1:p -1.185e-4 against -6.555e-5, its op0 value (A11), and the 2c5 fixer's X02 (an `isnoisy=nflag` word, never tracked), X07 and X13 (the `var vamos_af1=0` after a hooked sweep, pending at the next analysis) maxrel 1, each status 0, where 18af05f had given Xyce's values on A01, A03, A04, A06, A07, A09 and A11; raw VACASK on the decks 2c5 refuses confirms each loss (the 2c5 skeptic's N113 0.5 where 0.25, N101 the fall lost, N118 1 where 0.5); a hooked alter does not elaborate: the 2c4 skeptic's O01, refused on the 2c4 tree, gives 0.25 on both engines, rendered from the Xyce plan and through vamos since 2c5; the 2c5 fixer's figures of 0.300 against 0.048 were the two engines' middle samples, at different times; pinned by `TestFollowUp2c5` and `TestFollowUpRuns2c5` |
+| E161 | G1's untracked bindings on VACASK (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos` and raw VACASK, the 2c5 skeptic, the 2c6 fixer's audit and its skeptic) | an alter of a pwl's `wave`, a list, was never a bound, so VACASK re-evaluated the instance line's `wave=[0, 0, 1e-06, vp, 3e-06, vp]` after any later change: in(2 µs) 1 where Xyce and the analytic value give 2, status 0 on both engines, after a variable change, temp, an op and a variable change, a variable sweep or a hooked plan-variable alter (the 2c5 skeptic's N427, N602, N603, N606 and N803, 18af05f, 2c4 and 2c5 alike), after a hooked alter, a hooked source `dc`, an op first or a hooked X-line binding (N701, N704, N705, N804, N601, right on 18af05f), a hooked `dev=` sweep (N702, refused on 18af05f) and a body-`m` alter or sweep (N703 and N806, right on 2c4; N805, exit 1 there), and N605, a change of what the wave reads, gave 3 against Xyce's 2; raw VACASK on N701 after `alter instance("V1") type="pwl" wave=[0.0, 0.0, 1e-06, 2.0, 3e-06, 2.0] delay=0.0` and `var vamos_af1=1 vamos_av1=3000.0` gives in = 1; the 2c6 audit found the same class in a sine's `sinedc` left to `dc=vv`, altered and then a variable change (in(0) 0.5 against 1.0; 0.25 after a change of vv), an exp's `td2` printed through a hook beside an altered constant `td1` (maxrel 0.41, the line giving `td2` 1u where the statement printed 1.5u), a BSIM4 group's threshold altered under its other spelling and then a hooked change (Vd1:p -1.185e-4 against -6.555e-5), and pwl variants (another length, a bound time point, an isource, a body source, a dc-given pwl, a re-alter; VACASK half to all of Xyce's step); the 2c6 skeptic's random differential found 63 such losses on the 2c5 tree, VACASK 0.2 to 0.67 off its own reference; since phase 2c6 each is refused on VACASK, or on both engines under rule (a), Xyce right, and the controls (an alter to the binding's own values, a constant wave, no later change) run equal; a first cut of the printed-field bounds over-refused the 2c4 fixer's e12 and e13 (a hooked field altered, then swept), which run again (e12 dc1 out [1.5, 2.0], e13 ac2 [1, 3]); pinned by `TestFollowUp2c6` and `TestFollowUpRuns2c6` |
+| E162 | a sweep of a bound target around a sweep of what it reads (Xyce DEVELOPMENT-202610100047 under `env_for`, VACASK 0.3.4-91 with the rebuilt `.osdi`; `bin/vamos`, the 2c6 fixer and its skeptic) | an X-line `rr=rv` swept 1k, 3k around a sweep of rv 1k, 2k gave Xyce out 0.5, 0.333 at the first outer point and VACASK 0.5, 0.5 (Q03); a source `dc=vv`, Xyce in 1, 2 and VACASK 1, 1 (Q05); `r=1k*(1+0.01*(temp-27))` around temp 27, 127, Xyce 0.5, 0.333 at both outer points and VACASK 0.5, 0.5 and 0.25, 0.25 (Q06); a subckt default, Xyce exit 2, `Unable to resolve global parameter VAMOS_X_X1_RR` (Q02); `R1 r=rv`, `rw=2*rv` and a diode's `is=isv` equal, both engines keeping the swept value (Q01, Q04, P08 and the 2c4 skeptic's N02: out 0.5, 0.5 and 0.25, 0.25); each status 0 before phase 2c6, which refuses them all on both engines (§5.3); the reverse nest and an inner sweep that the expression does not read run equal; pinned by `TestFollowUp2c6` and `TestFollowUpRuns2c6` |
+| E163 | VACASK's sweep of a source field its instance line derives, and an exp's `delay` swept (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c6 fixer) | with `dc=vv` and no `sinedc`, VACASK's line prints `sinedc=vv`, and `dev=V1 param=sinedc` stops it (`Sweep 'sw1': parameter 'sinedc' of instance 'V1' is bound to an expression`, exit 1) where Xyce gives [0.25, 1] (P10); a sweep of an exp's `delay` with `td1=td` likewise (P11), and with a constant `td1` VACASK set its absolute `td1` to the swept value while Xyce's hook `vamos_x_V1_delay` was read by nothing, both points identical, status 0 and both wrong (P11b); since phase 2c6 the first is refused on VACASK and the second on both engines (§5.2); pinned by `TestFollowUp2c6` and `TestFollowUpRuns2c6` |
+| E164 | the branch the run takes, in the decks' lookups (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c5 to 2c7 skeptics and the 2c6 and 2c7 fixers) | V1 in both branches of an `if`, the else taken (`val1=vv`), then `alter dev=V1 param=width`: 2c5's render took `_resolve`'s first match, the untaken branch's V1, as the base of the control-block statement and refused with an `(internal)` message, where 2c4 ran it with Xyce's values (the 2c5 skeptic's N607); 2c6's `run_instance` resolved the paths on the render copy, whose values hold no plan variable, so a condition reading one (`condition other > 5.0 is not a number on this path: unknown parameter 'other'`) fell back to the first match: the 2c6 skeptic's K2b1 (sel swept by a dc that keeps the else), K2b2 (`alter param=sel value=-1`) and K2b4 (`if (other > 5)` with `alter param=other value=2`) refused `(internal)`, where Xyce gives in(2.5 µs) = 2, out 1 and in(3.75 µs) = 0 (on 18af05f VACASK exit 1 and Xyce 0, the width alter lost); an `if` and its `else` holding Z1 as two kinds gave VACASK `Output variable 'i' of instance 'X1:Z1' not found` and Xyce `There was 1 undefined symbol in .PRINT command: device X1:RZ1`; X lines with different `m` in the branches named the first match's m=2.0, and the other branch's lone L1 was refused as the first's coupled one; since phase 2c7 every lookup resolves on the run's state: K2b1, K2b2 and K2b4 equal on both engines (tolerance 0), the two kinds' 1 mA through the inductor on both, the X-line refusal naming the taken X1's m=3.0 (Xyce 0.75 and 0.857143), and the lone L1's ac equal on both; no `(internal)` refusal in the 2c7 skeptic's 14,904 runs; pinned by `TestFollowUp2c6`, `TestFollowUp2c7`, `TestFollowUpRuns2c6` and `TestFollowUpRuns2c7` |
+| E165 | §3.7's nominal structure and an alter before the first analysis (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c6 skeptic, the 2c7 fixer and its skeptic) | `parameters sel=0 other=1`, `if (sel > 0) {V1 … val1=1 …} else {V1 … val1=2 …}`, `a0 alter param=sel value=1`, `a1 alter dev=V1 param=width value=2u`, a tran: status 0 on both engines with in(2 µs) = 2 where the if branch the run takes gives 1 (the 2c6 skeptic's H05h; 18af05f the same), the source alter built from the else's fields, since the first state `plan.build` walked was the nominal one; with `val1=vv` in the else (H05) Xyce printed `.param sel=1.0` beside the else's `PULSE(0.0 {vv} …)`, 2 where 1, and VACASK refused `(internal)`; the 2c7 skeptic's random T0333 likewise (other altered 1 → 3 before the first analysis, 2 where 1); the controls (the sel alter alone, 1 on both; a resistor in the if altered, 0.6667 and 0.3333) right; since phase 2c7 H05h, H05 and the 106 random branch-change decks are refused on both engines, and the alters that keep their branch run as before; pinned by `TestFollowUp2c7` and `TestFollowUpRuns2c7` |
+| E166 | VACASK's source setup checks (VACASK 0.3.4-91 with the rebuilt `.osdi` and its sources `lib/devvisrc.cpp` and `lib/coretran.cpp`, Xyce DEVELOPMENT-202610100047 under `env_for`; raw decks and `bin/vamos`, the 2c6 skeptic, the 2c7 and 2c8 fixers and skeptics) | `sourceSetup` stops the run on a sine's `freq` ≤ 0 (`Frequency of sinusoidal transient must be greater than 0`, line 177), a pulse's `rise` ≤ 0 (`Rise time of pulse transient must be grater than 0`, 184), a period above 0 that is not greater than rise+fall+width (`Period of pulse transient must be greater than rise+fall+width`, 195-199; a period of 0 or less is a single pulse), a `stretch` ≤ 0 (244), a pwl with fewer than two points (`Pwl waveform needs at least two points`, 223, 309), a negative first time (`First timepoint must be >=0`, 279), times not strictly increasing (`Pwl scale is not strictly monotonic`, 326), an inconsistent pwl period (285-298) and an exp's relative `td2` ≤ 0 (`Parameter td2 of exponential transient must be greater than 0`, 461), vamos never reaching the stretch and pwl-period checks (it folds `stretch`, refuses `pwlperiod`); a fall ≤ 0 is no fall, the pulse staying at val1; a negative width gives val0 after the rise (0.2 at 0.6 µs, then 0); before its delay a sine is sinedc + ampl·sin(tdphase); a sine sets the tran's step limit tran_ffmax/(2 freq), tran_ffmax 0.25 (`lib/coretran.cpp`); VACASK sets a source up whenever it sets the circuit up (E167), in a tran in its waveform type and outside one where its dc is derived (`type="dc"` sets none up), so a netlist-parameter alter that broke a pulse's period stopped VACASK while Xyce ran it (the 2c6 skeptic's R0080, `width=wd` altered to 2 s under `period=20u`), and so did a derived dc's broken waveform under an op (the 2c7 fixer's P04, P12); 2c4's hooked sweep declared `var vamos_af1=0 vamos_av1=0` and set `var vamos_af1=1` alone before the sweep, so VACASK set an exp's `td2=t2` (the 2c6 skeptic's S04, E08, R0224) or a sine's `freq=fr` (E06) up at 0 and stopped, exit 1, where an alter before the sweep had avoided it (E10); one statement, `var vamos_af1=1 vamos_av1=1.5e-06`, runs S04 with the analytic exp to 6 digits (`td2` = 1.5u: 0.221199, 0.306434, 0.238651, 0.185862 at 1, 2, 2.5 and 3 µs) and E06 equal to Xyce; the 2c7 skeptic's 14,904 real-tree runs had no VACASK setup-check exit; pinned by `TestFollowUp2c7`, `TestFollowUp2c8` and their run classes |
+| E167 | when VACASK sets the circuit up (VACASK 0.3.4-91 with the rebuilt `.osdi`; raw decks, the 2c9 fixer's V1-V10, re-run by its skeptic with its SB, SC and SD, and `bin/vamos`) | at its first analysis, sweep or `alter instance`/`alter model`, in the state before that statement's own values: an `alter instance` that would repair a netlist value that breaks a setup check fails at the netlist's value, `Initial circuit setup failed` (V1, V2), and `var vq=0` before an analysis or a sweep fails there too (V4, V8), while two `var` statements before the first analysis elaborate nothing (V3: `var vq=0`, `var vq=100000`, an op runs); after a change, at the next analysis or sweep command, before the sweep's first point: a sweep after `var vq=0` fails `Circuit setup failed` (V7), and so does a type switch to sine before a sweep while its variable is 0 (SB); never at a `var` statement (V5) nor at an `alter instance` after the first setup (V6); a `var` set to a good value before the sweep runs (V9, SC), and so does an analysis after a sweep that restored its variable (SD); `type="dc"` sets no waveform up (V10: freq 0 under a given dc, op 0.1); through vamos the 2c8 skeptic's G20073 (`parameters qfr=0`, `V1 (in 0) vsource type=sine sinedc=0 ampl=0.5 freq=qfr sinephase=90`, `sw1 sweep param=qfr values=[100k 200k] { op1 dc }`) stopped VACASK before any analysis, `Frequency of sinusoidal transient must be greater than 0 … Initial circuit setup failed`, unrefused, and so did its family (a tran in the sweep, an alter of qfr to 0 before it, after an op, a dc analysis of qfr, a given dc around a tran, `freq=(temp-27)*1k` over a temp sweep), Xyce right (op 0.5 at 100k and 200k); since phase 2c9 refused on VACASK (`plan._presweep_source`), with no false refusal in the 2c9 skeptic's 1,876 runs per tree; pinned by `TestFollowUp2c9` and `TestFollowUpRuns2c9` |
+| E168 | Xyce's `PULSE` (Xyce DEVELOPMENT-202610100047 under `env_for` and its source `N_DEV_SourceData.C`, VACASK 0.3.4-91 with the rebuilt `.osdi`; `bin/vamos`, the 2c6 to 2c9 fixers and skeptics) | `PulseData::initializeSource` takes PER = TSTOP when none is given, `updateSource` wraps once the time passes PER, and `getMaxTimeStepSize` gives 0.1·PER (the plan's maxstep, stop/50 or less, binds first), so a Spectre pulse without a period and with a negative delay repeated inside the tran: the 2c8 skeptic's P868 (`delay=-2.7u rise=0.5u fall=0.5u width=2u`, a 3.5 µs tran) in(1.35 µs) = 1 where VACASK and Spectre's single pulse give 0, and its G10127 (an isource, `delay=-0.2u`) 0.267 at 3.5 µs where 0 (18af05f the same); with PER 2e30 since phase 2c9 both equal VACASK over the tran; a negative TF ends the plateau early (the 2c7 skeptic's N07, N10, N12, N15 and random S0290, a fall of -0.1 µs: in(2.92 µs) 0.6 and in(2.95 µs) 0 where the plateau holds to 3 µs, VACASK 1, never falling); a negative PW gives `PULSE`'s V1, val0, throughout (0 in the 2c8 fixer's C01 and N02), where VACASK gives val0 after the rise (0.2 at 0.6 µs, then 0); a period no longer than rise+fall+width runs without a message (R0080); at the tran's initial point with the delay exactly minus the rise, time − TD = TR, the ramp branch needs fabs(time − TR) < bpTol_, which is 0 at the operating point, so the fall branch runs and gives V2 + (V2 − V1)·PW/TF, val1 + (val1 − val0)·width/fall: the 2c9 skeptic's B01 (`val0=0 val1=1 delay=-0.5u rise=0.5u fall=0.5u width=2u`) in(0) = 5 where 1, its B02 (the same as a 1 mA isource into R3 ∥ (R1 + R2) with 1 nF) 3.33 V at 0, 2.37 V at 0.3 µs and 0.80 V at 2 µs where 0.667 V, and its W1027 and W1092 (`delay=dl` at -0.2u, `rise=0.2u`) 3 where 1, status 0, VACASK right, while a wrap inside a period misses TR by rounding and is right (B03) (open, §12); zero edges are ideal steps [E25] |
+| E169 | an exp time constant of 0 on both engines, and Xyce's `SIN` (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for` and its `N_DEV_SourceData.C`; raw decks, and `bin/vamos` on 18af05f's product files, the 2c7 skeptic, the 2c8 and 2c9 fixers and skeptics) | `tau1` = 0 stops VACASK at the exp's start, delay + td1, with `NaN found in vector, row node 'V1:flow(br)'. Leaving core NR loop in iteration 1. Timestep too small. Transient analysis aborted.`, at every start measured, as a constant (the 2c7 skeptic's C05) or a parameter altered to 0 (N05); Xyce makes a step at td1 = 0, 0.2, 0.5, 1.3, 1.5 and 2 µs and exits 1 at 0.7 µs (`Time step too small near step number: 385`) and 1 µs (step 535), with `td2=3u tau2=1u`, a 3.5 µs tran and maxstep 2 ns (the 2c9 skeptic's decks; the 2c9 fixer's T1 made a step); `tau2` = 0 stops VACASK at the fall's start, delay + td2, and Xyce with `Time step too small near step number …`, exit 1, at every fall start measured, 0.5 to 3 µs (steps 1033 and 1036 in two of them); both run when that start lies after the tran's stop (T3, T4); a negative tau runs the exp formula on both engines; since phase 2c8 a time constant of 0 is refused on both engines (§3.8.1), with its own clause per field since 2c9 and the driver's fix after it; Xyce's `SIN` before TD is V0 + VA·sin(PHASE), with no step limit from FREQ, and it keeps a given FREQ of 0, setting FREQ = 1/TSTOP only when none is given, running the constant with the given dc in its DC (the 2c8 skeptic's P830, P835); it refuses a constant negative frequency at render (`V1: SIN frequency -50000.0 must be > 0`) and ran a `dev=` sweep to one, 0.2 + 0.5·sin(2π(−50k)t) (the 2c7 skeptic's N14 and S0110), now refused on both engines; pinned by `TestFollowUp2c8`, `TestFollowUp2c9`, `TestDriver2c9` and their run classes |
+| E170 | the constant sine at 1e-30 Hz (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c7 skeptic, the 2c8 and 2c9 fixers and skeptics) | `spectre.resolve_source` folds a sine whose `freq` is the constant 0 into dc = sinedc + ampl·sin(sinephase), which replaced a given dc in every DC-type solve on both engines (VACASK `type="dc" dc=0.0`, Xyce `DC 0.0`): the 2c7 skeptic's Z06 (`type=sine sinedc=0 ampl=0.5 freq=100k dc=0.25`, op0, `alter dev=V1 param=freq value=0`, op1) op1 0 where ref5 p.686's dc gives 0.25, Z01 and Z02 likewise, random S0013 (`sinephase=30 dc=0.5`) 0.25 where 0.5, and T0255's static references 0 where 0.25 (18af05f the same), while a parameter `fr=0` or a sweep through 0 kept the dc; printed as the sine itself at 1e-30 Hz with the given dc kept, both engines give sinedc + ampl·sin(sinephase) to 1e-9 in 3.5 µs trans, with delays, alters and sweeps of each field, and the dc in the DC-type solves (Z01 op 0.25 and tran 0; S0013 op1 0.5 and tran 0.25), VACASK's step limit tran_ffmax/(2f) being 1.25e29 s; a sine of another `freq` altered to 0 becomes the constant sine too (the 2c8 skeptic's Q04: dc 0.25 where 2c7 gave 0.45); 2c8's VACASK deck took the mapping of a `freq` sweep point of 0 from the instance line, so a sine an alter made constant and then swept through 0 printed `values=[0.0, 100000.0]` after `alter instance("V1") … freq=1e-30` and stopped VACASK, `Frequency of sinusoidal transient must be greater than 0` (the 2c8 skeptic's P873 and Q05, right on the 2c7 tree with 0.45, 0.45; its P870, P871 and P874, wrong there with 0.45 at the 100 kHz point), Xyce right (`.STEP … LIST 1e-30 100000.0`); since phase 2c9 all five are equal on both engines (P873: axis [0, 100000], in [0.45, 0.45]; the 100 kHz point the sine, 0.4767 at 0.1 µs); pinned by `TestFollowUp2c8`, `TestFollowUp2c9` and their run classes |
+| E171 | a derived dc with a negative delay on Xyce (Xyce DEVELOPMENT-202610100047 under `env_for`, VACASK 0.3.4-91 with the rebuilt `.osdi`; `bin/vamos`, the 2c8 fixer and its skeptic) | Xyce's derived `DC` was the waveform's first value: a pulse 0.2 µs into its 0.5 µs rise (`delay=-0.2u`) 0 where VACASK, which computes its own, gives 0.4; a sine with `delay=-0.3u` 0.1 where 0.1 + 0.5·sin(2π·1e5·0.3u); an exp with `td1=-0.5u` 0 where 1 − e^-0.5; a pwl with `delay=-0.5u` 0 where 0.5; the same through an altered netlist parameter (the 2c8 skeptic's P860-P868 and P815: P865 0.271 where 0.4394); with `tables.wave_t0`'s value at t = 0 since phase 2c8 both engines agree (P865 0.43937928), a delay that reads a parameter printing a ternary on it; pinned by `TestFollowUp2c8` and `TestFollowUpRuns2c8` |
+| E172 | a `dev=` sweep of `dc` and a `sinedc` that defaults to it (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c8 skeptic, the 2c9 fixer and its skeptic) | the 2c8 skeptic's P824 (`V1 (in 0) vsource type=sine ampl=0.5 freq=100k dc=0.25`, `sw1 sweep dev=V1 param=dc values=[0.25 0.5] { tr1 tran stop=3.5u maxstep=2n }`): at the 0.5 point both engines stayed centred on 0.25, VACASK 0.75 at 2.5 µs where 1.0 and Xyce 0.2814 at 0.1 µs where 0.5314; P825 (the constant sine, `sinephase=30`) 0.5 where dc + ampl·sin(30°) = 0.75; an alter of `dc` reached the `sinedc` (P821 right); 18af05f the same; since phase 2c9 the tran's sweep moves the `sinedc` (VACASK sweeps `parameter="sinedc"` under `type="sine"`, Xyce's `SIN` V0 reads the dc's hook): P824's 0.5 point gives 0.5314 at 0.1 µs and 1.0 at 2.5 µs on both, P825 0.5, then 0.75, VACASK restoring the `sinedc` after its sweep, and a given `sinedc` stays; pinned by `TestFollowUp2c9` and `TestFollowUpRuns2c9` |
+| E173 | the PSF axis of a substituted sweep point (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c8 skeptic, the 2c9 fixer and its skeptic) | the engines write the value they were given: 2c8's dc analyses of a `rise` or `fall` through 0 wrote transres on the axis (`dc1 dc dev=V1 param=rise values=[0 0.5u]`: [1e-09, 5e-07], and [3.5e-15, 5e-07] with a 3.5 µs tran), of a constant sine's `freq` through 0 1e-30 ([1e-30, 100000.0]), on both engines, and the 2c7 skeptic's T0132 [1e-09, 3e-07] on Xyce, while a sweep block's parent kept 0; since phase 2c9 `results.collect` writes 0 for a point the plan's grid holds as exactly 0 on a dc, ac, noise or xf parameter axis, nested leaves, descending axes and a 0 mid-list included (the 2c9 skeptic's 61-deck axis family right on VACASK, and on Xyce but for 14 xf runs it refuses by design), the circuit values unchanged; a lin sweep's own rounding stays (`start=-0.3 stop=0.3 step=0.1`: -0.09999999999999998 and 5.551115123125783e-17, the plan's points); pinned by `test_spectre_outputs.TestFollowUp2c9Axis` and `TestFollowUpRuns2c9` |
+| E174 | the exp corner on Xyce (Xyce DEVELOPMENT-202610100047 under `env_for`, VACASK 0.3.4-91 with the rebuilt `.osdi`; `bin/vamos` and the alter-free reference decks, the 2c6 skeptic, seen again by the later rounds) | an exp with `delay=0.1u` sampled at exactly delay + td2 = 2.1 µs: both decks print the corner (Xyce `EXP(0.0 1.0 {1e-07+td} {tau} 2.1e-06 2e-06)`, VACASK `delay=1e-07+td … td2=2.1e-06-(1e-07+td)`), but under maxstep 2 ns Xyce has no time point there and is off by up to 2.5e-4 V (4.7e-4 relative), while VACASK equals the analytic value: the 2c6 skeptic's R0247 in(2.1 µs) VACASK 0.191866708 (analytic 0.1918667) and Xyce 0.191797331, R0443 0.527633447 against 0.527383451; of the 12 random decks with status 0 on both engines and different values, 8 are this corner (R0110, R0247, R0443, R0535, Q0076, Q0079, Q0092, Q0315) and 4 Xyce's interpolation (R0165, R0268, R0410, Q0307: about 7e-8 V, 1.4e-6 to 1.7e-6 relative; the skeptic's summary counted 9 and 3), each identical in its alter-free references; the later rounds' cross-engine checks list it among the known numerics, with the diode and BJT cards' ~3e-5, VACASK's reltol-limited continuation in the 1000-point sweeps (5e-4) and 1 MHz sines |
+| E175 | `plan.build`'s cost of the rounds' rules (Cygwin Python 3.9.16, `plan.build` alone, medians of 5, VACASK / Xyce plans; the 2c5 to 2c8 fixers; a measurement of the vamos code) | 2c5 (R1's hook bookkeeping): 300 alters 0.369 / 0.375 s → 0.386 / 0.325 s, a 1001-point `dev=` sweep unchanged at 0.005 s, a rise alter followed by a 1001-point hooked sweep 0.0052 → 0.0133 s on VACASK, Xyce 0.0049 s; 2c6 (K1's bounds, VACASK): a wave alter under a 1001-point hooked sweep 0.0053 → 0.0237 s, a hooked `mag` altered and then swept over 1001 points 0.0112 → 0.0261 s, 300 source alters 0.043 → 0.051 s, a 30 × 30 bound nest 0.073 → 0.083 s, the 2c5 shapes within 3 %; 2c7 (L4's per-state checks): a 1001-point `dev=` sweep of a pulse's width 5 → 29 ms, 300 source alters 52 → 70 ms (VACASK), 300 variable alters with a bound source 36 → 41 ms, a 1001-point `param=` sweep of `wd` 2.29 → 2.33 s; 2c8: within noise (401 resistors under a 1001-point `dev=` sweep 0.0047 / 0.0041 s, 200 sources under a 101-point sweep 0.84-0.89 s, 40 under a 501-point one 0.80-0.82 s); not pinned by a test |
+| E176 | the rounds' regression matrices and randomized differentials (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos -spectre` on both engines, each set on the round's base tree, its real tree and, from 2c5 on, 18af05f's product files; the 2c4 to 2c9 skeptics and the 2c8 and 2c9 fixers; a measurement of the vamos code) | the matrices grew from the 2c4 skeptic's 251 decks (1004 runs) to the 2c5 skeptic's 426 decks on three trees (2556 runs), the 2c7 skeptic's 14,904 runs per tree, the 2c8 skeptic's 20,330 and the 2c9 skeptic's 20,352 (94 sets: every earlier skeptic's and fixer's set, each random seed with its references), compared per run at 1e-9 relative with a 1e-12 absolute floor, a tran interpolated; the randomized differentials: the 2c6 skeptic's generator writes small linear decks with a main V1 or I1 of type dc, pulse, sine, exp or pwl, its fields randomly bound to parameters, R and C with `m`, controlled sources, X lines with a binding or a bound default and a body `m`, nested subckts, `if`/`else` blocks, a resistor card's bound `tc1` and hooked triggers, then 1 to 3 alters of random targets mixed with netlist-parameter, temp, tnom, hooked and holder changes and op, dc, tran (maxstep 2 ns, 8 sample times) or ac analyses, each analysis also run as an alter-free reference deck with the alters written into the netlist, two values equal when they differ by at most 1e-6 of the larger magnitude plus 1e-9: seeds 2026 (600 decks, 1795 references) and 4242 (400, 1273; temp-reading resistors, an instance `tc1`, `if`s in bodies, re-alters, `sub=` and `mod=` dc sweeps, ac sweeps), 557,949 values, on the 2c6 tree 554 equal and right, 128 refused on one engine (127 on VACASK), 297 on both, 12 numerical (E174), 9 pre-existing engine errors and 0 wrong, on the 2c5 tree 63 silent losses; the 2c7 skeptic's gen7 (seeds 2027, 320 decks, and 2028, 360; families cond, hook and cons; every sweep point expanded into a static reference, 1657 references): 0 wrong but T0255's reference (E170), every one of the 106 branch-change decks refused on both engines; the 2c8 fixer's field survey (154 decks, every source field driven to 0 or below through a constant, a parameter alter, a field alter, a `param=` and a `dev=` sweep, judged against Spectre's waveform: 19 wrong and 15 engine errors on its base, 0 and 0 after) and gen8 seeds 2029 and 2030 (600 decks with references, against an analytic model: 53 wrong and 16 engine errors, then 0 and 0); the 2c8 skeptic's gen8s seeds 2081 and 2082 (480 decks, its own analytic model): VACASK right 168 and 157, refused 72 and 82, G20073 an engine error, Xyce right 173 and 163, G10127 wrong (E167, E168); the 2c9 fixer's gen9 seeds 2091 and 2092 (300 decks, families csine, sinedc, pulse, edge and qfr): VACASK right 274 and 26 expected refusals, Xyce 300, against 110 wrong and 40 engine errors on its base; the 2c9 skeptic's gen9s seeds 2091 and 2092 (150 decks each, six families) and gen9m seed 2093 (120 two-source decks): VACASK right 346 with 73 expected refusals and one pre-existing loud one (W1099), Xyce right 396 with 24, 0 wrong, 0 engine errors and 0 wrong axes, against 93 wrong, 26 engine errors and 102 wrong axes on its base; its matrix, base to real, OK → OK 16,689 (17 intended value changes), REF → REF 3,628, ENG → ENG 29 (carried), ENG → OK 5, ENG → REF 1, nothing else |
+| E177 | a source's AC magnitude when only `phase` is given (VACASK 0.3.4-91 with the rebuilt `.osdi`, Xyce DEVELOPMENT-202610100047 under `env_for`; `bin/vamos`, the 2c9 fixer and skeptic, and the driver's fix) | `V1 (in 0) vsource dc=0 phase=45` into a 1 kΩ/1 kΩ divider with `ac1 ac start=1k stop=1k` (the 2c9 skeptic's K61, the 2c9 fixer's M1): the decks printed VACASK `mag=1.0 phase=45.0` and Xyce `AC 1.0 45.0`, and in = 0.7071+0.7071j at every point on both engines, status 0, where ref5 p.685's default `mag=0` gives no excitation (18af05f the same); since the driver's fix after phase 2c9 `spectre.resolve_source`, a sweep's source state and VACASK's hook source default `mag` to 0, and out is 0 on both engines from the parse, after `alter dev=V1 param=phase value=45` and in `sweep dev=V1 param=phase values=[0 45]`, while `mag=1 phase=45` gives 0.5 at 45°; pinned by `TestDriver2c9` and `TestDriverRuns2c9` |
 
 ## 14. Open questions
 1. The UG's `/tmp%C:t:r.raw` example against its `:t` definition (§2.4). vamos follows the definition.
@@ -5393,7 +5959,11 @@ refusal; E152 is a measurement of the vamos code.
     and backslash escapes are inferred, the 19.1 sample revision 2 cited being a hand-edited fixture [E86]
     (§8.3).
 13. A sweep that changes a condition or a bin: UG p.111 says Spectre stops with an error, UG p.115 that
-    instances keep the model chosen at input. vamos refuses either change (§3.7).
+    instances keep the model chosen at input. vamos refuses either change (§3.7). Phase 2c7 (L2): the change
+    is judged against the netlist's own values, before any control statement, so an alter made before the
+    first analysis that changes a branch or a bin is refused too; that Spectre judges such an alter against
+    the values it read the netlist in is vamos's reading of UG p.111 ("any analysis that changes the value
+    of the conditional expression"), not checked against a real Spectre.
 14. Spectre's noise contribution names for diodes, BJTs and MOSFETs (the resistor's `rn`/`fn` and Verilog-A
     names are known [S]; VACASK's diode names are `rs id flicker rsw idsw flickersw` [E84]).
 15. xf trace names for an isource (a vsource's is `<src>:p` [M UG p.113]); VACASK gives isource transfer
@@ -5412,11 +5982,15 @@ refusal; E152 is a measurement of the vamos code.
     line only; not checked against a real Spectre. Phase 2: the message phases are the UG's `circuit read-in`
     and `initial setup`, and vamos's own `AHDL read-in`, `` <kind> analysis `<name>' ``,
     `` control statements after analysis `<name>' `` and `setup` (§8.7).
-19. Spectre's `exp` waveform: are `td1`/`td2` measured after `delay`; the default `tau1`/`tau2`.
+19. Spectre's `exp` waveform: are `td1`/`td2` measured after `delay`; the default `tau1`/`tau2`. Phase 2c6:
+    a sweep of `delay` is refused on both engines, the parse having folded it into `td1` and `td2` (§5.2
+    [E163]); a time constant of 0 and a `td2` not after `td1` are q.85's.
 20. Spectre's default pulse rise and fall (vamos uses transres, with a warning). Phase 2: transres's edge, 1e-9 ×
     the shortest tran stop, is 2 fs on the UG op-amp bench, which stops Xyce's transient ("Time step too
     small") under TRAP and GEAR while VACASK takes it, and 1 ns edges run within 3e-4 [E127]; whether the rule
-    needs a floor on Xyce is open (e2e 15 writes 1 ns edges).
+    needs a floor on Xyce is open (e2e 15 writes 1 ns edges). Phase 2c8: a `dev=` sweep point of 0 of a
+    `rise` or `fall` is transres on both engines too (§5.2); a dc analysis's PSF axis then carried transres,
+    and since phase 2c9 it carries the deck's 0 [E173].
 21. The allpub names of inductor and iprobe currents. Phase 1 (S2) uses `L1:1` and `I1:in`, the
     terminals §6.3 measures.
 22. errpreset's LTE check (liberal: capacitor and inductor states; moderate and conservative: node voltages
@@ -5597,7 +6171,10 @@ refusal; E152 is a measurement of the vamos code.
     interpolation or engines that sample the same points.
 56. The t = 0 value of a `sine` source with a nonzero `sinephase`, which is its derived `dc` (§3.8.1) and the
     Xyce `DC` expression (§4.5 item 8): vamos uses `sinedc + ampl·sin(sinephase)`, the phase in degrees; E70's
-    cases had phase 0 or 90 only.
+    cases had phase 0 or 90 only. Phase 2c8: a constant sine (`freq` 0, `damp` 0) prints as the sine at
+    1e-30 Hz, so its tran reads that value and its DC-type solves the given dc (§3.8.1 [E170]). Phase 2c9:
+    `sinedc` defaults to `dc` under a sweep of `dc` as under an alter (ref5 p.684's `sinedc=dc`; §3.8.1
+    [E172]); Spectre's reading of that default under a sweep is not checked against a real Spectre.
 57. Whether Spectre's SPICE Reader takes a one-argument `.lib other` inside a `.lib` section as a call to
     another section of the same file, as HSPICE (and spice.py's HSPICE reader) does; `spectre-spice` makes it
     an error ("write .lib file sec", §4.3).
@@ -5740,11 +6317,14 @@ refusal; E152 is a measurement of the vamos code.
     0.5; [3, 3, 3]), or re-evaluates the binding, as VACASK does (0.333, 0.25; [1, 2, 3]) [E147, E148]. No
     manual page read settles it (§5.3 lists ref19 pp.54, 55, 222 and 507 and UG pp.93, 190-192 and 249),
     and no Spectre run is available, so v1 refuses such a deck on both engines (§5.3's rule (a)). The same
-    question holds where G1 does not refuse, both engines keeping the alter (0.25): an alter of a netlist
-    parameter defined by an expression (`parameters rw=2*rv`, `alter param=rw value=3k`, then a sweep of
-    `rv`), and a `sub=` alter of a subckt parameter whose default is an expression (`rr=q*1k`, then a sweep
-    of `q`) (the 2c3 skeptic's `u08` and `u06`). Which reading is Spectre's? These decks, run on a real
-    Spectre, decide it.
+    question decides two refusals that phases 2c4 and 2c6 added on both engines where the engines agree: an
+    alter of a netlist parameter defined by an expression (`parameters rw=2*rv`, `alter param=rw value=3k`,
+    then a sweep of `rv`) and a `sub=` alter of a subckt parameter whose default is an expression
+    (`rr=q*1k`, then a sweep of `q`) (the 2c3 skeptic's `u08` and `u06`; both engines keep the alter, 0.25;
+    rule (a) since phase 2c4, H2), and a sweep of a bound target around a sweep of what it reads (the 2c4
+    skeptic's `N02`, `R1 r=rv` swept around a sweep of `rv`: both engines kept the swept value, out 0.5, 0.5
+    and 0.25, 0.25, where in other nests Xyce re-evaluated the expression at some points [E162]; rule (a)
+    since phase 2c6). Which reading is Spectre's? These decks, run on a real Spectre, decide it.
 80. **A decision for the user:** a `sub=` sweep of a subckt parameter that its X line binds to an
     expression, on VACASK (§5.2). `X1 (in out) half rr=rv` with `dc sub=X1 param=rr values=[1k 3k]` fails
     at VACASK's run (exit 1, `Failed to bind sweep parameters`), where Xyce sweeps it right (phase 2c2,
@@ -5752,7 +6332,9 @@ refusal; E152 is a measurement of the vamos code.
     tests pin as accepted for `rc_netlist`'s `X1 r=rval` (`test_dev_model_sub_param_temp_freq`,
     `test_subckt_parameter_failing_on_a_path`, `test_condition_on_a_subckt_parameter_and_temp`,
     `test_dev_on_a_subckt_instance_takes_the_sub_rules`), so the 2c2 fixer backed it out. Refuse such a
-    sweep on VACASK and re-decide those tests, or print the override so that VACASK can sweep it?
+    sweep on VACASK and re-decide those tests, or print the override so that VACASK can sweep it? Answered
+    in phase 2c4 (H1): the deck prints the binding through its switchable hook and sweeps that, `f3j`
+    giving Xyce's [0.5, 0.25] on VACASK, and the four tests' acceptance stands (§5.2 [E153]).
 81. **A decision for the user:** G1's VACASK-only rule (b) (§5.3; phase 2c3). It refuses on VACASK decks in
     which nothing the expression reads changes, an alter of `R1 r=rv` followed by a temp change or an alter
     of an unrelated parameter among them, because VACASK then re-evaluates the binding and loses the alter
@@ -5764,7 +6346,10 @@ refusal; E152 is a measurement of the vamos code.
     `p=(vamos_af<k> ? vamos_av<k> : <expr>)`, and the alter as `var vamos_af<k>=1 vamos_av<k>=<v>`, with a
     subckt-parameter hook per path for a body inside a subckt; it touches many VACASK print paths (`rcl`,
     the controlled sources, the source fields, `$mfactor`, the cards, the X lines), a phase-3 candidate.
-    Keep rule (b) and the re-decided test, or map?
+    Keep rule (b) and the re-decided test, or map? Answered in phase 2c4 (H1): the alternative was taken,
+    rule (b) staying only for what the hook cannot print (§5.3); `TestAlters`' deck runs on VACASK again
+    (op2 0.2), and `test_alter_targets` asserts its plan on both engines; the narrowing that remains is
+    q.83's.
 82. **A decision for the user:** the route for E151 (§5.3). VACASK drops an alter of an expression-bound
     parameter made before the first analysis when temp or tnom is not 27 at its first elaboration (a global
     `options temp=50` or `tnom=25`, or an alter or `set` of either before the first alter): `plan.build`
@@ -5773,7 +6358,50 @@ refusal; E152 is a measurement of the vamos code.
     change pending at an alter made before the first analysis, a refusal; (ii) the VACASK control block
     elaborates twice (`elaborate changes` twice) before the first alter when temp or tnom differs from 27,
     measured 0.25; (iii) VACASK's `Circuit::elaborate` clears `ParametrizationAffectingOptionsChanged`, an
-    engine change. Which?
+    engine change. Which? Answered in phase 2c4 (H1): the hook, declared before VACASK's first elaboration,
+    for every target it prints (0.25 on the E151 decks [E153]), and route (i) for the rest; no VACASK
+    change is needed.
+83. **A decision for the user:** the narrowing of VACASK's coverage by G1's rule (b) (§5.3; phases
+    2c4-2c6). Rule (b) refuses on VACASK an alter of a target the hook cannot print (§4.5 item 16) followed
+    by any change VACASK re-elaborates on, a hooked change included, and Xyce runs those decks; some ran
+    right on VACASK before: the 2c4 skeptic's A01, A03, A04, A06, A07, A09, A11 and E151r (a pulse's `rise`,
+    an `isnoisy` word or a model-group target altered, then a hooked change, or a `rise` alter under
+    `options temp=50`) gave Xyce's values on 18af05f, and the 2c5 skeptic's N113, N115 and N612 (the same,
+    then an alter of a body instance's `m`) on 2c4 [E160]. Rule (b) also refuses at the first analysis after
+    the change whatever that analysis reads, so 43 of the 2c6 skeptic's random decks, a pwl's `wave` altered
+    and then a change before an op, a dc or an ac that reads only the pwl's t = 0 value (0 for the alter and
+    the binding alike), and its H01c (a nested definition: the wave of `X7.X2.V1` altered, then
+    `alter sub=X7 param=q`; VACASK kept the wave, o7 = 0.2857 on both engines) are refused where VACASK gave
+    the reference values. The 2c6 skeptic's proposal: compare only the fields an analysis reads (an op or a
+    dc a pwl's `dc` or its t = 0 value, an ac `mag` and `phase`, a tran every field). Keep the refusal,
+    refine it per analysis, or map the targets (q.84)?
+84. **A decision for the user:** mapping in phase 3 what VACASK's switchable hook does not print (§4.5 items
+    16 and 17, §5.2, §5.3). v1 refuses on VACASK, where Xyce runs it: an alter of a pulse's `rise` or `fall`
+    bound to a parameter (derived fields, `(rise == 0 ? transres : rise)`), of an `isnoisy` expression or
+    word (the switch selects the resistor's form per deck), of a pwl's `wave` (a list), of a `sinedc` left
+    to a bound `dc` or of a `mod=` target in a model group with an entry that leaves the parameter out,
+    followed by a change VACASK re-elaborates on (rule (b)); a `dev=` sweep of a `rise` or `fall` bound to
+    an expression, or of a field the instance line derives from a bound one (E102); a control-block alter or
+    switch whose field reads a name and cannot be left out (the field would need its own hook on the
+    instance line); the `m` of an instance in a body whose holder writes its own `m`; and a `freq` of 0 that
+    reaches a sine through a parameter or a sweep, or a hooked `freq` altered to 0 (the value could print
+    through `plan.swept_value` as 1e-30, G1's hook state following; the 2c9 fixer's question). On both
+    engines v1 refuses a `mod=` sweep of a model group (a VACASK sweep names one model; the hook could carry
+    it) and a sweep of an exp's `delay` (it needs hooks into `td1` and `td2`). Which of them should phase 3
+    map?
+85. Spectre's readings of the source constraints v1 refuses on both engines (§3.8.1; phases 2c7 and 2c8).
+    ref5 pp.380-383 and 682-686 give the fields' meanings and no constraint, and ref19 and the UG have no
+    source section, so vamos refuses, in every state an engine uses the waveform in and, for a constant, in
+    every analysis and with no analysis: (a) an explicit `period` no longer than rise+fall+width, a period
+    of 0 or less included, which VACASK would run as a single pulse; (b) a negative `rise`, `fall` or
+    `width` (VACASK stops at a rise ≤ 0, stays at val1 for a fall ≤ 0 and gives val0 after the rise for a
+    negative width; Xyce makes a step for the rise, ends val1 early for the fall and gives val0 throughout
+    for the width [E166, E168]); (c) an exp time constant of 0, and a `td2` not after `td1` [E169]; (d) a
+    negative sine `freq`; (e) a pwl time point before 0, or a single point; (f) a `damp` other than 0 at a
+    sweep point of a sine whose `freq` is the constant 0. And (g): does Spectre check a waveform no analysis
+    uses? vamos refuses a constant whatever runs, and a derived dc's broken waveform in a DC-type analysis
+    even where its t = 0 value does not depend on the broken field (66 Xyce runs of the 2c8 matrix, which
+    VACASK refused at its setup). Which of them does Spectre accept, and how does it read them?
 
 ## 15. Review changes
 
@@ -6527,14 +7155,15 @@ evidence held only in part, the choice is listed at the end.
     the guide's §10 (§12, 2b-2f). Open after phase 2: §14 q.58-q.69, the readings appended to q.3, q.11,
     q.18, q.20, q.22, q.26 (answered), q.28, q.31, q.47, q.48, q.50 and q.54 (answered), and the list carried
     into §12's 2b-2f.
-- **Phases 2b and 2c (2026-10-17).** 2b reviewed the phase-2 diff in five areas, a skeptic re-checking every
-  finding, and 2c's seven fixers fixed what it confirmed, one integration round applying their seams, two
-  follow-up rounds, 2c2 and 2c3, fixing what it left (§12 records all of them, with the counts). Every
-  finding id, grouped by its 2b area, with its owner in 2c and its disposition: fixed (with its regression
-  test, the classes of the area's own module unless named), no change (and why), or guide text; then the
-  follow-up rounds' items. A rule a fix changed is now stated where it belongs (§0-§8, §10, §11), and §13
-  holds what was measured anew (E135-E141, and the re-measured E74, E105, E106, E112, E116, E120, E123 and
-  E125-E127; the follow-up rounds' E142-E152, and the corrected E102, E125 and E141).
+- **Phases 2b and 2c (2026-10-17 and 2026-10-18).** 2b reviewed the phase-2 diff in five areas, a skeptic
+  re-checking every finding, and 2c's seven fixers fixed what it confirmed, one integration round applying
+  their seams, eight follow-up rounds, 2c2 to 2c9, fixing what it left (§12 records all of them, with the
+  counts). Every finding id, grouped by its 2b area, with its owner in 2c and its disposition: fixed (with
+  its regression test, the classes of the area's own module unless named), no change (and why), or guide
+  text; then the follow-up rounds' items. A rule a fix changed is now stated where it belongs (§0-§8, §10,
+  §11), and §13 holds what was measured anew (E135-E141, and the re-measured E74, E105, E106, E112, E116,
+  E120, E123 and E125-E127; the follow-up rounds' E142-E177, and the corrected E102, E125, E141, E145,
+  E146, E148, E150 and E151).
   - *R-lang, the language* (23 confirmed; X-lang, in `test_spectre_lang` unless named): R-lang-1 and
     R-lang-4 fixed, SPICE-mode control fields folded outside quotes
     (`TestSpiceMode.test_upper_case_global_is_folded`, `.test_upper_case_control_names_are_folded`,
@@ -6787,6 +7416,164 @@ evidence held only in part, the choice is listed at the end.
     reading, and found E151, a hole in rule (b) that predates 2c3 and is not refused (§5.3, §12, §14 q.82).
     Contracts, additive (§10): `plan.constant_zero`, `signals.fold_constant_shorts`; `plan.is_short` now
     holds for a constant expression equal to 0 too.
-  - Open after phases 2b and 2c and the rounds 2c2 and 2c3: §14 q.70-q.82, the readings appended to q.3,
-    q.8, q.11, q.23, q.29, q.35, q.36, q.47, q.48, q.58, q.61 and q.64, and the list carried in §12 (the
-    defects found and not fixed among it, E151 one of them; R-plan-19 closed by 2c2).
+  - *2c4, the third follow-up round* (one fixer and an independent skeptic on the 2c3 tree; product files
+    `plan.py`, `vacask.py`, `xyce.py`, `tables.py` and `run_xyce.py`; every new test seen failing with the
+    2c3 product files put back, on both legs; `test_spectre_plan` unless named): H1, an alter or sweep of a
+    parameter bound to an expression, mapped on VACASK through the switchable hook, G1's rule (b) and
+    E102's refusal kept for what it cannot print, with E151 among rule (b)'s triggers (`TestFollowUp2c4`'s
+    eight `test_h1_*` tests, `test_spectre_emit.TestFollowUpRuns2c4`'s six `test_h1_*` runs); H2, rule (a)
+    for an alter of a netlist parameter defined by an expression and a `sub=` alter of a subckt default the
+    X line leaves, refused in v1
+    (`TestFollowUp2c4.test_h2_an_alter_of_a_parameter_defined_by_an_expression_then_a_change_of_its_inputs`,
+    `TestFollowUpRuns2c4.test_h2_*`); H3, Xyce's sweep of a subckt instance's `m`, fixed
+    (`test_h3_a_sweep_of_a_subckt_instance_m_hooks_vamos_mfactor_from_its_nominal_on_xyce`,
+    `TestFollowUpRuns2c4.test_h3_a_sweep_of_a_subckt_instance_m_on_xyce_equals_vacask`); H4, the multiplier
+    message, fixed (`test_h4_the_multiplier_message_names_the_spectre_master`,
+    `TestFollowUpRuns2c4.test_h4_the_multiplier_message_names_the_vsource`); and three defects found while
+    proving H1, fixed: VACASK's control-block statements printing a field bound to a netlist parameter
+    (exit 1 [E154]), Xyce's replay of an alter of an instance both branches of an `if` hold [E155]
+    (`test_h1_xyce_replays_an_alter_on_every_branch_s_instance`) and a plan variable defined by an
+    expression of another on VACASK [E156]
+    (`test_h1_a_variable_defined_by_an_expression_follows_its_inputs_on_vacask`). Seven existing assertions
+    were re-decided as H1 requires, each now asserting the hook's deck text or VACASK giving Xyce's values,
+    none weakened, the method names kept: `TestAlters.test_alter_targets` (VACASK builds again, every plan
+    assertion on both engines; §14 q.81) and
+    `TestAlters.test_vacask_refuses_a_sweep_of_a_target_bound_to_an_expression` (both sweeps sweep the
+    hook), `TestFollowUp2c2.test_vacask_refuses_a_sweep_of_any_value_parameter_bound_to_an_expression` (the
+    seven sweeps print hooks),
+    `TestFollowUp2c3.test_g1_vacask_re_evaluates_a_binding_whenever_a_parameter_temp_or_tnom_changes` (the
+    15 decks build on VACASK), `test_spectre_emit.TestVacaskSpectre.test_alters_sources_and_sweep_targets`
+    (the `sub=` line pins the hook),
+    `TestFollowUpRuns2c2.test_f3_a_bound_value_parameter_and_the_value_parameters_alters` (Xyce's [1, 2, 3]
+    and [2, 4] on VACASK) and
+    `TestFollowUpRuns2c3.test_g1_what_vacask_alone_re_evaluates` (0.25, 0.25 and 0.2). The 188 fixtures'
+    plans and renders and the HSPICE path's renders did not change. The skeptic confirmed H2, H3, H4 and
+    E156, E154 with a gap (a pulse's derived `rise` and `fall` still printed into a control-block
+    statement), and refuted H1 and E155 for regressions, both closed by 2c5 (§12). Contracts, additive
+    (§10): `plan.vacask_hooked`; `vacask.reads_something`, `source_locations`, `hook_key`,
+    `path_resolutions` and `hookable`; `run_xyce.find_instances`; `tables.ELEMENT_NAME` over every IR kind.
+  - *2c5, the fourth* (one fixer and an independent skeptic on the 2c4 tree; product files `plan.py`,
+    `vacask.py` and `run_xyce.py`): R1, a hooked change losing on VACASK an earlier alter of what the hook
+    cannot print, fixed by counting every statement the hook prints as a change for rule (b), a refusal on
+    VACASK [E160] (`TestFollowUp2c5.test_r1_a_hooked_alter_or_sweep_is_a_variable_change_for_rule_b_on_vacask`,
+    `.test_r1_what_vacask_keeps_builds_and_a_hooked_alter_does_not_elaborate`,
+    `test_spectre_emit.TestFollowUpRuns2c5`'s two `test_r1_*` runs); R2, Xyce's replay of an alter on the
+    taken branch alone, a shared definition refused at render [E155]
+    (`test_r2_xyce_replays_an_alter_on_the_taken_branch_s_instance_only`,
+    `test_r2_the_replay_never_alters_a_definition_another_path_uses`,
+    `TestFollowUpRuns2c5.test_r2_xyce_alters_the_taken_branch_only`); R3, the `m` of an instance in a body
+    through its hook on VACASK [E159]
+    (`test_r3_vacask_prints_the_multiplier_of_an_instance_in_a_body_through_a_hook`,
+    `TestFollowUpRuns2c5.test_r3_the_m_of_an_instance_in_a_body_on_vacask_equals_xyce`); R4, a
+    control-block field left out only where that keeps its value, else refused on VACASK, and rule (a)'s
+    parenthesis naming what vamos's decks do [E154]
+    (`test_r4_a_control_block_statement_leaves_out_every_field_that_reads_a_name`,
+    `test_r4_a_field_the_statement_cannot_leave_out_is_refused_on_vacask`,
+    `test_r4_g1_rule_a_names_what_vamos_s_vacask_deck_does`, `TestFollowUpRuns2c5`'s two `test_r4_*`
+    runs); and, found and fixed with them, an `isnoisy=nflag` word never tracked (X02), the flag's reset
+    after a hooked sweep pending at the next analysis (X07, X13), a type switch that took VACASK's default for
+    a left-out field (X14, X16) and an exp's constant `td2` beside `td1=td` (X18), the last three refused on
+    VACASK. Three existing message assertions were made stricter as R4 requires, the counts and engines
+    unchanged: `TestFollowUp2c3.test_g1_a_change_of_what_an_altered_binding_reads_is_an_error_on_both_engines`
+    and `TestFollowUp2c4.test_h1_g1_rule_a_stays_an_error_on_both_engines_for_every_hooked_kind` match
+    `G1_CHANGED_HOOKED`, and `TestFollowUpRuns2c3.test_g1_the_decks_whose_engines_disagreed_are_refused_on_both`
+    its run form, with a pulse-`rise` control on the old wording. The skeptic confirmed R2 and R4 (43 source
+    decks of every type equal to their analytic waveforms) and refuted R1 and R3, an alter of a pwl's
+    `wave` never being a G1 bound, so VACASK lost it after any hook [E161], and found 2c5's over-refusal of
+    a source in both branches of an `if` (N607), both closed by 2c6 and 2c7. Contracts, additive (§10):
+    `vacask.prints_hook`, `control_source_problems` and `control_source_message`;
+    `run_xyce.taken_instance`.
+  - *2c6, the fifth* (one fixer and an independent skeptic; product files `plan.py` and `vacask.py`): K1, G1
+    made default-deny, every value type compared as it fits, every spelling of a target and a field's bound
+    default tracked, rule (b)'s printed-field bounds, rule (a) for a sweep of a bound target around a sweep
+    of what it reads, E102 for a field the instance line derives and an exp's `delay` sweep refused
+    [E161-E163] (`TestFollowUp2c6`'s seven `test_k1_*` tests, one per form: the wave element by element and
+    point by point, the `dev=` source fields of every value type, instance parameters and `m`, card
+    parameters under either spelling, `sub=` and `param=` targets, the sweeps;
+    `test_spectre_emit.TestFollowUpRuns2c6`'s three `test_k1_*` runs); K2, VACASK's control block on the
+    taken branch's source (`test_k2_vacask_s_control_block_takes_the_taken_branch_s_source`,
+    `TestFollowUpRuns2c6.test_k2_a_source_in_both_branches_of_an_if_on_both_engines`); and rule (b)'s
+    message naming a hooked variable twice (`changes rw, rw`), fixed. The matrix caught a first cut of the
+    printed-field bounds that over-refused the 2c4 fixer's e12 and e13 [E161], fixed before the round ended.
+    The skeptic confirmed K1, with its randomized differential of 1000 decks (§12 [E176]), and refuted K2,
+    whose lookup lost the plan variables [E164]; it found H05h, an alter before the first analysis that
+    changes an `if` branch, silent on both engines [E165], the hooked sweep's setup at 0 and the unchecked
+    pulse period [E166], all closed by 2c7. Contracts, additive (§10): `vacask.printed_items`, `holds`,
+    `swap` and `is_va_card`.
+  - *2c7, the sixth* (one fixer and an independent skeptic; product files `plan.py`, `vacask.py` and
+    `xyce.py`): L1, every per-statement lookup of both decks on the paths the run takes [E164]
+    (`TestFollowUp2c7`'s four `test_l1_*` tests, `test_spectre_emit.TestFollowUpRuns2c7`'s two `test_l1_*`
+    runs); L2, §3.7's nominal structure from the netlist's own state [E165]
+    (`test_l2_an_alter_before_the_first_analysis_that_changes_a_branch_or_a_bin_is_refused`,
+    `test_l2_alters_that_keep_the_branches_build_with_today_s_plans`,
+    `TestFollowUpRuns2c7.test_l2_an_alter_that_changes_a_branch_before_the_first_analysis_is_refused_on_both`);
+    L3, a hooked sweep's flag statement setting its value to the first point [E166]
+    (`test_l3_a_hooked_sweep_sets_its_value_variable_before_its_flag`,
+    `TestFollowUpRuns2c7.test_l3_hooked_sweeps_of_fields_vacask_checks_at_setup_run`); L4, §3.8.1's and
+    VACASK's source constraints in every state (`test_l4_a_state_that_breaks_a_source_constraint_is_refused`,
+    `test_l4_the_controls_build_on_both_engines`, `test_l4_a_field_that_is_no_number_breaks_no_constraint`,
+    `TestFollowUpRuns2c7.test_l4_a_state_that_breaks_a_source_constraint_is_refused`). Five deck-text
+    assertions that pinned 2c4's flag statement were moved to the new exact text, as L3 requires, none
+    weakened (in
+    `TestFollowUp2c4.test_h1_a_dev_sub_or_mod_sweep_of_a_bound_parameter_sweeps_its_hook_on_vacask`,
+    `TestFollowUp2c5.test_r3_vacask_prints_the_multiplier_of_an_instance_in_a_body_through_a_hook` and
+    `test_spectre_emit.TestVacaskSpectre.test_alters_sources_and_sweep_targets`); the matrix caught two
+    regressions of a first cut (a word-valued width, an extra pwl message), fixed before the round ended.
+    The skeptic confirmed all four over 14,904 runs per tree, found two pre-existing silent classes (a
+    negative pulse fall through a parameter or a sweep, a constant sine losing its given dc), an exp `tau1`
+    of 0 stopping VACASK, the negative freq's two rules and three wordings, all closed by 2c8. Contracts,
+    additive (§10): `plan.run_values`, `plan.run_paths`.
+  - *2c8, the seventh* (one fixer and an independent skeptic; product files `plan.py`, `tables.py`,
+    `signals.py`, `vacask.py` and `xyce.py`): M1, one rule per source constraint on both engines wherever
+    the engines use the waveform, a negative fall, a negative width and a period of 0 or below among them
+    and the pwl rules on both engines, and a swept edge of 0 printed as transres (`TestFollowUp2c8`'s six
+    `test_m1_*` tests, and in `test_spectre_emit`
+    `TestFollowUpRuns2c8.test_m1_negative_falls_and_widths_are_refused_and_a_swept_edge_of_0_runs`);
+    M2, the constant sine at 1e-30 Hz with its given dc kept [E170] (four `test_m2_*` tests,
+    `TestFollowUpRuns2c8.test_m2_a_constant_sine_keeps_its_given_dc_on_both_engines`); M3, an exp time
+    constant of 0 refused on both engines and Xyce's sweep of `tau1`/`tau2` run [E169]
+    (`test_m3_an_exp_time_constant_of_0_is_refused_on_both_engines`, `TestFollowUpRuns2c8.test_m3_*`); M4,
+    the negative freq one rule, §3.7's condition in the netlist's spelling, the period message true and no
+    negative zero (`test_m4_a_negative_freq_is_one_rule_on_both_engines`,
+    `test_m4_the_messages_say_what_is_true`, `TestFollowUpRuns2c8.test_m4_*`); and, found and fixed, Xyce's
+    derived dc with a negative delay [E171]
+    (`test_m4_a_derived_dc_with_a_negative_delay_is_the_waveform_s_t0_value_on_xyce`) and a netlist with no
+    analysis whose constants break a rule (`test_m1_m3_a_constant_is_refused_with_no_analysis_too`).
+    Re-decided as M1 and M4 require: `TestFollowUp2c7`'s and `TestFollowUpRuns2c7`'s L4 tests (P04, P06 and
+    P10 from VACASK-only to both engines) and their L2 texts (`sel > 0`, `temp > 40`, `s > 0`). The skeptic
+    confirmed M1, M3, M4 and the two extras, refuted M2 for two regressions [E170], and found two
+    pre-existing silent classes (a `sinedc` that a sweep of `dc` did not move [E172], Xyce's period-less
+    pulse repeating [E168]), the dc axis's substituted points [E173], the `tau2` clause and G20073 [E167],
+    all closed by 2c9. Contracts, additive (§10): `tables.CONSTANT_SINE_FREQ`, `is_constant_sine_spectre`,
+    `constant_sine` and `is_constant_sine`; `signals.unfold_constant_sines`; `plan.edge_default`, and
+    `plan.edge_points` and `constant_sine_points`, which 2c9 replaced.
+  - *2c9, the eighth* (one fixer and an independent skeptic; product files `plan.py`, `vacask.py`, `xyce.py`
+    and `results.py`, the last outside the fixer's list, since N2 names `results.collect`): N1, one
+    predicate for a swept point's substitute, read in the printed statement's source state on both engines
+    [E170] (`TestFollowUp2c9`'s four `test_n1_*` tests, `test_spectre_emit.TestFollowUpRuns2c9.test_n1_*`);
+    N2, the PSF axis of a substituted point [E173] (`test_spectre_outputs.TestFollowUp2c9Axis`, 2 tests;
+    `TestFollowUpRuns2c9.test_n2_the_sweep_axis_holds_the_deck_s_0_on_every_analysis_kind`); N3, a `sinedc`
+    that defaults to `dc` moved by a sweep of `dc` [E172]
+    (`test_n3_a_dev_sweep_of_dc_moves_a_sinedc_that_defaults_to_dc`, `TestFollowUpRuns2c9.test_n3_*`); N4,
+    Xyce's `PER` for a period-less pulse [E168]
+    (`test_n4_a_pulse_without_a_period_cannot_repeat_on_xyce`,
+    `TestFollowUpRuns2c9.test_n4_a_pulse_without_a_period_does_not_repeat_on_xyce`); N5, `tau2`'s own clause
+    and VACASK's setup before a sweep's first point checked [E167, E169]
+    (`test_n5_tau1_and_tau2_have_their_own_clauses`,
+    `test_n5_vacask_s_setup_before_a_sweep_s_first_point_is_checked`,
+    `TestFollowUpRuns2c9.test_n5_tau2_s_clause_and_vacask_s_setup_before_a_sweep`), the two `tau2` subtests
+    of `TestFollowUp2c8.test_m3_an_exp_time_constant_of_0_is_refused_on_both_engines` re-decided to the new
+    text, as strong as before. The skeptic confirmed N1-N4 and N5b and refuted N5a for a message, `tau1`'s
+    clause [E169]; it found 0 new silent wrong values and 0 regressions, and listed six pre-existing ones,
+    two of a `phase` without `mag` [E177] and four of Xyce's pulse at a delay of minus its rise [E168]
+    (§12). Then the driver's two fixes, each test seen failing on the pre-fix files: `mag` defaulting to 0
+    with `phase` alone (`spectre.resolve_source`, `plan._src_override`, VACASK's hook source;
+    `test_spectre_plan.TestDriver2c9.test_a_phase_alone_excites_nothing`,
+    `test_spectre_emit.TestDriverRuns2c9.test_a_phase_alone_excites_nothing_on_both_engines`), and `tau1`'s
+    clause naming both of Xyce's outcomes (`TestDriver2c9.test_tau1_s_clause_names_both_xyce_outcomes`;
+    `TAU_2C8` re-decided to that text). Contracts, additive (§10): `plan.swept_value`, `swept_points` and
+    `sinedc_follows_dc`; `xyce.PULSE_NO_PERIOD`; `results.collect`'s axis rule.
+  - Open after phases 2b and 2c and the rounds 2c2-2c9: §14 q.70-q.79 and q.83-q.85 (q.80-q.82 answered in
+    2c4), the readings appended to q.3, q.8, q.11, q.13, q.19, q.20, q.23, q.29, q.35, q.36, q.47, q.48,
+    q.56, q.58, q.61 and q.64, and the list carried in §12 (the defects found and not fixed among it, Xyce's
+    pulse at a delay of minus its rise one of them; E151 closed by 2c4, R-plan-19 by 2c2).

@@ -143,6 +143,12 @@ Sources (§4.3.8)
     scale_source(src, k) -> Source
         src with every value (dc, ac magnitude, waveform levels, PWL values)
         multiplied by k: the multiplier of a Xyce current source.
+    constant_sine(src) -> Optional[Source]   (phase 2c8, VAMOS_SPECTRE_DESIGN.md §3.8.1)
+        A Spectre sine whose freq is the constant 0, which spectre.resolve_source
+        folds into dc, as the sine itself at freq CONSTANT_SINE_FREQ (1e-30 Hz,
+        its value the constant at every time point) with its given dc kept: the
+        DC-type solves read the dc, a tran the constant; is_constant_sine and
+        is_constant_sine_spectre recognise it.
 
 Simulator options (§4.3.5)
     solver_options(nl, origin="") -> (Dict[str, object], List[Note])
@@ -220,7 +226,7 @@ from dataclasses import dataclass, field, replace
 from typing import Dict, FrozenSet, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 from vamos.netlist import expr as X
-from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary
+from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary, Unary
 from vamos.netlist.ir import (Cond, Instance, Model, Netlist, Param, ParamTest, Source, Subckt, VaModule,
                               flat_items)
 from vamos.notes import Note, note, warning
@@ -239,7 +245,11 @@ ELEMENT_OF: Dict[str, str] = {"nmos": "m", "pmos": "m", "npn": "q", "pnp": "q", 
 POLARITY: Dict[str, float] = {"nmos": 1.0, "pmos": -1.0, "npn": 1.0, "pnp": -1.0, "njf": 1.0,
                               "pjf": -1.0}
 ELEMENT_NAME = {"m": "MOS", "q": "BJT", "j": "JFET", "d": "diode", "r": "resistor",
-                "c": "capacitor", "l": "inductor"}
+                "c": "capacitor", "l": "inductor",
+                # phase 2c4 (H4): every other IR kind under its Spectre master name, which messages name (vacask's
+                # mfactor_param fell back to the kind letter: `the multiplier of a v is not a device parameter')
+                "v": "vsource", "i": "isource", "e": "vcvs", "g": "vccs", "f": "cccs", "h": "ccvs",
+                "k": "mutual_inductor", "b": "bsource", "x": "subckt", "y": "Verilog-A module"}
 
 
 @dataclass(frozen=True)
@@ -704,20 +714,109 @@ XYCE_METHODS: Dict[str, Tuple[str, Optional[int]]] = {
 def wave_t0(src: Source) -> Optional[Expr]:
     """The t = 0 value of a waveform source (§3.8.1, §4.5 item 8: Xyce's derived DC): pulse and exp
     their v1, sin vo (plus va*sin(phase) for a nonzero phase, phase in degrees), pwl its first value;
-    None for a source without a waveform or with an unresolved field."""
+    None for a source without a waveform or with an unresolved field.  Phase 2c8: a delay below 0 (a
+    pulse's, a sine's, an exp's td1, a pwl's) puts t = 0 inside the waveform, whose value there it is (the
+    first value before: Xyce's op gave 0 for a pulse at 0.4 of its rise, where VACASK, which computes its
+    own, gave 0.4); a delay that reads a name, temp or tnom gives (delay >= 0 ? <the first value> : <the
+    waveform at -delay>), which the deck evaluates.  A constant delay of 0 or above keeps the first value."""
     w, a = src.wave, src.args
-    if w == "pulse" or w == "exp":
-        return a.get("v1")
+    if w == "pulse":
+        return _pulse_t0(a)
+    if w == "exp":
+        return _exp_t0(a)
     if w == "sin":
         vo, va, phase = a.get("vo"), a.get("va"), a.get("phase")
         if vo is None:
             return None
         if va is None or phase is None or _is_zero(phase):
-            return vo
-        return X.fold(Binary("+", vo, Binary("*", va, Call("sin", (Binary("*", phase, Num(math.pi / 180.0)),)))))
+            first = vo
+        else:
+            first = X.fold(Binary("+", vo, Binary("*", va, Call("sin", (Binary("*", phase, Num(math.pi / 180.0)),)))))
+        return _before(a.get("td"), first, lambda x: _sine_at(a, x))
     if w == "pwl":
-        return src.points[0][1] if src.points else None
+        if not src.points:
+            return None
+        return _pwl_t0(src.points, a.get("td"))
     return None
+
+
+def _before(td: Optional[Expr], first: Optional[Expr], inside) -> Optional[Expr]:
+    """wave_t0's choice: `first` (the value before the waveform starts) for a delay that is a number >= 0 (or none),
+    inside(x) (the waveform x after its start, x = -delay) for a number below 0, else the ternary on the delay."""
+    if first is None or td is None or (isinstance(td, Num) and td.value >= 0):
+        return first
+    x = X.fold(Unary("-", td))
+    got = inside(x)
+    if got is None:
+        return first
+    if isinstance(td, Num):
+        return X.fold(got)
+    return X.fold(Ternary(Binary(">=", td, Num(0.0)), first, got))
+
+
+def _pulse_t0(a: Mapping[str, Expr]) -> Optional[Expr]:
+    v1, v2, td, tr, tf, pw = (a.get(k) for k in ("v1", "v2", "td", "tr", "tf", "pw"))
+    if v1 is None or None in (v2, tr, tf, pw):
+        return v1
+
+    def inside(x: Expr) -> Expr:
+        per = a.get("per")
+        if per is not None:                            # the time within its period (Spectre's period starts at delay)
+            x = Binary("-", x, Binary("*", per, Call("floor", (Binary("/", x, per),))))
+        top, end = Binary("+", tr, pw), Binary("+", Binary("+", tr, pw), tf)
+        rising = Binary("+", v1, Binary("*", Binary("-", v2, v1), Binary("/", x, tr)))
+        falling = Binary("+", v2, Binary("*", Binary("-", v1, v2), Binary("/", Binary("-", x, top), tf)))
+        return Ternary(Binary("<", x, tr), rising, Ternary(Binary("<", x, top), v2,
+                                                            Ternary(Binary("<", x, end), falling, v1)))
+    return _before(td, v1, inside)
+
+
+def _sine_at(a: Mapping[str, Expr], x: Expr) -> Optional[Expr]:
+    vo, va, freq, theta, phase = (a.get(k) for k in ("vo", "va", "freq", "theta", "phase"))
+    if None in (vo, va, freq, theta, phase):
+        return None
+    arg = Binary("+", Binary("*", Binary("*", Num(2.0 * math.pi), freq), x), Binary("*", phase, Num(math.pi / 180.0)))
+    return Binary("+", vo, Binary("*", Binary("*", va, Call("exp", (Unary("-", Binary("*", theta, x)),))),
+                                  Call("sin", (arg,))))
+
+
+def _exp_t0(a: Mapping[str, Expr]) -> Optional[Expr]:
+    """The exp's value at t = 0: v1 before its rise starts at td1 (delay folded in), else the rise, and the fall
+    after td2."""
+    v1, v2, td1, tau1, td2, tau2 = (a.get(k) for k in ("v1", "v2", "td1", "tau1", "td2", "tau2"))
+    if v1 is None or None in (v2, td1, tau1, td2, tau2):
+        return v1
+
+    def inside(x: Expr) -> Expr:                      # x = -td1 > 0, the time since the rise started
+        # a time constant of 0 (plan.build refuses it in a tran) is its limit, a step, never a division by 0 in the dc
+        up = Num(1.0) if _is_zero(tau1) else Binary("-", Num(1.0), Call("exp", (Unary("-", Binary("/", x, tau1)),)))
+        down = Num(1.0) if _is_zero(tau2) else Binary("-", Num(1.0), Call("exp", (Binary("/", td2, tau2),)))
+        rise = Binary("+", v1, Binary("*", Binary("-", v2, v1), up))
+        return Ternary(Binary("<", td2, Num(0.0)), Binary("+", rise, Binary("*", Binary("-", v1, v2), down)), rise)
+    return _before(td1, v1, inside)
+
+
+def _pwl_t0(points: Sequence[Tuple[Expr, Expr]], td: Optional[Expr]) -> Optional[Expr]:
+    """A pwl's value at t = 0: its first value when its first time point (plus the delay) is not below 0, else the
+    value between the points around 0 (the last value after its last point)."""
+    first = points[0][1]
+    times = [t if td is None or _is_zero(td) else X.fold(Binary("+", t, td)) for t, _v in points]
+    if isinstance(times[0], Num) and times[0].value >= 0:
+        return first
+    if not all(isinstance(t, Num) for t in times):
+        out: Expr = points[-1][1]                      # nested from the last segment: the value at t = 0
+        for k in range(len(points) - 1, 0, -1):
+            (t0, y0), (t1, y1) = (times[k - 1], points[k - 1][1]), (times[k], points[k][1])
+            seg = Binary("+", y0, Binary("*", Binary("-", y1, y0), Binary("/", Unary("-", t0), Binary("-", t1, t0))))
+            out = Ternary(Binary("<=", Num(0.0), t1), seg, out)
+        return X.fold(Ternary(Binary(">=", times[0], Num(0.0)), first, out))
+    tv = [t.value for t in times]                       # type: ignore[union-attr]
+    for k in range(1, len(tv)):
+        if tv[k] >= 0:
+            y0, y1 = points[k - 1][1], points[k][1]
+            frac = (0.0 - tv[k - 1]) / (tv[k] - tv[k - 1]) if tv[k] != tv[k - 1] else 1.0
+            return X.fold(Binary("+", y0, Binary("*", Binary("-", y1, y0), Num(frac))))
+    return points[-1][1]
 
 
 # Verilog-A modules on Xyce (§4.5 item 13): a module whose xyceModelGroup is one of these prints as the letter
@@ -824,7 +923,7 @@ class MasterRow:
 # SPECTRE_MASTERS data (phase 0, S0C).  Built from ref5's component chapters against the targets' parameter
 # tables (/usr/local/src/VACASK/devices/spice/*.va, VACASK docs/dev-builtin-*.md; Xyce N_DEV_*.C load*Parameters);
 # every ref5 instance and model parameter of every v1 master has a row, every ref5 default was compared with
-# both targets' effective defaults (the comparison tables: scratchpad sp0/S0C/comparison.md).  Conventions:
+# both targets' effective defaults (phase 0's comparison tables).  Conventions:
 #   - cite "ref5 p.N" is the parameter's page; the text after ";" names the target source lines or the rule's
 #     reason.  "fails loudly" = the engine rejects the parameter (VACASK at elaboration, Xyce via the output scan);
 #   - the first rule whose `when` and `match` hold applies (§10); a rule reaches an absent parameter only through
@@ -3766,6 +3865,64 @@ def wave(src: Source, name: str) -> Dict[str, Expr]:
                 raise TableError("%s: PWL times must be >= 0 and strictly increasing (at %r)" % (name, v))
             prev = v
     return out
+
+
+# Phase 2c8 (M2): the frequency a Spectre sine of constant freq 0 prints with.  VACASK's sine needs freq > 0
+# (lib/devvisrc.cpp: 'Frequency of sinusoidal transient must be greater than 0') and limits a tran's step to
+# tran_ffmax/(2 freq), 1.25e29 s here (lib/coretran.cpp, tran_ffmax 0.25); Xyce's SIN sets no step or breakpoint by
+# its frequency.  At 1e-30 Hz a sine's phase moves 6.3e-30 rad per second, so for any tran shorter than ~1e13 s its
+# value stays within ampl * 6.3e-17 of sinedc + ampl*sin(sinephase), Spectre's constant, before and after its delay
+# (both engines hold that value before it), at every time point.
+CONSTANT_SINE_FREQ = 1e-30
+
+
+def _first(v: object) -> object:
+    return (v[0] if v else None) if isinstance(v, list) else v
+
+
+def is_constant_sine_spectre(spectre: Mapping[str, object]) -> bool:
+    """Phase 2c8 (M2): the Spectre fields of a sine whose freq is the constant 0 (written so, or absent: its default)
+    and whose damp is 0, which spectre.resolve_source folds into dc = sinedc + ampl*sin(sinephase) (§3.8.1)."""
+    t = spectre.get("type")
+    if not (isinstance(t, Str) and t.text.lower() == "sine"):
+        return False
+    freq, damp = _first(spectre.get("freq", Num(0.0))), _first(spectre.get("damp", Num(0.0)))
+    return isinstance(freq, Num) and freq.value == 0 and isinstance(damp, Num) and damp.value == 0
+
+
+def constant_sine(src: Optional[Source]) -> Optional[Source]:
+    """Phase 2c8 (M2): spectre.resolve_source folds a sine whose freq is the constant 0 into Source.dc = sinedc +
+    ampl*sin(sinephase), Source.wave None, which replaces a given dc: every DC-type solve then read that constant, where
+    Spectre's is the given dc and the waveform acts in tran only (ref5 p.686; §3.8.1's dc row; S-2c7's Z01: op 0 where
+    0.25).  For such a Source the form both engines run faithfully: the given dc as Source.dc (None when the netlist
+    gives none, the dc then being the waveform's t = 0 value, the constant), and as the waveform the sine itself, its
+    sinedc, ampl, delay and sinephase as resolve_source reads them (the written fields' own expressions), at the
+    frequency CONSTANT_SINE_FREQ, whose value is the constant at every time point on both engines: a tran (and its
+    initial point) reads the constant, VACASK's source switches around a tran treat it as any waveform with a given dc,
+    and a sweep or alter of one of its fields reaches the field.  Source.spectre is kept as written.  None for every
+    other Source (a constant sine already in this form included)."""
+    if src is None or src.wave is not None or src.code_uri is not None or src.dc is None:
+        return None
+    sp = src.spectre
+    if not is_constant_sine_spectre(sp):
+        return None
+    given = _first(sp["dc"]) if "dc" in sp else None             # resolve_source's Source.dc for it
+
+    def field(key: str, default: Expr) -> Expr:
+        v = _first(sp[key]) if key in sp else None
+        return v if v is not None else default                  # type: ignore[return-value]
+    vo = field("sinedc", given if given is not None else Num(0.0))      # sinedc defaults to dc (ref5 p.684)
+    return Source(dc=given, ac=src.ac,                                  # type: ignore[arg-type]
+                  wave="sin", args={"vo": vo, "va": field("ampl", Num(1.0)), "freq": Num(CONSTANT_SINE_FREQ),
+                                    "td": field("delay", Num(0.0)), "theta": field("damp", Num(0.0)),
+                                    "phase": field("sinephase", Num(0.0))},
+                  points=[], code_uri=None, spectre=dict(sp))
+
+
+def is_constant_sine(src: Optional[Source]) -> bool:
+    """Phase 2c8 (M2): src is constant_sine's form (a sine of constant freq 0 printed at CONSTANT_SINE_FREQ)."""
+    return (src is not None and src.wave == "sin" and is_constant_sine_spectre(src.spectre)
+            and isinstance(src.args.get("freq"), Num) and src.args["freq"].value == CONSTANT_SINE_FREQ)
 
 
 def scale_source(src: Source, k: Expr) -> Source:

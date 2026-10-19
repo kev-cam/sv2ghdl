@@ -1961,5 +1961,59 @@ class TestPsfParserConsumer(unittest.TestCase):
         self.assertGreater(count, 30)
 
 
+class TestFollowUp2c9Axis(TempDir):
+    """Phase 2c9 (N2): a dc analysis or an ac/noise/xf at a fixed frequency that sweeps a pulse's rise or fall through 0
+    gives the engines Spectre's default edge, transres, at that point, and one that sweeps the constant sine's freq
+    through 0 gives them 1e-30 (plan.swept_value); the sweep axis came from the engine's column, so the PSF read 1e-09 or
+    1e-30 where the deck says 0 (S-2c8's E01, E02, E04, P832; S-2c7's T0132 on Xyce).  The axis holds the deck's 0 now,
+    on both engines and every analysis kind with a parameter axis, as a sweep block's parent writes the plan's points;
+    every other engine point is written as the engine gives it."""
+
+    def own(self, values, param="rise", units="s"):
+        return level("", "vamos_w1", spec_values(*values), param, "V1:%s" % param, units, target=("instance", "V1", param))
+
+    def axis(self, d, fn):
+        return psfcheck.check(os.path.join(d, fn)).sweep_values()
+
+    def test_a_substituted_point_of_0_is_the_deck_s_0_on_vacask(self):
+        sm = sigmap({"vamos_a1": [(("v", "out"), "out", "V")]})
+        nm = {"vamos_a1": {("v", "out"): "out"}}
+        cases = [("E01 rise", self.own([0, 5e-7]), [(1e-9, 0.0), (5e-7, 0.0)], [0.0, 5e-7]),
+                 ("E02 freq", self.own([0, 1e5], "freq", "Hz"), [(1e-30, 0.45), (1e5, 0.45)], [0.0, 1e5]),
+                 ("E04 fall last", self.own([5e-7, 0], "fall"), [(5e-7, 0.0), (3.5e-15, 0.0)], [5e-7, 0.0]),
+                 # no point of 0: the engine's own x (a last one within END_REL of stop is the stop, R-emit-11)
+                 ("no zero", self.own([1e-7, 5e-7]), [(1.00001e-7, 0.0), (5e-7, 0.0)], [1.00001e-7, 5e-7])]
+        for name, own, rows, want in cases:
+            with self.subTest(case=name):
+                d = os.path.join(self.tmp, name.replace(" ", "_"))
+                os.makedirs(d)
+                p = write_raw(os.path.join(d, "dc1.raw"), [("vamos_w1", "notype"), ("out", "notype")], rows,
+                              plotname="DC Analysis")
+                st = step("vamos_a1", "dc1", "dc", own=own)
+                _res, notes = convert(d, make_plan([st]), sm, EngineResult(files={"vamos_a1": p}, names=nm))
+                self.assertEqual(notes, [])
+                self.assertEqual(self.axis(d, "dc1.dc"), want)
+        # an ac at a fixed frequency sweeping the rise (the own axis a parameter, VACASK's sweep column first)
+        d = os.path.join(self.tmp, "ac")
+        os.makedirs(d)
+        p = write_raw(os.path.join(d, "ac1.raw"), [("vamos_w1", "notype"), ("frequency", "notype"), ("out", "notype")],
+                      [(1e-9, 1e3, 0.5), (5e-7, 1e3, 0.25)], cplx=True, plotname="AC Small Signal Analysis")
+        st = step("vamos_a1", "ac1", "ac", own=self.own([0, 5e-7]), args={"freq": 1e3})
+        _res, notes = convert(d, make_plan([st]), sm, EngineResult(files={"vamos_a1": p}, names=nm))
+        self.assertEqual(self.axis(d, "ac1.ac"), [0.0, 5e-7])
+
+    def test_a_substituted_point_of_0_is_the_deck_s_0_on_xyce(self):
+        """Xyce's .DC column (the hook .param) carries the substitute too; a .STEP of an ac/noise parameter is the
+        plan's grid already."""
+        sm = sigmap({"vamos_a1": [(("v", "out"), "out", "V")]})
+        nm = {"vamos_a1": {("v", "out"): "V(OUT)"}}
+        p = write_raw(os.path.join(self.tmp, "vamos_a1.raw"), [("VAMOS_X_V1_RISE", "voltage"), ("V(OUT)", "voltage")],
+                      [(1e-9, 0.25), (3e-7, 0.25)], plotname="DC transfer characteristic")
+        st = step("vamos_a1", "dc1", "dc", own=self.own([0, 3e-7]))
+        _res, notes = convert(self.tmp, make_plan([st], "xyce"), sm, EngineResult(files={"vamos_a1": p}, names=nm))
+        self.assertEqual(notes, [])
+        self.assertEqual(self.axis(self.tmp, "dc1.dc"), [0.0, 3e-7])
+
+
 if __name__ == "__main__":
     unittest.main()
