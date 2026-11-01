@@ -191,6 +191,9 @@ VAMOS_OPTIONS: Tuple[VamosOpt, ...] = (
     VamosOpt("strict", None, "any", "unsupported, unknown and ineffective options are errors; so is "
              "every warning (an approximation vamos had to make)"),
     VamosOpt("verbose", None, "any", "print each command vamos runs"),
+    VamosOpt("engine", "nvc|verilator", "any", "the simulation engine: nvc (sv2ghdl + nvc, the default; also "
+             "VAMOS_ENGINE) or verilator (Verilog/SystemVerilog only, one top, no run-time stop time)",
+             ("nvc", "verilator")),
     VamosOpt("licenses", None, "any", "print the tools vamos may run and their licences, and exit"),
     VamosOpt("version", None, "any", "print the vamos version and exit"),
     VamosOpt("analog", "vacask|xyce", "ams", "the analog engine (default vacask; also VAMOS_ANALOG)",

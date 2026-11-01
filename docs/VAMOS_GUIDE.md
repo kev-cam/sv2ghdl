@@ -787,6 +787,7 @@ an AMS option in a digital compile, `--vamos-keep` in a compile without `-R`, a 
 | `--vamos-banner=<name\|path\|none>` | all | banner profile (§8); `none` drops the profile's banners and keeps the provenance header (under spectre the messages, the `-V` line, the `run directory kept:` line and the last line stay too: §12, The banner profile) |
 | `--vamos-strict` | all | unsupported, unknown and ineffective options are errors; so is every warning of a compile |
 | `--vamos-verbose` | all | prints each command vamos runs (`vamos: + ...`) |
+| `--vamos-engine=nvc\|verilator` | `vcs`, `xelab` (compile) | the simulation engine: `nvc` (sv2ghdl + nvc, the default; also `VAMOS_ENGINE`) or `verilator` (`verilator --binary --timing -O3`: Verilog/SystemVerilog only, one top-level module, no run-time stop time, no AMS). The engine is recorded with the compile, so `./simv` and `xsim` need no option |
 | `--vamos-licenses` | - | prints the tool/licence table and exits |
 | `--vamos-version` | - | prints the version and exits |
 | `--vamos-analog=vacask\|xyce` | AMS compile, spectre | the analog engine |
@@ -2677,4 +2678,10 @@ Speed: as with `./simv`, the run is nvc's interpreter unless nvc's accelerator i
 the environment of `xsim` (or of `xelab -R`) compiles the DUT into a single-cycle state machine and swaps it
 in while the simulation runs (`Accel.md` at the repository root); nvc reads the variable itself, so nothing
 in the command line changes.
+
+Engine: `xelab --vamos-engine=verilator ...` (or `VAMOS_ENGINE=verilator`) builds the snapshot with Verilator
+instead of sv2ghdl + nvc, for the cases where Verilator's speed matters more than nvc's coverage (4-state
+values, VHDL, AMS, the stop time of a `-t run N ns`); `xsim snap -R` then runs that binary, the engine being
+recorded in the snapshot. The same option works on `vcs` (§3) and its `./simv`. A planned `use-vamos
+--verilator <command>` is this option applied to a whole script.
 

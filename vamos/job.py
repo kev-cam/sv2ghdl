@@ -86,6 +86,7 @@ class Job:
     ams_control: Optional[str] = None
     ams: Optional[dict] = None
     precision: Optional[str] = None      # simulation precision, when the preprocess step ran
+    engine: str = "nvc"                  # nvc (sv2ghdl + nvc) or verilator (--vamos-engine)
 
     # The design's VCD dump (vcs.dump_request), for ./simv's waves (simv.wave_request);
     # None: no $dumpvars and no +vcs+dumpvars.  {"calls": [{"scopes": [[levels, nvc path],

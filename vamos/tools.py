@@ -25,6 +25,7 @@ MAX_DEPTH = 4
 
 # Where sibling tools are in a source checkout (dev mode) - last resort only.
 DEV_TOOL_PATHS = {
+    "verilator": ["/usr/local/src/verilator/bin/verilator", "/usr/local/src/verilator-build/dest/usr/local/bin/verilator"],
     "nvc": ["/usr/local/src/nvc-build/bin/nvc"],
     "iverilog": ["/usr/local/src/iverilog/_install/bin/iverilog"],
 }

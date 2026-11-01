@@ -48,6 +48,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from vamos import argscan, banner, tools
 from vamos.backends.nvc import DEFAULT_DUMPFILE, BackendError, NvcBackend, cpu_time
+from vamos.backends.verilator import VerilatorBackend, engine_of
 from vamos.console import Console
 from vamos.job import IGNORED, INAPPLICABLE, NOTED, UNKNOWN, UNSUPPORTED, Job, Source
 from vamos.optable import (Opt, ScanError, Table, report_unmapped, scan, strict_failures,
@@ -1254,6 +1255,16 @@ def main(args: List[str], opts: dict, personality: str = "vcs") -> int:
     if t is not None:
         con.out(t)
     try:
+        engine = engine_of(opts)
+    except BackendError as e:
+        con.err("vamos: error: %s" % e)
+        return 1
+    if engine == "verilator":
+        if ams:
+            con.err("vamos: error: --vamos-engine=verilator: an AMS compile runs on nvc only")
+            return 1
+        return _verilator_compile(job, con, ban, opts)
+    try:
         be = NvcBackend(job, con.out)
         used = [("vamos", tools.version_of("vamos", tools.launcher()), tools.launcher())]
         used += [(n, tools.version_of(n, p), p) for n, p in be.compile_tools()]
@@ -1316,6 +1327,65 @@ def main(args: List[str], opts: dict, personality: str = "vcs") -> int:
     if t is not None:
         con.out(t)
 
+    if job.run:
+        con.close()
+        run_args = list(job.plusargs)
+        if job.log:
+            run_args += ["-l", job.log, "--vamos-append-log"]
+        return simv_mod.run_daidir(job.daidir, run_args, opts)
+    con.close()
+    return 0
+
+
+def _verilator_compile(job: Job, con: Console, ban, opts: dict) -> int:
+    """`vcs --vamos-engine=verilator`: build ./simv's design with Verilator (backends/verilator.py)
+    instead of sv2ghdl + nvc.  Same ./simv, daidir and job record; ./simv runs the binary."""
+    try:
+        be = VerilatorBackend(job, con.out)
+        used = [("vamos", tools.version_of("vamos", tools.launcher()), tools.launcher())]
+        used += [(n, tools.version_of(n, p), p) for n, p in be.compile_tools()]
+    except (BackendError, tools.ToolError) as e:
+        con.err("vamos: error: %s" % e)
+        return 1
+    con.out(banner.provenance(used, "vcs"))
+    report_unmapped(job, con.err)
+    if opts.get("strict"):
+        bad = strict_failures(job)
+        if bad:
+            con.err("vamos: error: " + strict_message(bad))
+            return 1
+    had_exe = os.path.lexists(job.exe)
+    try:
+        os.makedirs(job.daidir, exist_ok=True)
+        invalidate(job)
+    except OSError as e:
+        con.err("vamos: error: cannot prepare %s: %s" % (job.daidir, e))
+        return 1
+    c0 = cpu_time()
+    try:
+        c1 = be.build(job.tops[0] if job.tops else None)
+    except (BackendError, tools.ToolError) as e:
+        con.err("vamos: error: %s" % e)
+        if not had_exe:
+            try:
+                os.remove(job.exe)
+            except OSError:
+                pass
+        t = ban.text("compile_failed")
+        if t is not None:
+            con.out(t)
+        return 1
+    job.engine = "verilator"
+    _write_atomic(os.path.join(job.daidir, JOB_FILE), job.to_json())
+    simv_mod.write_tools(job.daidir, used)
+    write_stub(job)
+    tops = job.tops or ["(the top verilator chose; see its output)"]
+    t = ban.text("compile_tops", tops_lines="\n".join("       " + x for x in tops))
+    if t is not None:
+        con.out(t)
+    t = ban.text("compile_done", exe=display_exe(job), cpu_compile=c1 - c0, cpu_elab=0.0)
+    if t is not None:
+        con.out(t)
     if job.run:
         con.close()
         run_args = list(job.plusargs)

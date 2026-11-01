@@ -35,6 +35,7 @@ from typing import List, Optional, Tuple
 
 from vamos import banner, tools
 from vamos.backends.nvc import DEFAULT_DUMPFILE, BackendError, NvcBackend, Waves, cpu_time
+from vamos.backends.verilator import VerilatorBackend
 from vamos.console import Console
 from vamos.job import IGNORED, NOTED, UNKNOWN, UNSUPPORTED, Job, JobVersionError
 from vamos.optable import Opt, ScanError, Table, report_unmapped, scan, strict_failures
@@ -364,6 +365,8 @@ def run_daidir(daidir: str, args: List[str], opts: dict) -> int:
     ban = banner.Banner(prof, "vcs")
 
     compiled.daidir = daidir
+    if compiled.engine == "verilator":
+        return _run_verilator(compiled, rt, con, ban, opts)
     try:
         be = NvcBackend(compiled, con.out)
     except BackendError as e:
@@ -415,6 +418,45 @@ def run_daidir(daidir: str, args: List[str], opts: dict) -> int:
     con.close()
     if be.interrupted is not None:
         return _end_with_signal(be.interrupted)
+    return rc
+
+
+def _run_verilator(compiled: Job, rt: Job, con: Console, ban, opts: dict) -> int:
+    """./simv of a design compiled with --vamos-engine=verilator: run the Verilator binary with
+    the plusargs.  No stop time (+vcs+finish+N), no VCD request options: the design ends at its
+    own $finish and dumps what its $dumpvars say."""
+    try:
+        be = VerilatorBackend(compiled, con.out)
+    except BackendError as e:
+        con.err("vamos: error: %s" % e)
+        return 1
+    used = [("vamos", tools.version_of("vamos", tools.launcher()), tools.launcher())]
+    used += [(n, tools.version_of(n, p), p) for n, p in be.run_tools()]
+    con.out(banner.provenance(used, "simv"))
+    if rt.finish is not None:
+        rt.note("+vcs+finish+" + rt.finish, UNSUPPORTED, "a Verilator binary has no stop time; the run "
+                "goes to the design's own end")
+    if wave_request(compiled, rt) is not None:
+        rt.note("waves", NOTED, "the Verilator engine honours the design's own $dumpfile/$dumpvars "
+                "only (no +vcs+dumpfile / -vcd request)")
+    report_unmapped(rt, con.err)
+    bad = strict_failures(rt)
+    if opts.get("strict") and bad:
+        con.err("vamos: error: --vamos-strict: %d unsupported/unknown option(s): %s"
+                % (len(bad), " ".join(bad)))
+        return 1
+    c0 = cpu_time()
+    try:
+        rc = be.run(rt.plusargs, con.out, con.err)
+    except BackendError as e:
+        con.err("vamos: error: %s" % e)
+        con.close()
+        return 1
+    t = ban.text("run_footer", simtime="(reported by verilator above)", cpu=cpu_time() - c0,
+                 status="ok" if rc == 0 else "exit %d" % rc)
+    if t is not None:
+        con.out(t)
+    con.close()
     return rc
 
 

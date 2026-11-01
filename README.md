@@ -18,6 +18,7 @@ vcs -sverilog tb.sv rtl/counter.v -R                # compile and run
 ./simv +CYCLES=9                                    # run again, with plusargs
 xvlog --sv tb.sv rtl/counter.v && xelab -s snap tb  # the Vivado simulator's flow, same stack
 xsim snap -R --testplusarg CYCLES=9
+xelab --vamos-engine=verilator -s fast tb && xsim fast -R   # same command lines, Verilator as the engine
 ```
 
 Start with **[docs/VAMOS_GUIDE.md](docs/VAMOS_GUIDE.md)**: setup, digital and AMS quick starts, options,

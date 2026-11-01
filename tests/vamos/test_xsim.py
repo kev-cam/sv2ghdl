@@ -219,5 +219,62 @@ class TestEndToEnd(TempDir):
         self.assertIn("interactive Tcl shell", r.stdout)
 
 
+def _have_verilator():
+    return _have_stack() and bool(tools.find_real("verilator"))
+
+
+@unittest.skipUnless(_have_verilator(), "needs verilator (and the stack)")
+class TestVerilatorEngine(TempDir):
+    TB = TestEndToEnd.TB
+
+    def run_tool(self, tool, *args, env_extra=None):
+        env = dict(os.environ)
+        env["PATH"] = os.path.join(ROOT, "shims") + os.pathsep + env.get("PATH", "")
+        env.update(env_extra or {})
+        return subprocess.run([tool] + list(args), cwd=self.tmp, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              universal_newlines=True, timeout=600)
+
+    def test_xelab_xsim_on_verilator(self):
+        self.write("tb.v", self.TB)
+        self.write("run.tcl", "run 22 ns\nquit\n")
+        r = self.run_tool("xvlog", "-d", "V=5", "tb.v")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        r = self.run_tool("xelab", "--vamos-engine=verilator", "-s", "snap", "tb", "-R")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("verilator", r.stdout)
+        self.assertIn("n=3 V=5", r.stdout)
+        with open(os.path.join(self.tmp, "xsim.dir", "snap", "vamos.job.json")) as fh:
+            self.assertEqual(json.load(fh)["engine"], "verilator")
+        r = self.run_tool("xsim", "snap", "-R", "--testplusarg", "lim=4")   # no engine option needed
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("n=4 V=5", r.stdout)
+        r = self.run_tool("xsim", "snap", "-t", "run.tcl")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("no stop time", r.stdout)
+        self.assertIn("n=3 V=5", r.stdout)
+
+    def test_vcs_on_verilator_via_environment(self):
+        self.write("tb.v", self.TB)
+        r = self.run_tool("vcs", "-full64", "+define+V=8", "-timescale=1ns/1ps", "tb.v", "-R",
+                          env_extra={"VAMOS_ENGINE": "verilator"})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("n=3 V=8", r.stdout)
+        self.assertIn("verilator", r.stdout)
+        s = subprocess.run(["./simv", "+lim=6", "+vcs+finish+10"], cwd=self.tmp, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, universal_newlines=True, timeout=300)
+        self.assertEqual(s.returncode, 0, s.stdout)
+        self.assertIn("n=6 V=8", s.stdout)
+        self.assertIn("no stop time", s.stdout)
+
+    def test_bad_engine_value(self):
+        self.write("tb.v", self.TB)
+        r = self.run_tool("xelab", "--vamos-engine=icarus", "tb")
+        self.assertEqual(r.returncode, 2)
+        r = self.run_tool("vcs", "tb.v", env_extra={"VAMOS_ENGINE": "icarus"})
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("VAMOS_ENGINE=icarus", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,10 @@ without -R/-t), waveform databases (--wdb; use $dumpvars), and the Xilinx simula
 libraries (unisims_ver, secureip, xpm, ...), which exist for Vivado's own simulator only.
 Mixed VHDL + Verilog elaboration is not supported yet: a snapshot is all Verilog/SV (through
 sv2ghdl) or all VHDL (nvc directly).
+
+--vamos-engine=verilator (or VAMOS_ENGINE=verilator) at xelab builds the snapshot with Verilator
+instead (backends/verilator.py); xsim then runs that binary.  The engine is recorded in the
+snapshot, so xsim needs no option.
 """
 
 import dataclasses
@@ -33,6 +37,7 @@ from typing import Dict, List, Optional, Tuple
 
 from vamos import VERSION, argscan, banner, tools
 from vamos.backends.nvc import BackendError, NvcBackend, cpu_time
+from vamos.backends.verilator import VerilatorBackend, engine_of
 from vamos.console import Console
 from vamos.job import IGNORED, INAPPLICABLE, NOTED, UNKNOWN, UNSUPPORTED, Job, Source
 from vamos.optable import (Opt, ScanError, Table, report_unmapped, scan, strict_failures,
@@ -602,9 +607,14 @@ def main_xelab(args: List[str], opts: dict) -> int:
         con.err("vamos: error: source file '%s' cannot be opened (analysed earlier, gone now)" % m)
     if missing:
         return 1
+    try:
+        engine = engine_of(opts)
+    except BackendError as e:
+        con.err("vamos: error: %s" % e)
+        return 1
     langs = {s["lang"] for s in srcs}
     vhdl_only = langs == {"vhdl"}
-    if "vhdl" in langs and not vhdl_only:
+    if "vhdl" in langs and not vhdl_only and engine == "nvc":
         con.err("vamos: error: mixed VHDL and Verilog elaboration is not supported yet by the xelab "
                 "personality (an all-Verilog or all-VHDL snapshot is)")
         return 1
@@ -631,9 +641,9 @@ def main_xelab(args: List[str], opts: dict) -> int:
                    incdirs=incdirs, defines=defines, timescale=job.timescale,
                    std="sv" if "sv" in langs else "verilog", tops=tops,
                    exe=os.path.join(daidir, "xsimk"), daidir=daidir, log=job.log, run=job.run,
-                   unmapped=list(job.unmapped))
+                   unmapped=list(job.unmapped), engine=engine)
     try:
-        be = NvcBackend(compiled, con.out)
+        be = VerilatorBackend(compiled, con.out) if engine == "verilator" else NvcBackend(compiled, con.out)
         used = [("vamos", tools.version_of("vamos", tools.launcher()), tools.launcher())]
         used += [(n, tools.version_of(n, p), p) for n, p in be.compile_tools()]
     except (BackendError, tools.ToolError) as e:
@@ -655,7 +665,10 @@ def main_xelab(args: List[str], opts: dict) -> int:
         return 1
     c0 = cpu_time()
     try:
-        if vhdl_only:
+        if engine == "verilator":
+            c1 = be.build(tops[0])
+            tops_done = [tops[0]]
+        elif vhdl_only:
             tops_done = _vhdl_only(compiled, be, srcs, con)
             c1 = cpu_time()
         else:
@@ -676,11 +689,36 @@ def main_xelab(args: List[str], opts: dict) -> int:
     if t is not None:
         con.out(t)
     if job.run:
+        if engine == "verilator":
+            return run_verilator(compiled, [], con, opts)
         con.close()
         run_args = ["-l", job.log, "--vamos-append-log"] if job.log else []
         return simv_mod.run_daidir(daidir, run_args, opts)
     con.close()
     return 0
+
+
+def run_verilator(compiled: Job, plusargs: List[str], con: Console, opts: dict) -> int:
+    """Run a snapshot built by the Verilator engine: the provenance header, the binary's
+    output, a footer with the CPU time (Verilator prints the end time itself)."""
+    try:
+        be = VerilatorBackend(compiled, con.out)
+    except BackendError as e:
+        con.err("vamos: error: %s" % e)
+        return 1
+    used = [("vamos", tools.version_of("vamos", tools.launcher()), tools.launcher())]
+    used += [(n, tools.version_of(n, p), p) for n, p in be.run_tools()]
+    con.out(banner.provenance(used, "xsim"))
+    c0 = cpu_time()
+    try:
+        rc = be.run(plusargs, con.out, con.err)
+    except BackendError as e:
+        con.err("vamos: error: %s" % e)
+        con.close()
+        return 1
+    con.out("vamos: verilator run ended with status %d; CPU time %.3f seconds" % (rc, cpu_time() - c0))
+    con.close()
+    return rc
 
 
 # -- xsim ---------------------------------------------------------------------------------------
@@ -805,6 +843,12 @@ def main_xsim(args: List[str], opts: dict) -> int:
         con.err("vamos: error: snapshot '%s' was not built (no %s/%s/%s; run xelab first)"
                 % (snap, os.path.relpath(job.xsim_dir, cwd), snap, vcs_mod.JOB_FILE))
         return 1
+    try:
+        with open(os.path.join(daidir, vcs_mod.JOB_FILE)) as fh:
+            compiled = Job.from_json(fh.read())
+    except (OSError, ValueError, TypeError) as e:
+        con.err("vamos: error: %s/%s: %s; run xelab again" % (daidir, vcs_mod.JOB_FILE, e))
+        return 1
     finish: Optional[str] = None
     if job.tcl:
         lines: List[str] = []
@@ -827,6 +871,21 @@ def main_xsim(args: List[str], opts: dict) -> int:
                 "-t batch file whose `run` commands set the simulation time")
         return 1
     run_args = list(job.plusargs)
+    if compiled.engine == "verilator":
+        if finish:
+            job.note("-t: run %s" % finish, UNSUPPORTED, "a Verilator binary has no stop time; the run goes "
+                     "to the design's own end")
+        if job.seed is not None:
+            job.note("--sv_seed " + job.seed, NOTED, "passed to the Verilator binary as +ntb_random_seed")
+            run_args.append("+ntb_random_seed=" + job.seed)
+        if not job.nolog:
+            con.open_log(job.log or os.path.join(cwd, "xsim.log"))
+        report_unmapped(job, con.err)
+        if opts.get("strict") and strict_failures(job):
+            con.err("vamos: error: " + strict_message(strict_failures(job)))
+            return 1
+        compiled.daidir = daidir
+        return run_verilator(compiled, run_args, con, opts)
     if job.seed is not None:
         run_args.append("+ntb_random_seed=" + job.seed)
     if finish:
