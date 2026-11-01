@@ -1473,11 +1473,45 @@ static int gsm_run(int argc, const char *const *argv)
     // Q bit -> (reg alias name, bit offset) — for inlining async-reset cones
     dict<RTLIL::SigBit, std::pair<std::string,int>> g_regbit;
 
-    // First pass: collect memory info from $meminit cells
+    // First pass: collect memory info from $meminit cells, in a defined order.
+    // mod->cells_ iterates in hash order, so overlapping inits landed in an
+    // arbitrary order: the usual preload idiom `for (n) mem[n] = 0;` then
+    // `$readmemh(FILE, mem)` gives one zero $meminit per word plus the file's
+    // multi-word $meminit_v2, and whichever came last won (Hazard3's i_ram/d_ram
+    // through nvc --accel came up empty and the core executed nothing).
+    // Yosys's PRIORITY is the statement order it saw -- but its frontend emits
+    // the $readmemh init BEFORE the loop's per-word writes even when the loop
+    // comes first in the source (measured: file init PRIORITY 8, zero writes
+    // 9..12), so by priority alone the file would be zeroed, which is not what
+    // the simulators do.  Hence: all-zero single-word inits first, then the rest
+    // by ascending PRIORITY, so a file load beats the zeroing it follows while a
+    // deliberate non-zero per-word patch still follows statement order.
+    std::vector<RTLIL::Cell*> meminits;
     for (auto &c : mod->cells_) {
-        auto *cell = c.second;
+        auto t = c.second->type.str();
+        if (t == "$meminit" || t == "$meminit_v2") meminits.push_back(c.second);
+    }
+    auto meminit_prio = [](RTLIL::Cell *cell) {
+        return cell->hasParam(ID(PRIORITY)) ? cell->getParam(ID(PRIORITY)).as_int() : 0;
+    };
+    auto meminit_zero_single = [&](RTLIL::Cell *cell) {
+        const int words = cell->hasParam(ID(WORDS)) ? cell->getParam(ID(WORDS)).as_int() : 1;
+        if (words > 1) return false;
+        const RTLIL::Const dc = sigmap(cell->getPort(ID(DATA))).as_const();
+        for (int i = 0; i < dc.size(); i++)
+            if (dc[i] == RTLIL::S1) return false;
+        return true;
+    };
+    std::stable_sort(meminits.begin(), meminits.end(),
+                     [&](RTLIL::Cell *a, RTLIL::Cell *b) {
+                         const int za = meminit_zero_single(a) ? 0 : 1;
+                         const int zb = meminit_zero_single(b) ? 0 : 1;
+                         if (za != zb) return za < zb;
+                         return meminit_prio(a) < meminit_prio(b);
+                     });
+    for (auto *cell : meminits) {
         auto type = cell->type.str();
-        if (type == "$meminit" || type == "$meminit_v2") {
+        {
             std::string memid = cell->getParam(ID(MEMID)).decode_string();
             int width = cell->getParam(ID(WIDTH)).as_int();
             int abits = cell->getParam(ID(ABITS)).as_int();
