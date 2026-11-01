@@ -2673,3 +2673,8 @@ libraries (`-L unisims_ver`, `secureip`, `xpm`, ... are noted and skipped; `glbl
 A snapshot is all Verilog/SystemVerilog (through sv2ghdl) or all VHDL (nvc directly); mixing the two
 in one snapshot is not supported yet. The tests are `tests/vamos/test_xsim.py`.
 
+Speed: as with `./simv`, the run is nvc's interpreter unless nvc's accelerator is on. `NVC_ACCEL=auto` in
+the environment of `xsim` (or of `xelab -R`) compiles the DUT into a single-cycle state machine and swaps it
+in while the simulation runs (`Accel.md` at the repository root); nvc reads the variable itself, so nothing
+in the command line changes.
+
