@@ -1,7 +1,7 @@
 {
  "row": "E131",
  "experiment": "the PSF and rawfile readers (the vendored psf-parser 05021e6 under WSL Python; VACASK's python/rawfile.py from VAMOS_VACASK_SRC; e2e 13, 15 and 23, phase 2): a PSF file vamos's psf.py writes with a section sign in its design title, read by psf-parser; a binary rawfile of two plots (time, a) and (time, b) read by rawread",
- "result": "psf.py writes PSF strings in latin-1 (the sign is the byte 0xa7) and psf-parser decodes UTF-8, so a section sign in a title is a UnicodeDecodeError, on every file of the run; rawread keeps one header dict for every plot of a file, giving each plot the last plot's names (both plots named time, b), the arrays each plot's own. Not harvested: the two legs on one tree (a golden written on the Cygwin leg reported missing by a WSL run seconds later, DrvFs), a platform race no single run reproduces",
+ "result": "psf.py writes PSF strings in UTF-8 since FIX2E5 (§14 q.62, decided 2026-10-23; the sign is the bytes 0xc2 0xa7), which psf-parser decodes: it reads a title with a section sign. Before (phase 2c to round 4 of phase 2e) psf.py wrote latin-1 (the byte 0xa7), so such a title was a UnicodeDecodeError, on every file of the run; rawread keeps one header dict for every plot of a file, giving each plot the last plot's names (both plots named time, b), the arrays each plot's own. Not harvested: the two legs on one tree (a golden written on the Cygwin leg reported missing by a WSL run seconds later, DrvFs), a platform race no single run reproduces",
  "rules": [
   "§11 Third-party PSF consumers: the T2 decks keep their titles ASCII (e2e 15's title), psf-parser being a consumer check",
   "§8.5 / e2e 13: test_spectre_e2e_cli splits a multi-plot nutbin file into one file per plot before rawread (split_plots)"
@@ -22,8 +22,8 @@
    "status": 0,
    "output": {
     "contains": [
-     "the section sign as latin-1 0xa7: True; as UTF-8: False",
-     "psf-parser: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xa7"
+     "the section sign as latin-1 0xa7: False; as UTF-8: True",
+     "psf-parser: parsed; design 'E131 § 3.1 title'"
     ]
    }
   },

@@ -4,7 +4,10 @@
 rawfile at the results path, no logFile and no parent plots.  One plot per analysis (sweep leaves
 included) in execution order; the variables carry the §6.4 names and the types time, frequency,
 voltage and current; a noise plot has the columns frequency, out and <inst>:<member> for every
-STRUCT member [I, §14 q.23]; a plot's name is the PSF analysis description [I, §14 q.23].
+STRUCT member [I, §14 q.23]; a plot's name is the PSF analysis description [I, §14 q.23].  The file's
+text is UTF-8 (§14 q.62, names.FILE_ENCODING; round 4 wrote Latin-1): a name that holds a white-space
+character or a comma (where ngspice's reader ends a variable's name) is written in its escaped form,
+names.written_name(name, "nutmeg"), with one note per name and run (FIX2E4); every other name as it is.
 
     nutmeg.write("rc.raw", results, binary=True)
 
@@ -25,7 +28,8 @@ import struct
 import time
 from typing import Callable, Iterable, List, Optional, Tuple
 
-from vamos.notes import Note, warning
+from vamos.names import FILE_ENCODING, FILE_ERRORS, written_name, written_note, written_unname
+from vamos.notes import Note, note, warning
 from vamos.output.psf import progress_period
 from vamos.spectre.results import AnalysisResult, Signal
 
@@ -38,25 +42,36 @@ _TYPE_BY_PSF = {"V": "voltage", "I": "current"}
 FREQ_AXIS = ("freq", "Hz")       # the SWEEP (label, units) of an ac/noise/xf frequency axis (§5.2, §8.3)
 
 
-def _variables(res: AnalysisResult) -> Tuple[List[Tuple[str, str]], bool]:
+def _variables(res: AnalysisResult, notes: Optional[List[Note]] = None) -> Tuple[List[Tuple[str, str]], bool]:
     """The plot's variables (name, type) and whether it is complex (§8.5).  The x is `time` for a
     tran and freq/frequency for an ac, xf or noise frequency axis; an ac, xf or noise sweeping a
     parameter at a fixed frequency holds the parameter's values, so its x is the SWEEP label typed
-    by its units, as a dc sweep's (R-emit-10)."""
+    by its units, as a dc sweep's (R-emit-10).  A name is written as names.written_name writes a
+    nutmeg variable (FIX2E4: ngspice read the node `a b' as `a'), with one note per name and run in
+    `notes'."""
     out: List[Tuple[str, str]] = []
     cplx = res.atype in ("ac", "xf")
+
+    def name(text: str) -> str:
+        got = written_name(text, "nutmeg")
+        if got != text and notes is not None:
+            msg = written_note("signal", text, got, "nutmeg")
+            if not any(n.message == msg for n in notes):
+                notes.append(note("", msg))
+        return got
     if res.sweep is not None:
         label, units = res.sweep[0], res.sweep[1]
         if res.atype == "tran" or (res.atype in _X_NAME and (label, units) == FREQ_AXIS):
             out.append((_X_NAME[res.atype], _X_TYPE[res.atype]))
         else:
-            out.append((label, _TYPE_BY_UNITS.get(units, "notype")))
+            # results.collect wrote the label as a PSF file does: the nutmeg form is that of the name itself
+            out.append((name(written_unname(label)), _TYPE_BY_UNITS.get(units, "notype")))
     for sig in res.signals:
         if sig.members is not None:
             for m, _ in sig.members:
-                out.append(("%s:%s" % (sig.name, m), "notype"))
+                out.append((name("%s:%s" % (sig.name, m)), "notype"))
         else:
-            out.append((sig.name, _TYPE_BY_PSF.get(sig.ptype, "notype")))
+            out.append((name(sig.name), _TYPE_BY_PSF.get(sig.ptype, "notype")))
     return out, cplx
 
 
@@ -83,14 +98,14 @@ def write(path: str, results: Iterable[AnalysisResult], binary: bool,
         for res in results:
             if res.atype in PARENT_KINDS or res.status == "failed":
                 continue
-            variables, cplx = _variables(res)
+            variables, cplx = _variables(res, notes)
             head = ("Title: %s\nDate: %s\nPlotname: %s\nFlags: %s\nNo. Variables: %d\nNo. Points: "
                     % (title, date, res.description, "complex" if cplx else "real", len(variables)))
-            fh.write(head.encode("latin-1", "replace"))
+            fh.write(head.encode(FILE_ENCODING, FILE_ERRORS))
             count_at = fh.tell()
             fh.write(b" " * COUNT_WIDTH + b"\nVariables:\n")
             for k, (name, typ) in enumerate(variables):
-                fh.write(("\t%d\t%s\t%s\n" % (k, name, typ)).encode("latin-1", "replace"))
+                fh.write(("\t%d\t%s\t%s\n" % (k, name, typ)).encode(FILE_ENCODING, FILE_ERRORS))
             fh.write(b"Binary:\n" if binary else b"Values:\n")
             n = _data(fh, res, cplx, binary, notes, progress, progress_period(len(variables)))
             end = fh.tell()

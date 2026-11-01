@@ -16,10 +16,15 @@ anything else is imported, since the imports take a noticeable time (phase 2c;
 docs/VAMOS_SPECTRE_DESIGN.md §2.7): a standard descriptor that is closed (`>&-`)
 gets /dev/null, so that no file vamos opens lands on fd 1, and INT, TERM, HUP,
 QUIT, USR1 and USR2 get a handler that records them (an inherited SIG_IGN stays).
+bin/vamos holds (blocks) the six while it imports this module and gives the mask
+back after it, so one that arrives before this handler exists (the imports of re
+and typing above) reaches it too (the guide trial of phase 2e, TRIAL2E2-F3).
 A signal while vamos starts is then neither a traceback nor death by the signal:
 spectre/flow.py takes over what was recorded when it installs its own handlers,
 and puts this handler back when it is done.  A second stop signal before that
-ends vamos at once with status 3.  When the personality has returned, USR1 and
+ends vamos at once with status 3; one hangup's second SIGHUP is not one (spectre/
+stop.py's classify, which this module imports here: TRIAL2EF-01).  When the
+personality has returned, USR1 and
 USR2 are ignored: the interpreter's teardown sets the handlers it runs back to
 SIG_DFL, and a late status request would kill a finished run.
 """
@@ -47,19 +52,28 @@ class _EarlySignals:
     """The handler of a spectre invocation's start (phase 2c: R-tests-2, R-run-6): it records the
     signals for spectre/flow.py, whose handlers take them over (take_early_signals) and put this
     one back when the run is done.  A second stop signal before the first was taken over (a start
-    that hangs) ends vamos at once with status 3 (§2.7: a second signal is not waited on)."""
+    that hangs) ends vamos at once with status 3 (§2.7: a second signal is not waited on); a repeat
+    of one hangup's SIGHUP is not one (spectre/stop.py's classify, the guide trial of phase 2e,
+    TRIAL2EF-01), and is not recorded."""
 
-    def __init__(self) -> None:
+    def __init__(self, classify: Callable[[int, bool], str]) -> None:
         names = ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT")
         self.stops = tuple(getattr(signal, n) for n in names if hasattr(signal, n))
         self.flags = tuple(getattr(signal, n) for n in ("SIGUSR1", "SIGUSR2") if hasattr(signal, n))
+        self.classify = classify
         self.received: List[int] = []
         self.installed: List[int] = []
 
     def __call__(self, signum, frame) -> None:
+        if signum in self.stops:
+            kind = self.classify(signum, any(s in self.stops for s in self.received))
+            if kind == "repeat":
+                return
+            self.received.append(signum)
+            if kind == "second":
+                os._exit(3)
+            return
         self.received.append(signum)
-        if signum in self.stops and sum(1 for s in self.received if s in self.stops) > 1:
-            os._exit(3)
 
     def install(self) -> None:
         for sig in self.stops + self.flags:
@@ -140,7 +154,8 @@ def _standard_fds() -> None:
 _EARLY: Optional[_EarlySignals] = None
 if _spectre_invocation(getattr(sys, "argv", None) or []):
     _standard_fds()
-    _EARLY = _EarlySignals()
+    from vamos.spectre import stop as _stop    # noqa: E402  (signal, time and typing only: what one hangup is)
+    _EARLY = _EarlySignals(_stop.classify)
     _EARLY.install()
 
 from vamos import VERSION, banner, tools  # noqa: E402  (after the spectre start, above)
@@ -192,6 +207,21 @@ def split_vamos_opts(args: List[str]):
     return opts, rest
 
 
+def _process_name(name: str) -> None:
+    """A spectre run started by bin/vamos takes the invoked name as its process name on Linux (prctl PR_SET_NAME: the
+    comm that ps, top, pgrep, pkill and killall show and match, 15 bytes at most), as a real Spectre's is: it was
+    python3, so `pkill spectre' stopped nothing (the guide trial of phase 2e, TRIAL2EF-09).  The command line stays
+    python3's.  Elsewhere, or when prctl is missing, nothing changes."""
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.prctl(15, ctypes.c_char_p(name.encode("utf-8", "replace")[:15]), 0, 0, 0)    # PR_SET_NAME
+    except (OSError, AttributeError, ValueError, TypeError):
+        pass
+
+
 def personality_of(name: str) -> Optional[str]:
     """The personality the invoked name `name` dispatches to, or None.
 
@@ -208,7 +238,8 @@ def personality_of(name: str) -> Optional[str]:
 
 
 def main(argv: List[str]) -> int:
-    argv0 = os.environ.pop("VAMOS_ARGV0", "") or os.path.basename(sys.argv[0] or "vamos")
+    launched = os.environ.pop("VAMOS_ARGV0", "")          # bin/vamos's: the process is this run's own
+    argv0 = launched or os.path.basename(sys.argv[0] or "vamos")
     opts, args = split_vamos_opts(argv)
 
     bad = check_vamos_opts(opts)
@@ -259,6 +290,8 @@ def main(argv: List[str]) -> int:
 
     tools.current = personality
     tools.invoked = invoked
+    if personality == "spectre" and launched:
+        _process_name(invoked)
     if personality not in ("vcs", "vcs-ams", "spectre"):  # these report the options themselves
         effects = vamos_option_effects(opts, personality)
         for opt, why in effects:

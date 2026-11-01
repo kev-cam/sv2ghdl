@@ -5,7 +5,9 @@ fixtures/spectre/e2e/19_set_va_define/ that its expect.json cannot say.
 
 The deck sets `reltol=1e-4` between two operating points with a `set` statement and runs a tran with
 errpreset=conservative after it; `-va,define VAMOS_HALF` selects the r of its Verilog-A resistor
-(expect.json holds the values: 1/3 V on VACASK, 0.5 V on Xyce, where the option is only noted).
+(expect.json holds the values: 1/3 V on VACASK; on Xyce the option is an error for this netlist with Verilog-A,
+exit 2: Xyce's PyMS takes no macro and compiled the `else branch, 0.5 V, behind a note, the guide trial of
+phase 2e, TRIAL2EF-02).
 
 TestSetPlan (both legs, no engine)   the phase-1b chain: the `set` becomes an options action between
     the analyses (§5.3); each step's options carry the reltol in force and the tran its errpreset
@@ -110,7 +112,8 @@ class TestSetRun(SpectreCase):
     def check_headers(self, engine):
         d = os.path.join(self.tmp, "e2e19_" + engine)
         shutil.copytree(CASE, d)
-        self.run_spectre(d, *ARGV, engine=engine)
+        # TRIAL2EF-02: on Xyce -va,define is an error for a netlist with Verilog-A; the headers need no macro
+        self.run_spectre(d, *(ARGV if engine == "vacask" else ARGV[:1]), engine=engine)
         res = os.path.join(d, "deck.raw")
         op1 = psfcheck.check(os.path.join(res, "op1.dc")).header
         op2 = psfcheck.check(os.path.join(res, "op2.dc")).header

@@ -22,7 +22,11 @@ What resolve does:
     the node-over-instance rule, an unmatched item warned and dropped;
   - currents (§6.3): native for a vsource, iprobe, inductor, resistor and the output port of a
     vcvs/ccvs (the first terminal), a 0 V probe source vamos_tp<k> in series with every other
-    terminal (the terminal moves to vamos_tn<k>), in the copy;
+    terminal (the terminal moves to vamos_tn<k>), in the copy; on Xyce the probe is a vcvs of gain
+    0, which keeps an .IC on its nodes (FIX2E5), and on an ic or nodeset node the probe of a
+    two-terminal element sits in series with the element's other terminal, reversed (the same
+    current), since an .IC on a node that only such probes touch makes Xyce's matrix singular; an
+    ic on a node that only the probes of other devices touch is refused on Xyce (FIX2E6);
   - the noise STRUCT type names (§8.4), the noise input of §5.6 (vamos_nin<k> across the output
     pair, in the shallowest body that sees both nets, a port net under the port's name), the xf
     traces (one per IR independent source; with save=lvl or lvlpub down to nestlvl), the psf
@@ -87,6 +91,9 @@ TERMINALS_BY_KIND: Dict[str, Tuple[str, ...]] = {
 SAVE_MODES = ("selected", "allpub", "lvlpub", "all", "lvl", "none", "nooutput")
 PROBE_PREFIX = "vamos_tp"
 PROBE_NODE_PREFIX = "vamos_tn"
+# the two-terminal kinds whose current into one terminal is the current out of the other (the element's own KCL), so a
+# probe of one terminal can sit in series with the other, reversed (FIX2E6, _Flat.probe on Xyce)
+MOVABLE_KINDS = ("r", "c", "l", "d", "v", "i", "h")
 
 _Signal = Tuple[Ref, str, str, str]      # (Ref, Spectre name, psf type, 'v' | 'i' | 'n' | 'x')
 
@@ -164,9 +171,62 @@ def _value(v: object) -> Optional[float]:
 
 
 def _glob(pattern: str, text: str) -> bool:
-    """Spectre's save wildcards: * any string, ? any character (the other glob characters literal)."""
-    pat = "".join("[%s]" % ch if ch in "[]" else ch for ch in pattern)
-    return fnmatch.fnmatchcase(text, pat)
+    """Spectre's save wildcards: * any string, ? any character (the other glob characters literal); a backslash
+    makes the next character literal (a save token keeps the escape of a *, ?, : and \\, spectre._save_token)."""
+    out: List[str] = []
+    i = 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if ch == "\\" and i + 1 < len(pattern):
+            ch = pattern[i + 1]
+            out.append("[%s]" % ch if ch in "[]*?" else ch)
+            i += 2
+            continue
+        out.append("[%s]" % ch if ch in "[]" else ch)
+        i += 1
+    return fnmatch.fnmatchcase(text, "".join(out))
+
+
+def _unesc(text: str) -> str:
+    """A save token's part as the name it spells: the escapes it kept resolved (spectre._save_token)."""
+    if "\\" not in text:
+        return text
+    out: List[str] = []
+    i = 0
+    while i < len(text):
+        if text[i] == "\\" and i + 1 < len(text):
+            out.append(text[i + 1])
+            i += 2
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+def _split_save(token: str) -> Tuple[str, str, str]:
+    """A save token split at its first unescaped ':' (inst:term), each part still escaped: (left, ':' or '', right)."""
+    i = 0
+    while i < len(token):
+        if token[i] == "\\":
+            i += 2
+            continue
+        if token[i] == ":":
+            return token[:i], ":", token[i + 1:]
+        i += 1
+    return token, "", ""
+
+
+def _wild(part: str) -> bool:
+    """Whether a save token's part holds an unescaped * or ? (a wildcard; an escaped one is the character)."""
+    i = 0
+    while i < len(part):
+        if part[i] == "\\":
+            i += 2
+            continue
+        if part[i] in "*?":
+            return True
+        i += 1
+    return False
 
 
 def _is_vamos(name: str) -> bool:
@@ -203,7 +263,10 @@ class _Flat:
         self.nodes: Dict[str, int] = {}                   # net (IR path) -> its level (top = 1)
         self.node_at: Dict[str, Tuple[_Path, str]] = {}   # net -> (the path that declares it, local name)
         self.globals = set(nl.globals)
+        self.merged: Set[str] = set()                     # nets two (path, name) pairs both name (an error, _build)
         self.probes: Dict[Tuple[int, int], str] = {}      # (id(instance), terminal) -> probe name
+        self.probe_at: Dict[str, Tuple["_Inst", int, str]] = {}   # probe name -> (its instance, terminal, the net it sits at)
+        self.rewired: Dict[Tuple[str, str], str] = {}     # (a subckt instance's path, its port) -> the probe node it now has
         self.n_probe = 0
         # §6.3: VACASK's ac and acxf save no resistor current (p(r, i) is an op/dc/tran opvar), and Xyce's
         # .PRINT AC prints no I(R) (phase 2), so a resistor terminal saved for a run with such a step gets
@@ -222,7 +285,34 @@ class _Flat:
                 targets += [lv.target for lv in list(a.step.context) + ([a.step.own] if a.step.own is not None else [])]
         self.m_targets: Set[str] = {t[1] for t in targets
                                     if isinstance(t, tuple) and len(t) == 3 and t[0] == "instance" and t[2] == "m"}
+        # a name may hold a '.' (a subckt instance X\.1): its paths are split by tables.split_path (the guide trial of
+        # phase 2e: X.1's path was cut at its own '.' and none of its body was flattened)
+        self.dotted = T.dotted_names(nl)
         self._build()
+        # FIX2E6 (S-2E5 3a), Xyce: the nets an ic, a nodeset or a state-file entry names, where a two-terminal element's
+        # probe goes in series with its other terminal (probe)
+        self.ic_nets: Set[str] = self._ic_nets() if plan.engine == "xyce" else set()
+
+    def _ic_nets(self) -> Set[str]:
+        """The nets the netlist's ic and nodeset statements and the analyses' readic=/read=/readns= files name (the
+        files that exist and read; T.state_file_nodes), for probe."""
+        names: List[str] = list(self.nl.ics) + list(self.nl.nodesets)
+        for a in self.plan.actions:
+            if a.op != "analysis" or a.step is None:
+                continue
+            for keys in (T.STATE_IC_KEYS, T.STATE_NS_KEYS):
+                try:
+                    table = T.state_file_nodes(a.step.args, keys)
+                except T.TableError:
+                    table = None                         # _state_file warns
+                if table:
+                    names.extend(table)
+        out: Set[str] = set()
+        for n in names:
+            g = self.net(n)
+            if g is not None and g != "0":
+                out.add(g)
+        return out
 
     def path_env(self, path: str) -> Mapping[str, float]:
         """The parameter values on an instance path, as the emitters' elaboration reads them (tables.path_envs,
@@ -260,7 +350,8 @@ class _Flat:
             if pe.subckt is None:
                 p = _Path("", None, self.nl.body, {}, 0, list(pe.items))
             else:
-                parent_path, _, xname = pe.path.rpartition(".")
+                parts = T.split_path(self.nl, pe.path, self.dotted)
+                parent_path, xname = ".".join(parts[:-1]), parts[-1]
                 parent = self.by_path.get(parent_path)
                 if parent is None:
                     continue
@@ -286,7 +377,16 @@ class _Flat:
                     g = self._resolve(p, n)
                     level = 1 if n in self.globals else p.depth + 1
                     self.nodes[g] = min(self.nodes.get(g, level), level)
-                    self.node_at.setdefault(g, (p, n))
+                    at = self.node_at.setdefault(g, (p, n))
+                    if (at[0] is not p or at[1] != n) and n not in self.globals and g not in self.merged:
+                        # two nets, one IR path: a name that holds a '.' repeats another path (a top-level b\.c and the
+                        # node c of an instance b); the outputs could carry one of them only
+                        self.merged.add(g)
+                        self.notes.append(Note(ERROR, it.origin, "node %s %s and node %s %s have one hierarchical "
+                                               "name, %s: a name that holds a '.' must not repeat another path; not "
+                                               "supported in v1 (§3.2)"
+                                               % (at[1], "of " + at[0].path if at[0].path else "at the top level", n,
+                                                  "of " + p.path if p.path else "at the top level", g)))
 
     # -- lookups
     def lookup(self, name: str) -> Optional[_Inst]:
@@ -301,11 +401,12 @@ class _Flat:
         (`X1.b` for port b of X1); None when it names no net."""
         if name == "0" or name in self.nodes or name in self.globals:
             return name
-        path, sep, local = name.rpartition(".")
-        if sep:
-            p = self.by_path.get(path)
-            if p is not None and local in p.nodemap:
-                return p.nodemap[local]
+        i = name.rfind(".")
+        while i > 0:                                  # a name may hold a '.': each cut, the last first (phase 2e)
+            p = self.by_path.get(name[:i])
+            if p is not None and name[i + 1:] in p.nodemap:
+                return p.nodemap[name[i + 1:]]
+            i = name.rfind(".", 0, i)
         return None
 
     def subckt_of(self, ent: _Inst) -> Optional[Subckt]:
@@ -382,7 +483,17 @@ class _Flat:
         return self.probe(ent, idx)
 
     def probe(self, ent: _Inst, idx: int) -> Ref:
-        """A 0 V source vamos_tp<k> in series with the terminal, in the copy (§6.3)."""
+        """A 0 V source vamos_tp<k> in series with the terminal, in the copy (§6.3).  On Xyce it is a vcvs of gain 0
+        across the same two nodes, the same 0 V and the same branch current: Xyce applies no .IC or .NODESET to a node
+        that a V element touches (its initial-condition colouring, N_LAS_Builder.C, leaves out every node of a
+        device whose name starts with V), so an ic or readic beside a probe was lost, silently (FIX2E5, S-2E4-N3:
+        `ic out=0.5' with C1:1 saved gave out(0) = 0 where VACASK gives 0.5; raw decks: the .IC is kept beside an
+        E probe, and I(E) equals I(V) in tran, dc, ac and noise).  FIX2E6 (S-2E5 3a): an .IC on a node that only such
+        probes touch (every element at the node probed) makes Xyce's matrix singular (`Numerically singular matrix
+        found by Amesos', exit 1, no results; a .NODESET there a warning), so on Xyce the probe of a two-terminal
+        element (MOVABLE_KINDS) whose probed terminal is on an ic or nodeset net (ic_nets) goes in series with its
+        other terminal, reversed: the current into one terminal is the current out of the other, so I(E) is the same
+        current (measured: out(0) = 0.5 and C1:1, R1:2 as VACASK), and the node keeps the element itself."""
         it = ent.inst
         key = (id(it), idx)
         name = self.probes.get(key)
@@ -390,17 +501,45 @@ class _Flat:
             self.n_probe += 1
             name = "%s%d" % (PROBE_PREFIX, self.n_probe)
             new_node = "%s%d" % (PROBE_NODE_PREFIX, self.n_probe)
-            orig = it.nodes[idx]
-            it.nodes[idx] = new_node
+            at_idx = idx
+            if self.plan.engine == "xyce" and len(it.nodes) == 2 and it.kind in MOVABLE_KINDS and self.ic_nets:
+                g, far = self._resolve(ent.at, it.nodes[idx]), self._resolve(ent.at, it.nodes[1 - idx])
+                if g in self.ic_nets and far not in self.ic_nets and far != g:
+                    at_idx = 1 - idx
+            orig = it.nodes[at_idx]
+            it.nodes[at_idx] = new_node
             # the probe goes where its instance is: inside the same if/else branch of an inline subckt, so
             # a variant that does not hold the instance prints no dangling probe (phase 2's integration,
             # X's seam: Xyce warned "connected to only 1 device Terminal" for every other branch)
             where = _container_of(ent.at.body, it)
-            (where if where is not None else ent.at.body).append(
-                Instance(name, "v", [orig, new_node], source=Source(dc=Num(0.0)), origin=it.origin, prim="vsource"))
+            if self.plan.engine == "xyce":
+                ends = [orig, new_node] if at_idx == idx else [new_node, orig]   # I(E): the current into terminal idx
+                probe = Instance(name, "e", ends + ["0", "0"], value=Num(0.0), origin=it.origin, prim="vcvs")
+            else:
+                probe = Instance(name, "v", [orig, new_node], source=Source(dc=Num(0.0)), origin=it.origin,
+                                 prim="vsource")
+            (where if where is not None else ent.at.body).append(probe)
             self.probes[key] = name
+            self.probe_at[name] = (ent, idx, self._resolve(ent.at, orig))
+            child = self.by_path.get(ent.path) if it.kind == "x" else None
+            if child is not None and child.subckt is not None and at_idx < len(child.subckt.ports):
+                # the subckt's port now hangs on the probe's node, not on the caller's net (touches; the nodemap keeps the
+                # caller's net, which the save names resolve through)
+                self.rewired[(ent.path, child.subckt.ports[at_idx])] = self._resolve(ent.at, new_node)
         prefix = ent.at.path + "." if ent.at.path else ""
         return ("i", prefix + name)
+
+    def touches(self, ent: _Inst, net: str) -> bool:
+        """Whether an instance touches a net now, the probes inserted so far in place: a subckt-internal instance's port
+        node through the port's present connection (rewired), any other node as _resolve reads it."""
+        for n in ent.inst.nodes:
+            if ent.at.path and n in ent.at.nodemap:
+                g = self.rewired.get((ent.at.path, n), ent.at.nodemap[n])
+            else:
+                g = self._resolve(ent.at, n)
+            if g == net:
+                return True
+        return False
 
     # -- allpub (§6.1)
     def allpub(self, nestlvl: Optional[int]) -> List[_Signal]:
@@ -462,11 +601,18 @@ def _instance_currents(flat: _Flat, ent: _Inst, origin: str) -> List[_Signal]:
     return out
 
 
-def _resolve_item(flat: _Flat, spec: SaveSpec, token: str) -> List[_Signal]:
+def _resolve_item(flat: _Flat, spec: SaveSpec, written: str) -> List[_Signal]:
     origin = spec.origin
-    if "*" in token or "?" in token:
-        return _wildcard(flat, spec, token)
-    name, sep, suffix = token.partition(":")
+    left, sep, right = _split_save(written)
+    if _wild(left) or _wild(right):
+        return _wildcard(flat, spec, written)
+    # the name the token spells: an escaped * or ? is the character, an escaped : part of a name (FIX2E4, S-2E: save
+    # s\*t was the wildcard s*t, save p\:q:1 the terminal q:1 of an instance p)
+    token, name, suffix = _unesc(written), _unesc(left), _unesc(right)
+    if sep and token in flat.nodes:
+        # a node whose (escaped) name holds a ':' itself (a\:b), as the node wins over an instance (phase 2e: save a\:b
+        # was the terminal b of an instance a, `no instance a')
+        return [(("v", token), token, PSF_V, "v")]
     if not sep:
         net = flat.net(name)
         if net is not None and net != "0":                  # the node wins over an instance [M UG p.61]
@@ -524,7 +670,8 @@ def _wildcard(flat: _Flat, spec: SaveSpec, token: str) -> List[_Signal]:
     def devtype_ok(it: Instance) -> bool:
         return not spec.devtype or spec.devtype in (it.prim, it.master or "")
 
-    ipat, sep, tpat = token.partition(":")
+    ipat, sep, tpat = _split_save(token)
+    token = _unesc(token)                                   # the messages name the pattern as it reads
     if sep:                                                 # a component pattern: X:term
         for ent in flat.insts.values():
             it = ent.inst
@@ -845,9 +992,11 @@ def is_vamos_input(name: str) -> bool:
 
 def _check_names(flat: _Flat, names: Sequence[str], what: str, origin: str, notes: List[Note]) -> None:
     for n in names:
+        if flat.net(n) is not None:
+            continue                                     # a node named with an escaped * or ? (s\*t, FIX2E4) is one
         if "*" in n or "?" in n:
             notes.append(Note(ERROR, origin, "%s %s: wildcards are not supported (v1)" % (what, n)))
-        elif flat.net(n) is None:
+        else:
             notes.append(Note(WARNING, origin, "%s %s does not name a net of the circuit; the engines would ignore "
                               "it silently" % (what, n)))
 
@@ -860,26 +1009,136 @@ def _state_file(flat: _Flat, step: AnalysisStep, key: str, notes: List[Note]) ->
     if not os.path.exists(path):
         notes.append(Note(NOTE, "", "%s %s: state file %s not found; nothing is read" % (step.name, key, f)))
         return
-    names: List[str] = []
-    currents = 0
+    from vamos.output import statefile                   # the one state-file reader (its names' escapes, phase 2e)
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                text = line.split("#", 1)[0].strip()
-                if not text:
-                    continue
-                name = text.split()[0]
-                if ":" in name:
-                    currents += 1
-                else:
-                    names.append(name)
-    except OSError as exc:
+        nodes, cur = statefile.read(path)
+    except (OSError, ValueError) as exc:
         notes.append(Note(WARNING, "", "%s %s: cannot read %s: %s" % (step.name, key, f, exc)))
         return
+    names: List[str] = list(nodes)
+    currents = len(cur)
     _check_names(flat, names, "%s %s" % (step.name, key), "", notes)
     if currents:
         sev = NOTE if key == "readns" else WARNING
         notes.append(Note(sev, "", "%s %s: %d current entries of %s not applied" % (step.name, key, currents, f)))
+
+
+def _ic_value_text(v: object, nl: Netlist) -> str:
+    """An ic statement's or state-file entry's value as a message shows it."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return "%g" % v
+    from vamos.netlist import expr as X
+    try:
+        return "%g" % X.evaluate(v, nl.values, "spectre")  # type: ignore[arg-type]
+    except Exception:
+        return str(v)
+
+
+def _ic_beside_sources(flat: _Flat, nl: Netlist, step: AnalysisStep, notes: List[Note]) -> None:
+    """FIX2E5 (beside S-2E4-N3), Xyce: a tran's initial condition on a node that a voltage source of the netlist touches
+    is refused.  Xyce applies no .IC to a node a V element touches (its initial-condition colouring, N_LAS_Builder.C,
+    leaves out every node of a device whose name starts with V), so the initial condition was lost silently: `Vm (out
+    mid) vsource dc=0' beside `ic out=0.5' gave out(0) = 0 with exit status 0, where VACASK gives 0.5 (an iprobe and
+    a floating source the same).  Where voltage sources tie the node to the ground its voltage is theirs on both
+    engines, and the ic has no effect: not refused.  vamos's own probes are vcvs elements on Xyce (probe), which keep
+    the .IC; a nodeset is a hint, not refused; a readic=/read= file replaces the ic statements, as the deck reads it
+    (xyce.py); a tran with ic=dev applies no node ic."""
+    got = _ic_entries(nl, step)
+    if got is None:
+        return
+    key, entries = got
+    touching: Dict[str, List[str]] = {}                      # a net -> the netlist's voltage sources that touch it
+    edges: Dict[str, Set[str]] = {}
+    for ent in flat.insts.values():
+        it = ent.inst
+        if it.kind != "v" or it.name.startswith(PROBE_PREFIX) or len(it.nodes) < 2:
+            continue
+        nets = [flat._resolve(ent.at, n) for n in it.nodes[:2]]
+        for g in nets:
+            touching.setdefault(g, []).append(ent.spectre)
+        edges.setdefault(nets[0], set()).add(nets[1])
+        edges.setdefault(nets[1], set()).add(nets[0])
+    if not touching:
+        return
+    grounded: Set[str] = set()                               # the nets voltage sources tie to the ground
+    todo = ["0"]
+    while todo:
+        g = todo.pop()
+        if g in grounded:
+            continue
+        grounded.add(g)
+        todo.extend(edges.get(g, ()))
+    for name, v in entries.items():
+        net = flat.net(name)
+        if net is None or net not in touching or net in grounded:
+            continue
+        what = _ic_what(nl, step, key, name, v)
+        notes.append(Note(ERROR, "", "%s %s: %s is on a node the voltage source %s touches: Xyce applies no .IC to a "
+                          "node a voltage source touches (its initial-condition colouring leaves out every node of a V "
+                          "element), so the initial condition would be lost silently (measured: `ic out=0.5' beside "
+                          "`Vm (out mid) vsource dc=0' gave out(0) = 0 with exit status 0, where VACASK gives 0.5); not "
+                          "supported on Xyce in v1: run it on VACASK, or give the initial condition to a node no voltage "
+                          "source touches" % (step.kind, step.name, what, touching[net][0])))
+
+
+def _ic_entries(nl: Netlist, step: AnalysisStep) -> Optional[Tuple[str, Dict[str, object]]]:
+    """A tran step's initial conditions as the Xyce deck prints them (xyce.py): (the readic=/read= key, the file's node
+    entries) when the step names a file that reads, else ("", the ic statements'); None when it applies no node ic (ic=dev
+    or a file that is missing or unreadable, which _state_file notes: nothing is read) or has none."""
+    if step.args.get("ic", "all") not in ("all", "node"):
+        return None
+    key = ""
+    table: Optional[Dict[str, object]] = None
+    for k in T.STATE_IC_KEYS:
+        if _text(step.args.get(k)):
+            key = k
+            try:
+                table = T.state_file_nodes(step.args, (k,))      # type: ignore[assignment]
+            except T.TableError:
+                table = None                                 # _state_file warned
+            break
+    if key and table is None:
+        return None
+    entries: Dict[str, object] = dict(table) if table is not None else dict(nl.ics)
+    return (key, entries) if entries else None
+
+
+def _ic_what(nl: Netlist, step: AnalysisStep, key: str, name: str, v: object) -> str:
+    """An ic entry as the messages name it: `ic out=0.5', or `readic=s.ns: out=0.5' for a state file's."""
+    value = _ic_value_text(v, nl)
+    f = _text(step.args.get(key)) or ""
+    if os.path.isabs(f) and f.startswith(os.getcwd() + os.sep):
+        f = os.path.relpath(f)                               # the flow made it absolute (§14 q.3): the netlist's spelling
+    return "%s=%s: %s=%s" % (key, f, name, value) if key else "ic %s=%s" % (name, value)
+
+
+def _ic_on_probed_nodes(flat: _Flat, nl: Netlist, step: AnalysisStep, notes: List[Note]) -> None:
+    """FIX2E6 (S-2E5 3a), Xyce: a tran's initial condition on a node that only vamos's current probes touch is an ERROR
+    before the engine runs.  The probes are zero-gain vcvs elements (probe), and an .IC on a node that connects only
+    through such elements makes Xyce's matrix singular (measured, raw decks: two E probes and .IC V(OUT)=0.5 give
+    `Numerically singular matrix found by Amesos', exit 1 and no results; 5d2291f lost the ic silently there).  The
+    probe of a two-terminal element at such a node sits in series with its other terminal (probe), so the node keeps
+    the element: what is left here is the probed terminals of devices with more than two terminals (a subckt port, a
+    Verilog-A module, a transistor) and two-terminal elements between two such nodes."""
+    got = _ic_entries(nl, step)
+    if got is None:
+        return
+    key, entries = got
+    for name, v in entries.items():
+        net = flat.net(name)
+        if net is None or net == "0":
+            continue
+        probes = [(e, idx) for e, idx, at in flat.probe_at.values() if at == net]
+        if not probes:
+            continue
+        if any(flat.touches(e, net) for e in flat.insts.values() if not e.inst.name.startswith(PROBE_PREFIX)):
+            continue                                         # an element of the netlist still touches the node
+        saved = ", ".join("%s:%s" % (e.spectre, flat.terminal_label(e, idx)) for e, idx in probes)
+        notes.append(Note(ERROR, "", "%s %s: %s is on node %s, which only vamos's current probes touch (the saved currents "
+                          "%s): on Xyce a probe is a zero-gain vcvs, and an .IC on a node that connects only through such "
+                          "elements makes Xyce's matrix singular (measured: `Numerically singular matrix found by Amesos', "
+                          "exit status 1, no results); not supported on Xyce in v1: leave one of these currents unsaved, "
+                          "or run it on VACASK" % (step.kind, step.name, _ic_what(nl, step, key, name, v), name, saved)))
 
 
 # -- resolve --------------------------------------------------------------------------------------------
@@ -953,6 +1212,8 @@ def resolve(nl: Netlist, plan: RunPlan) -> Tuple[Netlist, SignalMap, List[Note]]
             continue
         for key in ("readns", "readic", "read"):
             _state_file(flat, step, key, notes)
+        if plan.engine == "xyce" and step.kind == "tran":
+            _ic_beside_sources(flat, nl2, step, notes)
         mode = (_text(step.args.get("save")) or str(options["save"])).lower()
         if mode not in SAVE_MODES:
             notes.append(Note(WARNING, "", "%s: save=%s is not one of %s; selected is used"
@@ -987,6 +1248,10 @@ def resolve(nl: Netlist, plan: RunPlan) -> Tuple[Netlist, SignalMap, List[Note]]
                 sigs = base + [s for s in explicit if s[0] not in have]
                 sigmap.allpub.add(step.id)
         sigmap.per_step[step.id] = [(ref, name, typ) for ref, name, typ, _ in _dedupe(sigs)]
+    if plan.engine == "xyce":                                # every probe is in by now (the saves): FIX2E6
+        for act in plan.actions:
+            if act.op == "analysis" and act.step is not None and act.step.kind == "tran":
+                _ic_on_probed_nodes(flat, nl2, act.step, notes)
     if plan.engine == "vacask":
         for d in plan.dependents:
             nl2.values.pop(d, None)

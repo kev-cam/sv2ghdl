@@ -12,6 +12,7 @@ S6 integration tests and skipped with a reason naming the owner.
 import copy
 import math
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -242,6 +243,23 @@ class TestOptions(PlanCase):
         tr = self.steps(plan)[0]
         self.assertEqual(tr.args["maxstep"], 1e-6)              # min(user default, T/50)
         self.assertEqual(tr.args["stop"], 1e-3)                 # the netlist's value wins over +paramdefault
+
+    def test_paramdefault_a_later_line_wins(self):
+        # the guide trial of phase 2e (TRIAL2E2-F6): of two +paramdefault lines for one parameter the later one wins,
+        # for an analysis line as for an options line, so the command line's file beats the defaults variable's
+        # (Settings.paramdefault holds the defaults layer's files first) and a later file an earlier one (before: the
+        # first analysis line won, and the last options line)
+        nl = rc_netlist([an("tran", "tr", stop=1e-3)])
+        s = Settings(paramdefault=[("tran", "maxstep", "1e-6"), ("options", "gmin", "1e-10"), ("tran", "errpreset", "conservative"),
+                                   ("tran", "maxstep", "2e-6"), ("options", "gmin", "1e-11"), ("tran", "errpreset", "liberal")])
+        plan = self.build(nl, settings=s)
+        self.assertEqual(plan.options["gmin"], 1e-11)
+        tr = self.steps(plan)[0]
+        self.assertEqual(tr.args["maxstep"], 2e-6)
+        self.assertEqual(str(tr.args["errpreset"]), "liberal")
+        # the netlist's own value still wins over every line
+        nl = rc_netlist([an("tran", "tr", stop=1e-3, maxstep=5e-6)])
+        self.assertEqual(self.steps(self.build(nl, settings=s))[0].args["maxstep"], 5e-6)
 
     def test_set_statement_gives_an_options_action(self):
         nl = rc_netlist([an("dc", "op1"), an("set", "s1", temp=50.0, gmin=1e-10, save="allpub"), an("dc", "op2")])
@@ -3194,7 +3212,8 @@ class TestFollowUp2c6(unittest.TestCase):
         is bound (a sine's sinedc, whose default is the dc vv: VACASK's instance line prints sinedc=vv), a field the
         instance line derives through another's hook (an exp's td2 relative to td1, td2 hooked, td1 a constant altered:
         the line's td2 gives 1u where the statement prints 1.5u), an enumeration (the type) and a quoted value G1
-        cannot compare: tracked, or refused at the first change VACASK re-elaborates on."""
+        cannot compare: tracked, or refused at the first change VACASK re-elaborates on (a quoted value of a numeric
+        field is now refused at the alter itself: the guide trial of phase 2e, TRIAL2EF-08)."""
         sine_a1 = "a1 alter dev=V1 param=sinedc value=1\n"
         tr1 = "tr1 tran stop=1u\n"
         errs = self.fails(SINE_2C6 + sine_a1 + "a2 alter param=other value=2\n" + tr1, "vacask")
@@ -3220,10 +3239,15 @@ class TestFollowUp2c6(unittest.TestCase):
             with self.subTest(construct="type", engine=engine):
                 self.builds(RISE_RV.replace("type=pulse val0=0", "type=pulse val0=rt*1e6-1") + "a1 alter dev=V1 param=type "
                             "value=dc\na2 alter param=other value=2\nop1 dc\n", engine)
-        errs = self.fails(RISE_RV + 'a1 alter dev=V1 param=rise value="2u"\na2 alter param=other value=2\n' + TR1, "vacask")
-        self.one(errs, "tran tr1: on VACASK, alter a1 set rise of V1, which the netlist binds to the expression rt (it reads "
-                 "rt); alter a2 changes other, ", "vamos cannot compare the alter's value 2u with it",
-                 "not supported on VACASK in v1 (Xyce runs it)")
+        # the guide trial of phase 2e (TRIAL2EF-08): a quoted value of a source's numeric field is refused at the alter on
+        # both engines (before: tracked here, and refused at the first change VACASK re-elaborates on, `vamos cannot
+        # compare the alter's value 2u with it', while Xyce stopped at the word in its deck, `Unrecognized character')
+        for engine in ("vacask", "xyce"):
+            with self.subTest(construct="a quoted value", engine=engine):
+                errs = self.fails(RISE_RV + 'a1 alter dev=V1 param=rise value="2u"\na2 alter param=other value=2\n' + TR1,
+                                  engine)
+                self.one(errs, "the alter of instance rise of V1 sets '2u', not a number, where the source's rise takes a "
+                         "number; not supported in v1 (write value=2u, without the quotes)")
         # a hooked field altered, then swept through its hook (S-2c4's e12 in a body, e13): the sweep's values are the
         # field's meant values there, which the statement's constant is not (an over-refusal of this round's first cut)
         for engine in ("vacask", "xyce"):
@@ -4641,9 +4665,13 @@ class TestFollowUp2c9(unittest.TestCase):
                          "dc=0.0003", TR_2C8 + "op2 dc\n")
         self.assertIn("I1 0 in DC 0.0003 PULSE(0.0 0.001 -2e-07 5e-07 5e-07 1e-06 2e+30)\n", xyce_decks(g10127)[0])
         dl = src_2c9(line % "dl", "a1 alter param=dl value=-2.7u\n" + TR_2C8).replace("fr=100k", "fr=100k dl=0.5u")
-        self.assertIn("PULSE(0.0 1.0 {dl} 5e-07 5e-07 2e-06 2e+30)\n", xyce_decks(dl)[0])
+        # the guide trial of phase 2e (TRIAL2EF-03): a delay that reads a parameter prints with the deck's own test of
+        # t = 0 at the end of the rise (xyce.pulse_delay), which these delays never meet: Xyce evaluates it to the delay
+        self.assertIn("PULSE(0.0 1.0 {((-dl)==5e-07 ? dl*1.000000000000001 : dl)} 5e-07 5e-07 2e-06 2e+30)\n",
+                      xyce_decks(dl)[0])
         swept = src_2c9(line % "0.5u", block_2c9("dev=V1 param=delay", "0.5u -2.7u"))
-        self.assertIn("PULSE(0.0 1.0 {vamos_x_V1_delay} 5e-07 5e-07 2e-06 2e+30)\n", xyce_decks(swept)[0])
+        self.assertIn("PULSE(0.0 1.0 {((-vamos_x_V1_delay)==5e-07 ? vamos_x_V1_delay*1.000000000000001 : "
+                      "vamos_x_V1_delay)} 5e-07 5e-07 2e-06 2e+30)\n", xyce_decks(swept)[0])
         self.assertIn("PULSE(0.0 1.0 5e-07 5e-07 5e-07 2e-06)\n", xyce_decks(src_2c9(line % "0.5u", TR_2C8))[0])
         self.assertIn("PULSE(0.0 1.0 -2.7e-06 5e-07 5e-07 2e-06 2e-05)\n",
                       xyce_decks(src_2c9(line % "-2.7u" + " period=20u", TR_2C8))[0])
@@ -4725,6 +4753,269 @@ class TestDriver2c9(unittest.TestCase):
         clause = PL._SRC_RULES["tau1"][2]
         self.assertIn("Xyce would make a step or, for some start times, stop with 'Time step too small'", clause)
         self.assertNotEqual(clause, PL._SRC_RULES["tau2"][2])
+
+
+# -- the guide trial of phase 2e (TRIAL2E1, docs/VAMOS_GUIDE.md §12) ------------------------------------------------
+PULSE_2E = """// an alter of the period of a pulse (dev=)
+simulator lang=spectre
+V1 (in 0) vsource type=pulse val0=0 val1=1 rise=0.5u fall=0.5u width=20u period=30u
+R1 (in 0) resistor r=1k
+"""
+PERIOD_2E = ("V1 has period=1e-05 s, not longer than rise+fall+width = 2.1e-05 s: an explicit period no longer than "
+             "rise+fall+width is an error (§3.8.1")
+PWL_2E = """// an alter of a pwl's wave (dev=)
+simulator lang=spectre
+V1 (in 0) vsource type=pwl wave=[0 0 1u 1 3u 1]
+R1 (in 0) resistor r=1k
+"""
+WORD_2E = """// an alter whose value is a quoted word
+simulator lang=spectre
+parameters rv=1k
+V1 (in 0) vsource dc=1
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+op1 dc
+a1 alter dev=R1 param=r value="3k"
+op2 dc
+"""
+DOTTED_2E = r"""// escaped node names
+simulator lang=spectre
+V1 (a\<0\> 0) vsource dc=1
+R1 (a\<0\> b\.c) resistor r=1k
+R2 (b\.c 0) resistor r=1k
+X1 (b\.c 0) half
+subckt half (p q)
+  R1 (p m\.n) resistor r=1k
+  R2 (m\.n q) resistor r=1k
+ends half
+op1 dc
+"""
+
+
+class TestGuideTrial2e(unittest.TestCase):
+    """What the guide trial of phase 2e found in plan.build and the renders (both engines, no engine run).
+
+    TRIAL2E1-07: a dev= alter that gives a pulse a period no longer than rise+fall+width (or a pwl time points that do
+    not increase) was refused with spectre.resolve_source's bare text, `pulse period 1e-05 is not longer than
+    rise+fall+width = 2.1e-05`: no file:line, no analysis, no alter and no § reference, where a param= alter and every
+    other constraint name them (`<file>:<line>: tran tr1 (after alter a1): the pulse of V1 has period=...`).
+    TRIAL2E1-12: the VACASK render's refusal of an alter to a quoted word carried its origin twice.
+    TRIAL2E1-03: a node whose escaped Spectre name holds a dot (b\\.c, m\\.n) was printed and looked up as a
+    hierarchical path (b:c, X1:m:n): its column was missing ("no column in the engine output"), and a save of it made
+    VACASK stop (`Node 'b:c' not found', exit 1) and Xyce refuse the deck (`undefined symbols in .PRINT', exit 2)."""
+
+    def fails(self, text, engine):
+        with self.assertRaises(NoteError) as cm:
+            PL.build(parse_text(text), engine, Settings())
+        return [n.text() for n in cm.exception.notes if n.severity == ERROR]
+
+    def one(self, errs, piece):
+        hits = [e for e in errs if piece in e]
+        self.assertEqual(len(hits), 1, "%s\n%s" % (piece, "\n".join(errs)))
+        return hits[0]
+
+    def test_07_a_dev_alter_of_a_pulse_or_pwl_names_the_analysis_and_the_alter(self):
+        tran = "; VACASK stops at its setup with 'Period of pulse transient must be greater than rise+fall+width')"
+        cases = [("period", PULSE_2E + "op0 dc\na1 alter dev=V1 param=period value=10u\ntr1 tran stop=10u\n",
+                  "deck.scs:3: tran tr1 (after alter a1): the pulse of " + PERIOD_2E + tran),
+                 ("width", PULSE_2E.replace("width=20u period=30u", "width=2u period=10u")
+                  + "op0 dc\na1 alter dev=V1 param=width value=20u\ntr1 tran stop=10u\n",
+                  "deck.scs:3: tran tr1 (after alter a1): the pulse of " + PERIOD_2E + tran),
+                 ("first", PULSE_2E + "a1 alter dev=V1 param=period value=10u\ntr1 tran stop=10u\n",
+                  "deck.scs:3: tran tr1 (after alter a1): the pulse of " + PERIOD_2E + tran),
+                 ("op given", PULSE_2E.replace("period=30u", "period=30u dc=0.5")
+                  + "a1 alter dev=V1 param=period value=10u\nop1 dc\n",
+                  "deck.scs:3: dc op1 (after alter a1): the pulse of " + PERIOD_2E + ")"),
+                 ("pwl", PWL_2E + "op0 dc\na1 alter dev=V1 param=wave value=[0 0 4u 1 3u 1]\ntr1 tran stop=5u\n",
+                  "deck.scs:3: tran tr1 (after alter a1): the pwl of V1 has time points that do not increase (4e-06 s, "
+                  "then 3e-06 s): pwl time points must increase (§3.8.1; VACASK stops at its setup with 'Pwl scale is "
+                  "not strictly monotonic')")]
+        for name, deck, want in cases:
+            for engine in ("vacask", "xyce"):
+                with self.subTest(deck=name, engine=engine):
+                    errs = self.fails(deck, engine)
+                    self.assertTrue(self.one(errs, "(after alter a1)").endswith(want), errs)
+                    self.assertFalse(any("pulse period" in e or "(4e-06 then 3e-06)" in e for e in errs), errs)
+        # FIX2E5 (the user, 2026-10-23: a source alter after the last analysis that breaks a §3.8.1 rule is not an error,
+        # since no analysis runs in that state; re-decided on purpose from round 1's refusal): a warning in the same
+        # words, naming the alter, the field and the rule, and the plan builds
+        deck = PULSE_2E + "tr1 tran stop=10u\na1 alter dev=V1 param=period value=10u\n"
+        for engine in ("vacask", "xyce"):
+            with self.subTest(deck="at the end", engine=engine):
+                plan = PL.build(parse_text(deck), engine, Settings())
+                warned = [n.text() for n in plan.notes if n.severity == WARNING]
+                self.assertTrue(self.one(warned, "(after alter a1)").endswith(
+                    "deck.scs:3: the netlist (after alter a1): the pulse of " + PERIOD_2E + ") where an analysis runs, and "
+                    "no analysis runs in this state: the run goes on"), warned)
+                self.assertEqual([n for n in plan.notes if n.severity == ERROR], [])
+        # the netlist's own constant is still the parser's refusal, at read-in (§3.8.1)
+        with self.assertRaises(NoteError) as cm:
+            parse_text(PULSE_2E.replace("period=30u", "period=10u") + "tr1 tran stop=10u\n")
+        self.assertTrue(any(n.text().endswith("deck.scs:3: V1: pulse period 1e-05 is not longer than rise+fall+width "
+                                              "= 2.1e-05") for n in cm.exception.notes), cm.exception.notes)
+        # a valid alter of the period runs on both engines
+        for engine in ("vacask", "xyce"):
+            PL.build(parse_text(PULSE_2E + "a1 alter dev=V1 param=period value=40u\ntr1 tran stop=10u\n"), engine,
+                     Settings())
+
+    def test_12_the_alter_of_a_hooked_parameter_to_a_word_names_its_line_once(self):
+        with self.assertRaises(NoteError) as cm:
+            vacask_deck(WORD_2E)
+        errs = [n for n in cm.exception.notes if n.severity == ERROR]
+        self.assertEqual(len(errs), 1, errs)
+        self.assertRegex(errs[0].text(), r"deck\.scs:8: the alter of instance r of R1 sets '3k', not a number, where "
+                                         r"the deck prints the parameter through a switchable hook; not supported in v1$")
+        self.assertEqual(errs[0].text().count("deck.scs:8"), 1, errs[0].text())
+
+    def names(self, text, engine):
+        from vamos.netlist import vacask, xyce
+        nl = parse_text(text)
+        plan = PL.build(nl, engine, Settings())
+        nl2, sm, _notes = SG.resolve(nl, plan)
+        mod = vacask if engine == "vacask" else xyce
+        return mod.names_for(nl2, plan, sm)
+
+    def test_03_a_dot_in_a_node_name_is_not_a_hierarchy_separator(self):
+        """Re-decided by the user's escaped-name rule (2026-10-19, FIX2E3N): the name's own '.' is printed escaped
+        (b.c is _b_056c, m.n is _m_056n), the hierarchy separator between X1 and its node stays the engine's ':'; round
+        1 printed the names with their dots ('b.c', X1:m.n), which each engine also read."""
+        saved = DOTTED_2E.replace("op1 dc\n", "op1 dc\nsave b\\.c X1.m\\.n X1.R1:1\n")
+        for engine, cols in (("vacask", {"b.c": "_b_056c", "X1.m.n": "X1:_m_056n"}),
+                             ("xyce", {"b.c": "V(_B_056C)", "X1.m.n": "V(X1:_M_056N)"})):
+            with self.subTest(engine=engine):
+                got = {ref[1]: col for ref, col in self.names(DOTTED_2E, engine)["vamos_a1"].items() if ref[0] == "v"}
+                self.assertEqual((got.get("b.c"), got.get("X1.m.n")), (cols["b.c"], cols["X1.m.n"]), got)   # allpub
+                got = {ref[1]: col for ref, col in self.names(saved, engine)["vamos_a1"].items() if ref[0] == "v"}
+                self.assertEqual((got.get("b.c"), got.get("X1.m.n")), (cols["b.c"], cols["X1.m.n"]), got)
+        self.assertIn("save v(_b_056c) v('X1:_m_056n') p('X1:R1', i)", vacask_deck(saved))
+        self.assertIn(".PRINT DC FORMAT=RAW FILE=vamos_a1.raw V(_B_056C) V(X1:_M_056N) I(X1:R1)", xyce_decks(saved)[0])
+
+
+# -- the guide trial of phase 2e, the final round (TRIAL2EF, docs/VAMOS_GUIDE.md §12) --------------------------------
+SRC_2EF = """// a source alter before an op
+simulator lang=spectre
+%s
+R1 (in out) resistor r=1k
+C1 (out 0) capacitor c=1n
+%s
+op1 dc
+"""
+PULSE_2EF = "V1 (in 0) vsource type=pulse val0=0 val1=1 delay=0 rise=0.5u fall=0.5u width=20u period=40u"
+DERIVED_2EF = "; its dc is the waveform's value at t = 0)"
+
+
+def _xyce_pulse(t, v1, v2, td, tr, tf, pw, per, bptol=0.0):
+    """Xyce's PulseData::updateSource (src/DeviceModelPKG/Core/N_DEV_SourceData.C, 7.10), line by line: the value of
+    PULSE(v1 v2 td tr tf pw per) at time t with the breakpoint tolerance bptol (0 in the operating point a transient
+    starts from)."""
+    time = t - td
+    if time > per and per != 0.0:
+        time -= per * math.floor(time / per)
+    if time <= 0 or (time > (tr + pw + tf) and abs(time - (tr + pw + tf)) > bptol):
+        return v1
+    if (time > tr and abs(time - tr) > bptol) and (time < (tr + pw) or abs(time - (tr + pw)) < bptol):
+        return v2
+    if time > 0 and (time < tr or abs(time - tr) < bptol):
+        return v1 + (v2 - v1) * time / tr if tr != 0.0 else v1
+    return v2 + (v1 - v2) * (time - (tr + pw)) / tf if tf != 0.0 else v2
+
+
+class TestGuideTrial2e3(unittest.TestCase):
+    """TRIAL2EF-06: a dev= alter of a source field to a number that breaks a §3.8.1 rule, before an analysis whose dc the
+    source derives, was refused without the clause `its dc is the waveform's value at t = 0' that the param=, sweep and
+    pwl paths give (the guide's own example); it now has it, and a given dc still has none (the constant's refusal, in
+    every analysis).  TRIAL2EF-08: an alter of a source's field to a quoted word (value="2u") reached the decks (VACASK:
+    `Operation not supported for string and real', pointing into vamos.sim; Xyce: `Unrecognized character: "'); it is
+    refused at the alter on both engines.  TRIAL2EF-10: the notice of a sine an alter made a constant (freq=0) named
+    neither the netlist line nor the source.  TRIAL2EF-03: the Xyce deck of a pulse whose delay is minus its rise keeps
+    t = 0 off the end of the rise, which Xyce's operating point evaluated with the fall's formula (in = 5 where 1)."""
+
+    fails = TestGuideTrial2e.fails
+    one = TestGuideTrial2e.one
+
+    def ends(self, errs, piece, want):
+        got = self.one(errs, piece)
+        self.assertTrue(got.endswith("/" + want), "%s\n%s" % (want, "\n".join(errs)))   # the origin's path, then want
+
+    def test_ef06_a_field_alter_before_a_derived_dc_names_it(self):
+        cases = [("period", PULSE_2EF, "a1 alter dev=V1 param=period value=10u",
+                  "the pulse of V1 has period=1e-05 s, not longer than rise+fall+width = 2.1e-05 s: an explicit period "
+                  "no longer than rise+fall+width is an error (§3.8.1"),
+                 ("fall", PULSE_2EF, "a1 alter dev=V1 param=fall value=-0.1u",
+                  "the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1"),
+                 ("rise", PULSE_2EF, "a1 alter dev=V1 param=rise value=-0.1u",
+                  "the pulse of V1 has rise=-1e-07 s: a negative rise is an error (§3.8.1"),
+                 ("tau1", "V1 (in 0) vsource type=exp val0=0 val1=1 td1=0 tau1=1u td2=2u tau2=1u",
+                  "a1 alter dev=V1 param=tau1 value=0",
+                  "the exp of V1 has tau1=0 s: an exp time constant of 0 is an error in v1 (ref5 p.685 gives no exp "
+                  "formula that defines it"),
+                 ("freq", "V1 (in 0) vsource type=sine ampl=1 freq=1k", "a1 alter dev=V1 param=freq value=-50k",
+                  "the sine of V1 has freq=-50000 Hz: a sine with a negative freq is an error in v1, as the constant is "
+                  "(Spectre's reading is not known")]
+        for name, line, alter, what in cases:
+            for engine in ("vacask", "xyce"):
+                with self.subTest(field=name, engine=engine):
+                    errs = self.fails(SRC_2EF % (line, alter), engine)
+                    self.ends(errs, "(after alter a1)", "deck.scs:3: dc op1 (after alter a1): " + what + DERIVED_2EF)
+                    # a given dc: the constant's refusal in every analysis, with no such clause (TRIAL2EF-05)
+                    errs = self.fails(SRC_2EF % (line + " dc=0.3", alter), engine)
+                    self.ends(errs, "(after alter a1)", "deck.scs:3: dc op1 (after alter a1): " + what + ")")
+
+    def test_ef08_an_alter_of_a_source_field_to_a_word_is_refused(self):
+        for field, value, line in (("rise", "2u", "V1 (in 0) vsource type=pulse val0=0 val1=1 delay=1u rise=rt fall=1u "
+                                                  "width=5u period=20u"),
+                                   ("rise", "2u", PULSE_2EF), ("val1", "2", PULSE_2EF), ("dc", "1", PULSE_2EF)):
+            deck = ("// an alter of a source field to a quoted word\nsimulator lang=spectre\nparameters rt=1u\n" + line +
+                    "\nR1 (in out) resistor r=1k\nC1 (out 0) capacitor c=1n\nop0 dc\n"
+                    "a1 alter dev=V1 param=%s value=\"%s\"\ntr1 tran stop=10u\n" % (field, value))
+            for engine in ("vacask", "xyce"):
+                with self.subTest(field=field, line=line, engine=engine):
+                    errs = self.fails(deck, engine)
+                    self.ends(errs, "not a number", "deck.scs:8: the alter of instance %s of V1 sets '%s', not a number, "
+                                                    "where the source's %s takes a number; not supported in v1 (write "
+                                                    "value=%s, without the quotes)" % (field, value, field, value))
+        # its type is a word, as the netlist writes it
+        for engine in ("vacask", "xyce"):
+            PL.build(parse_text(SRC_2EF % (PULSE_2EF, "a1 alter dev=V1 param=type value=\"dc\"")), engine, Settings())
+
+    def test_ef03_xyce_s_first_point_is_kept_off_the_end_of_the_rise(self):
+        # TRIAL2EF-03: with a pulse's delay exactly minus its rise, t = 0 is the end of the rise; Xyce's transient starts
+        # from an operating point it computes with its breakpoint tolerance 0, where PulseData::updateSource takes neither
+        # the rise (time < TR) nor the top (time > TR) and falls through to the fall's formula: in = 5 where 1, and every
+        # node behind a capacitor wrong for the whole transient, with exit status 0.  The deck now prints a delay a
+        # relative 1e-15 earlier there, which keeps t = 0 off that breakpoint; any other delay prints as before
+        head = "// a pulse whose delay is minus its rise\nsimulator lang=spectre\nparameters rt=0.5u dl=-0.5u\n"
+        tail = "\nR1 (in out) resistor r=1k\nC1 (out 0) capacitor c=1n\ntr1 tran stop=5u\n"
+        line = "V1 (in 0) vsource type=pulse val0=0 val1=1 delay=%s rise=%s fall=0.5u width=2u%s"
+        for delay, rise, per, value in (("-0.5u", "0.5u", "", 1.0), ("-10.5u", "0.5u", " period=10u", 1.0),
+                                        ("-0.4u", "0.5u", "", 0.8), ("-0.6u", "0.5u", "", 1.0), ("0", "0.5u", "", 0.0)):
+            with self.subTest(delay=delay, rise=rise, per=per):
+                deck = xyce_decks(head + line % (delay, rise, per) + tail)[0]
+                fields = re.search(r"^V1 in 0 .*PULSE\(([^)]*)\)$", deck, re.M).group(1).split()
+                v1, v2, td, tr, tf, pw = (float(x) for x in fields[:6])
+                prd = float(fields[6]) if len(fields) > 6 else 5e-6          # Xyce's PER default: TSTOP
+                self.assertAlmostEqual(_xyce_pulse(0.0, v1, v2, td, tr, tf, pw, prd), value, places=12, msg=deck)
+                want = float(delay.replace("u", "e-6"))
+                self.assertLessEqual(abs(td - want), 2e-15 * abs(want) + 1e-30, deck)   # the waveform moves < 1e-21 s
+                if delay not in ("-0.5u", "-10.5u"):
+                    self.assertEqual(td, want, deck)                             # printed as before
+        # a delay or a rise that reads a parameter: the deck evaluates the same test, in Xyce's own arithmetic
+        deck = xyce_decks(head + line % ("-rt", "rt", "") + tail)[0]
+        self.assertRegex(deck, r"(?m)^V1 in 0 .*PULSE\(0\.0 1\.0 \{[^}]*==[^}]*\?[^}]*\} \{[^}]*rt[^}]*\} 5e-07 2e-06 "
+                               r"2e\+30\)$")
+        deck = xyce_decks(head + line % ("dl", "0.5u", "") + tail)[0]
+        self.assertRegex(deck, r"(?m)^V1 in 0 .*PULSE\(0\.0 1\.0 \{[^}]*dl[^}]*==[^}]*5e-07[^}]*\?[^}]*\} 5e-07 5e-07 "
+                               r"2e-06 2e\+30\)$")
+
+    def test_ef10_the_notice_of_a_sine_an_alter_folds_names_the_alter_and_the_source(self):
+        deck = SRC_2EF % ("V1 (in 0) vsource dc=0.5 type=sine ampl=1 freq=1k", "a1 alter dev=V1 param=freq value=0")
+        for engine in ("vacask", "xyce"):
+            with self.subTest(engine=engine):
+                plan = PL.build(parse_text(deck), engine, Settings())
+                texts = [n.text() for n in plan.notes if "folded into dc" in n.text()]
+                self.assertEqual(len(texts), 1, texts)
+                self.assertTrue(texts[0].endswith("/deck.scs:6: alter a1: V1: type=sine with freq=0 is a constant: "
+                                                  "folded into dc (§3.8.1)"), texts)
 
 
 if __name__ == "__main__":

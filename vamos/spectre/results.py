@@ -9,7 +9,11 @@ STRUCT types from the SignalMap (§6.4) and the header values from the step's ar
 §4.6, §6.4); the x axis is the engine's own (VACASK: the SweepLevel.id column, `time` or
 `frequency`; Xyce: the first column of each plot, or a .STEP's value, §7.2), except that a
 parameter point the plan's grid has as 0 is written 0 (phase 2c9: the engines ran a swept rise or
-fall of 0 at transres and the constant sine's freq of 0 at 1e-30, plan.swept_value).
+fall of 0 at transres and the constant sine's freq of 0 at 1e-30, plan.swept_value).  The analysis
+and sweep names of the keys, files, descriptions and headers are written as the results' files can
+hold them (names.written_name in its "file" form: a / escaped, since it cannot be part of a file's
+name), with one note per name and run (FIX2E4); every other name as it is, the files being UTF-8
+(§14 q.62, FIX2E5; round 4 wrote Latin-1, a name it could not hold in its escaped form).
 
     for res in collect(plan, sigmap, er, "modern"):      # execution order, sweeps point-major (§8.2)
         psf.write_analysis(rawdir, res, head)
@@ -28,6 +32,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
+from vamos.names import written_name, written_note
 from vamos.netlist import rawfile
 from vamos.netlist.plan import AnalysisStep, RunPlan, SweepLevel
 from vamos.netlist.signals import Ref, SignalMap
@@ -664,14 +669,15 @@ class _Step:
     # -- naming (§8.1, §8.2)
     def leaf_name(self, idx: Tuple[int, ...]) -> str:
         sep = "_" if self.c.legacy else "-"
-        parts = ["%s%s%0*d" % (lv.name, sep, _count_width(n), i)
+        parts = ["%s%s%0*d" % (self.c.written(lv.name, "sweep", "file"), sep, _count_width(n), i)
                  for lv, i, n in zip(self.step.context, idx, self.counts)]
-        return "_".join(parts + [self.step.name])
+        return "_".join(parts + [self.c.written(self.step.name, "analysis", "file")])
 
     def parent_name(self, depth: int, idx: Tuple[int, ...]) -> str:
-        parts = ["%s-%0*d" % (lv.name, _count_width(n), i)
+        parts = ["%s-%0*d" % (self.c.written(lv.name, "sweep", "file"), _count_width(n), i)
                  for lv, i, n in zip(self.step.context[:depth], idx, self.counts)]
-        return "_".join(parts + [self.step.context[depth].name, self.step.name])
+        return "_".join(parts + [self.c.written(self.step.context[depth].name, "sweep", "file"),
+                                 self.c.written(self.step.name, "analysis", "file")])
 
     def extension(self) -> str:
         if self.kind == "tran":
@@ -697,8 +703,8 @@ class _Step:
             # the output signals are nodes, with oprobe= too: plan.build fills p and n from the probe's
             # terminals (§14 q.35; D8: the probe's name is never written here)
             h.update([("operating point producer", name), ("output", "pair of nodes"), ("ground", "0"),
-                      ("positive output signal", str(args.get("p", ""))),
-                      ("negative output signal", str(args.get("n", "0")))])
+                      ("positive output signal", self.c.written(str(args.get("p", "")), "signal")),
+                      ("negative output signal", self.c.written(str(args.get("n", "0")), "signal"))])
         elif self.atype == "tran":
             start = float(args.get("start", 0.0))  # type: ignore[arg-type]
             stop = float(args.get("stop", 0.0))  # type: ignore[arg-type]
@@ -733,6 +739,7 @@ class _Step:
         else:
             first, last = self.span(self.step.args)
             var = (self.own.desc or self.own.label) if self.own is not None else self.label
+            var = self.c.written(var, "sweep variable")
         return "%s `%s': %s = (%s -> %s)" % (title, name, var, si(first, self.units), si(last, self.units))
 
 
@@ -751,6 +758,7 @@ class _Collector:
         self.legacy = naming == "legacy"
         self.masters = dict(masters or {})
         self.notes = notes
+        self.mapped: Dict[Tuple[str, str], str] = {}   # (a name, its use) -> its form in the files (FIX2E4)
         self.reltol = float(plan.options.get("reltol", OPTION_DEFAULTS["reltol"]))  # type: ignore[arg-type]
 
     def warn(self, origin: str, text: str) -> None:
@@ -760,6 +768,17 @@ class _Collector:
     def note(self, origin: str, text: str) -> None:
         if self.notes is not None:
             self.notes.append(note(origin, text))
+
+    def written(self, name: str, what: str, use: str = "psf") -> str:
+        """FIX2E4: a name as the results files write it (names.written_name; use "file", an analysis or sweep name, which
+        names the results' files: one that holds a / in its escaped form), with one note per name and run; any other
+        name as it is (FIX2E5: the files are UTF-8, so a name Latin-1 could not hold is no longer escaped)."""
+        got = self.mapped.get((name, use))
+        if got is None:
+            got = self.mapped[(name, use)] = written_name(name, use)
+            if got != name:
+                self.note("", written_note(what, name, got, use))
+        return got
 
     def steps(self) -> List[AnalysisStep]:
         return [a.step for a in self.plan.actions if a.op == "analysis" and a.step is not None]
@@ -820,7 +839,7 @@ class _Collector:
     # -- results
     def unswept(self, s: _Step) -> AnalysisResult:
         s.load()
-        name = s.step.name
+        name = self.written(s.step.name, "analysis", "file")
         res = AnalysisResult("%s-%s" % (name, s.atype), s.atype, "%s.%s" % (name, s.extension()),
                              header=s.header(name), description=s.description(name),
                              data_type=DATA_TYPES.get(s.atype, "scalar"))
@@ -843,10 +862,11 @@ class _Collector:
             values = values[:keep]
         res = AnalysisResult("%s-sweep" % name, "sweep", "%s.sweep" % name,
                              parent=("%s-sweep" % s.parent_name(depth - 1, idx[:-1])) if depth else "",
-                             tree="sweepNode", sweep=(level.label, level.units, grid_of(level), values),
+                             tree="sweepNode", sweep=(self.written(level.label, "sweep variable"), level.units,
+                                                      grid_of(level), values),
                              header={"tolerance.relative": self.reltol}, description="Sweep parent",
-                             swept=({s.step.context[depth - 1].label: s.ctx_values[depth - 1][idx[-1]]}
-                                    if depth else {}))
+                             swept=({self.written(s.step.context[depth - 1].label, "sweep variable"):
+                                     s.ctx_values[depth - 1][idx[-1]]} if depth else {}))
         return res
 
     def leaf(self, s: _Step, idx: Tuple[int, ...]) -> AnalysisResult:
@@ -857,7 +877,8 @@ class _Collector:
                              parent="" if self.legacy else "%s-sweep" % s.parent_name(depth - 1, idx[:-1]),
                              tree="" if self.legacy else "leafNode",
                              header=s.header(name), description=s.description(name),
-                             swept={} if self.legacy else {s.step.context[-1].label: s.ctx_values[-1][idx[-1]]},
+                             swept={} if self.legacy else {self.written(s.step.context[-1].label, "sweep variable"):
+                                                            s.ctx_values[-1][idx[-1]]},
                              data_type=DATA_TYPES.get(s.atype, "scalar"))
         self.fill(res, s, g, s.group_status(g))
         return res
@@ -879,7 +900,7 @@ class _Collector:
                                   else [(m, [mv]) for (m, _), mv in zip(t.signal.members, v)])  # type: ignore[arg-type]
                            for t, v in zip(s.traces, vals)]
             return
-        res.sweep = (s.label, s.units, grid_of(s.own) if s.axis != "time" else 1, [])
+        res.sweep = (self.written(s.label, "sweep variable"), s.units, grid_of(s.own) if s.axis != "time" else 1, [])
         res.rows = s.xy_rows(g)
 
 

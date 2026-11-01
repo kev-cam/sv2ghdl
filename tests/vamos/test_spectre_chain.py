@@ -475,7 +475,8 @@ class TestChainPhase2c(TempDir):
         r = chain(self.write("nsy.scs", NSY_DECK), "xyce")
         op = next(s for s in r.steps if s.name == "op1")
         self.assertIn("R2:1", r.signals(op.id))
-        self.assertTrue(r.column(op.id, "R2:1").startswith("I(VAMOS_TP"), r.names[op.id])
+        # FIX2E5 (S-2E4-N3): Xyce's probe is a zero-gain vcvs (an E element), which keeps an .IC on its nodes
+        self.assertTrue(r.column(op.id, "R2:1").startswith("I(EVAMOS_TP"), r.names[op.id])
 
 
 if __name__ == "__main__":

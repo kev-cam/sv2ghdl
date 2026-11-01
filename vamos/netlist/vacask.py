@@ -180,6 +180,7 @@ import subprocess
 from dataclasses import replace
 from typing import TYPE_CHECKING, Collection, Dict, List, Optional, Sequence, Set, Tuple
 
+from vamos.names import escape_name
 from vamos.netlist import expr as X
 from vamos.netlist import tables as T
 from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary, Unary
@@ -344,22 +345,25 @@ def path_resolutions(nl: Netlist, path: str, cache: Optional[Dict[str, List]] = 
     be); [] when it does not resolve.  cache (phase 2c5): path -> resolutions, for the callers of one netlist."""
     if cache is not None and path in cache:
         return cache[path]
-    parts = path.split(".")
     out: List[Tuple[List[Tuple[Instance, Subckt]], Instance]] = []
     if cache is not None:
         cache[path] = out
 
-    def walk(items: Sequence[object], scope: T.Scope, k: int, chain: List[Tuple[Instance, Subckt]]) -> None:
+    def walk(items: Sequence[object], scope: T.Scope, rest: str, chain: List[Tuple[Instance, Subckt]]) -> None:
+        # an instance's name is the rest of the path, or the part of it before a '.': a name may hold a '.' itself (X\.1,
+        # the guide trial of phase 2e), so a path is matched name by name, not cut at every '.'
         for it in flat_items(items):
-            if not isinstance(it, Instance) or it.name != parts[k]:
+            if not isinstance(it, Instance):
                 continue
-            if k == len(parts) - 1:
+            if rest == it.name:
                 out.append((list(chain), it))
+                continue
+            if not rest.startswith(it.name + "."):
                 continue
             sub = scope.find_subckt(it.master or "") if it.kind == "x" else None
             if sub is not None:
-                walk(sub.body, T.Scope(sub.body, scope, sub), k + 1, chain + [(it, sub)])
-    walk(nl.body, T.Scope(nl.body), 0, [])
+                walk(sub.body, T.Scope(sub.body, scope, sub), rest[len(it.name) + 1:], chain + [(it, sub)])
+    walk(nl.body, T.Scope(nl.body), path, [])
     return out
 
 
@@ -652,6 +656,8 @@ class _Deck:
         self.plan, self.sigmap = plan, sigmap
         self.names: Dict[str, Dict[Ref, str]] = names if names is not None else {}
         self.spectre = nl.dialect == "spectre"
+        # a Spectre name may hold a '.' (b\.c): IR paths are then split by tables.path_parts (TRIAL2E1-03)
+        self.dotted = self.spectre and T.dotted_names(nl)
         self.s = nl.scale()
         self.values = nl.values
         self.notes: List[Note] = []
@@ -691,6 +697,7 @@ class _Deck:
             for sub, params in plan.overridden.items():
                 self.overridden.setdefault(sub, set()).update(params)
         self._names()
+        self.pmap = _param_escapes(nl, self.variables) if self.spectre else {}
         if self.spectre:
             self._lift_plan()
         self._plan_hooks()
@@ -709,9 +716,11 @@ class _Deck:
 
     # -- names
     def _names(self) -> None:
-        """Model deck names m_<name>, never equal to a subckt or builtin name (one namespace)."""
+        """Model deck names m_<name>, never equal to a subckt or builtin name (one namespace).  On a Spectre netlist
+        every name the deck prints from the netlist goes through the user's escaped-name rule (names.escape_name: b.c is
+        _b_056c), so <name> here is the escaped name and the namespace holds the subckts' printed names."""
         subs = T.all_subckts(self.nl)
-        taken = set(BUILTIN_MODELS) | {s.name for s in subs}
+        taken = set(BUILTIN_MODELS) | {self.ename(s.name) for s in subs}
         for s in subs:
             if s.name in BUILTIN_MODELS and id(s) in self.used:
                 self.err(s.origin, "subckt name %s is reserved for a vamos builtin model" % s.name)
@@ -719,11 +728,23 @@ class _Deck:
         for items in [self.nl.body] + [s.body for s in subs]:
             models += [m for m in items if isinstance(m, Model)]
         self.mname: Dict[str, str] = {}
+        bases = {m.name: m.base for m in models}
         for name in sorted({m.name for m in models}):
-            self.mname[name] = _fresh("m_" + name, taken)
+            self.mname[name] = _fresh("m_" + (T.deck_card_name(name, bases[name]) if self.spectre else name), taken)
         for base in sorted({m.base for m in models if m.base is not None}):
-            self.missing[base] = _fresh("m_" + base, taken)
+            self.missing[base] = _fresh("m_" + self.ename(base), taken)
         self.taken = taken                         # per-instance Verilog-A cards are allocated later
+
+    def ename(self, name: str) -> str:
+        """A netlist name as the deck prints it, unquoted: on a Spectre netlist through the user's escaped-name rule
+        (2026-10-19; a name of letters, digits and _ that does not start with _ as it is, any other as _ plus its bytes,
+        each one that is not a letter or a digit as _ and its 3-digit octal code), else as it is."""
+        return escape_name(name) if self.spectre else name
+
+    def pname(self, name: str) -> str:
+        """A netlist parameter's name as the deck prints it: ename (a Spectre parameter's name is an identifier, so only
+        one that starts with _ changes: _rv is __137rv), then expr.param_ident."""
+        return X.param_ident(self.ename(name), ENGINE)
 
     # -- the switchable hooks (phase 2c4, H1; the module docstring) ----------------------------------------------------
     def _plan_hooks(self) -> None:
@@ -804,9 +825,9 @@ class _Deck:
             return
         res = [(chain, inst, hook_key(inst, param)) for chain, inst in path_resolutions(self.nl, path)]
         h = self._new_hook(t)
-        names = path.split(".")
         for chain, inst, key in res:
             assert key is not None
+            names = [x.name for x, _sub in chain] + [inst.name]     # this resolution's names (a name may hold a '.')
             pair = self._body_pair(chain[-1][1], names[-1], key) if chain else (h.flag, h.value)
             site = (id(chain[-1][1]) if chain else 0, inst.name, key)
             self.sites[site] = (pair[0], pair[1], inst.kind)
@@ -911,10 +932,16 @@ class _Deck:
         return ["  var " + " ".join(parts)] if parts else []
 
     def q(self, name: str) -> str:
-        """quote(), plus the Spectre rule for an all-digit name with a leading zero (§4.5 item 9)."""
-        if self.spectre and len(name) > 1 and name.isdigit() and name[0] == "0":
-            return "'%s'" % name
-        return quote(name)
+        """A netlist name (a node, an instance, a subckt, a port) as the deck prints it: ename (the escaped-name rule on
+        a Spectre netlist), then qd."""
+        return self.qd(self.ename(name))
+
+    def qd(self, text: str) -> str:
+        """Deck text that is already in the deck's spelling (a name vamos made, an escaped path x1:_m_056n): quote(),
+        plus the Spectre rule for an all-digit name with a leading zero (§4.5 item 9)."""
+        if self.spectre and len(text) > 1 and text.isdigit() and text[0] == "0":
+            return "'%s'" % text
+        return quote(text)
 
     def use_builtin(self, name: str) -> str:
         if name not in self.builtins:
@@ -933,6 +960,8 @@ class _Deck:
         """A parameter-context value; raises _Skip after recording the error."""
         if self.rename:
             e = X.substitute(e, self.rename)
+        if self.pmap:
+            e = X.substitute(e, self.pmap)          # a parameter's printed name (pname)
         if isinstance(e, Num) and math.isfinite(e.value) and (e.value == 0 or abs(e.value) >= _MIN_NORMAL):
             return fmt(e.value)
         try:
@@ -944,11 +973,19 @@ class _Deck:
             return t                                # a hook (H1): the printer's own parentheses
         return "(%s)" % t if " " in t else t
 
-    def bv(self, e: Expr, origin: str, what: str) -> str:
+    def bv(self, e: Expr, origin: str, what: str, scope: Optional[T.Scope] = None) -> str:
         if self.rename:
             e = X.substitute(e, self.rename)
+        if self.pmap:
+            e = X.substitute(e, self.pmap)          # a parameter's printed name (pname); v()/i() arguments untouched
         try:
-            t = X.to_vacask(e, "behavioral")
+            # a v()/i() argument, a path relative to scope's body, as the deck prints it: each name escaped on a Spectre
+            # netlist (a name may hold a '.')
+            node = None
+            if self.spectre:
+                node = lambda kind, name: self.qd(T.deck_path(                                  # noqa: E731
+                    T.path_parts(self.nl, name, scope) if self.dotted else name.split(".")))
+            t = X.to_vacask(e, "behavioral", node=node)
         except (X.PrintError, X.ExprError) as exc:
             self.err(origin, "%s: %s" % (what, exc))
             raise _Skip()
@@ -1008,7 +1045,7 @@ class _Deck:
 
     def params(self, params: Sequence[Param], indent: str) -> None:
         for p in params:
-            name = X.param_ident(p.name, ENGINE)
+            name = self.pname(p.name)
             if not re.match(r"[A-Za-z_$][A-Za-z0-9_$]*$", name):
                 self.err(p.origin, "parameter name %r is not a VACASK identifier" % p.name)
                 continue
@@ -1121,9 +1158,9 @@ class _Deck:
         over = self.overridden.get(s.name, set())
         taken = set(local) | {"$mfactor"}
         for p in extra:
-            self.body.append("%sparameters %s=0.0" % (indent, X.param_ident(p, ENGINE)))
+            self.body.append("%sparameters %s=0.0" % (indent, self.pname(p)))
         for p in plist:
-            name = X.param_ident(p.name, ENGINE)
+            name = self.pname(p.name)
             if name == "$mfactor" or not re.match(r"[A-Za-z_$][A-Za-z0-9_$]*$", name):
                 self.err(p.origin, "subckt %s: parameter name %r cannot be used on VACASK" % (s.name, p.name))
                 continue
@@ -1178,14 +1215,15 @@ class _Deck:
         for s, scope, _shadow in nested:
             ps = sorted(needs[id(s)])
             if ps and scope.subckt is not None:
-                self.lifted[id(s)] = (_fresh("%s__%s" % (scope.subckt.name, s.name), self.taken), ps)
+                self.lifted[id(s)] = (_fresh("%s__%s" % (self.ename(scope.subckt.name), self.ename(s.name)),
+                                             self.taken), ps)
 
     def lifted_subckt(self, s: Subckt, where: T.Scope) -> None:
         """A lifted nested definition printed at top level under its fresh name, with the enclosing
         parameters it needs declared as its own (§4.5 item 11)."""
         name, extra = self.lifted[id(s)]
         scope = T.Scope(s.body, where, s)
-        self.body.append("subckt %s (%s)" % (self.q(name), " ".join(self.q(p) for p in s.ports)))
+        self.body.append("subckt %s (%s)" % (self.qd(name), " ".join(self.q(p) for p in s.ports)))
         plist = _plist(s)
         outer, shadow = self.rename, self.shadow
         self.rename = {}
@@ -1214,7 +1252,7 @@ class _Deck:
                 self.printed_sites.add(("card", id(m), k))
             out.append("%s=%s" % (k, self.string(v, m.origin, k) if k in strings
                                   else self.pv(v, m.origin, "model %s parameter %s" % (m.name, k))))
-        self.body.append("%smodel %s %s%s" % (indent, self.q(self.mname[m.name]), row.vacask_module,
+        self.body.append("%smodel %s %s%s" % (indent, self.qd(self.mname[m.name]), row.vacask_module,
                                               "".join(" " + o for o in out)))
 
     def string(self, v: Expr, origin: str, what: str) -> str:
@@ -1381,7 +1419,7 @@ class _Deck:
             self.line(indent, inst, inst.nodes, self.use_builtin(simple), params + tail + mf)
             return
         if inst.master is not None:
-            master = self.q(self.mname[self.card(inst, scope).name])
+            master = self.qd(self.mname[self.card(inst, scope).name])
         else:
             master = self.use_builtin(_SPICE_RCL[k])
         params = []
@@ -1395,7 +1433,7 @@ class _Deck:
             return
         params = ["k=" + self.pv(self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
                                  inst.origin, "coupling of " + inst.name),
-                  'ind1="%s"' % inst.ctrl[0], 'ind2="%s"' % inst.ctrl[1]]
+                  'ind1="%s"' % self.ename(inst.ctrl[0]), 'ind2="%s"' % self.ename(inst.ctrl[1])]
         self.line(indent, inst, [], self.use_builtin("vamos_mutual"), params)
 
     def i_v(self, inst: Instance, scope: T.Scope, indent: str) -> None:
@@ -1427,7 +1465,7 @@ class _Deck:
             if len(inst.ctrl) != 1:
                 self.err(inst.origin, "%s needs one controlling voltage source" % inst.name)
                 return
-            params.append('ctlinst="%s"' % inst.ctrl[0])
+            params.append('ctlinst="%s"' % self.ename(inst.ctrl[0]))
         self.line(indent, inst, inst.nodes, self.use_builtin(model), params + self.mf(inst, scope))
 
     def i_b(self, inst: Instance, scope: T.Scope, indent: str) -> None:
@@ -1444,7 +1482,7 @@ class _Deck:
             m = self.mult(inst, scope)
             if m is not None:
                 e = Binary("*", e, m)       # behavioral sources take no $mfactor (§4.3.7)
-        text = self.bv(e, inst.origin, "expression of " + inst.name)
+        text = self.bv(e, inst.origin, "expression of " + inst.name, scope)
         self.body.append("%s%s (%s) %s=%s" % (indent, self.q(inst.name),
                                               " ".join(self.q(n) for n in inst.nodes), inst.expr_kind, text))
 
@@ -1457,7 +1495,7 @@ class _Deck:
             area = T.scaled("d", "area", self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
                             self.s, lv)
             params.append("area=" + self.pv(area, inst.origin, "area of " + inst.name))
-        self.line(indent, inst, inst.nodes, self.q(self.mname[m.name]),
+        self.line(indent, inst, inst.nodes, self.qd(self.mname[m.name]),
                   params + self.plist(inst, ("m", "area"), level=lv, scope=scope) + self.mf(inst, scope))
 
     def i_q(self, inst: Instance, scope: T.Scope, indent: str) -> None:
@@ -1468,7 +1506,7 @@ class _Deck:
         if inst.value is not None:
             params.append("area=" + self.pv(self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
                                             inst.origin, "area of " + inst.name))
-        self.line(indent, inst, nodes, self.q(self.mname[m.name]),
+        self.line(indent, inst, nodes, self.qd(self.mname[m.name]),
                   params + self.plist(inst, ("m", "area"), scope=scope) + self.mf(inst, scope))
 
     def i_j(self, inst: Instance, scope: T.Scope, indent: str) -> None:
@@ -1478,7 +1516,7 @@ class _Deck:
         if inst.value is not None:
             params.append("area=" + self.pv(self.hook_expr(inst, scope, VALUE_KEY, inst.value),   # type: ignore[arg-type]
                                             inst.origin, "area of " + inst.name))
-        self.line(indent, inst, inst.nodes, self.q(self.mname[m.name]),
+        self.line(indent, inst, inst.nodes, self.qd(self.mname[m.name]),
                   params + self.plist(inst, ("m", "area"), scope=scope) + self.mf(inst, scope))
 
     def i_m(self, inst: Instance, scope: T.Scope, indent: str) -> None:
@@ -1491,7 +1529,7 @@ class _Deck:
         T.target(m)
         if not self.spectre:                       # the HSPICE junction warnings (§4.4, §4.5 item 14)
             self.add(T.mos_junction_warnings(inst, m, self.nl.options))
-        self.line(indent, inst, inst.nodes, self.q(self.mname[m.name]),
+        self.line(indent, inst, inst.nodes, self.qd(self.mname[m.name]),
                   self.plist(inst, scope=scope) + self.mf(inst, scope))
 
     def binned(self, inst: Instance, scope: T.Scope, indent: str, bins: List[Model]) -> None:
@@ -1527,14 +1565,14 @@ class _Deck:
             cond = T.bin_guard_spectre(bd, l, w, self.s) if spectre_group else T.bin_guard(bd, l, w, nf, self.s)
             guard = self.pv(cond, inst.origin, "bin guard of " + inst.name)
             self.body.append("%s%s %s" % (indent, "@if" if i == 0 else "@elseif", guard))
-            self.body.append("%s  %s (%s) %s%s" % (indent, self.q(inst.name), nodes, self.q(self.mname[b.name]),
+            self.body.append("%s  %s (%s) %s%s" % (indent, self.q(inst.name), nodes, self.qd(self.mname[b.name]),
                                                   "".join(" " + p for p in params)))
         self.body.append("%s@else" % indent)
         self.nobin[len(self.body)] = (
             "no bin of %s for l=%s, w=%s%s (scale %s; instance %s%s)"
             % (base, X.to_text(l), X.to_text(w), "" if nf is None or spectre_group else ", nf=" + X.to_text(nf),
                fmt(self.s), inst.name, " in subckt " + scope.path() if scope.in_subckt else ""))
-        self.body.append("%s  %s (%s) %s%s" % (indent, self.q(inst.name), nodes, self.q(self.missing[base]),
+        self.body.append("%s  %s (%s) %s%s" % (indent, self.q(inst.name), nodes, self.qd(self.missing[base]),
                                               "".join(" " + p for p in params)))
         self.body.append("%s@end" % indent)
 
@@ -1551,19 +1589,19 @@ class _Deck:
         for k, v in inst.params.items():
             if k == "m":
                 continue
-            params.append("%s=%s" % (X.param_ident(k, ENGINE),
+            params.append("%s=%s" % (self.pname(k),
                                      self.pv(self.hook_expr(inst, scope, k, v), inst.origin,   # type: ignore[arg-type]
                                              "%s parameter %s" % (inst.name, k))))
         lifted = self.lifted.get(id(sub))
-        master = sub.name
+        master = self.ename(sub.name)
         if lifted is not None:                     # the lifted definition takes the enclosing parameters
             master, extra = lifted
             for p in extra:
                 if p not in inst.params:
-                    params.append("%s=%s" % (X.param_ident(p, ENGINE),
+                    params.append("%s=%s" % (self.pname(p),
                                              self.pv(Name(p), inst.origin, "%s parameter %s" % (inst.name, p))))
         params += self.x_bindings(inst, scope, sub)    # H1: the hooks of the altered paths down this X line
-        self.line(indent, inst, inst.nodes, self.q(master), params + self.mf(inst, scope))
+        self.line(indent, inst, inst.nodes, self.qd(master), params + self.mf(inst, scope))
 
     def i_y(self, inst: Instance, scope: T.Scope, indent: str) -> None:
         module = inst.master or ""
@@ -1576,13 +1614,13 @@ class _Deck:
             return
         # VA parameters are model parameters unless the module says otherwise:
         # one model card per instance, in the instance's scope (§4.4).
-        card = _fresh("%s__va" % inst.name, self.taken)
+        card = _fresh("%s__va" % self.ename(inst.name), self.taken)
         self.va_cards[id(inst)] = card               # a sweep or alter of its parameters targets it (R-plan-4)
         params = self.plist(inst, element="y", scope=scope)
         if self.spectre:
             module = module.lower()                     # openvaf-r's OSDI module names are lower case (phase 2)
-        self.body.append("%smodel %s %s%s" % (indent, self.q(card), self.q(module), "".join(" " + p for p in params)))
-        self.line(indent, inst, inst.nodes, self.q(card), self.mf(inst, scope))
+        self.body.append("%smodel %s %s%s" % (indent, self.qd(card), self.qd(module), "".join(" " + p for p in params)))
+        self.line(indent, inst, inst.nodes, self.qd(card), self.mf(inst, scope))
 
     # -- sources (§4.3.8; Spectre: VAMOS_SPECTRE_DESIGN.md §4.5 item 8)
     def source(self, inst: Instance, scope: Optional[T.Scope] = None) -> List[str]:
@@ -1737,7 +1775,7 @@ class _Deck:
         items = []
         for node, v in d.items():
             try:
-                items.append('"%s", %s' % (node.replace(".", ":"), fmt(self.num(v, what, "%s v(%s)" % (what, node)))))
+                items.append('"%s", %s' % (self.vpath(node), fmt(self.num(v, what, "%s v(%s)" % (what, node)))))
             except _Skip:
                 pass
         return "{%s}" % ", ".join(items)
@@ -1828,7 +1866,7 @@ class _Deck:
         if self.plan is None:
             return _path_chain(self.nl, ir_path)
         insts, pes = self.run_map()
-        parts = ir_path.split(".")
+        parts = self.parts(ir_path)                  # a name may hold a '.' (the guide trial of phase 2e)
         chain: List[Instance] = []
         for k in range(1, len(parts)):
             x = insts.get(".".join(parts[:k]))
@@ -1864,16 +1902,28 @@ class _Deck:
             if inst is not None and inst.kind == "x":
                 self.run_x[(name, param)] = float(v)
 
+    def parts(self, ir_path: str) -> List[str]:
+        """An IR path's components: tables.path_parts when a name of the netlist holds a '.', else its '.'-separated
+        names (the guide trial of phase 2e, TRIAL2E1-03)."""
+        return T.path_parts(self.nl, ir_path) if self.dotted else ir_path.split(".")
+
+    def vpath(self, ir_path: str) -> str:
+        """An IR path in VACASK's spelling, ':' between its components (x1.r1 is x1:r1); a name's own '.' stays (a
+        Spectre node b\\.c is b.c, and node m\\.n of X1 is X1:m.n: TRIAL2E1-03)."""
+        if self.spectre:
+            return T.deck_path(self.parts(ir_path))
+        return ":".join(self.parts(ir_path)) if self.dotted else ir_path.replace(".", ":")
+
     def path(self, ir_path: str) -> str:
         """An IR instance or node path (x1.r1) as VACASK spells it (x1:r1), quoted when needed."""
-        return self.q(ir_path.replace(".", ":"))
+        return self.qd(self.vpath(ir_path))
 
     def spath(self, ir_path: str) -> str:
         """An IR instance or node path inside a string argument, alter instance("x1:r1"), sweep
         instance="x1:r1" and the noise/acxf in= and out=: the string carries the quotes, the name none,
         since VACASK reads the string's text as the name ("Node ''007'' not found" for out="'007'")
         (§5.2, §5.3, §5.6 [E114]; phase 1b, phase 2)."""
-        return ir_path.replace(".", ":")
+        return self.vpath(ir_path)
 
     def var_name(self, p: str) -> str:
         return VAR_PREFIX + p
@@ -1908,8 +1958,20 @@ class _Deck:
         self.src_state: Dict[str, str] = {}          # source path -> the type printed (§5.3)
         self.active_saves: Optional[List[str]] = None
         seen_options = False
-        for act in plan.actions:
+        # FIX2E5 (the user, 2026-10-23): a source alter after the last analysis is not printed: no analysis runs in its
+        # state, so it changes no result, and the deck's constant checks (a pulse's edges and period, tables.py) would
+        # refuse a source state plan.build warns of only (`the netlist (after alter a1): ... no analysis runs in this
+        # state'); every other statement prints as before (the spellings the emit tests pin; the plan's own source-state
+        # switch back after the last tran, which carries the state that tran used)
+        last = max((k for k, a in enumerate(plan.actions) if a.op == "analysis"), default=-1)
+        for k, act in enumerate(plan.actions):
             try:
+                if k > last and act.op == "alter" and "source" in act.args:
+                    t = act.args.get("target")
+                    what = "%s of %s" % (t[2], t[1]) if isinstance(t, tuple) and len(t) == 3 else "a source field"
+                    lines.append("  // the alter of %s after the last analysis is not printed: no analysis runs in its "
+                                 "state" % what)
+                    continue
                 if act.op == "options":
                     vals = self.option_values(act.args, act.origin)
                     if not seen_options:
@@ -1975,8 +2037,9 @@ class _Deck:
             # H1 (phase 2c4): the target is printed through its switchable hook, which VACASK's re-evaluation of the
             # bindings keeps; a source's alter statement follows (its type and other fields)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise T.TableError("%s: the alter of %s %s of %s sets %r, not a number, where the deck prints the "
-                                   "parameter through a switchable hook; not supported in v1" % (o, kind, param, name, value))
+                # the caller's err() prefixes the origin (the guide trial of phase 2e, TRIAL2E1-12: it was printed twice)
+                raise T.TableError("the alter of %s %s of %s sets %r, not a number, where the deck prints the "
+                                   "parameter through a switchable hook; not supported in v1" % (kind, param, name, value))
             self.flag_on[hook.flag] = True
             lines.append("  var %s=1 %s=%s" % (hook.flag, hook.value, self.setting_text(value, o, param)))
             if not (kind == "instance" and "source" in act.args):
@@ -2058,6 +2121,8 @@ class _Deck:
                                "deck prints a derived value for it)" % (inst.name, inst.prim or inst.kind, param))
         if not self.spectre:
             return param
+        if inst.kind == "x":
+            return self.pname(param)    # a subckt's parameter, by its printed name (_rq is __137rq, the X line's)
         if param == _GAIN_PARAM.get(inst.kind):
             return "gain"           # VACASK's vcvs/vccs/ccvs/cccs gain (dev-builtin-*.md): `'gm' ... not found' before
         if inst.kind == "k" and param == "coupling":
@@ -2115,8 +2180,8 @@ class _Deck:
         card = self.va_cards.get(id(inst))
         if card is None:
             raise T.TableError("%s: the Verilog-A instance is not printed in the deck" % path)
-        parent = path.rsplit(".", 1)[0] if "." in path else ""
-        return "%s:%s" % (parent.replace(".", ":"), card) if parent else card
+        parent = T.deck_path(self.parts(path)[:-1]) if self.spectre else ":".join(self.parts(path)[:-1])
+        return "%s:%s" % (parent, card) if parent else card
 
     def is_va_card(self, m: Model) -> bool:
         return bool(m.prim) and m.prim.lower() in {k.lower() for k in self.nl.va_modules}
@@ -2267,25 +2332,25 @@ class _Deck:
         """The rawfile column of a Ref (§6.4), None for a Ref VACASK does not write under its own name."""
         kind = ref[0]
         if kind == "v":
-            return ref[1].replace(".", ":")
+            return self.vpath(ref[1])
         if kind == "i":
             try:
                 inst = self.run_instance(ref[1])     # L1 (phase 2c7): the kind on the taken branch
             except T.TableError as exc:
                 self.err("", "save %s: %s" % (ref[1], exc))
                 inst = None
-            path = ref[1].replace(".", ":")
+            path = self.vpath(ref[1])
             if inst is not None and inst.kind == "r" and not self.is_short(inst):
                 return path + ".i"
             return path + ":flow(br)"
         if kind == "noise":
-            return "n(%s)" % ref[1].replace(".", ":")
+            return "n(%s)" % self.vpath(ref[1])
         if kind == "onoise":
             return "onoise"
         if kind in ("gain", "inoise"):
             return "gain"                                  # in = out / gain (§6.4, §8.4)
         if kind == "tf":
-            return "tf(%s)" % ref[1].replace(".", ":")
+            return "tf(%s)" % self.vpath(ref[1])
         return None
 
     def name_map(self) -> Dict[str, Dict[Ref, str]]:
@@ -2666,6 +2731,16 @@ def _number(d, v: object, origin: str, what: str) -> float:
         raise _Skip()
 
 
+def _param_escapes(nl: Netlist, variables: Collection[str] = ()) -> Dict[str, Expr]:
+    """Netlist parameter name -> its printed name as a Name, for every parameter the user's escaped-name rule changes
+    (a Spectre parameter's name is an identifier: only one that starts with _, _rv as __137rv); {} for none, so a deck
+    without one prints as before.  The top-level parameters, every subckt's, and the plan's variables."""
+    names = {p.name for p in nl.body if isinstance(p, Param)} | set(variables)
+    for s in T.all_subckts(nl):
+        names |= {p.name for p in _plist(s)}
+    return {n: Name(escape_name(n)) for n in sorted(names) if escape_name(n) != n}
+
+
 def _fresh(want: str, taken: set) -> str:
     k, cand = 0, want
     while cand in taken:
@@ -2678,7 +2753,7 @@ def _fresh(want: str, taken: set) -> str:
 def _path_chain(nl: Netlist, target: str) -> Tuple[Optional[T.Scope], List[Instance]]:
     """The scope of the body that holds the element a hierarchical name (x1.x2.v1) names, and the X
     instances on its path (x1, x1.x2); (None, the instances found) when the path does not resolve."""
-    parts = target.split(".")
+    parts = T.split_path(nl, target)                          # a name may hold a '.' (the guide trial of phase 2e)
     items: Sequence[object] = nl.body
     scope = T.Scope(nl.body)
     chain: List[Instance] = []
@@ -2696,7 +2771,7 @@ def _path_chain(nl: Netlist, target: str) -> Tuple[Optional[T.Scope], List[Insta
 def _resolve(nl: Netlist, target: str) -> Optional[Instance]:
     """The element a hierarchical name (x1.x2.v1) names, through the subckt definitions (instances
     inside Cond branches included)."""
-    parts = target.split(".")
+    parts = T.split_path(nl, target)                          # a name may hold a '.' (the guide trial of phase 2e)
     items: Sequence[object] = nl.body
     scope = T.Scope(nl.body)
     for i, part in enumerate(parts):

@@ -3,11 +3,13 @@
 
 run(nl, plan, sigmap, run_dir, job, log, strict=False) -> EngineResult
     Step 10: every Verilog-A file of nl.hdl is compiled by engines.openvaf() (environment
-    engines.env_for("vacask", None, os.environ) with tools.bound_blas_threads: OPENBLAS_NUM_THREADS=1
-    unless the user set a thread count) into <ahdllibdir>/<stem>_<sha1>.osdi, written to
+    engines.env_for("vacask", None, tools.child_env()), the shim directories off PATH, with
+    tools.bound_blas_threads: OPENBLAS_NUM_THREADS=1 unless the user set a thread count) into
+    <ahdllibdir>/<stem>_<sha1>.osdi, written to
     a temporary file and moved with os.replace (concurrent runs share the directory), and reused
     while its sha1 holds; openvaf-r gets the include directories the module scan read
-    (CDS_VLOGA_INCLUDE's, then -I's) and -va,define's macros (§2.5, §2.8).  Step 11:
+    (CDS_VLOGA_INCLUDE's, then -I's) and -va,define's macros (§2.5, §2.8); a macro with a value is
+    refused first, rc 2, as flow.py refuses it (args.va_define_value_errors).  Step 11:
     vacask.render(nl, osdi=<those files>, plan=plan, sigmap=sigmap, names=<the map it fills>) is
     written to <run_dir>/vamos.sim and run as `engines.vacask_bin() vamos.sim` in run_dir, stdin
     /dev/null, its own process group and PR_SET_PDEATHSIG (proc.child_setup), under
@@ -19,7 +21,8 @@ run(nl, plan, sigmap, run_dir, job, log, strict=False) -> EngineResult
     whole in <run_dir>/vacask.log.  render's errors, a missing openvaf-r, a failed compile and a
     VACASK that cannot start print through `log` and give rc 2; render's warnings and notes print
     through `log` (strict: each warning an error, rc 2, VACASK not run).  A second INT, TERM, HUP or
-    QUIT while a child runs kills it and raises stop.Stop.
+    QUIT while a child runs kills it and raises stop.Stop; a repeat of one hangup's SIGHUP is not one
+    (stop.classify, the guide trial of phase 2e, TRIAL2EF-01).
 
 What is printed (§8.7; every line through `log`): the analysis banner when VACASK starts an
 analysis (`Running analysis 'vamos_aK'.`), that analysis's engine messages, then its "Total time
@@ -78,13 +81,14 @@ from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, 
 
 from vamos import proc, tools
 from vamos.ams import engines
+from vamos.names import unescape_text
 from vamos.netlist import rawfile, vacask
 from vamos.netlist.ir import Netlist
 from vamos.netlist.plan import AnalysisStep, RunPlan, SweepLevel
 from vamos.netlist.signals import SignalMap
 from vamos.notes import ERROR, Note, NoteError, error, note, strict as strict_notes, warning
 from vamos.spectre import percent, stop
-from vamos.spectre.args import effective
+from vamos.spectre.args import effective, va_define_value_errors
 from vamos.spectre.job import SpectreJob
 from vamos.spectre.log import ANALYSIS_TITLES, SpectreLog, si
 from vamos.spectre.results import EngineResult
@@ -135,14 +139,32 @@ def _terminator(line: str) -> bool:
 class _Interrupts(proc.Interrupts):
     """proc.Interrupts with stop.py's signals, sent to the child's process group, which also records
     a second handled signal: the grace-period kill and a second signal both set `killed`, and only
-    the second one stops the run without converting (stop.Stop)."""
+    the second one stops the run without converting (stop.Stop).  A repeat of one hangup's SIGHUP
+    (stop.classify: the kernel's after bash's) is neither passed on again nor a second signal (the
+    guide trial of phase 2e, TRIAL2EF-01: it killed VACASK, and nothing was converted)."""
 
     def __init__(self) -> None:
         super().__init__(stop.HANDLED, stop.FORWARD, stop.FLAGS, grace=INTERRUPT_GRACE, group=True)
         self.second: Optional[int] = None
+        stop.forget()                                    # an engine run starts with no stop signal (stop.classify)
+
+    def __enter__(self) -> "_Interrupts":
+        super().__enter__()
+        self._flags[:0] = stop.take_over_flags(self._saved)        # the flow's, not printed yet (TRIAL2EG-F07)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        saved = dict(self._saved)
+        super().__exit__(*exc)
+        # the flags not printed (a failure before VACASK ran: a Verilog-A compile or render error) go back to the
+        # flow, whose next poll answers them (FIX2E5, S-2E4-N1: they were dropped)
+        stop.give_back_flags(saved, self.take_flags())
 
     def _on_signal(self, signum, frame) -> None:
-        if self.signum is not None and self.second is None:
+        kind = stop.classify(signum, self.signum is not None)
+        if kind == "repeat":
+            return
+        if kind == "second" and self.second is None:
             self.second = signum
         super()._on_signal(signum, frame)
 
@@ -621,7 +643,9 @@ class _Run:
         for s in self.steps:
             for lv in list(s.context) + ([s.own] if s.own is not None else []):
                 self.levels.setdefault(lv.id, (lv, s))
-        self.env = tools.bound_blas_threads(engines.env_for("vacask", None, dict(os.environ)))
+        # tools.child_env: the shim directories off PATH and the lock-out, as for the probes and cpp
+        # (TRIAL2EG-F04: the engine runs got the caller's PATH, VAMOS_REDIRECT had no effect on them)
+        self.env = tools.bound_blas_threads(engines.env_for("vacask", None, tools.child_env()))
         self.intr: Optional[_Interrupts] = None
         self.checks: Dict[str, StepCheck] = {}
         self.reasons: Dict[str, str] = {}
@@ -641,7 +665,9 @@ class _Run:
 
     # -- messages
     def translate(self, text: str) -> str:
-        """VACASK's quoted vamos_a<k>, vamos_w<k> and vamos_v_<p> as Spectre names (§7.1)."""
+        """VACASK's quoted vamos_a<k>, vamos_w<k> and vamos_v_<p> as Spectre names (§7.1), and every name the deck
+        prints by the user's escaped-name rule as the netlist's (names.unescape_text: VACASK's `Node '_b_056c' not
+        found' is `Node 'b.c' not found'; VACASK's ':' between the components stays)."""
         def sub(m) -> str:
             ident = m.group(1)
             if ident.startswith("vamos_v_"):
@@ -652,7 +678,7 @@ class _Run:
                 lv, st = self.levels[ident]
                 return "`%s'" % (lv.name or st.name)
             return m.group(0)
-        return _QUOTED_ID.sub(sub, text)
+        return unescape_text(_QUOTED_ID.sub(sub, text))
 
     @staticmethod
     def phase_of(step: AnalysisStep) -> str:
@@ -713,6 +739,9 @@ class _Run:
     def compile_va(self) -> List[str]:
         if not self.nl.hdl:
             return []
+        bad = va_define_value_errors(self.job.va_defines)
+        if bad:                                          # the flow refuses these at its step 7 (§2.3)
+            raise _Fail(bad, PHASE_SETUP)
         ov = engines.openvaf()
         if not ov:
             raise _Fail([error("openvaf-r", "cannot find openvaf-r, which compiles the Verilog-A files for VACASK "
@@ -779,7 +808,7 @@ class _Run:
         if self.intr.signum is not None:
             _remove(tmp)
             if self.intr.second is not None:
-                raise stop.Stop(self.intr.second)
+                raise stop.Stop(self.intr.second, phase=PHASE_AHDL)
             raise _Stopped()
         text = _ANSI.sub("", out.decode("utf-8", "replace"))
         if p.returncode != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) == 0:
@@ -1024,7 +1053,10 @@ class _Run:
             proc.kill_group(p)                           # left running only by an exception
             closer()
         if self.intr.second is not None:
-            raise stop.Stop(self.intr.second)
+            # the stage the second signal came in, which the flow's warning names (TRIAL2EH-F11: `initial setup')
+            blk = self.current
+            raise stop.Stop(self.intr.second, phase=self.phase_of(blk.step) if blk is not None and blk.step is not None
+                            else (PHASE_RUN if self.stage == "run" else PHASE_SETUP))
         self.finish(rc)
 
     def read_ready(self, timeout: float) -> bool:
@@ -1133,6 +1165,12 @@ class _Run:
             return
         if not any(v == "interrupted" for v in self.er.status.values()):
             nxt = [s for s in self.steps if s.id not in self.classified]
+            if not nxt and rc == 0 and self.intr.signum is not None:
+                # VACASK did not stop for the SIGTERM vamos passed on and ran to its end (an engine that ignores it;
+                # TRIAL2EH-F11: the warning said vamos had stopped VACASK): the run ends with status 3, for the signal
+                self.log.message(warning("", "vamos got %s and passed it on, but VACASK ran every analysis to its end: "
+                                             "all of them are written" % proc.signal_name(self.intr.signum)), PHASE_RUN)
+                return
             where = " before analysis `%s'" % nxt[0].name if nxt else ""
             self.log.message(warning("", "the run was stopped%s (%s)" % (where, self.stop_reason(sig))), PHASE_RUN)
 

@@ -703,8 +703,9 @@ op3 dc
         self.assertIn("\ngR1 vamos_tn1 b vamos_tn1 b 0.001\n", decks[1].text)
         self.assertIn("\nR1 vamos_tn1 b 1000.0\n", decks[2].text)
         for d in decks:
-            self.assertIn("\nvamos_tp1 a vamos_tn1 DC 0.0\n", d.text)
-            self.assertEqual(names[d.step.id][("i", "vamos_tp1")], "I(VAMOS_TP1)")
+            # FIX2E5 (S-2E4-N3): the probe is a zero-gain vcvs on Xyce, which keeps an .IC beside it (a V element lost it)
+            self.assertIn("\nevamos_tp1 a vamos_tn1 0 0 0.0\n", d.text)
+            self.assertEqual(names[d.step.id][("i", "vamos_tp1")], "I(EVAMOS_TP1)")
 
 
 class TestRenderDecks(unittest.TestCase):
@@ -1533,6 +1534,40 @@ class TestRunFakeSignals(FakeCase):
         self.assertEqual(er.status, {"vamos_a1": "ok", "vamos_a2": "interrupted"})
         self.assertTrue(gone(self.marker, 2.0), "the child of the deck outlived the run")
         self.assertEqual(self.late, [])
+
+    def test_ef01_one_hangup_s_two_sighups_are_one_signal(self):
+        """The guide trial of phase 2e (TRIAL2EF-01): a terminal hangup sends SIGHUP twice (bash's, then the kernel's as
+        bash exits), and the second raised stop.Stop, nothing converted.  Now they are one signal: a Xyce that ignores
+        the forwarded SIGTERM is killed after the grace and the run is converted, status 3; two SIGINTs still Stop."""
+        from vamos import proc
+        ch = Chain(os.path.join(E2E, "01_rc", "deck.scs"))
+        grace, proc.INTERRUPT_GRACE = proc.INTERRUPT_GRACE, 0.5
+        late_hup = signal.signal(signal.SIGHUP, lambda signum, frame: self.late.append(signum))
+        try:
+            run_dir = os.path.join(self.tmp, "run")
+            self.behave(run_dir, ch, {"vamos_a2.cir": {"ignore_term": True, "sleep": 60}})
+            th = self.sender(run_dir, "vamos_a2.cir", [signal.SIGHUP, signal.SIGHUP], gap=0.05)
+            er, log, run_dir = run_chain(self, ch)
+            th.join(10)
+            self.assertEqual(er.rc, 3, log)
+            self.assertEqual(er.status, {"vamos_a1": "ok", "vamos_a2": "interrupted"})
+            self.assertIn("analysis `myac' was interrupted (SIGHUP; Xyce did not stop within 0.5 s and was killed); its "
+                          "partial results (vamos_a2.raw) are written", log)
+            self.assertEqual(self.late, [])
+            run_dir = os.path.join(self.tmp, "run2")
+            self.behave(run_dir, ch, {"vamos_a2.cir": {"ignore_term": True, "sleep": 60}})
+            th = self.sender(run_dir, "vamos_a2.cir", [signal.SIGINT, signal.SIGINT], gap=0.05)
+            lf = LogFile(self.tmp, profile=True)
+            try:
+                with self.assertRaises(stop.Stop) as cm:
+                    RX.run(ch.nl2, ch.plan, ch.sigmap, run_dir, lf.job, lf.log)
+            finally:
+                th.join(10)
+                lf.text()
+            self.assertEqual(cm.exception.signum, signal.SIGINT)
+        finally:
+            proc.INTERRUPT_GRACE = grace
+            signal.signal(signal.SIGHUP, late_hup)
 
     def test_a_second_signal_raises_stop_before_the_deck_is_classified(self):
         """R-run-8: the runner said the interrupted analysis's partial results were written, then the

@@ -10,6 +10,15 @@
 # an install (PREFIX/bin + PREFIX/lib/vamos).  The package path goes on
 # sys.path directly rather than through PYTHONPATH, so it never leaks into the
 # tools vamos runs.
+#
+# INT, TERM, HUP, QUIT, USR1 and USR2 are held (blocked) while Python imports
+# vamos.cli, from the first line of the Python code on, and the mask vamos was
+# started with is given back when the import is done: a signal in that time
+# (some 50 ms from a checkout on /mnt/c) is delivered then, to the handlers
+# vamos.cli installed for a spectre run (cli.py), or at its default action for
+# every other personality, as before.  Where Python has no pthread_sigmask
+# (Cygwin's Python 3.9) nothing is held.  (The guide trial of phase 2e,
+# TRIAL2E2-F3: a Ctrl-C there was a traceback and status 130, not status 3.)
 
 self=$0
 case $self in */*) ;; *) self=$(command -v -- "$0") ;; esac
@@ -28,7 +37,17 @@ fi
 VAMOS_ARGV0=${0##*/} VAMOS_LAUNCHER=$real \
 exec "${VAMOS_PYTHON:-python3}" -c '
 import sys
+try:
+    import _signal
+    held = _signal.pthread_sigmask(_signal.SIG_BLOCK, [getattr(_signal, n) for n in (
+        "SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT", "SIGUSR1", "SIGUSR2") if hasattr(_signal, n)])
+except (ImportError, AttributeError, OSError, ValueError):
+    held = None
 sys.path.insert(0, sys.argv.pop(1))
-import vamos.cli
+try:
+    import vamos.cli
+finally:
+    if held is not None:
+        _signal.pthread_sigmask(_signal.SIG_SETMASK, held)
 sys.exit(vamos.cli.main(sys.argv[1:]))
 ' "$pkgdir" "$@"

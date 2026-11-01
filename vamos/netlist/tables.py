@@ -4185,6 +4185,122 @@ def all_subckts(nl: Netlist) -> List[Subckt]:
     return out
 
 
+def dotted_names(nl: Netlist) -> bool:
+    """Whether a name of the netlist holds a '.': an instance, a node of an instance, a subckt port.  A Spectre name may
+    (`b\\.c`, the escape of UG p.60), and only then can a '.' of an IR path be part of a name (path_parts)."""
+    if any("." in p for s in all_subckts(nl) for p in s.ports):
+        return True
+    for items in [nl.body] + [s.body for s in all_subckts(nl)]:
+        for it in flat_items(items):
+            if isinstance(it, Instance) and ("." in it.name or any("." in n for n in it.nodes)):
+                return True
+    return False
+
+
+def path_parts(nl: Netlist, path: str, scope: Optional["Scope"] = None) -> List[str]:
+    """The components of an IR path (§6.4: '.' is the hierarchy separator): the subckt instances on the path, then
+    the node or element it names.  Where a name holds a '.' itself (dotted_names; `b\\.c` in Spectre), a '.' of the
+    path separates two components only after the text that names a subckt instance of the body the path has
+    reached, and the rest is the last component: `b.c` is the top-level node b.c when the top level has no instance
+    b, and `X1.m.n` the node m.n of X1 when X1's subckt has no instance m (the guide trial of phase 2e, TRIAL2E1-03:
+    the emitters printed b:c and X1:m:n).  The split is exact: the cuts are tried shortest first, each followed into
+    the instance's subckt, and the first split whose last component names something in the body it reaches (an
+    instance, a node of one, a port) is taken, so with instances X and X\\.1 the path X.1.m is the node m of X.1 when
+    X's subckt has no 1.m (FIX2E4, S-2E K1-K6: the first cut was taken without looking further, every path through
+    X.1 was cut at X, and an alter of X.1.RB on Xyce was an internal KeyError), and a name may start with a '.'
+    (an instance ..k).  A path that names nothing is cut as before: the shortest instance name at each level.
+    scope: the body a relative path starts in (a v()/i() reference inside a subckt), the top level by default."""
+    if "." not in path:
+        return [path]
+    if scope is None:
+        scope = Scope(nl.body)
+    top: Sequence[object] = scope.subckt.body if scope.subckt is not None else nl.body
+    index: Dict[int, Tuple[Dict[str, List[Subckt]], Set[str]]] = {}
+
+    def body(items: Sequence[object], sc: "Scope") -> Tuple[Dict[str, List[Subckt]], Set[str]]:
+        """The X instances of a body by name (each with its subckt) and every name a path may end in there."""
+        got = index.get(id(items))
+        if got is None:
+            xs: Dict[str, List[Subckt]] = {}
+            names: Set[str] = set(sc.subckt.ports) if sc.subckt is not None else set()
+            for it in flat_items(items):
+                if not isinstance(it, Instance):
+                    continue
+                names.add(it.name)
+                names.update(it.nodes)
+                if it.kind == "x":
+                    sub = sc.find_subckt(it.master or "")
+                    if sub is not None and all(s is not sub for s in xs.get(it.name, ())):
+                        xs.setdefault(it.name, []).append(sub)
+            got = index[id(items)] = (xs, names)
+        return got
+
+    def exact(rest: str, sc: "Scope", items: Sequence[object], depth: int) -> Optional[List[str]]:
+        xs, names = body(items, sc)
+        if depth < 64:                                # a subckt that holds itself is not entered for ever
+            i = rest.find(".")
+            while i >= 0:
+                for sub in xs.get(rest[:i], ()) if i > 0 else ():
+                    tail = exact(rest[i + 1:], Scope(sub.body, sc, sub), sub.body, depth + 1)
+                    if tail is not None:
+                        return [rest[:i]] + tail
+                i = rest.find(".", i + 1)
+        return [rest] if rest in names else None
+
+    found = exact(path, scope, top, 0)
+    if found is not None:
+        return found
+    out: List[str] = []                               # names nothing: the shortest cut at each level, as before
+    rest, sc, items = path, scope, top
+    while True:
+        xs, _names = body(items, sc)
+        cut: Optional[Tuple[str, Subckt]] = None
+        i = rest.find(".")
+        while i >= 0 and cut is None:
+            if i > 0 and xs.get(rest[:i]):
+                cut = (rest[:i], xs[rest[:i]][0])
+            i = rest.find(".", i + 1)
+        if cut is None or len(out) >= 64:
+            out.append(rest)
+            return out
+        out.append(cut[0])
+        rest = rest[len(cut[0]) + 1:]
+        sc = Scope(cut[1].body, sc, cut[1])
+        items = cut[1].body
+
+
+def split_path(nl: Netlist, path: str, dotted: Optional[bool] = None) -> List[str]:
+    """An IR path's components, the one splitter of every consumer (§6.4): path_parts when a name of the netlist holds a
+    '.' (dotted_names; a subckt instance X\\.1 is the component X.1 of X.1.m.n), else its '.'-separated names.  dotted:
+    dotted_names(nl) when the caller has it.  IR paths join Spectre names with '.' (the messages and outputs show them as
+    they are); only a split needs the structure (the guide trial of phase 2e: X.1's path was cut at its own '.' in
+    signals.resolve and VACASK's run_chain)."""
+    if "." not in path:
+        return [path]
+    if nl.dialect != "spectre":
+        return path.split(".")                    # only a Spectre name holds a '.' (the HSPICE path as before)
+    if dotted is None:
+        dotted = dotted_names(nl)
+    return path_parts(nl, path) if dotted else path.split(".")
+
+
+def deck_card_name(name: str, base: Optional[str]) -> str:
+    """A model card's name as a Spectre netlist's deck prints it (the user's escaped-name rule, 2026-10-19): an entry
+    of a model group, which vamos names <base>.<k> (§3.9), prints its base by the rule and keeps its .<k> (nch.1 as
+    before, n.ch's entry 1 as _n_056ch.1); any other card's name by the rule.  base: Model.base."""
+    from vamos.names import escape_name
+    if base is not None and name.startswith(base + ".") and name[len(base) + 1:].isdigit():
+        return escape_name(base) + name[len(base):]
+    return escape_name(name)
+
+
+def deck_path(parts: Sequence[str], sep: str = ":") -> str:
+    """IR path components as an engine deck spells the path (the user's escaped-name rule, 2026-10-19): each component
+    through names.escape_name, the engine's hierarchy separator between them (X.1, m.n is _X_0561:_m_056n)."""
+    from vamos.names import escape_name
+    return sep.join(escape_name(p) for p in parts)
+
+
 def reachable(nl: Netlist) -> Set[int]:
     """ids of the Subckt and Model objects the deck uses: the definitions reachable from the
     top-level instances, through X lines and device model names (bins of a binned base included).

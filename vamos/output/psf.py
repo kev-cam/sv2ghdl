@@ -34,6 +34,15 @@ Progress (D3): `write_analysis(..., progress=f)` calls f(rows written so far) at
 PROGRESS_ROWS rows (sooner for wide rows: every PROGRESS_VALUES values) and once after the last row
 (an operating point: f(1), a parent: f(its points)); an exception f raises ends the write at once,
 leaving `<file>.vamos-tmp` for the caller to remove (the flow does, §2.7).
+
+The files are UTF-8 (§14 q.62, decided 2026-10-23; names.FILE_ENCODING): every name (a trace's, a STRUCT
+type's or member's, a master's, an analysis's) and every text (the title) is written as it is, and the
+readers that matter decode UTF-8 (the vendored psf-parser, psf_utils, any Python 3 reader on Linux).  Round 4
+wrote Latin-1, with a name it could not hold in its escaped form (FIX2E4: before that, two such names were two
+traces named `?`, which the strict reader refused) and a title with `?`; a title byte that is not UTF-8 (read
+as U+FFFD) or an Omega in a title stopped the run with an internal error before (the guide trial of phase 2e,
+TRIAL2E2-F2).  Only a lone surrogate is not written as it is (names.FILE_ERRORS: a file name's byte that is
+not UTF-8 goes back to that byte, any other lone surrogate is `?`; the flow warns of such a title).
 """
 
 from __future__ import annotations
@@ -46,6 +55,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
+from vamos.names import FILE_ENCODING, FILE_ERRORS
 from vamos.notes import Note, note, warning
 from vamos.spectre.results import AnalysisResult, Signal
 
@@ -55,6 +65,8 @@ LOG_GENERATOR = "drlLog rev. 1.0"
 SIM_MODE = "Spectre"
 SIGNAL_NAME_TYPE = "spectre"
 
+ENCODING = FILE_ENCODING             # the files' encoding (§14 q.62: UTF-8, names.FILE_ENCODING) ...
+ENCODING_ERRORS = FILE_ERRORS        # ... a lone surrogate's byte, or `?' (names.FILE_ERRORS; TRIAL2E2-F2)
 PSF_VERSION = "1.00"                 # the "PSFversion" header of every file [S]
 DEFAULT_PRECISION = "%.15e"          # VALUE reals [S 23.1.0.242]
 HEADER_PRECISION = "%.15e"           # header and TYPE PROP reals [S 23.1.0.242]
@@ -238,9 +250,20 @@ class _Writer:
         self.fmt = precision(head.precision, notes, res.file)
         self.warned: set = set()
         self.tnames: List[str] = [sig.ptype for sig in res.signals]   # each trace's TYPE name (types())
+        self.qnames: List[str] = [self.name(sig.name) for sig in res.signals]   # each trace's name, quoted
 
     def s(self, text: str) -> str:
         return psf_string(text, self.esc)
+
+    def name(self, text: str, what: str = "signal") -> str:
+        """A name as the file writes it, quoted (s): as it is, the file being UTF-8 (the module docstring; round 4
+        wrote a name Latin-1 could not hold in its escaped form)."""
+        return self.s(text)
+
+    def tname(self, text: str) -> str:
+        """A TYPE name as the file writes it: a fixed one as it is; a STRUCT type, a model's or master's name, as name
+        writes it but never +escchars-escaped (trace's docstring)."""
+        return psf_string(text)
 
     def line(self, text: str) -> None:
         self.fh.write(text + "\n")
@@ -274,7 +297,9 @@ class _Writer:
                      ("date", head.date), ("design", head.design), ("analysis type", res.atype),
                      ("analysis name", analysis_name(res)), ("analysis description", res.description),
                      ("xVecSorted", XVEC_SORTED.get(res.atype, "unknown"))):
-            self.line("%s %s" % (psf_string(k), self.s(str(v)) if k == "design" else psf_string(str(v))))
+            # +escchars escapes signal names, never a text: the title stays as written (FIX2E5, S-2E4: "design"
+            # with the title escaped was outside the strict reader's rules)
+            self.line("%s %s" % (psf_string(k), psf_string(str(v))))
         items = list(res.header.items())
         if not any(k == "tolerance.relative" for k, _ in items):
             items.insert(0, ("tolerance.relative", 1e-3))
@@ -334,9 +359,9 @@ class _Writer:
                     self.struct_note(sig, mset, name, *structs[sig.ptype])
                 master = self.masters.get(sig.ptype, sig.ptype)
                 body = "".join('%s FLOAT DOUBLE PROP(\n"units" %s\n)\n'
-                               % (self.s(m), psf_string(STRUCT_MEMBER_UNITS)) for m in mset)
+                               % (self.name(m, "noise contribution"), psf_string(STRUCT_MEMBER_UNITS)) for m in mset)
                 self.line('%s STRUCT(\n%s) PROP(\n"key" "inst"\n"master" %s\n)'
-                          % (psf_string(name), body, self.s(master)))
+                          % (self.tname(name), body, self.name(master, "master")))
                 structs[name] = (sig.name, mset)
                 variants[(sig.ptype, mset)] = name
                 declared.add(name)
@@ -370,18 +395,18 @@ class _Writer:
         if res.sweep is None or res.atype in PARENT_KINDS:
             return
         self.line("TRACE")
-        for sig, tname in zip(res.signals, self.tnames):
-            self.line("%s %s%s" % (self.s(sig.name), psf_string(tname), _current_prop(sig)))
+        for sig, qname, tname in zip(res.signals, self.qnames, self.tnames):
+            self.line("%s %s%s" % (qname, self.tname(tname), _current_prop(sig)))
 
     def values(self) -> None:
         res = self.res
         self.line("VALUE")
         if res.sweep is None:                                   # an operating point
-            for sig, tname in zip(res.signals, self.tnames):
+            for sig, qname, tname in zip(res.signals, self.qnames, self.tnames):
                 if len(sig.values) != 1:
                     raise ValueError("%s: operating-point signal %r carries %d values, not one"
                                      % (res.file, sig.name, len(sig.values)))
-                self.line("%s %s %s%s" % (self.s(sig.name), psf_string(tname),
+                self.line("%s %s %s%s" % (qname, self.tname(tname),
                                           self.value(sig.values[0], sig), _current_prop(sig)))
             self.done(1)
             return
@@ -400,8 +425,8 @@ class _Writer:
             if len(vals) != len(sigs):
                 raise ValueError("%s: a row carries %d values for %d traces" % (res.file, len(vals), len(sigs)))
             self.line("%s %s" % (sname, self.real(x, res.sweep[0])))
-            for sig, v in zip(sigs, vals):
-                self.line("%s %s" % (self.s(sig.name), self.value(v, sig)))
+            for sig, qname, v in zip(sigs, self.qnames, vals):
+                self.line("%s %s" % (qname, self.value(v, sig)))
             n += 1
             if progress is not None and n % period == 0:
                 progress(n)
@@ -468,7 +493,7 @@ def write_analysis(dirpath: str, res: AnalysisResult, head: PsfHead, escchars: b
     os.makedirs(dirpath, exist_ok=True)
     path = os.path.join(dirpath, res.file)
     tmp = path + ".vamos-tmp"
-    with open(tmp, "w", encoding="latin-1", newline="\n") as fh:
+    with open(tmp, "w", encoding=ENCODING, errors=ENCODING_ERRORS, newline="\n") as fh:
         _Writer(fh, res, head, escchars, notes, masters, progress).write()
     os.replace(tmp, path)
 
@@ -488,7 +513,7 @@ def write_logfile(dirpath: str, results: Iterable[AnalysisResult], head: PsfHead
     os.makedirs(dirpath, exist_ok=True)
     path = os.path.join(dirpath, "logFile")
     tmp = path + ".vamos-tmp"
-    with open(tmp, "w", encoding="latin-1", newline="\n") as fh:
+    with open(tmp, "w", encoding=ENCODING, errors=ENCODING_ERRORS, newline="\n") as fh:
         w = fh.write
         w("HEADER\n")
         for k, v in (("PSFversion", PSF_VERSION), ("Log Generator", LOG_GENERATOR),
@@ -496,7 +521,7 @@ def write_logfile(dirpath: str, results: Iterable[AnalysisResult], head: PsfHead
                      ("psfversion", head.psfversion), ("simulator", head.simulator), ("version", head.version),
                      ("date", head.date)):
             w("%s %s\n" % (psf_string(k), psf_string(v)))
-        w("%s %s\n" % (psf_string("design"), psf_string(head.design, escchars)))
+        w("%s %s\n" % (psf_string("design"), psf_string(head.design)))      # a text: never +escchars-escaped
         for k, v in (("signalNameType", SIGNAL_NAME_TYPE), ("simMode", SIM_MODE)):
             w("%s %s\n" % (psf_string(k), psf_string(v)))
         w('"measdgt" 0\n"ingold" 2\n"sst2usecolon" 0\n')
@@ -504,10 +529,12 @@ def write_logfile(dirpath: str, results: Iterable[AnalysisResult], head: PsfHead
         for res in results:
             if res.status == "failed":
                 continue
+            # +escchars escapes the sweep's signal name; an entry's key, file, parent and description are names of
+            # analyses and files and a text, written as they are (FIX2E5: a reader opens the file the entry names)
             sv = "(%s)" % psf_string(res.sweep[0], escchars) if res.sweep is not None else "()"
             w('%s "analysisInst" (\n%s\n%s\n"PSF"\n%s\n%s\n%s\n)' % (
-                psf_string(res.key, escchars), psf_string(res.atype), psf_string(res.file, escchars),
-                psf_string(res.parent, escchars), sv, psf_string(res.description, escchars)))
+                psf_string(res.key), psf_string(res.atype), psf_string(res.file),
+                psf_string(res.parent), sv, psf_string(res.description)))
             props = _log_props(res, head, escchars)
             if props is None:                   # a Monte Carlo parent: no PROP, no blank line [S]
                 w("\n")

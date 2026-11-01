@@ -428,7 +428,7 @@ class _Parser:
 
 def read(path: str, escchars: bool = False) -> PsfFile:
     """Parse a PSF ASCII file strictly (the grammar and arity rules); content rules are `check`'s."""
-    with open(path, encoding="latin-1") as fh:
+    with open(path, encoding="utf-8") as fh:        # the files are UTF-8 (§14 q.62, FIX2E5)
         text = fh.read()
     p = _Parser(text, path, escchars)
     psf = PsfFile(path)
@@ -599,10 +599,20 @@ _LEAF_INDEX = re.compile(r"^(\d+)(?:_|$)")
 
 
 def _leaf_index(parent: LogEntry, child_key: str, path: str) -> int:
-    """The `-NNN` index of a child of `parent` from its key: `<sweep>-NNN_<rest>-<type>`."""
+    """The `-NNN` index of a child of `parent` from its key: `<sweep>-NNN_<rest>-<type>`, the parent's being
+    `<sweep>_<rest>-<type>`.  A name may hold a `_` (an analysis d_1, an escaped name): the split of the parent's
+    name that the child's continues is found, the shortest sweep name first (FIX2E4: the last `_` was taken as the
+    separator, so s_w-000_d_1 did not continue the parent s_w_d_1)."""
     stem = parent.key[:-(len(parent.analysis_type) + 1)]        # "<sweep>_<child>"
-    sweep_name = stem.rsplit("_", 1)[0]
     cstem = child_key[:-(len(child_key.rsplit("-", 1)[1]) + 1)]
+    for i in (k for k, c in enumerate(stem) if c == "_"):
+        head = stem[:i] + "-"
+        if cstem.startswith(head):
+            m = re.match(r"(\d+)_%s\Z" % re.escape(stem[i + 1:]), cstem[len(head):])
+            if m:
+                idx = int(m.group(1))
+                return idx - 1 if parent.analysis_type == "montecarlo" else idx
+    sweep_name = stem.rsplit("_", 1)[0]
     prefix = sweep_name + "-"
     if not cstem.startswith(prefix):
         raise _rule(path, "logFile entry %r does not continue its parent's name %r" % (child_key, sweep_name))

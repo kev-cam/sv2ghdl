@@ -40,23 +40,44 @@ def _load_json(path: str) -> Optional[dict]:
         return None
 
 
+def _chosen_json(path: str) -> Optional[dict]:
+    """A profile the user chose: None when the file cannot be read; a ValueError naming the file and the
+    place when it is not a JSON object (the guide trial of phase 2e, TRIAL2EG-F14: a profile with a typo
+    was reported as one that does not exist)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    try:
+        prof = json.loads(text)
+    except ValueError as e:
+        raise ValueError("banner profile %s is not valid JSON: %s" % (path, e))
+    if not isinstance(prof, dict):
+        raise ValueError("banner profile %s is not a JSON object" % path)
+    return prof
+
+
 def load_profile(personality: str, choice: Optional[str] = None) -> Optional[dict]:
     """Return the banner profile dict, or None for 'none'.
 
     choice: --vamos-banner value (a name or a path); falls back to
-    $VAMOS_BANNER, then the personality's own name.
+    $VAMOS_BANNER, then the personality's own name.  A profile chosen by
+    name or path that exists but is not a JSON object is a ValueError that
+    says so; the personality's own layers skip such a file, as before.
     """
     choice = choice or os.environ.get("VAMOS_BANNER") or personality
     if choice == "none":
         return None
     if os.sep in choice or choice.endswith(".json"):
-        prof = _load_json(choice)
+        prof = _chosen_json(choice)
         if prof is None:
             raise ValueError("cannot read banner profile '%s'" % choice)
         return prof
     found = None
     for layer in _config_layers():
-        p = _load_json(os.path.join(layer, "banners", choice + ".json"))
+        path = os.path.join(layer, "banners", choice + ".json")
+        p = _load_json(path) if choice == personality else _chosen_json(path)
         if p is not None:
             found = p           # later layers win
     if found is None and choice != personality:

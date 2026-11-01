@@ -52,6 +52,7 @@ from vamos.netlist.expr_ast import Binary, Call, Expr, Name, Num, Str, Ternary, 
 from vamos.netlist.ir import (Analysis, Cond, Correlate, Instance, Model, Netlist, Param, ParamTest, ParseOpts,
                               SaveSpec, Source, StatBlock, Subckt, SweepSpec, VaModule, Value, Vary,
                               flat_analyses, flat_items)
+from vamos.names import written_name
 from vamos.notes import ERROR, NOTE, WARNING, Note, NoteError, error, note, warning
 
 
@@ -172,6 +173,7 @@ _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 # "a given iprobe= inside a subckt (X1.V2)") and xf probe=; dev=/mod=/sub= are read by sweep_spec
 _HIER_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 _INSTANCE_ARGS = frozenset(("iprobe", "oprobe", "probe"))
+_ELEMENT_REFS = frozenset(("probe", "ind1", "ind2"))   # an instance statement's parameters that name an instance
 _PERCENT = re.compile(r"%([A-Za-z%])((?::[reht:])*)")
 _LANG = re.compile(r"^\s*simulator\s+lang\s*=\s*(spectre|spice)\b", re.I)
 _CPP_MARKER = re.compile(r'^#\s*(\d+)\s+"([^"]*)"((?:\s+\d+)*)\s*$')
@@ -360,20 +362,37 @@ def _words(text: str) -> List[Tuple[str, int]]:
     return out
 
 
-def _top_level_eq(word: str) -> int:
-    """The offset of a '=' that is an assignment (not == <= >= != and not inside a group), else -1."""
+def _top_level_eq(word: str, node_key: bool = False) -> int:
+    """The offset of a '=' that is an assignment (not == <= >= != and not inside a group), else -1.  A '\\'
+    escapes the next character, which is never an operator or a group: `net\\<0\\>=1` assigns to net<0> (the
+    phase-2e escaped names; before, the escaped '>' made it a comparison).  node_key: the word stands where a
+    statement that assigns node values (ic, nodeset) takes its next node=value, so the ! that ends a node's
+    name before its = is the name's (nodeset vdd!=0.4 sets vdd!; FIX2E4: it read as the comparison vdd != 0.4,
+    `nodeset needs node=value assignments').  Everywhere else != is a comparison (FIX2E5, S-2E4: round 4 took
+    the ! for the name's in every word, so `sel = m0!=0 ? 3k : 1k' was the parameter sel with no value and an
+    assignment to m0!, refused on both engines)."""
     depth = 0
-    for k, c in enumerate(word):
+    k = 0
+    after_op = True                       # the character before is an unescaped < > ! = (or there is none)
+    name = True                           # word[:k] is a node path so far: letters, digits, _ . : ! and escapes
+    while k < len(word):
+        c = word[k]
+        if c == "\\" and k + 1 < len(word):
+            k += 2
+            after_op = False
+            continue
         if c in "([":
             depth += 1
         elif c in ")]":
             depth -= 1
         elif c == "=" and depth == 0:
-            prev = word[k - 1] if k else ""
             nxt = word[k + 1] if k + 1 < len(word) else ""
-            if prev in "<>!=" or nxt == "=":
-                continue
-            return k
+            if nxt != "=" and (not after_op or (node_key and name and k > 1 and word[k - 1] == "!"
+                                                and word[k - 2] != "!")):
+                return k
+        name = name and (c.isalnum() or c in "_.:!")
+        after_op = c in "<>!="
+        k += 1
     return -1
 
 
@@ -387,25 +406,27 @@ def _ends_open(word: str) -> bool:
     return word[-1] in "+-*/?:<>=!&|~^(," or word.endswith("**")
 
 
-def _is_assignment(words: List[Tuple[str, int]], i: int) -> bool:
+def _is_assignment(words: List[Tuple[str, int]], i: int, node_key: bool = False) -> bool:
     w = words[i][0]
-    eq = _top_level_eq(w)
+    eq = _top_level_eq(w, node_key)
     if eq >= 0:
         return True
     return i + 1 < len(words) and words[i + 1][0].startswith("=") and not words[i + 1][0].startswith("==") \
         and _IDENT.match(w) is not None
 
 
-def _fields(text: str) -> List[Tuple[Optional[str], str, int]]:
+def _fields(text: str, node_keys: bool = False) -> List[Tuple[Optional[str], str, int]]:
     """(key, text, offset): 'key=value' assignments (with or without blanks around '=', the value
     running on while the next word continues the expression, so 'c=0.3374 / (6.2832 * bw * r0)' is
-    one value) and bare words (key None)."""
+    one value) and bare words (key None).  node_keys: the statement assigns node values (ic, nodeset), so a
+    word that starts a field may be `name!=value' (_top_level_eq); a word that starts or continues a value
+    never is."""
     words = _words(text)
     out: List[Tuple[Optional[str], str, int]] = []
     i = 0
     while i < len(words):
         w, off = words[i]
-        eq = _top_level_eq(w)
+        eq = _top_level_eq(w, node_keys)
         if eq > 0:
             key, value = w[:eq], w[eq + 1:]
             i += 1
@@ -426,7 +447,9 @@ def _fields(text: str) -> List[Tuple[Optional[str], str, int]]:
         parts = [value] if value else []
         while i < len(words):
             nw = words[i][0]
-            if _is_assignment(words, i):
+            # a node's name! may start the next field only where no value is expected and the value cannot go on
+            key_place = node_keys and bool(parts) and not _ends_open(parts[-1]) and not _continues_value(nw)
+            if _is_assignment(words, i, key_place):
                 break
             if not parts:
                 if nw.startswith("="):
@@ -483,8 +506,33 @@ def _param_group(word: str) -> bool:
     return bool(inner) and all(k is not None for k, _w, _o in inner)
 
 
+def _escaped_split(text: str) -> List[str]:
+    """text split at its blanks, a '\\' escaping the next character (an escaped blank stays in the word)."""
+    out: List[str] = []
+    cur: List[str] = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == "\\" and i + 1 < len(text):
+            cur.append(text[i:i + 2])
+            i += 2
+            continue
+        if c in " \t":
+            if cur:
+                out.append("".join(cur))
+                cur = []
+        else:
+            cur.append(c)
+        i += 1
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
 def _node_groups(words: List[str]) -> List[str]:
-    """Instance node texts: bare words, or one or more '(...)' groups concatenated (§3.2)."""
+    """Instance node texts: bare words, or one or more '(...)' groups concatenated (§3.2).  A '\\' escapes the next
+    character, a blank or a ')' included: (a\\ b c) is the nodes a\\ b and c (the phase-2e escaped names; before, a
+    group was cut at every blank and at its first ')')."""
     out: List[str] = []
     for w in words:
         if w.startswith("("):
@@ -492,8 +540,12 @@ def _node_groups(words: List[str]) -> List[str]:
             while i < len(w):
                 if w[i] != "(":
                     raise _Syntax("unexpected %r in a node list" % w[i:])
-                j = w.index(")", i)
-                out.extend(w[i + 1:j].split())
+                j = i + 1
+                while j < len(w) and w[j] != ")":
+                    j += 2 if w[j] == "\\" and j + 1 < len(w) else 1
+                if j >= len(w):
+                    raise _Syntax("unclosed '(' in a node list")
+                out.extend(_escaped_split(w[i + 1:j]))
                 i = j + 1
         else:
             out.append(w)
@@ -561,6 +613,48 @@ def _bad_name_char(written: str, dots: bool = False) -> Optional[str]:
             return c
         i += 1
     return None
+
+
+def _escaped_word(text: str) -> str:
+    """The first word of text, a '\\' escaping the next character (a blank too), as written."""
+    i = 0
+    while i < len(text) and not text[i].isspace():
+        i += 2 if text[i] == "\\" else 1
+    return text[:min(i, len(text))]
+
+
+def _save_token(written: str) -> str:
+    """A save statement's token as SaveSpec keeps it: the name its escapes spell, except that an escaped *, ?, : or
+    \\ keeps its backslash, so that signals.resolve tells a literal * from a wildcard and an instance name's : from the
+    terminal separator (FIX2E4, S-2E: save s\\*t was the wildcard s*t, save p\\:q:1 the terminal q:1 of an instance
+    p)."""
+    if "\\" not in written:
+        return written
+    out: List[str] = []
+    i = 0
+    while i < len(written):
+        c = written[i]
+        if c == "\\" and i + 1 < len(written):
+            nxt = written[i + 1]
+            out.append("\\" + nxt if nxt in "*?:\\" else nxt)
+            i += 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _wildcard_written(written: str) -> bool:
+    """Whether a written token holds a * or ? that no '\\' escapes (a wildcard)."""
+    i = 0
+    while i < len(written):
+        if written[i] == "\\":
+            i += 2
+            continue
+        if written[i] in "*?":
+            return True
+        i += 1
+    return False
 
 
 def _unescape(name: str) -> str:
@@ -739,9 +833,12 @@ class _Statements:
             st.children = self.block("ends")
             end = self.peek()
             if end is not None and end.text.split(None, 1)[0] == "ends":
-                words = end.text.split()
-                if len(words) > 1 and words[1] != st.name:
-                    self.err(end.lineno, "ends %s closes subckt %s" % (words[1], st.name))
+                # the name after ends is one word, whose escapes it may hold (FIX2E4: `ends s\ t` closing the
+                # subckt s\ t was `ends s\ closes subckt s\ t'); compared as the names they spell
+                rest = end.text.split(None, 1)[1].strip() if len(end.text.split(None, 1)) > 1 else ""
+                word = _escaped_word(rest)
+                if word and _unescape(word) != _unescape(st.name):
+                    self.err(end.lineno, "ends %s closes subckt %s" % (word, st.name))
                 st.span = (st.span[0], end.end)
                 self.k += 1
             elif self.switch_follows:
@@ -918,6 +1015,7 @@ class _Statements:
             return Stmt("global", nodes=[w for _, w, _ in fields[1:]], origin=origin, span=span)
         if first in ("ic", "nodeset"):
             st = Stmt(first, origin=origin, span=span)
+            fields = _fields(text, node_keys=True)         # its keys are nodes: vdd!=0.4 sets vdd! (_top_level_eq)
             for k, w, _ in fields[1:]:
                 if k is None:
                     raise _Syntax("%s needs node=value assignments, not %r" % (first, w))
@@ -1116,10 +1214,13 @@ def _plus(a: Expr, b: Expr) -> Expr:
 
 
 def resolve_source(params: Mapping[str, Value], type: str, tran_stops: Sequence[float],
-                   notes: List[Note]) -> Source:
+                   notes: List[Note], constraints: bool = True) -> Source:
     """§3.8.1's table: the parameters written on a vsource/isource (Spectre names) and its type into
     a Source with every HSPICE field resolved; tran_stops are the stop times of every tran
-    (ir.flat_analyses) for the pulse edge default; plan.py reuses it for alters (§5.3)."""
+    (ir.flat_analyses) for the pulse edge default; plan.py reuses it for alters (§5.3).  constraints:
+    the refusal of a constant pulse period no longer than rise+fall+width and of constant pwl time points
+    that do not increase; plan.build's alter passes False and checks the state it makes in every analysis
+    that uses it, in the words of plan._SRC_RULES (the guide trial of phase 2e, TRIAL2E1-07)."""
     src = Source(spectre=dict(params))
     p = params
 
@@ -1171,7 +1272,7 @@ def resolve_source(params: Mapping[str, Value], type: str, tran_stops: Sequence[
         if "period" in p:
             args["per"] = _one(p["period"])
             per, tr, tf, pw = (_const(args[k]) for k in ("per", "tr", "tf", "pw"))
-            if None not in (per, tr, tf, pw) and per <= (tr + tf + pw) * (1 + 1e-12):
+            if constraints and None not in (per, tr, tf, pw) and per <= (tr + tf + pw) * (1 + 1e-12):
                 err("pulse period %g is not longer than rise+fall+width = %g" % (per, tr + tf + pw))
         src.args = args
         return src
@@ -1226,7 +1327,7 @@ def resolve_source(params: Mapping[str, Value], type: str, tran_stops: Sequence[
             pts.append((tt, vv))
         times = [_const(tt) for tt, _ in pts]
         for k in range(1, len(times)):
-            if times[k] is not None and times[k - 1] is not None and times[k] <= times[k - 1]:
+            if constraints and times[k] is not None and times[k - 1] is not None and times[k] <= times[k - 1]:
                 err("pwl time points must increase (%s then %s)" % (expr.to_text(pts[k - 1][0], "spectre"),
                                                                      expr.to_text(pts[k][0], "spectre")))
         src.points = pts
@@ -1436,6 +1537,9 @@ class _Parser:
         self.statistics: List[StatBlock] = []
         self.left_out: Dict[str, Note] = {}
         self.spice_counts: Dict[str, int] = {}
+        self.in_analysis = ""                          # the analysis statement whose parameters are read (%A, §2.4)
+        self.in_analysis_origin = ""                   # its origin, for the %A note (FIX2E6)
+        self.percent_noted: Set[str] = set()           # the analysis names whose %A was noted as escaped
         self.insensitive_now = False
         self.card_folds: Dict[int, Dict[str, Expr]] = {}   # id(card) -> folded card parameters
         # the Spectre-mode model declarations per subckt path (() is the top level): a model defined in a subckt
@@ -1497,11 +1601,22 @@ class _Parser:
 
     def read_text(self, path: str, origin: str) -> Optional[str]:
         try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                text = fh.read()
+            with open(path, "rb") as fh:
+                data = fh.read()
         except OSError as exc:
             self.err(origin, "cannot read %s: %s" % (path, exc))
             return None
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            # FIX2E6 (S-2E5, §14 q.62): the netlist is read as UTF-8, so a byte that is not UTF-8 is read as U+FFFD, the
+            # replacement character, which a title or a name that holds it carries into the results files (round 4 wrote
+            # `?' there with a warning, round 5 U+FFFD with none): one warning per file, at the first such byte
+            lineno = data.count(b"\n", 0, exc.start) + 1
+            self.warn("%s:%d" % (origin, lineno), "the byte 0x%02x is not UTF-8: the file is read as UTF-8, so the byte "
+                      "is read as U+FFFD (the replacement character), which a title or a name that holds it carries into "
+                      "the results files (§14 q.62); write the file in UTF-8" % data[exc.start])
+            text = data.decode("utf-8", errors="replace")
         if text.startswith("﻿"):
             text = text[1:]
         return text
@@ -1532,7 +1647,10 @@ class _Parser:
         return None
 
     def percent(self, text: str) -> str:
-        """%-codes in a quoted string or an include name (§2.4) from opts.percent; %% is %."""
+        """%-codes in a quoted string or an include name (§2.4) from opts.percent; %% is %.  %A, the analysis
+        name, is the name of the analysis statement whose parameters hold the string (write="%A.ns" on op1 is
+        op1.ns), unless +%A defines it; outside an analysis it keeps opts.percent's value, empty in a run (the
+        guide trial of phase 2e, TRIAL2E1-05: it was empty inside an analysis too)."""
         if "%" not in text:
             return text
 
@@ -1541,6 +1659,18 @@ class _Parser:
             if code == "%":
                 return "%"
             val = self.opts.percent.get(code)
+            if code == "A" and not val and self.in_analysis:
+                val = self.in_analysis
+                written = written_name(val, "file")
+                if written != val:
+                    # FIX2E6 (S-2E5): a / in the analysis name is escaped as in the name of its results file
+                    # (names.written_name): op\/1's write="%A.ns" is _op_0571.ns, not the path op/1.ns
+                    if val not in self.percent_noted:
+                        self.percent_noted.add(val)
+                        self.note(self.in_analysis_origin, "%%A in the quoted strings of analysis %s is written as %s: a / "
+                                  "cannot be part of a file name, so the name is written escaped by the rule of the "
+                                  "engines' decks, as the name of its results file is" % (val, written))
+                    val = written
             if val is None:
                 return m.group(0)
             return _modifiers(val, mods)
@@ -2019,6 +2149,8 @@ class _Parser:
         t = text.strip()
         if key in spice.spectre_enum_params() and _IDENT.match(t) and t not in ("temp", "tnom") and                 t not in expr.SPECTRE_CONSTANTS:
             return Str(t)
+        if key in _ELEMENT_REFS and ("\\" in t or "!" in t) and _bad_name_char(t) is None:
+            return Str(_unescape(t))                    # probe=V\<1\>, ind1=L\.1: an escaped instance name (phase 2e)
         return self.value(text, origin, key)
 
     def enum_or_value(self, key: str, text: str, origin: str, enums: frozenset) -> Optional[Value]:
@@ -2027,6 +2159,8 @@ class _Parser:
             return Str(t)
         if key in _INSTANCE_ARGS and key in enums and _HIER_IDENT.match(t):
             return Str(t)                               # iprobe=I2.vb: an IR instance path (§5.6)
+        if key in _INSTANCE_ARGS and key in enums and ("\\" in t or "!" in t) and _bad_name_char(t, dots=True) is None:
+            return Str(_unescape(t))                    # iprobe=V\<0\>, oprobe=X\.1.R2: an escaped name (phase 2e)
         if len(t) >= 2 and t[0] == '"' and t[-1] == '"':
             return Str(self.percent(t[1:-1]))
         if t.startswith("["):
@@ -2181,7 +2315,7 @@ class _Parser:
             if a is not None:
                 self.analyses.append(a)
         elif k == "set":
-            self.analyses.append(Analysis("set", self.args_of(st, None), st.origin, name=st.name))
+            self.analyses.append(Analysis("set", self.args_of(st, None), st.origin, name=_unescape(st.name)))
         elif k == "alter":
             a = self.alter(st)
             if a is not None:
@@ -2189,7 +2323,7 @@ class _Parser:
         elif k == "altergroup":
             self.err(st.origin, "%s altergroup: altergroup is an error in v1 (§3.6)" % st.name)
         elif k == "info":
-            self.analyses.append(Analysis("info", self.args_of(st, None), st.origin, name=st.name))
+            self.analyses.append(Analysis("info", self.args_of(st, None), st.origin, name=_unescape(st.name)))
             self.note(st.origin, "%s info: the info file is not written (§3.6)" % st.name)
         elif k == "paramtest":
             self.paramtest(scope, st, branch)
@@ -2423,10 +2557,11 @@ class _Parser:
     def ic(self, st: Stmt) -> None:
         target = self.ics if st.kind == "ic" else self.nodesets
         for k, v in st.params:
-            if ":" in k:
+            if ":" in k.replace("\\:", ""):                    # an escaped ':' is a part of a node's name (a\:b)
                 self.err(st.origin, "%s %s=: an inst:term initial condition is an error (§3.6)" % (st.kind, k))
                 continue
-            if "*" in k or "?" in k:
+            if _wildcard_written(k):
+                # an escaped * or ? is a character of the node's name (s\*t, FIX2E4), not a wildcard
                 self.err(st.origin, "%s %s=: wildcards are an error in v1 (§3.10)" % (st.kind, k))
                 continue
             e = self.expr(v, st.origin)
@@ -2582,7 +2717,9 @@ class _Parser:
             self.err(st.origin, "%s sweep: a sweep block must end its line with { and hold its analyses "
                      "(ref19 p.406)" % st.name)
             return None
-        a = Analysis(kw, {}, st.origin, name=st.name)
+        # the statement's name is the name its escapes spell, as an instance's (TRIAL2EG-F05: my\.op was the analysis
+        # my\.op, whose banner, file my\.op.dc and logFile entry kept the backslash)
+        a = Analysis(kw, {}, st.origin, name=_unescape(st.name))
         if kw in ("noise", "xf"):
             if len(st.nodes) > 2:
                 self.err(st.origin, "%s %s: the output is one node or a node pair" % (st.name, kw))
@@ -2591,13 +2728,21 @@ class _Parser:
         elif st.nodes:
             self.err(st.origin, "%s %s takes no node list" % (st.name, kw))
             return None
-        if kw in ("dc", "ac", "noise", "xf", "sweep"):
-            a.sweep = self.sweep_spec(st, kw)
-            a.args = self.args_of(st, _ANALYSIS_ARGS.get(kw), skip=_SWEEP_KEYS)
-        elif kw == "tran":
-            a.args = self.args_of(st, _TRAN_ARGS)
-        else:
-            a.args = self.args_of(st, None)
+        # %A in the statement's own quoted strings is its name (percent, §2.4; the guide trial of phase 2e,
+        # TRIAL2E1-05); its children are read with their own
+        outer, self.in_analysis = self.in_analysis, a.name
+        outer_origin, self.in_analysis_origin = self.in_analysis_origin, st.origin
+        try:
+            if kw in ("dc", "ac", "noise", "xf", "sweep"):
+                a.sweep = self.sweep_spec(st, kw)
+                a.args = self.args_of(st, _ANALYSIS_ARGS.get(kw), skip=_SWEEP_KEYS)
+            elif kw == "tran":
+                a.args = self.args_of(st, _TRAN_ARGS)
+            else:
+                a.args = self.args_of(st, None)
+        finally:
+            self.in_analysis = outer
+            self.in_analysis_origin = outer_origin
         if kw == "tran" and "stop" not in a.args:
             self.err(st.origin, "%s tran: stop is required" % st.name)
             return None
@@ -2613,9 +2758,9 @@ class _Parser:
                 if child is not None:
                     a.children.append(child)
             elif c.kind == "set":
-                a.children.append(Analysis("set", self.args_of(c, None), c.origin, name=c.name))
+                a.children.append(Analysis("set", self.args_of(c, None), c.origin, name=_unescape(c.name)))
             elif c.kind == "info":
-                a.children.append(Analysis("info", self.args_of(c, None), c.origin, name=c.name))
+                a.children.append(Analysis("info", self.args_of(c, None), c.origin, name=_unescape(c.name)))
                 self.note(c.origin, "%s info: the info file is not written (§3.6)" % c.name)
             elif c.kind == "export" and kw == "montecarlo":
                 self.note(c.origin, "export: Monte Carlo output expressions are not evaluated")
@@ -2775,7 +2920,7 @@ class _Parser:
             if k in ("dev", "mod", "sub", "param", "value", "annotate"):
                 continue                                        # annotate is ignored (§3.10)
             self.err(st.origin, "%s alter: %s= is not an alter parameter" % (st.name, k))
-        return Analysis("alter", args, st.origin, name=st.name)
+        return Analysis("alter", args, st.origin, name=_unescape(st.name))
 
     # -- options (§3.10)
 
@@ -3717,19 +3862,25 @@ class _Parser:
                 self.cond_duplicates(x, allowed)
 
     def find_instance(self, path: str) -> Optional[Instance]:
-        """The instance an IR path (x1.x2.r1) names, through the subckt definitions."""
-        scope: Optional[_Scope] = self.top
-        parts = path.split(".")
-        for k, part in enumerate(parts):
-            inst = scope.insts.get(part) if scope is not None else None
-            if inst is None:
+        """The instance an IR path (x1.x2.r1) names, through the subckt definitions; matched name by name (a name may
+        hold a '.': dev=X\\.1.V1 is V1 of the instance X.1, the guide trial of phase 2e), a shorter subckt instance
+        name first, as tables.path_parts reads a path; a name may start with a '.' (an instance ..k, FIX2E4)."""
+        def walk(scope: Optional[_Scope], rest: str) -> Optional[Instance]:
+            if scope is None:
                 return None
-            if k == len(parts) - 1:
-                return inst
-            if inst.kind != "x":
-                return None
-            scope = next((sc for sc, sub in self.scopes if sub.name == inst.master), None)
-        return None
+            i = rest.find(".")
+            if i == 0:
+                i = rest.find(".", 1)
+            while i > 0:
+                inst = scope.insts.get(rest[:i])
+                if inst is not None and inst.kind == "x":
+                    sub = next((sc for sc, s in self.scopes if s.name == inst.master), None)
+                    got = walk(sub, rest[i + 1:])
+                    if got is not None:
+                        return got
+                i = rest.find(".", i + 1)
+            return scope.insts.get(rest)
+        return walk(self.top, path)
 
     def dev_defaults_pass(self) -> None:
         """A dc/sweep `dev=` without `param=` sweeps a source's dc (UG p.168); any other device needs param=."""
@@ -3750,7 +3901,7 @@ class _Parser:
 
     def saves_pass(self) -> None:
         for st in self.saves:
-            spec = SaveSpec([_unescape(w) for w in st.nodes], origin=st.origin)
+            spec = SaveSpec([_save_token(w) for w in st.nodes], origin=st.origin)
             for k, v in st.params:
                 if k == "compression":
                     self.note(st.origin, "save compression=%s: noted (§3.6)" % v)

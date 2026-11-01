@@ -1,8 +1,9 @@
 """The spectre command line's layers and prescan (docs/VAMOS_SPECTRE_DESIGN.md §2.1, §2.2;
 the API is the §10 block).
 
-Two layers feed one SpectreJob: the defaults variable (`<prog>_DEFAULTS`, `<PROG>_DEFAULTS`,
-`SPECTRE_DEFAULTS`: the first that exists, an empty one meaning no defaults) and argv.  Each is
+Two layers feed one SpectreJob: the defaults variable (`<prog>_DEFAULTS`, `<PROG>_DEFAULTS`, their
+escaped forms for a name that is not an environment-variable name (defaults_vars), `SPECTRE_DEFAULTS`:
+the first that exists, an empty one meaning no defaults) and argv.  Each is
 scanned on its own (personalities/spectre.build_job); the helpers here take the tokens
 optable.scan cannot (`+%X string`, `-%X` and the help options, whose topic is optional) and
 filter the defaults layer: the options ref5 marks without a dagger are not read from the
@@ -16,9 +17,10 @@ from __future__ import annotations
 import dataclasses
 import shlex
 import string
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
-from vamos.job import NOTED, UNSUPPORTED
+from vamos.job import INAPPLICABLE, NOTED
+from vamos.notes import Note, error
 from vamos.optable import ScanError
 from vamos.spectre.job import SpectreJob
 
@@ -43,9 +45,17 @@ _FIELDS = {f.name: f for f in dataclasses.fields(SpectreJob)}
 
 def defaults_vars(prog: str) -> List[str]:
     """The variables tried for the defaults layer, in order (§2.2): `<prog>_DEFAULTS`,
-    `<PROG>_DEFAULTS` when different, then `SPECTRE_DEFAULTS`."""
+    `<PROG>_DEFAULTS` when different, then the escaped forms of the two, names.escape_name(<prog>)
+    and names.escape_name(<PROG>) with `_DEFAULTS` (for a name that is not an environment-variable
+    name: `_spectre_05523_0561_DEFAULTS` for spectre-23.1, which every POSIX shell exports, where
+    dash drops `spectre-23.1_DEFAULTS` before vamos runs; F9, decided by the user's escaped-name
+    rule, 2026-10-19), then `SPECTRE_DEFAULTS`.  A plain name has no escaped form of its own."""
+    from vamos.names import escape_name
+
     out = [prog + "_DEFAULTS"]
-    for v in (prog.upper() + "_DEFAULTS", "SPECTRE_DEFAULTS"):
+    upper = prog.upper()
+    for v in (upper + "_DEFAULTS", escape_name(prog) + "_DEFAULTS", escape_name(upper) + "_DEFAULTS",
+              "SPECTRE_DEFAULTS"):
         if v not in out:
             out.append(v)
     return out
@@ -136,12 +146,13 @@ def not_read(tokens: List[str], job: SpectreJob, var: str) -> List[str]:
 
 
 def without_vamos_options(tokens: List[str], job: SpectreJob, var: str) -> List[str]:
-    """The defaults layer without `--vamos-*` tokens, each recorded UNSUPPORTED (§1): vamos
-    options are read from the command line only."""
+    """The defaults layer without `--vamos-*` tokens, each recorded INAPPLICABLE (§1): vamos options are read from the
+    command line only, so the token has no effect, which its warning says (`<tok> has no effect: <why>', an error under
+    --vamos-strict; FIX2E5, TRIAL2EH-F7: before, its `is not supported yet' promised a feature)."""
     out: List[str] = []
     for tok in tokens:
         if tok.startswith("--vamos-"):
-            job.note(tok, UNSUPPORTED, VAMOS_OPTIONS_NOTE % var)
+            job.note(tok, INAPPLICABLE, VAMOS_OPTIONS_NOTE % var)
         else:
             out.append(tok)
     return out
@@ -184,3 +195,19 @@ def merged_classes(job: SpectreJob) -> Dict[str, bool]:
     on = {"error": True, "warn": True, "note": True, "info": True, "debug": True}
     on.update(job.classes)
     return on
+
+
+def va_define_value_errors(defines: Sequence[str]) -> List[Note]:
+    """§2.3: one error per -va,define with a value: openvaf-r 20260616 takes `-D NAME=VALUE' but leaves NAME undefined
+    (an `ifdef NAME took its else branch with exit 0, and `NAME failed to compile: the guide trial of phase 2e,
+    TRIAL2E1-01).  flow.py refuses them at its step 7 for a netlist with Verilog-A, and run_vacask.run() before openvaf-r
+    runs, so a caller of run() gets the same refusal (the guide trial's leftover: run() passed them on)."""
+    out: List[Note] = []
+    for m in dict.fromkeys(defines):                     # a macro given twice is one error (FIX2E5)
+        if "=" in m:
+            name = m.split("=", 1)[0]
+            out.append(error("", "-va,define %s: openvaf-r leaves a macro that is given a value undefined (-D %s: an "
+                                 "`ifdef %s takes its else branch, and `%s is not declared); not supported on VACASK in "
+                                 "v1: give -va,define %s alone, or `define the value in the Verilog-A source (§2.3)"
+                                 % (m, m, name, name, name)))
+    return out

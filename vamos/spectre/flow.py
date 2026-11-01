@@ -21,9 +21,12 @@ soon as this module imports; run() never raises (§2.7) and returns the Spectre 
   5       spectre.parse with SpectreParseOpts (-I, the %-codes, +pre_config/+config, the cpp
           markers and title, -mts, CDS_VLOGA_INCLUDE, -va,define; stdin: top_dir = the cwd)
   6       job.settings, log.limits, the errors settings() appends to job.notes (§2.2)
-  7       engines.problems (exit 2); the dispositions that depend on the engine: -va,define noted on
-          Xyce (§2.3), and for a netlist with Verilog-A CDS_VLOGA_INCLUDE noted on Xyce and a
-          CDS_AHDL_* other than Spectre's documented default a warning (§2.8)
+  7       engines.problems (exit 2); the dispositions that depend on the engine: for a netlist with
+          Verilog-A every -va,define an error on Xyce (TRIAL2EF-02; noted for one without, §2.3), and
+          for a netlist with Verilog-A a -va,define with a value an error on VACASK
+          (openvaf-r leaves the macro undefined; the guide trial of phase 2e, TRIAL2E1-01), -ahdllibdir
+          noted on Xyce (TRIAL2E2-F10), CDS_VLOGA_INCLUDE noted on Xyce and a CDS_AHDL_* other than
+          Spectre's documented default a warning (§2.8)
   8       plan.build; its notes, less the duplicate option notes (§14 q.54, below), and its note
           actions in netlist order
   9       signals.resolve, with the readns/readic/read names made absolute against the cwd
@@ -50,19 +53,26 @@ Signals (§2.7).  run() installs handlers in the main thread for INT TERM HUP QU
 USR1 USR2 (stop.FLAGS) and TSTP; one that is ignored at start stays ignored.  What cli.py's early
 handlers recorded while vamos started (phase 2c: the imports before these handlers) is taken over
 as if these had received it, and the handlers found are put back at the end (cli.py's, so a signal
-after the trailer neither kills vamos nor prints a traceback).  Before an engine runs a stop signal
-ends the run at once with status 3 and the trailer.  While a runner runs, its proc.Interrupts own
-the signals (the first is forwarded to the engine; the runner returns rc 3, or raises stop.Stop for
-a second one); a stop signal vamos itself got meanwhile (seen through signal.set_wakeup_fd) is the
-first one, and an engine ended from outside (rc 3 too) leaves the next one a first.  During the
-conversion the first stop signal ends it before the next file (nutmeg: the next plot), a second one
-at once (the file being written dropped; nutmeg: the one results file, and the warning names it),
+after the trailer neither kills vamos nor prints a traceback).  bin/vamos holds the six signals
+while Python imports vamos.cli, before cli.py's handlers exist (the guide trial of phase 2e,
+TRIAL2E2-F3).  Before an engine runs a stop signal ends the run at once with status 3 and the
+trailer; one taken over from the start does so once the log is open (step 1b), so that the
++log/=log file gets the warning and the trailer (TRIAL2E2-F4).  While a runner runs, its
+proc.Interrupts own the signals (the first is forwarded to the engine; the runner returns rc 3, or
+raises stop.Stop for a second one); a stop signal vamos itself got meanwhile (seen through
+signal.set_wakeup_fd) is the first one, and an engine ended from outside (rc 3 too) leaves the next
+one a first.  During the conversion the first stop signal ends it before the next file (nutmeg: the
+next plot), a second one at once (the file being written dropped, and the warning names its
+analysis, TRIAL2E2-F11; nutmeg: the one results file, and the warning names it),
 with status 3 and a warning naming the signal; the logFile lists the complete blocks only (an
 unswept analysis, or a whole sweep block), so it stays consistent.  The writers' progress= callback
 (D3, phase 2c) answers inside the file in hand: a first stop signal at once with the notice
 "stopping after `<analysis>' is written; a second interrupt drops it", USR1 and USR2 as below.
 USR1 and USR2 only set flags; the main loop prints the status line (with the points written so
 far, inside a file) or the note "checkpoint not supported: SIGUSR2 is ignored and the run continues".
+One hangup is one signal (the guide trial of phase 2e, TRIAL2EF-01): a terminal hangup delivers SIGHUP
+twice (bash's, then the kernel's as bash exits), and every handler ignores what stop.classify calls a
+repeat, a SIGHUP after a stop signal or any stop signal within stop.HANGUP_WINDOW of a SIGHUP.
 
 Every exception is exit status 2 with the "terminated prematurely" trailer: a NoteError's notes, a
 ToolError, a ScanError, an engine-choice ValueError and an OSError while setting up the run
@@ -96,6 +106,7 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from vamos import VERSION, banner, tools
 from vamos.ams import engines
+from vamos.names import holds_file_text, written_name
 from vamos.netlist import plan as nplan
 from vamos.netlist import signals as nsignals
 from vamos.netlist import spectre as nspectre
@@ -168,7 +179,8 @@ class _Signals:
     while its engine runs and restores them afterwards).  The stop signals raise _Interrupted in
     the "now" state; in "deferred" (the conversion) the first one is recorded for the main loop and
     a second one raises; in "held" (while they are installed) and "quiet" (the trailer) they are
-    recorded only.  A handler found in place that offers take_early_signals() is cli.py's early one
+    recorded only.  A repeat of one hangup's SIGHUP (stop.classify, TRIAL2EF-01) is ignored in every
+    state.  A handler found in place that offers take_early_signals() is cli.py's early one
     (phase 2c): what it recorded while vamos started is taken over, in order, as received here."""
 
     def __init__(self) -> None:
@@ -182,6 +194,7 @@ class _Signals:
         """The handlers, in the "held" state (_Run.main moves to "now" inside its handlers)."""
         if threading.current_thread() is not threading.main_thread():
             return
+        stop.forget()                                    # this run's hangups only (stop.classify)
         for sig in STOP_SIGNALS:
             self._install(sig, self._on_stop)
         for sig in stop.FLAGS:
@@ -232,11 +245,26 @@ class _Signals:
         out, self._flags = self._flags, []
         return out
 
+    def take_pending_flags(self) -> List[int]:
+        """The flags not printed yet, for an engine runner whose signal block replaces these handlers
+        (stop.take_over_flags, TRIAL2EG-F07): the runner prints them while its engine runs."""
+        return self.take_flags()
+
+    def return_pending_flags(self, flags: List[int]) -> None:
+        """The flags a runner's signal block took over or got and did not print, back before any received since
+        (stop.give_back_flags, FIX2E5): the main loop's next poll answers them."""
+        self._flags[:0] = list(flags)
+
     def _on_stop(self, signum, frame) -> None:
+        # the guide trial of phase 2e (TRIAL2EF-01): a repeat of one hangup's SIGHUP (the kernel's after bash's, which a
+        # runner or this handler took) has no effect at all; in "now" it is the one a runner just took
+        kind = stop.classify(signum, self.count > 0)
+        if kind == "repeat":
+            return
         self.count += 1
         if self.signum is None:
             self.signum = signum
-        if self.state == "now" or (self.state == "deferred" and self.count > 1):
+        if self.state == "now" or (self.state == "deferred" and kind == "second"):
             raise _Interrupted(signum)
 
     def _on_flag(self, signum, frame) -> None:
@@ -309,6 +337,24 @@ def _signal_name(signum: int) -> str:
         return "signal %d" % signum
 
 
+# the engine overrides a spectre run checks for vamos itself, as tools.checked_override checks every other VAMOS_<TOOL>
+# (§7; the guide trial of phase 2e, TRIAL2EF-04: VAMOS_VACASK=bin/vamos ran vamos as the engine, its usage text an
+# engine error, and VAMOS_OPENVAF=bin/vamos ran with exit 0)
+_ENGINE_OVERRIDES = {"vacask": (("VAMOS_VACASK", "VACASK"), ("VAMOS_OPENVAF", "openvaf-r")),
+                     "xyce": (("VAMOS_XYCE", "Xyce"),)}
+
+
+def _vamos_itself(engine: str) -> List[str]:
+    """Step 7, beside engines.problems: "<VAR>=<value> is vamos itself (it must name the real <tool>)" for each engine
+    override of `engine` that names a vamos launcher, or a link to one (a shim)."""
+    out: List[str] = []
+    for var, tool in _ENGINE_OVERRIDES.get(engine, ()):
+        val = os.environ.get(var)
+        if val and os.path.isfile(val) and tools.is_vamos(val):
+            out.append("%s=%s is vamos itself (it must name the real %s)" % (var, val, tool))
+    return out
+
+
 # =============================================================================================
 # The run
 # =============================================================================================
@@ -374,8 +420,9 @@ class _Run:
             status = 3
         except stop.Stop as e:
             self.sig.state = "quiet"
+            # the phase the runner was in (the analysis its engine ran: TRIAL2EH-F11), else the flow's
             self.message(warning("", "stopped by a second %s: the engine was killed and nothing is converted "
-                                     "(§2.7)" % _signal_name(e.signum)), self.phase)
+                                     "(§2.7)" % _signal_name(e.signum)), getattr(e, "phase", "") or self.phase)
             status = 3
         except _Fail as f:
             self.sig.state = "quiet"
@@ -405,7 +452,7 @@ class _Run:
             screen = dataclasses.replace(job, log_mode="screen", log_path=None,
                                          defaults={k: v for k, v in job.defaults.items()
                                                    if k not in ("log_mode", "log_path")})
-            self.log = SpectreLog(screen, banner.Banner(banner.load_profile("spectre"), "spectre"), self.start)
+            self.log = SpectreLog(screen, banner.Banner(personality.fallback_profile(), "spectre"), self.start)
         return self.log
 
     def message(self, n: Note, phase: str) -> None:
@@ -479,14 +526,17 @@ class _Run:
     # -- the steps -------------------------------------------------------------------------------
 
     def steps(self) -> int:
+        job, opts = self.job, self.opts
+        # step 1b, the one log opening, while the stop signals are still "held" (recorded only): a stop signal
+        # received while vamos started then ends the run in the log file too, under =log there alone (the guide
+        # trial of phase 2e, TRIAL2E2-F4: before, the run ended before the log was opened, on the screen only)
+        self.codes = percent.codes(job, self.start)
+        self.make_log_dir()
+        self.log = personality.open_log(job, opts, self.start)
+        log = self.log
         self.sig.state = "now"               # inside guarded's handlers: from here a stop signal raises
         if self.sig.signum is not None:      # a stop signal while vamos started (cli.py's early handlers) or
             raise _Interrupted(self.sig.signum)  # while these were installed: the run ends at once (R-tests-2)
-        job, opts = self.job, self.opts
-        self.codes = percent.codes(job, self.start)
-        self.make_log_dir()
-        self.log = personality.open_log(job, opts, self.start)          # step 1b: the one log opening
-        log = self.log
         if job.action in ("version", "subversion"):
             log.line(log.version_text(job.action))
             if job.netlist is None and not has_errors(job.notes):
@@ -564,7 +614,7 @@ class _Run:
 
         # step 7: the engine's tools; the dispositions that depend on the engine (§2.3, §2.8)
         self.phase = PHASE_SETUP
-        probs = engines.problems(engine)
+        probs = engines.problems(engine) + _vamos_itself(engine)
         if probs:
             raise _Fail([error("", p) for p in probs], PHASE_SETUP)
         if self.say(self.engine_notes(nl), PHASE_SETUP):
@@ -627,16 +677,41 @@ class _Run:
             return "", str(e)
 
     def engine_notes(self, nl) -> List[Note]:
-        """§2.3: -va,define is noted on Xyce; §2.8, for a netlist with Verilog-A: CDS_VLOGA_INCLUDE is
-        noted on Xyce (its .hdl compile gets no include directories), and a CDS_AHDL_* setting that
-        changes results is a warning when it is not Spectre's documented default."""
+        """§2.3: for a netlist with Verilog-A a -va,define is an error on Xyce, whose PyMS takes no macro (the guide
+        trial of phase 2e, TRIAL2EF-02: it was a note while the module compiled its `else branch), and noted there for
+        a netlist without; on VACASK a -va,define with a value
+        is an error: openvaf-r 20260616 takes `-D NAME=VALUE' but leaves NAME undefined (an `ifdef NAME took its
+        else branch with exit 0, and `NAME failed to compile: the guide trial of phase 2e, TRIAL2E1-01); §2.8, for a
+        netlist with Verilog-A: CDS_VLOGA_INCLUDE is noted on Xyce (its .hdl compile gets no include directories),
+        and a CDS_AHDL_* setting that changes results is a warning when it is not Spectre's documented default.
+        For a netlist with Verilog-A, -ahdllibdir is noted on Xyce, which compiles no .osdi into it (the guide trial
+        of phase 2e, TRIAL2E2-F10: before, it was ignored there without a word)."""
         out: List[Note] = []
         job = self.job
-        if self.engine == "xyce" and job.va_defines:
+        if self.engine == "xyce" and job.va_defines and not nl.hdl:
             out.append(note("", "-va,define %s: not applied on Xyce, whose .hdl compile takes no macro "
                                 "definitions (§2.3)" % " ".join(job.va_defines)))
         if not nl.hdl:
             return out
+        if self.engine == "xyce":
+            # the guide trial of phase 2e (TRIAL2EF-02): the module compiled its `else branch with exit status 0 behind
+            # the note above.  PyMS has no -D; a prelude file (`define, then `include of the source) as the .hdl was
+            # measured to give the macro, but PyMS keys its build on the top file's text alone and reused a stale
+            # build after the source was edited, so v1 maps nothing
+            for m in dict.fromkeys(job.va_defines):     # a macro given twice is one error (FIX2E5, S-2E4: two)
+                name, eq, value = m.partition("=")
+                fix = ("`define %s in the Verilog-A source" % " ".join(x for x in (name, value) if x) if eq
+                       else "run it on VACASK, or `define %s in the Verilog-A source" % name)
+                out.append(error("", "-va,define %s: not supported on Xyce in v1: Xyce's Verilog-A compile (PyMS) "
+                                     "takes no macro definitions, so the module would compile as if %s were not "
+                                     "defined (an `ifdef %s takes its `else branch) with exit status 0; %s (§2.3)"
+                                     % (m, name, name, fix)))
+        libdir = sargs.effective(job, "ahdllibdir")
+        if self.engine == "xyce" and libdir:
+            out.append(note("", "-ahdllibdir %s: not applied on Xyce, whose PyMS keeps the Verilog-A it compiles in its "
+                                "own cache (PYMS_VAE_CACHE, by default /tmp/pyms_vae_cache; §2.5)" % libdir))
+        if self.engine == "vacask":
+            out.extend(sargs.va_define_value_errors(job.va_defines))       # run_vacask.run's refusal too
         inc = os.environ.get("CDS_VLOGA_INCLUDE", "")
         if self.engine == "xyce" and inc.strip():
             out.append(note("", "CDS_VLOGA_INCLUDE=%s: not applied on Xyce, whose .hdl compile gets no include "
@@ -670,7 +745,9 @@ class _Run:
                         xy = None
             env = tools.bound_blas_threads(engines.env_for(engine, None, tools.child_env()))
             for name, p in engines.tool_rows(engine, xyce=xy):
-                used.append((name, tools.version_of(name, p, env=env), p))
+                # an override naming vamos itself is step 7's error: not run for its version (TRIAL2EF-04)
+                ver = "?" if p and os.path.isfile(p) and tools.is_vamos(p) else tools.version_of(name, p, env=env)
+                used.append((name, ver, p))
         if sargs.cpp_runs(self.job):
             cpp = self.cpp_exe()
             if cpp:
@@ -786,7 +863,7 @@ class _Run:
                             if n == "0" or (pe.subckt is not None and n in ports and n not in nl.globals):
                                 continue
                             g = n if (pe.subckt is None or n in nl.globals) else "%s.%s" % (pe.path, n)
-                            if not any(part.startswith("vamos_") for part in g.split(".")):
+                            if not n.startswith("vamos_"):      # vamos's own nodes (a name may hold a '.')
                                 nets.setdefault(g)
                         if (getattr(it, "kind", "") == "v" and getattr(it, "prim", "") == "vsource"
                                 and not it.name.startswith("vamos_")):
@@ -914,6 +991,10 @@ class _Run:
         prec_text = _opt_text(settings.options.get("precision"))
         head = psf.PsfHead(version=VERSION, date=psf.psf_date(self.start), design=nl.title,
                            precision=psf.precision(prec_text, cnotes, ""))
+        if not holds_file_text(nl.title or ""):
+            # FIX2E5 (§14 q.62): the files are UTF-8, which holds every title but one with a lone surrogate
+            cnotes.append(warning("", "the title %r holds a lone surrogate, which the results files cannot hold: it "
+                                      "is written there with `?' (§14 q.62)" % (nl.title.strip(),)))
         index = _StepIndex(steps, self.legacy)
         save_mode = (_opt_text(nl.options.get("save")) or "selected").lower()
         stream = (r for r in results.collect(pl, sigmap, er, "legacy" if self.legacy else "modern",
@@ -927,16 +1008,22 @@ class _Run:
             conv.nutmeg(stream, settings.fmt == "nutbin", nl.title)
         self.sig.state = "quiet"
         self.progress = ""
+        # the stopped conversion's warning belongs to the analysis being written, as the notice before it (the guide
+        # trial TRIAL2EG-F15: it read `during initial setup', after the last analysis)
+        stopped_in = self.phase if conv.name else PHASE_SETUP
         self.phase = PHASE_SETUP
         if self.sig.signum is not None and conv.dropped is not None:
             # nutmeg: the one results file is what a second signal drops, every plot with it (R-run-10)
             self.message(warning("", "the conversion was stopped by %s: the results file %s is not written (§2.7)"
-                                 % (_signal_name(self.sig.signum), conv.dropped)), PHASE_SETUP)
+                                 % (_signal_name(self.sig.signum), conv.dropped)), stopped_in)
         elif self.sig.signum is not None:
-            self.message(warning("", "the conversion was stopped by %s: the analyses converted before it are "
-                                     "written%s (§2.7)" % (_signal_name(self.sig.signum),
+            # a second signal dropped the file in hand: the warning names its analysis, which may be the one whose
+            # partial results the runner said are written (the guide trial of phase 2e, TRIAL2E2-F11)
+            cut = " (a second interrupt, which drops `%s')" % conv.cut if conv.cut else ""
+            self.message(warning("", "the conversion was stopped by %s%s: the analyses converted before it are "
+                                     "written%s (§2.7)" % (_signal_name(self.sig.signum), cut,
                                                           " and listed in logFile" if settings.fmt == "psfascii"
-                                                          else "")), PHASE_SETUP)
+                                                          else "")), stopped_in)
         if conv.failed_results and status == 0:
             status = 1
         if any(er.status.get(st.id) == "failed" for st in steps) and status == 0:
@@ -987,18 +1074,27 @@ class _Conversion:
         self.name = ""                                   # the analysis being written (D3)
         self.target: Optional[str] = None                # nutmeg: the one results file a second signal drops
         self.dropped: Optional[str] = None               # ... and dropped (R-run-10)
+        self.cut: Optional[str] = None                   # psf: the analysis whose file a second signal dropped
         self.noticed = False                             # D3's "stopping after ..." notice is out
+        self.circuit_warned = False                      # the state files' netlist name holds a `?' (FIX2E4)
+        self.state_notes: set = set()                    # the notes of state-file names written escaped (FIX2E4)
 
     def flush(self, phase: str) -> None:
         new = self.cnotes[self.seen:]
         self.seen = len(self.cnotes)
         self.r.say(new, phase, use_strict=False)
 
+    def phase_of(self, res: results.AnalysisResult) -> str:
+        """The phase of a result's messages, by the analysis's own name (_StepIndex.shown: not the escaped form a
+        file name may take, FIX2E4)."""
+        name = self.index.shown(psf.analysis_name(res))
+        return "sweep `%s'" % name if res.atype in _PARENT_KINDS else _analysis_phase(res.atype, name)
+
     def begin(self, res: results.AnalysisResult) -> None:
-        phase = _result_phase(res)
+        phase = self.phase_of(res)
         self.flush(phase)
         self.r.phase = phase
-        self.name = psf.analysis_name(res)
+        self.name = self.index.shown(psf.analysis_name(res))
         self.r.progress = "writing the results of `%s'" % self.name
 
     def rows_written(self, n: int) -> None:
@@ -1055,6 +1151,7 @@ class _Conversion:
             self.r.sig.state = "quiet"
             if current is not None:
                 _remove(os.path.join(self.raw, current.file + ".vamos-tmp"))
+                self.cut = self.index.shown(psf.analysis_name(current))
         except OSError as e:
             if current is not None:
                 _remove(os.path.join(self.raw, current.file + ".vamos-tmp"))
@@ -1109,7 +1206,7 @@ class _Conversion:
             self.failed_results = True
 
     def after(self, res: results.AnalysisResult, post: bool = True) -> None:
-        self.flush(_result_phase(res))
+        self.flush(self.phase_of(res))
         if post:
             self.post(res)
         self.r.poll()
@@ -1122,7 +1219,7 @@ class _Conversion:
         st = self.index.step_of(res)
         if st is None:
             return
-        phase = _result_phase(res)
+        phase = self.phase_of(res)
         if st.kind in ("op", "dc") and _yes(st.args.get("print")):
             self.print_nodes(res, phase)
         for key, which in (("write", 0), ("writefinal", -1)):
@@ -1134,7 +1231,7 @@ class _Conversion:
         """dc print=yes: the node voltages in the log, per point of a dc sweep [M ref19 p.43]."""
         log = self.r.ensure_log()
         nodes = [k for k, s in enumerate(res.signals) if s.ptype == "V" and s.members is None]
-        log.line("Node voltages of `%s' (print=yes):" % psf.analysis_name(res))
+        log.line("Node voltages of `%s' (print=yes):" % self.index.shown(psf.analysis_name(res)))
         try:
             if res.sweep is None:
                 for k in nodes:
@@ -1148,7 +1245,7 @@ class _Conversion:
                     log.line("    %s = %s" % (res.signals[k].name, si(_real(vals[k]), "V")))
         except (OSError, ValueError, IndexError) as e:
             self.r.message(warning("", "print=yes: the node voltages of `%s' cannot be read: %s"
-                                   % (psf.analysis_name(res), e)), phase)
+                                   % (self.index.shown(psf.analysis_name(res)), e)), phase)
 
     def full_solution(self, st, which: int) -> Optional[Tuple[Dict[str, float], Dict[str, float]]]:
         """§5.4: a write=/writefinal= step saves every node in the engine (VACASK `save default`, Xyce
@@ -1238,16 +1335,38 @@ class _Conversion:
             elif sig.ptype == "I":
                 ref = refs.get(sig.name)
                 it = insts.get(ref[1]) if ref and ref[0] == "i" and len(ref) > 1 else None
-                if it is not None and getattr(it, "kind", "") == "v" and getattr(it, "prim", "") == "vsource":
+                # a vsource's current, and a current a vamos probe measures, whatever element the probe is (a vcvs on
+                # Xyce, FIX2E5: the state files stay those of both engines before)
+                if it is not None and ((getattr(it, "kind", "") == "v" and getattr(it, "prim", "") == "vsource")
+                                       or getattr(it, "name", "").startswith(nsignals.PROBE_PREFIX)):
                     currents.setdefault(sig.name, _real(v))
         path = self.r.state_path(name)
+        outdir = self.r.outdir()
+        if outdir and os.path.dirname(path) == outdir:
+            # a name without a / goes into -outdir (§2.5), which nothing may have made yet: the results went elsewhere
+            # (-raw r.raw; FIX2E5: `cannot write the state file o2/op1.ns: No such file or directory', exit 2)
+            try:
+                os.makedirs(outdir, exist_ok=True)
+            except OSError:
+                pass                                     # the write below reports it
         circuit = self.r.job.netlist if self.r.job.netlist is not None else STDIN_NAME
+        got: List[Note] = []
+        if not holds_file_text(circuit) and not self.circuit_warned:
+            # FIX2E5 (§14 q.62): a name's byte that is not UTF-8 is written as it is; only another lone surrogate is not
+            self.circuit_warned = True
+            got.append(warning("", "the netlist's name %r holds a lone surrogate, which the state files cannot hold: it "
+                                   "is written there with `?' (§14 q.62)" % (circuit,)))
         try:
-            statefile.write(path, nodes, currents, circuit, st.name, statefile.state_date(datetime.now()))
+            statefile.write(path, nodes, currents, circuit, st.name, statefile.state_date(datetime.now()),
+                            notes=got)
         except OSError as e:
             self.write_error = True
             self.r.message(error("", "%s %s: cannot write the state file %s: %s"
                                  % (st.kind, st.name, path, e.strerror or e)), phase)
+        for n in got:                                    # a name written escaped (FIX2E4), once per run
+            if n.message not in self.state_notes and not any(c.message == n.message for c in self.cnotes):
+                self.state_notes.add(n.message)
+                self.r.message(n, phase)
 
 
 # =============================================================================================
@@ -1256,18 +1375,32 @@ class _Conversion:
 
 class _StepIndex:
     """The AnalysisStep of a result (collect does not name it): an unswept analysis by its key, a
-    sweep leaf by its top sweep's name and the longest step name that ends it (§8.1)."""
+    sweep leaf by its top sweep's name and the longest step name that ends it (§8.1), each as the
+    results name it (names.written_name: an analysis or sweep name that holds a / is escaped, FIX2E4)."""
 
     def __init__(self, steps: Sequence[nplan.AnalysisStep], legacy: bool) -> None:
         self.unswept: Dict[str, nplan.AnalysisStep] = {}
         self.swept: List[Tuple[nplan.AnalysisStep, str]] = []
         self.sep = "_" if legacy else "-"
+        pairs = set()
         for st in steps:
             atype = "dc" if st.kind in ("op", "dc") else st.kind
             if st.context:
                 self.swept.append((st, atype))
             else:
-                self.unswept.setdefault("%s-%s" % (st.name, atype), st)
+                self.unswept.setdefault("%s-%s" % (written_name(st.name, "file"), atype), st)
+            for n in [st.name] + [lv.name for lv in st.context]:
+                if written_name(n, "file") != n:
+                    pairs.add((written_name(n, "file"), n))
+        # the escaped form of an analysis or sweep name in a result's name -> the name, the longest first (shown)
+        self.pairs = sorted(pairs, key=lambda p: (-len(p[0]), p))
+
+    def shown(self, name: str) -> str:
+        """A result's analysis name as the messages show it: each analysis or sweep name the results write escaped
+        (results.collect, names.written_name) given back (_a_057b is a/b)."""
+        for written, own in self.pairs:
+            name = name.replace(written, own)
+        return name
 
     def step_of(self, res: results.AnalysisResult) -> Optional[nplan.AnalysisStep]:
         if res.atype in _PARENT_KINDS:
@@ -1279,8 +1412,9 @@ class _StepIndex:
         for st, atype in self.swept:
             if atype != res.atype:
                 continue
-            if name.startswith(st.context[0].name + self.sep) and name.endswith("_" + st.name):
-                if best is None or len(st.name) > len(best.name):
+            own = written_name(st.name, "file")
+            if name.startswith(written_name(st.context[0].name, "file") + self.sep) and name.endswith("_" + own):
+                if best is None or len(own) > len(written_name(best.name, "file")):
                     best = st
         return best
 
@@ -1371,12 +1505,6 @@ def _subckt_names(nl) -> set:
 
 def _analysis_phase(kind: str, name: str) -> str:
     return "%s analysis `%s'" % (_PHASE_WORDS.get(kind, kind), name)
-
-
-def _result_phase(res: results.AnalysisResult) -> str:
-    if res.atype in _PARENT_KINDS:
-        return "sweep `%s'" % psf.analysis_name(res)
-    return _analysis_phase(res.atype, psf.analysis_name(res))
 
 
 def _point(res: results.AnalysisResult, which: int) -> Optional[List[object]]:

@@ -1305,5 +1305,28 @@ class TestXdmDecks(Case):
         self.assertEqual(nl.analyses[0].args["write"], Str("spectre.ic"))
 
 
+class TestGuideTrial2e(Case):
+    """The guide trial of phase 2e (TRIAL2E1-05): %A, the analysis name [M UG pp.264-265; §2.4: empty outside an
+    analysis], expanded to nothing in an analysis's own quoted strings too, so `op1 dc write="w_%A.ns"` wrote w_.ns."""
+
+    PERCENT = {"A": "", "C": "wa.scs"}            # the flow's codes outside an analysis (percent.codes)
+
+    def test_percent_a_in_an_analysis_is_its_name(self):
+        nl = self.parse('// %A\nsimulator lang=spectre\nparameters rv=1k\nV1 (a 0) vsource dc=1\n'
+                        'R1 (a b) resistor r=rv\nC1 (b 0) capacitor c=1n\nop1 dc write="w_%A.ns" readns="r_%A.ns"\n'
+                        'tr1 tran stop=1u writefinal="f_%A:r.fin" readic="%A.ic"\n'
+                        'sw1 sweep param=rv values=[1k 2k] {\n  op2 dc readns="%A_in.ns"\n}\n'
+                        'o1 options rawfile="%A%C:r.raw"\n', name="wa.scs", percent=self.PERCENT)
+        a = {x.name: x for x in nl.analyses}
+        self.assertEqual((a["op1"].args["write"], a["op1"].args["readns"]), (Str("w_op1.ns"), Str("r_op1.ns")))
+        self.assertEqual((a["tr1"].args["writefinal"], a["tr1"].args["readic"]), (Str("f_tr1.fin"), Str("tr1.ic")))
+        self.assertEqual(a["sw1"].children[0].args["readns"], Str("op2_in.ns"))    # the statement's own name
+        self.assertEqual(nl.options["rawfile"], Str("wa.raw"))                      # outside an analysis: empty
+        # a +%A definition is the user's: it wins inside an analysis too (§2.4)
+        nl = self.parse('// %A\nsimulator lang=spectre\nV1 (a 0) vsource dc=1\nR1 (a 0) resistor r=1k\n'
+                        'op1 dc write="w_%A.ns"\n', name="wa.scs", percent={"A": "mine", "C": "wa.scs"})
+        self.assertEqual(nl.analyses[0].args["write"], Str("w_mine.ns"))
+
+
 if __name__ == "__main__":
     unittest.main()

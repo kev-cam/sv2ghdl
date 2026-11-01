@@ -952,7 +952,9 @@ class TestFakeVacask(FakeCase):
         deck, _steps = self.setup_deck(VA_DECK, {"vr.va": VR_VA})
         self.fake({"steps": [{"id": "vamos_a1", "raw": op_raw()}]})
         os.environ["CDS_VLOGA_INCLUDE"] = "vinc"
-        job = self.job(deck, incdirs=["inc"], va_defines=["FAST=1"])
+        # a macro by name, as the flow lets one through (a value is refused: test_ef_l2_a_macro_value_is_refused...;
+        # before the guide trial of phase 2e this test pinned `-D FAST=1', which openvaf-r leaves undefined)
+        job = self.job(deck, incdirs=["inc"], va_defines=["FAST"])
         er, *_ = self.run_deck(deck, job=job)
         self.assertEqual(er.rc, 0, self.log_text())
         lib = os.path.join(self.tmp, "ahdl")
@@ -966,7 +968,7 @@ class TestFakeVacask(FakeCase):
         self.assertEqual(argv[argv.index("-o") + 1].endswith(".part"), True)   # written beside, then moved
         self.assertEqual([argv[i + 1] for i, a in enumerate(argv) if a == "-I"],
                          [os.path.join(self.tmp, "vinc"), os.path.join(self.tmp, "inc")])
-        self.assertEqual([argv[i + 1] for i, a in enumerate(argv) if a == "-D"], ["FAST=1"])
+        self.assertEqual([argv[i + 1] for i, a in enumerate(argv) if a == "-D"], ["FAST"])
         self.assertEqual(os.path.realpath(calls[0]["cwd"]), os.path.realpath(self.tmp))
         with open(os.path.join(self.tmp, "run", RV.DECK)) as fh:
             self.assertIn('load "%s"' % os.path.join(lib, osdi[0]), fh.read())
@@ -979,6 +981,23 @@ class TestFakeVacask(FakeCase):
         _er, *_ = self.run_deck(deck, run_dir=os.path.join(self.tmp, "run3"), job=job)
         self.assertEqual(len(self.openvaf_calls()), 2)
         self.assertEqual(len(os.listdir(lib)), 2)
+
+    def test_ef_l2_a_macro_value_is_refused_before_openvaf_r_runs(self):
+        """The guide trial of phase 2e (TRIAL2E1-01's leftover): openvaf-r leaves NAME undefined for `-D NAME=VALUE', so
+        the flow refuses a -va,define with a value on VACASK; run() called directly passed it on, and the module compiled
+        its `else branch.  It now refuses it the same way, in the same words, before openvaf-r runs: rc 2."""
+        deck, _steps = self.setup_deck(VA_DECK, {"vr.va": VR_VA})
+        self.fake({"steps": [{"id": "vamos_a1", "raw": op_raw()}]})
+        job = self.job(deck, va_defines=["FAST", "SLOW=1"])
+        er, *_ = self.run_deck(deck, job=job)
+        self.assertEqual(er.rc, 2, self.log_text())
+        self.assertIn("Error from spectre during initial setup.\n    -va,define SLOW=1: openvaf-r leaves a macro that is "
+                      "given a value undefined (-D SLOW=1: an `ifdef SLOW takes its else branch, and `SLOW is not "
+                      "declared); not supported on VACASK in v1: give -va,define SLOW alone, or `define the value in the "
+                      "Verilog-A source (§2.3)\n", self.log_text())
+        self.assertNotIn("-va,define FAST", self.log_text())
+        self.assertEqual(self.openvaf_calls(), [])
+        self.assertEqual(self.seen(), {})                                  # VACASK never ran
 
     def test_two_runs_share_the_cache(self):
         """§2.5: concurrent runs share the directory; each .osdi is written beside it and moved, so
@@ -1068,6 +1087,39 @@ class TestFakeVacask(FakeCase):
         self.assertEqual(cm.exception.signum, signal.SIGINT)
         pid = self.seen()["pid"]
         self.assertFalse(_alive(pid), "the engine was killed")
+
+    @needs_signals
+    def test_ef01_one_hangup_s_signals_are_one_signal(self):
+        """The guide trial of phase 2e (TRIAL2EF-01): a terminal hangup sends SIGHUP twice (bash's, then the kernel's as
+        bash exits), and a session manager may send SIGTERM, then SIGHUP; the second was the user's second signal, so
+        VACASK was killed and stop.Stop threw every result away.  Now they are one signal: the engine (here one that
+        ignores the forwarded SIGTERM) is killed after the grace period and the run is converted, status 3.  A user's
+        second SIGINT, however quick, is still the second signal."""
+        RV.INTERRUPT_GRACE = 0.5
+        for pair in (("SIGHUP", "SIGHUP"), ("SIGTERM", "SIGHUP"), ("SIGHUP", "SIGTERM")):
+            with self.subTest(pair=pair):
+                deck, steps = self.setup_deck()
+                spec = self.all_ok(steps)
+                spec["ignore_term"] = True
+                spec["steps"][1]["raw"] = tran_raw(complete=False, events=[{"at": 3, "sig": pair[0], "sleep": 0.05},
+                                                                           {"at": 3, "sig": pair[1], "sleep": 20}])
+                self.fake(spec)
+                with QuietSignals():
+                    er, *_ = self.run_deck(deck, run_dir=os.path.join(self.tmp, "run_%s_%s" % pair))
+                self.assertEqual(er.rc, 3, self.log_text())
+                self.assertEqual(er.status[steps[1].id], "interrupted")
+                self.assertIn("(vamos got %s and stopped VACASK; VACASK did not stop within 0.5 s and was killed)"
+                              % pair[0], self.log_text())
+        deck, steps = self.setup_deck()
+        spec = self.all_ok(steps)
+        spec["ignore_term"] = True
+        spec["steps"][1]["raw"] = tran_raw(complete=False, events=[{"at": 3, "sig": "SIGINT", "sleep": 0.05},
+                                                                   {"at": 3, "sig": "SIGINT", "sleep": 20}])
+        self.fake(spec)
+        with QuietSignals():
+            with self.assertRaises(stop.Stop) as cm:
+                self.run_deck(deck, run_dir=os.path.join(self.tmp, "run_int"))
+        self.assertEqual(cm.exception.signum, signal.SIGINT)
 
     @needs_signals
     def test_grace_period_kill_converts_with_status_3(self):
@@ -1553,6 +1605,20 @@ class TestVacaskSignals(RunnerCase):
                                                  signal.SIGINT], self.job(deck), plan, nl2, sigmap)
         self.assertIsInstance(got, stop.Stop, self.log_text())
         self.assertEqual(got.signum, signal.SIGINT)
+        self.assertEqual(procs_under(run_dir), [])
+
+    def test_ef01_a_hangup_s_two_sighups_on_the_real_engine(self):
+        """TRIAL2EF-01 on the real VACASK, held (SIGSTOP) so that the forwarded SIGTERM waits and the hangup's second
+        SIGHUP comes while it still runs: one signal, the run converted with status 3 (before: stop.Stop)."""
+        deck, plan, nl2, sigmap, (op1, tr, op2) = self.long_tran()
+        run_dir = os.path.join(self.tmp, "run")
+        got = self.run_signalled(run_dir, tr.id, [self.to_engine(run_dir, signal.SIGSTOP), signal.SIGHUP, 0.05,
+                                                 signal.SIGHUP, 0.3, self.to_engine(run_dir, signal.SIGCONT)],
+                                 self.job(deck), plan, nl2, sigmap)
+        self.assertNotIsInstance(got, stop.Stop, self.log_text())
+        self.assertEqual(got.rc, 3, self.log_text())
+        self.assertEqual(got.status, {op1.id: "ok", tr.id: "interrupted"})
+        self.assertIn("(vamos got SIGHUP and stopped VACASK)", self.log_text())
         self.assertEqual(procs_under(run_dir), [])
 
     def test_grace_period_kill_of_the_real_engine(self):

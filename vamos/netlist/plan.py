@@ -624,6 +624,7 @@ class _Inst:
 class _Ctx:
     def __init__(self, nl: Netlist, engine: str, settings: Settings):
         self.nl, self.engine, self.settings = nl, engine, settings
+        self.dotted = T.dotted_names(nl)                # a name holds a '.': tables.split_path splits (phase 2e)
         self.notes: List[Note] = []
         self._seen: Set[Tuple[str, str, str]] = set()
         self.plan = RunPlan(engine=engine)
@@ -687,6 +688,9 @@ class _Ctx:
         self.csine_reported: Set[Tuple[str, Target]] = set()    # M2: (sweep, target) of a constant sine refused
         # phase 2c9
         self.src_presweep: Set[Tuple[str, str]] = set()         # N5: (source path, constraint) refused at a pre-sweep setup
+        # the guide trial of phase 2e (TRIAL2E1-07): id(Source) of the source states an alter made without
+        # spectre.resolve_source's constant checks (pulse period, pwl times), which _source_at checks instead
+        self.src_unchecked: Set[int] = set()
 
     # -- notes
     def _add(self, sev: str, origin: str, msg: str) -> None:
@@ -751,7 +755,14 @@ class _Ctx:
         for pe in self.paths:
             for it in pe.items:
                 path = it.name if not pe.path else pe.path + "." + it.name
-                self.insts.setdefault(path, _Inst(path, it, pe))
+                got = self.insts.setdefault(path, _Inst(path, it, pe))
+                if got.inst is not it:
+                    # two instances, one IR path: a name that holds a '.' repeats another path (a top-level R\.1 and
+                    # the instance 1 of an X instance R); a sweep, an alter or a save of it would reach one of them only
+                    self.err(it.origin, "instance %s %s and instance %s %s have one hierarchical name, %s: a name "
+                             "that holds a '.' must not repeat another path; not supported in v1 (§3.2)"
+                             % (got.inst.name, "of " + got.env.path if got.env.path else "at the top level", it.name,
+                                "of " + pe.path if pe.path else "at the top level", path))
         self.walk_order = {path: k for k, path in enumerate(self.insts)}
         self.path_counts = {s.name: 0 for s in T.all_subckts(nl)}
         for pe in self.paths:
@@ -1112,7 +1123,7 @@ def _zero_set(ctx: _Ctx, path: str) -> Optional[Tuple[str, str, str]]:
     ent = ctx.insts.get(path)
     if ent is None or ent.inst.kind != "r" or is_short(ent.inst) or is_infinite_resistor(ent.inst):
         return None
-    return (path, ent.inst.origin, _ZERO_TEXT % (ent.inst.name, path.rpartition(".")[0] or "top level",
+    return (path, ent.inst.origin, _ZERO_TEXT % (ent.inst.name, ent.env.path or "top level",
                                                  "its r, set by a sweep or alter, is 0"))
 
 
@@ -2058,6 +2069,13 @@ def _alter(ctx: _Ctx, a: Analysis, in_sweep: bool) -> None:
     before = ctx.base.key()
     prev_states = dict(ctx.source_state)
     if r.source_field and r.inst is not None:
+        if isinstance(value, str) and param not in _SOURCE_WORDS:
+            # the guide trial of phase 2e (TRIAL2EF-08): a quoted word reached the decks (VACASK: `Operation not supported
+            # for string and real', pointing into vamos.sim; Xyce: `Unrecognized character: "'), on both engines
+            ctx.err(a.origin, "the alter of instance %s of %s sets '%s', not a number, where the source's %s takes a "
+                              "number; not supported in v1 (write value=%s, without the quotes)"
+                    % (param, r.inst.path, value, param, value))
+            return
         src = r.inst.inst.source
         wave, dc_given, cur = ctx.source_state.get(r.inst.path, (src.wave if src else None, bool(src and src.dc is not None),
                                                                   src or Source()))
@@ -2073,8 +2091,15 @@ def _alter(ctx: _Ctx, a: Analysis, in_sweep: bool) -> None:
         if param == "type":
             type_text = str(value)
         notes: List[Note] = []
-        new = _resolved_source(params, type_text, ctx.tran_stops, notes)     # phase 2c8 (M2): a given dc kept
-        ctx.notes.extend(notes)
+        # phase 2c8 (M2): a given dc kept.  The guide trial of phase 2e (TRIAL2E1-07): the constant period and pwl
+        # times are not refused here, in resolve_source's bare words (no line, no analysis, no alter), but by
+        # _source_at in every analysis that uses the state, as every other constraint is (`tran tr1 (after alter
+        # a1): the pulse of V1 has period=...'), and by _altered_sources when no analysis follows
+        new = _resolved_source(params, type_text, ctx.tran_stops, notes, constraints=False)
+        ctx.src_unchecked.add(id(new))
+        # the guide trial of phase 2e (TRIAL2EF-10): the resolve's notes name the alter's line and the source, as the
+        # netlist's own do (`V1: type=sine with freq=0 is a constant: folded into dc' had neither)
+        ctx.notes.extend(Note(n.severity, a.origin, "%s: %s: %s" % (what, r.inst.path, n.message)) for n in notes)
         new_wave = new.wave
         new_given = new.dc is not None
         ctx.source_state[r.inst.path] = (new_wave, new_given, new)
@@ -2211,11 +2236,17 @@ def _args(ctx: _Ctx, a: Analysis, env: Mapping[str, float], what: str) -> Dict[s
         v = _setting(ctx, raw, env, ctx.base, a.origin, "%s %s" % (what, key))
         if v is not None:
             args[key] = v
+    # of two +paramdefault lines for one parameter the later one wins, as for an options line (_global_options), so the
+    # command line's file beats the defaults variable's, which come first (the guide trial of phase 2e, TRIAL2E2-F6:
+    # before, the first analysis line won)
+    defaults: Dict[str, str] = {}
     for prim, param, value in ctx.settings.paramdefault:
         if prim == a.kind and param not in args and param not in a.args:
-            v = _setting(ctx, _paramdefault_value(value), env, ctx.base, a.origin, "%s %s (+paramdefault)" % (what, param))
-            if v is not None:
-                args[param] = v
+            defaults[param] = value
+    for param, value in defaults.items():
+        v = _setting(ctx, _paramdefault_value(value), env, ctx.base, a.origin, "%s %s (+paramdefault)" % (what, param))
+        if v is not None:
+            args[param] = v
     return args
 
 
@@ -2366,7 +2397,7 @@ def _node_path(ctx: _Ctx, at: str, local: str) -> str:
     if xent is not None and sub is not None and local in sub.ports:
         i = sub.ports.index(local)
         if i < len(xent.inst.nodes):
-            return _node_path(ctx, at.rpartition(".")[0], xent.inst.nodes[i])
+            return _node_path(ctx, xent.env.path, xent.inst.nodes[i])     # the X line's own body (a name may hold a '.')
     return at + "." + local
 
 
@@ -2377,7 +2408,7 @@ def _output_pair(ctx: _Ctx, a: Analysis, args: Dict[str, Setting], ent: Optional
     if ent is not None:
         if len(ent.inst.nodes) < 2:
             return
-        at = ent.path.rpartition(".")[0]
+        at = ent.env.path                              # the body that holds the instance (a name may hold a '.')
         args["p"] = _node_path(ctx, at, ent.inst.nodes[0])
         args["n"] = _node_path(ctx, at, ent.inst.nodes[1])
     elif a.nodes:
@@ -2387,12 +2418,15 @@ def _output_pair(ctx: _Ctx, a: Analysis, args: Dict[str, Setting], ent: Optional
 
 def _net_of(ctx: _Ctx, name: str) -> str:
     """An analysis's output node as its net: a port of a subckt instance (X1.y) follows the X line's binding,
-    as oprobe's terminals do (phase 2c, R-plan-10); any other name stays as written."""
-    at, sep, local = name.rpartition(".")
-    xent = ctx.insts.get(at) if sep else None
-    if xent is None or xent.inst.kind != "x":
-        return name
-    return _node_path(ctx, at, local)
+    as oprobe's terminals do (phase 2c, R-plan-10); any other name stays as written.  The X instance is the longest
+    prefix that names one: a name may hold a '.' (port p of X\\.1, the guide trial of phase 2e)."""
+    i = name.rfind(".")
+    while i > 0:
+        xent = ctx.insts.get(name[:i])
+        if xent is not None and xent.inst.kind == "x":
+            return _node_path(ctx, name[:i], name[i + 1:])
+        i = name.rfind(".", 0, i)
+    return name
 
 
 def _noise_dispositions(ctx: _Ctx, a: Analysis, step: AnalysisStep, args: Dict[str, Setting]) -> None:
@@ -2824,9 +2858,10 @@ def _holder_m(r: _Resolved, param: str) -> bool:
     return r.target[0] == "instance" and r.inst is not None and r.inst.inst.kind == "x" and param == "m"
 
 
-def _holders(scope: str) -> List[str]:
-    """The subckt instance paths that hold an instance path's body: "X0.X1" -> ["X0", "X0.X1"]."""
-    parts = scope.split(".") if scope else []
+def _holders(ctx: _Ctx, scope: str) -> List[str]:
+    """The subckt instance paths that hold an instance path's body: "X0.X1" -> ["X0", "X0.X1"] (tables.split_path: a
+    name may hold a '.')."""
+    parts = T.split_path(ctx.nl, scope, ctx.dotted) if scope else []
     return [".".join(parts[:k]) for k in range(1, len(parts) + 1)]
 
 
@@ -2838,7 +2873,7 @@ def _vacask_sig(ctx: _Ctx, b: _Bound, st: _State) -> Tuple:
     if b.scope:
         env = _scope_env(ctx, st, b.scope)
         held = tuple(sorted(env.items())) if env is not None else ("?",)
-        for p in _holders(b.scope):
+        for p in _holders(ctx, b.scope):
             ent = ctx.insts.get(p)
             if ent is None or ent.inst.kind != "x":
                 continue
@@ -2867,7 +2902,7 @@ def _vacask_diff(ctx: _Ctx, b: _Bound, st: _State) -> str:
     names += [n for n, x, y in (("temp", q0[1], q1[1]), ("tnom", q0[2], q1[2])) if x != y]
     names += [_hook_label(t) for t in hooks]
     m0, m1 = dict(q0[4]), dict(q1[4])
-    mult = ["%s:m" % p for p in _holders(b.scope) if m0.get(p) != m1.get(p)]
+    mult = ["%s:m" % p for p in _holders(ctx, b.scope) if m0.get(p) != m1.get(p)]
     if not names and not mult and q0[3] != q1[3]:
         d0, d1 = dict(q0[3]) if q0[3] != ("?",) else {}, dict(q1[3]) if q1[3] != ("?",) else {}
         names = ["%s:%s" % (b.scope, k) for k in sorted(set(d0) | set(d1)) if d0.get(k) != d1.get(k)]
@@ -2972,7 +3007,7 @@ def _bindings_of(ctx: _Ctx, r: _Resolved, param: str) -> List[Tuple[str, object,
         if param == "isnoisy" and (e is None or isinstance(e, Str)):
             e, form, holder = _noisy_binding(it), "binding", ""
         if e is not None and not isinstance(e, Str):
-            out.append((r.inst.path, e, r.inst.path.rpartition(".")[0], form, holder))
+            out.append((r.inst.path, e, r.inst.env.path, form, holder))
         elif e is None and r.subckt is not None:           # H2: the subckt's default, which the X line leaves
             d = next((p.expr for p in list(r.subckt.params) + [p for p in r.subckt.body if isinstance(p, Param)]
                       if p.name == param), None)
@@ -3075,7 +3110,7 @@ def _bound_printed(ctx: _Ctx, a: Analysis, r: _Resolved, new: Source) -> None:
         except (X.EvalError, X.ExprError, TypeError, ValueError, ArithmeticError):
             values = []
         b = _Bound(a.name, a.origin, r.target, r.target[2], path, e, _reads_of(e),
-                   values if isinstance(c, list) else (values[0] if values else None), path.rpartition(".")[0],
+                   values if isinstance(c, list) else (values[0] if values else None), r.inst.env.path,
                    item=key)
         b.cmp = ("list" if isinstance(c, list) else "number") if values else "opaque"
         b.hooks = tuple((o, ("instance", path, k)) for k, o in deps if _hook_printed(ctx, ("instance", path, k)))
@@ -3431,11 +3466,12 @@ def _netlist_source(ctx: _Ctx, ent: _Inst) -> Source:
 
 
 def _resolved_source(params: Mapping[str, object], type_text: str, tran_stops: Sequence[float],
-                     notes: List[Note]) -> Source:
+                     notes: List[Note], constraints: bool = True) -> Source:
     """spectre.resolve_source, a sine of constant freq 0 in tables.constant_sine's form (phase 2c8, M2: an alter's or a
-    sweep point's source keeps its given dc, as the netlist's does)."""
+    sweep point's source keeps its given dc, as the netlist's does); constraints: resolve_source's own refusal of a
+    constant period or pwl times (TRIAL2E1-07: the alter's are _source_at's)."""
     from vamos.netlist import spectre as SP
-    src = SP.resolve_source(params, type_text, tran_stops, notes)       # type: ignore[arg-type]
+    src = SP.resolve_source(params, type_text, tran_stops, notes, constraints)       # type: ignore[arg-type]
     return T.constant_sine(src) or src
 
 
@@ -3545,9 +3581,9 @@ def _src_check(wave: str, src: Source, env: Mapping[str, float], temp: float, tn
     """L4: the constraints an evaluated source's waveform breaks, [(key of _SRC_RULES, what it has, whether the fields it
     reads are constants in src)]; None when a field does not evaluate (the walk of the state reports that).
     consts_checked: spectre.resolve_source made src from constant fields, so it refused their pulse period and pwl
-    times itself (at the parse or the alter).  A constraint reads numbers only: a field an alter set to a word
-    (value="2u") leaves the constraints that read it unchecked (the engines report that value, an open wrong-type
-    case), and a pwl without points is resolve_source's own error.  Phase 2c8: a negative fall or width, an exp time
+    times itself (at the parse or the alter).  A constraint reads numbers only: an alter that sets a numeric field to a
+    word (value="2u") is refused at the alter (_alter; the guide trial of phase 2e, TRIAL2EF-08), and a pwl without
+    points is resolve_source's own error.  Phase 2c8: a negative fall or width, an exp time
     constant of 0 (M1, M3); a sine's freq below 0 apart from its 0 (M4: the constant's rule on both engines, VACASK's
     alone for the 0); no negative zero in a message (a stretch of -1 printed `-0 s')."""
     def g(v: float) -> str:
@@ -3621,7 +3657,7 @@ def _src_violations(ctx: _Ctx, ent: _Inst, st: _State, wave: str, src: Source, c
     """_src_check in a state (the source's path values there), cached on the source state it comes from (origin: the
     id of the plan's Source, which the plan's actions or the IR keep alive, and the fields a sweep point sets) and on
     the values of what that Source's waveform reads (reads: its _src_reads, which a point's own values only narrow)."""
-    scope = ent.path.rpartition(".")[0]
+    scope = ent.env.path                               # the body that holds the source (a name may hold a '.')
     env: Optional[Mapping[str, float]] = {}
     vals: Tuple = ()
     if reads:
@@ -3653,6 +3689,8 @@ def _src_cause(ctx: _Ctx, ent: _Inst, key: str, wave: str, src: Source, consts_c
 
 
 _SRC_WAVES = ("pulse", "sin", "exp", "pwl")
+# the source fields that take a word, which an alter may set to one (TRIAL2EF-08: any other field takes a number)
+_SOURCE_WORDS = frozenset(("type", "file"))
 # L4: the Spectre fields of each waveform a constraint reads (a sweep of another one leaves the constraints as they are)
 _SRC_FIELDS: Dict[str, Tuple[str, ...]] = {"pulse": ("rise", "fall", "width", "period"), "sin": ("freq", "damp"),
                                            "exp": ("td1", "td2", "delay", "tau1", "tau2"), "pwl": ("wave", "stretch")}
@@ -3660,7 +3698,7 @@ _SRC_FIELDS: Dict[str, Tuple[str, ...]] = {"pulse": ("rise", "fall", "width", "p
 
 def _source_at(ctx: _Ctx, ent: _Inst, st: _State, over: Optional[Mapping[str, float]], kind: str, where: Any,
                sweeps: str, elab: bool = False, states: Optional[Mapping[str, Tuple[Optional[str], bool, Source]]] = None,
-               const_only: bool = False, presweep: str = "") -> bool:
+               const_only: bool = False, presweep: str = "", later: bool = False) -> bool:
     """L4 (phase 2c7): one source's constraints in one state an analysis of this kind runs in (elab: VACASK's first
     elaboration, at an alter instance or model statement), each constraint reported once, naming the state (where: a
     text, or a callable giving it; the sweeps it is a point of; the alter or set that made it) [_SRC_RULES]: on Xyce the
@@ -3687,7 +3725,10 @@ def _source_at(ctx: _Ctx, ent: _Inst, st: _State, over: Optional[Mapping[str, fl
     origin = (id(base), tuple(sorted(over.items())) if over else ())
     reads = _src_reads(base, ctx) if base is not None else _src_reads(src)
     reported = False
-    for key, detail, const in _src_violations(ctx, ent, st, wave, src, not over, origin, reads) or ():
+    # spectre.resolve_source refused a constant period or pwl times that do not increase where it made src: at the
+    # parse; not for a source state an alter made (TRIAL2E1-07), which these rules check
+    checked = not over and id(base) not in ctx.src_unchecked
+    for key, detail, const in _src_violations(ctx, ent, st, wave, src, checked, origin, reads) or ():
         both, rule, vtext, setup, render = _SRC_RULES[key]
         if (ent.path, key) in ctx.src_reported or presweep and (ent.path, key) in ctx.src_presweep:
             continue
@@ -3708,7 +3749,7 @@ def _source_at(ctx: _Ctx, ent: _Inst, st: _State, over: Optional[Mapping[str, fl
         (ctx.src_presweep if presweep else ctx.src_reported).add((ent.path, key))
         reported = True
         parts = [sweeps] if sweeps else []
-        cause = _src_cause(ctx, ent, key, wave, src, not over, origin, reads)
+        cause = _src_cause(ctx, ent, key, wave, src, checked, origin, reads)
         if cause:
             parts.append("after " + cause)
         w = "%s%s" % (where() if callable(where) else where, " (%s)" % "; ".join(parts) if parts else "")
@@ -3716,6 +3757,19 @@ def _source_at(ctx: _Ctx, ent: _Inst, st: _State, over: Optional[Mapping[str, fl
         if mode == "tran":
             clause = "VACASK stops at its setup with '%s'" % vtext if setup else vtext
             msg = "%s: %s: %s; %s)" % (w, what, rule, clause)
+        elif mode == "const" and kind and not given and cause:
+            # the guide trial of phase 2e (TRIAL2EF-06): after an alter, an analysis whose dc the source derives says so,
+            # as the dc mode below and a sweep's or a param= alter's message do (the guide's own dev= alter example
+            # lacked it); the netlist's own constant keeps the constant's words, whatever the analysis (2c8's M3)
+            msg = "%s: %s: %s; its dc is the waveform's value at t = 0)" % (w, what, rule)
+        elif mode == "const" and later:
+            # FIX2E5 (the user, 2026-10-23: `fix any regressions'): a source alter after the last analysis that breaks a
+            # §3.8.1 rule is not an error, since no analysis runs in that state (as the zero-resistance rule reads it);
+            # a warning naming the alter, the field and the rule, the run's status unchanged.  Round 1 (TRIAL2E1-07) had
+            # refused it on both engines, where 5d2291f ran X-2c8's R0057 and R0024 (their period form it refused)
+            ctx.warn(ent.inst.origin, "%s: %s: %s) where an analysis runs, and no analysis runs in this state: the run "
+                                      "goes on" % (w, what, rule))
+            continue
         elif mode == "const":
             msg = "%s: %s: %s)" % (w, what, rule)
         elif mode == "setup":
@@ -3744,10 +3798,22 @@ def _constant_sources(ctx: _Ctx) -> None:
         _source_at(ctx, ent, ctx.base, None, "", "the netlist", "", const_only=True)
 
 
+def _altered_sources(ctx: _Ctx) -> None:
+    """The guide trial of phase 2e (TRIAL2E1-07): a source state an alter made that no later analysis set up (an alter
+    after the last analysis that uses the source) is checked as _constant_sources checks a netlist without analyses,
+    in the rules' words (`the netlist (after alter a1): the pulse of V1 has ...').  FIX2E5: a warning, not an error,
+    since no analysis runs in that state (round 1 refused it on both engines, where 5d2291f ran X-2c8's R0057 and
+    R0024 and refused only a period and pwl times, at the alter, in resolve_source's bare words)."""
+    for ent in _src_ents(ctx):
+        state = ctx.source_state.get(ent.path)
+        if state is not None and id(state[2]) in ctx.src_unchecked:
+            _source_at(ctx, ent, ctx.base, None, "", "the netlist", "", const_only=True, later=True)
+
+
 def _src_deps(ctx: _Ctx, ent: _Inst, src: Source) -> Optional[Set[str]]:
     """L4: the top-level parameters (and temp, tnom) a top-level source's waveform reads, through the top-level parameters'
     expressions; None for a source in a subckt body (its subckt's parameters may read any of them)."""
-    if "." in ent.path:
+    if ent.env.path:                                   # in a subckt body (a top-level name may hold a '.')
         return None
     params = {p.name: p for p in ctx.top_params}
     out: Set[str] = set()
@@ -4105,6 +4171,8 @@ def build(nl: Netlist, engine: str, settings: Settings, cwd: Optional[str] = Non
         _check_state(ctx, ctx.base, "the netlist")
     if not ctx.steps:
         _constant_sources(ctx)                           # phase 2c8 (M1, M3): the constants' rules with no analysis
+    else:
+        _altered_sources(ctx)                            # TRIAL2E1-07: an alter's state no analysis set up
     _run_dependent_rules(ctx)
     _ic_values(ctx)
     if ctx.errors:

@@ -23,7 +23,8 @@ indented text.  The counts of the trailer are every error, warning and notice gi
 message(), printed or not.  -maxwarns/-maxnotes (and their -tolog variants) limit how often one
 message id is printed per analysis, on the screen and in the file; the id is the text with
 every number replaced by `#` and every quoted name by one placeholder [I, §14 q.40]; at the
-limit one notice says that further ones are suppressed.  The limits are argv + defaults until
+limit one notice says that further ones are suppressed, naming that destination's option
+(-maxwarns on the screen, -maxwarnstolog in the file).  The limits are argv + defaults until
 limits() applies the merged Settings (§2.2).
 """
 
@@ -254,9 +255,11 @@ class SpectreLog:
                 what = "warnings" if note.severity == WARNING else "notices"
                 where = " during analysis `%s'" % self.analysis if self.analysis else ""
                 limit = self._limits[dest][0 if note.severity == WARNING else 1]
+                # the option that set this destination's limit: the file's is -maxwarnstolog/-maxnotestolog (the guide
+                # trial of phase 2e, TRIAL2EF-07: the log named -maxwarns, which does not limit it)
+                option = "-max%s%s" % ("warns" if note.severity == WARNING else "notes", "tolog" if dest == "file" else "")
                 t = self.text("notice_block", phase=phase,
-                              text="further %s of this kind%s are suppressed (-max%s %d)"
-                              % (what, where, "warns" if note.severity == WARNING else "notes", limit))
+                              text="further %s of this kind%s are suppressed (%s %d)" % (what, where, option, limit))
                 self._emit(t or "", screen=dest == "screen", file=dest == "file")
 
     def limits(self, settings: Settings) -> None:
@@ -360,9 +363,12 @@ class SpectreLog:
     def finish(self, status: int) -> None:
         """The trailer (§8.7): after exit status 0 or 1 the audit and `<prog> completes with N
         errors, M warnings, and K notices`; after 2 or 3 `<prog> terminated prematurely due to
-        fatal error.` [M UG pp.33, 270; I, §14 q.18].  Closes the file."""
+        fatal error.` [M UG pp.33, 270; I, §14 q.18].  Closes the file.  The trailer_ok template is
+        tried before the counts are read, so that the notice of an invalid one is counted in them (the
+        guide trial of phase 2e, TRIAL2E2-F7: before, the last line was one notice short)."""
         if status in (0, 1):
             self.audit()
+            self.text("trailer_ok", errors=0, warnings=0, notices=0)
             t = self.text("trailer_ok", **self.counts)
         else:
             t = self.text("trailer_fatal")

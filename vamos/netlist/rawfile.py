@@ -104,6 +104,15 @@ class RawError(ValueError):
     pass
 
 
+def _text(data: bytes) -> str:
+    """A header line's text: UTF-8 (what vamos's own nutmeg writer writes, §14 q.62: a variable named nΩ reads back
+    as nΩ), else Latin-1, which decodes any bytes an engine writes."""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
 class Raw:
     """One plot of a rawfile (see the module docstring)."""
 
@@ -278,7 +287,7 @@ def _parse_plot(data: bytes, pos: int, path: str) -> _Plot:
         eol = data.find(b"\n", pos)
         if eol < 0:
             eol = len(data)
-        line = data[pos:eol].decode("latin-1").rstrip("\r")
+        line = _text(data[pos:eol]).rstrip("\r")
         start, pos = pos, eol + 1
         if not line.strip():
             continue
@@ -343,7 +352,7 @@ def _variables(data: bytes, pos: int, nvars: int, first: str, raw: Raw, path: st
         eol = data.find(b"\n", pos)
         if eol < 0:
             raise RawError("%s: the variable list ends early" % path)
-        line = data[pos:eol].decode("latin-1").rstrip("\r")
+        line = _text(data[pos:eol]).rstrip("\r")
         pos = eol + 1
         if line.strip():
             lines.append(line)
@@ -504,7 +513,7 @@ def _header_line(mm, pos: int, path: str) -> Tuple[str, int, int]:
         eol = len(mm)
     if eol - pos > _MAX_HEADER_LINE:
         raise RawError("%s: not a rawfile header line at byte %d" % (path, pos))
-    return mm[pos:eol].decode("latin-1").rstrip("\r"), eol, eol + 1
+    return _text(mm[pos:eol]).rstrip("\r"), eol, eol + 1
 
 
 def _scan_header(mm, pos: int, path: str) -> Tuple[RawPlot, _Layout]:
@@ -836,7 +845,7 @@ def read_prn(path: str) -> List[Raw]:
     an empty file is a RawError, a malformed row too."""
     with open(path, "rb") as fh:
         data = fh.read()
-    lines = data.decode("latin-1").splitlines()
+    lines = _text(data).splitlines()
     header: Optional[List[str]] = None
     plots: List[Raw] = []
     cur: Optional[Raw] = None

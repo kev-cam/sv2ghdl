@@ -70,18 +70,18 @@
     "name": "op1",
     "kind": "dc",
     "columns": {
-     "q1:c": "I(XQ1:VAMOS_TP1)",
-     "q2:c": "I(XQ2:VAMOS_TP2)",
-     "q3:c": "I(XQ3:VAMOS_TP3)"
+     "q1:c": "I(XQ1:EVAMOS_TP1)",
+     "q2:c": "I(XQ2:EVAMOS_TP2)",
+     "q3:c": "I(XQ3:EVAMOS_TP3)"
     }
    },
    "vamos_a2": {
     "name": "sw1",
     "kind": "dc",
     "columns": {
-     "q1:c": "I(XQ1:VAMOS_TP1)",
-     "q2:c": "I(XQ2:VAMOS_TP2)",
-     "q3:c": "I(XQ3:VAMOS_TP3)"
+     "q1:c": "I(XQ1:EVAMOS_TP1)",
+     "q2:c": "I(XQ2:EVAMOS_TP2)",
+     "q3:c": "I(XQ3:EVAMOS_TP3)"
     }
    }
   },

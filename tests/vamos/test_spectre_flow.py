@@ -1258,7 +1258,9 @@ class TestInput(FlowCase):
         os.environ["CDS_AHDL_IDT_SCALE"] = "1.0"                         # the documented default: silent
         os.environ["CDS_VLOGA_INCLUDE"] = "inc1:inc2"
         rc, out, _ = self.spectre(["rc.scs", "-va,define", "HALF"], {"analog": "xyce"})
-        self.assertIn("    -va,define HALF: not applied on Xyce, whose .hdl compile takes no macro definitions", out)
+        # the guide trial of phase 2e (TRIAL2EF-02): with Verilog-A in the netlist an error, no longer a note
+        self.assertEqual(rc, 2, out)
+        self.assertIn("Error from spectre during initial setup.\n    -va,define HALF: not supported on Xyce in v1: ", out)
         self.assertIn("    CDS_VLOGA_INCLUDE=inc1:inc2: not applied on Xyce", out)
         self.assertIn("Warning from spectre during initial setup.\n    CDS_AHDL_FINISH_MODE=1: not applied", out)
         self.assertNotIn("CDS_AHDL_IDT_SCALE", out)
@@ -1636,12 +1638,12 @@ def _writers_with_progress(plan: List[Tuple[int, int]], real: bool = False) -> N
     flow.nutmeg.write = write
 
 
-def _signalled(inner):
-    """A runner that gets the user's SIGINT itself while its engine runs (proc.Interrupts holds the signals,
-    as the real runners' do), then returns `inner`'s EngineResult (rc 3)."""
+def _signalled(inner, sig: int = signal.SIGINT):
+    """A runner that gets the user's SIGINT (or `sig`) itself while its engine runs (proc.Interrupts holds the
+    signals, as the real runners' do), then returns `inner`'s EngineResult (rc 3)."""
     def run(nl, plan, sigmap, run_dir, job, log):
         with proc.Interrupts(stop.HANDLED, stop.FORWARD, flags=stop.FLAGS) as intr:
-            os.kill(os.getpid(), signal.SIGINT)
+            os.kill(os.getpid(), sig)
             deadline = time.time() + 60
             while intr.signum is None and time.time() < deadline:
                 time.sleep(0.01)
@@ -1703,11 +1705,13 @@ def child_main(argv: List[str]) -> int:
             runner = synth_runner(**interrupted)
         else:
             runner = synth_runner()
-    elif mode.startswith("rows"):                      # rows[-after-rc3|-after-signal|-real]: VAMOS_TEST_FIRE's
+    elif mode.startswith("rows"):                      # rows[-after-rc3|-after-signal|-after-hup|-real]: VAMOS_TEST_FIRE's
         _writers_with_progress(_fire_plan(), real=mode == "rows-real")    # signals from inside the tran's rows
         interrupted = dict(rc=3, status={"vamos_a3": "interrupted"}, tran_points=ROWS)
         if mode == "rows-after-signal":
             runner = _signalled(synth_runner(**interrupted))
+        elif mode == "rows-after-hup":                 # the runner's signal is a hangup's first SIGHUP (TRIAL2EF-01)
+            runner = _signalled(synth_runner(**interrupted), signal.SIGHUP)
         elif mode == "rows-after-rc3":
             runner = synth_runner(**interrupted)
         else:
@@ -1858,6 +1862,36 @@ class TestSignals(FlowCase):
         self.assertEqual(rc, 3, out)
         self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc"])
         self.assertEqual(sorted(os.listdir(d)), ["logFile", "op1.dc", "op2.dc"])
+
+    def test_a_second_signal_names_the_analysis_it_drops(self):
+        # the guide trial of phase 2e (TRIAL2E2-F11): a SIGINT stopped the engine and the runner said that tr1's partial
+        # results are written; a second SIGINT while vamos writes them drops them, and the conversion's warning now names
+        # tr1, so the screen does not leave them promised (before: "the conversion was stopped by SIGINT: the analyses
+        # converted before it are written and listed in logFile", tr1 not named).  The guide trial TRIAL2EG-F15
+        # re-decided its phase: the analysis being written, as the notice before it (it was `initial setup', after
+        # the last analysis)
+        dropped = ("Warning from spectre during transient analysis `tr1'.\n    the conversion was stopped by "
+                   "SIGINT (a second interrupt, which drops `tr1'): the analyses converted before it are written "
+                   "and listed in logFile "
+                   "(§2.7)\n")
+        d = os.path.join(self.tmp, "rc.raw")
+        rc, out = self.fired("rows-after-signal", "SIGINT@5000")
+        self.assertEqual(rc, 3, out)
+        self.assertIn(dropped, out)
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc"])
+        self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+        # two signals inside the file: the second drops it, named the same way
+        shutil.rmtree(d)
+        rc, out = self.fired("rows", "SIGINT@5000,SIGINT@9000")
+        self.assertEqual(rc, 3, out)
+        self.assertIn(dropped, out)
+        # a first signal lets the file in hand finish: nothing is dropped, and the warning names nothing
+        shutil.rmtree(d)
+        rc, out = self.fired("rows", "SIGINT@5000")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("    the conversion was stopped by SIGINT: the analyses converted before it are written and listed "
+                      "in logFile (§2.7)\n", out)
+        self.assertNotIn("which drops", out)
 
     def test_a_first_signal_inside_a_file_is_answered_at_once(self):
         # D3 (phase 2c): a first stop signal still lets the file in hand finish, but the flow says so at once,
@@ -2053,6 +2087,36 @@ sys.exit(rc)
 '''
 
 
+# a sitecustomize for bin/vamos's python3 (on PYTHONPATH): VAMOS_TEST_SIGNAL_AT="<module>:<SIG>[,<SIG>]" sends the
+# signals at the first import of <module>; "vamos.cli" is the launcher's own `import vamos.cli`, before cli.py runs
+SITE_HOOK = r'''
+import builtins, os, signal
+_target, _, _names = os.environ.get("VAMOS_TEST_SIGNAL_AT", "").partition(":")
+_real = builtins.__import__
+_fired = []
+
+
+def _hook(name, *args, **kwargs):
+    if name == _target and not _fired:
+        _fired.append(name)
+        for one in _names.split(","):
+            os.kill(os.getpid(), getattr(signal, one))
+    return _real(name, *args, **kwargs)
+
+
+if _target:
+    builtins.__import__ = _hook
+'''
+
+# a fake cpp (VAMOS_CPP) that writes the names of the signals it starts with blocked into <tmp>/mask.txt
+FAKE_CPP = r'''#!%(python)s
+import signal, sys
+with open(%(out)r, "w") as fh:
+    fh.write(" ".join(sorted(signal.Signals(s).name for s in signal.pthread_sigmask(signal.SIG_BLOCK, []))))
+sys.exit(1)
+'''
+
+
 def _flood(p: subprocess.Popen, sig: int, period: float) -> None:
     """Send `sig` to p every `period` seconds until it has exited."""
     while p.returncode is None:
@@ -2105,6 +2169,65 @@ class TestStartAndEnd(FlowCase):
         # a second stop signal before flow.run takes over (a start that hangs) ends vamos at once, status 3
         rc, out, err = self.early("vamos.personalities", "SIGINT,SIGINT")
         self.assertEqual((rc, out, err), (3, "", ""))
+
+    def test_a_stop_signal_while_vamos_starts_goes_to_the_log_file(self):
+        # the guide trial of phase 2e (TRIAL2E2-F4): the +log or =log file is opened before a stop signal received
+        # while vamos started ends the run, so the warning and the last line go where the log mode sends every line:
+        # under =log the file alone, under +log the file and the screen (before: the screen only, no file at all)
+        want = "Warning from spectre during initial setup.\n    the run was stopped by SIGINT (§2.7)\n" + TRAILER_FATAL
+        for args, screen in ((("=log", "e.log"), False), (("+log", "e.log"), True)):
+            with self.subTest(args=args):
+                rc, out, err = self.early("vamos.personalities", "SIGINT", args=args)
+                self.assertEqual((rc, err), (3, ""), out)
+                self.assertEqual(self.read("e.log"), want)
+                self.assertEqual(out, want if screen else "")
+                os.remove(os.path.join(self.tmp, "e.log"))
+
+    @unittest.skipUnless(hasattr(signal, "pthread_sigmask"), "signal.pthread_sigmask, which the launcher holds them with")
+    def test_a_signal_while_the_launcher_imports_vamos_cli(self):
+        # the guide trial of phase 2e (TRIAL2E2-F3): bin/vamos holds INT TERM HUP QUIT USR1 and USR2 while it imports
+        # vamos.cli, before cli.py's early handlers exist (the imports of re and typing, some 50 ms from a checkout
+        # on /mnt/c): a stop signal there is status 3 with the warning and the last line, a status request is answered
+        # and the run completes, and nothing goes to stderr (before: a KeyboardInterrupt traceback and status 130, or
+        # death by the signal with nothing printed)
+        self.deck(NOTHING)
+        self.write(os.path.join("hook", "sitecustomize.py"), SITE_HOOK)
+        for name, want in (("SIGINT", 3), ("SIGTERM", 3), ("SIGHUP", 3), ("SIGQUIT", 3), ("SIGUSR1", 0), ("SIGUSR2", 0)):
+            with self.subTest(signal=name):
+                env = dict(os.environ, PYTHONPATH=os.path.join(self.tmp, "hook"), VAMOS_TEST_SIGNAL_AT="vamos.cli:" + name)
+                p = subprocess.run([LAUNCHER, "-spectre", "rc.scs"], cwd=self.tmp, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, preexec_fn=_default_signals,
+                                   timeout=300)
+                out, err = p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+                self.assertEqual((p.returncode, err), (want, ""), out)
+                if want == 3:
+                    self.assertIn("Warning from spectre during initial setup.\n    the run was stopped by %s (§2.7)\n"
+                                  % name, out)
+                    self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+                    continue
+                if name == "SIGUSR1":
+                    self.assertIn("spectre status: no analysis running (setting up), elapsed = ", out)
+                else:
+                    self.assertIn("\n    checkpoint not supported: SIGUSR2 is ignored and the run continues\n", out)
+                self.assertTrue(TRAILER_OK.search(out), out[-400:])
+
+    @unittest.skipUnless(hasattr(signal, "pthread_sigmask"), "signal.pthread_sigmask, which the launcher holds them with")
+    def test_the_launcher_gives_the_signal_mask_back(self):
+        # TRIAL2E2-F3: the signals are held only while vamos.cli imports; a tool the run starts (here a fake cpp) gets
+        # the mask vamos was started with, so a Ctrl-C reaches it, and a signal the caller blocked stays blocked
+        self.deck(NOTHING)
+        fake = self.write("cpp", FAKE_CPP % {"python": sys.executable, "out": os.path.join(self.tmp, "mask.txt")})
+        os.chmod(fake, 0o755)
+        for blocked in ((), (signal.SIGUSR2,), (signal.SIGINT, signal.SIGTERM)):
+            with self.subTest(blocked=blocked):
+                def pre(blocked=blocked) -> None:
+                    _default_signals()
+                    signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
+                p = subprocess.run([LAUNCHER, "-spectre", "-E", "rc.scs"], cwd=self.tmp, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ, VAMOS_CPP=fake),
+                                   preexec_fn=pre, timeout=300)
+                self.assertEqual(p.returncode, 2, p.stdout.decode("utf-8", "replace"))      # the fake cpp fails
+                self.assertEqual(self.read("mask.txt"), " ".join(sorted(signal.Signals(s).name for s in blocked)))
 
     def test_usr1_and_usr2_while_vamos_starts_leave_the_run_going(self):
         # R-tests-2, R-run-6: a status request at launch (UG p.235) is answered once the flow runs, and the
@@ -2465,6 +2588,491 @@ class TestIntegration(FlowCase):
         self.assertEqual(p.returncode, 0, out)
         self.assertIn("spectre status: analysis `tr1' running", out)
         self.assertTrue(TRAILER_OK.search(out), out)
+
+
+# =====================================================================================================
+# The guide trial of phase 2e (TRIAL2E1, docs/VAMOS_GUIDE.md §12)
+# =====================================================================================================
+
+VRES_2E = ('`include "disciplines.vams"\nmodule vres(p, n);\n  inout p, n;\n  electrical p, n;\n`ifdef BIGR\n'
+           '  parameter real r = 4000.0;\n`else\n  parameter real r = 1000.0;\n`endif\n'
+           '  analog I(p, n) <+ V(p, n) / r;\nendmodule\n')
+VA_2E = ('// a Verilog-A resistor\nsimulator lang=spectre\nahdl_include "vres.va"\nV1 (a 0) vsource dc=1\n'
+         'X1 (a 0) vres\nop1 dc\n')
+
+
+class TestGuideTrial2e(FlowCase):
+    """TRIAL2E1-01: openvaf-r 20260616 drops the value of `-D NAME=VALUE` (NAME stays undefined: an `ifdef NAME takes
+    its else branch and `NAME is not declared), so `-va,define BIGR=1` compiled the wrong branch with exit 0 and
+    `-va,define RV=2000.0` failed inside openvaf-r: on VACASK a netlist with Verilog-A now refuses a -va,define with a
+    value at step 7, before anything is compiled; a name alone runs, Xyce notes every one, and a netlist without
+    Verilog-A has nothing to compile.  TRIAL2E1-05: %A in an analysis's quoted strings is the analysis's name (§2.4),
+    so write="w_%A.ns" on op1 writes w_op1.ns (w_.ns before); outside an analysis (-raw) it is empty."""
+
+    def test_01_a_macro_value_is_refused_on_vacask(self):
+        self.write("vres.va", VRES_2E)
+        self.deck(VA_2E, "va.scs")
+        self.use(never_called)
+        for define in ("BIGR=1", "RV=2000.0", "M="):
+            with self.subTest(define=define):
+                rc, out, err = self.spectre(["-va,define", "FAST", "-va,define", define, "va.scs"])
+                self.assertEqual((rc, err), (2, ""), out)
+                self.assertIn("Error from spectre during initial setup.\n    -va,define %s: openvaf-r " % define, out)
+                self.assertIn("not supported on VACASK in v1", out)
+                self.assertNotIn("-va,define FAST", out)
+                self.assertFatal(out)
+                self.assertFalse(os.path.exists(os.path.join(self.tmp, "va.ahdlSimDB")), out)   # nothing compiled
+        os.environ["SPECTRE_DEFAULTS"] = "-va,define BIGR=1"                           # the defaults layer too
+        rc, out, _ = self.spectre(["va.scs"])
+        self.assertEqual(rc, 2, out)
+        self.assertIn("    -va,define BIGR=1: openvaf-r ", out)
+
+    def test_01_a_name_alone_xyce_and_no_verilog_a_run(self):
+        self.write("vres.va", VRES_2E)
+        self.deck(VA_2E, "va.scs")
+        self.use(synth_runner())
+        rc, out, _ = self.spectre(["-va,define", "BIGR", "va.scs"])
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("-va,define", out)
+        self.use(lambda *a: EngineResult(rc=2), engine="xyce")
+        rc, out, _ = self.spectre(["-va,define", "BIGR=1", "va.scs"], {"analog": "xyce"})
+        # the guide trial of phase 2e (TRIAL2EF-02): with Verilog-A in the netlist an error on Xyce, no longer a note
+        self.assertEqual(rc, 2, out)
+        self.assertIn("    -va,define BIGR=1: not supported on Xyce in v1: ", out)
+        self.assertNotIn("not supported on VACASK", out)
+        self.deck(TWO)                                     # no Verilog-A on VACASK: nothing to compile or refuse
+        rc, out, _ = self.spectre(["-va,define", "BIGR=1", "rc.scs"])
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("-va,define", out)
+
+    def test_05_percent_a_names_the_analysis_in_its_state_files(self):
+        self.deck(TWO.replace("op1 dc\n", 'op1 dc write="w_%A.ns"\n')
+                  .replace("tr1 tran stop=1m\n", 'tr1 tran stop=1m writefinal="f_%A.fin"\n'))
+        self.use(synth_runner())
+        rc, out, _ = self.spectre(["-raw", "%A%C:r.raw", "rc.scs"])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(sorted(f for f in os.listdir(self.tmp) if not f.endswith(".scs")),
+                         ["f_tr1.fin", "rc.raw", "w_op1.ns"])                # -raw: %A is empty outside an analysis
+        self.assertEqual(self.read("w_op1.ns").splitlines()[1][:15], "# during 'op1' ")
+        self.assertEqual(self.read("f_tr1.fin").splitlines()[1][:15], "# during 'tr1' ")
+
+
+# =====================================================================================================
+# The guide trial of phase 2e, second round (TRIAL2E2, docs/VAMOS_GUIDE.md §12)
+# =====================================================================================================
+
+LATIN_2E2 = b"\nsimulator lang=spectre\nV1 (a 0) vsource dc=1\nR1 (a 0) resistor r=1k\nop1 dc write=\"x.ns\"\n"
+
+
+class TestGuideTrial2e2(FlowCase):
+    """TRIAL2E2-F2: a title or netlist name that latin-1 could not hold crashed the PSF and state-file writers (the
+    files are UTF-8 since FIX2E5, §14 q.62: such a title is written as it is); TRIAL2E2-F6: the command line's
+    +paramdefault file beats the defaults variable's; TRIAL2E2-F10: -ahdllibdir is noted on Xyce for a netlist with
+    Verilog-A."""
+
+    def test_f2_a_title_the_files_could_not_hold_is_written_as_it_is(self):
+        # TRIAL2E2-F2: an Omega in the title was an internal error (UnicodeEncodeError) on both engines; round 4 wrote `?'
+        # in the design field of every PSF file and of logFile, with a warning; FIX2E5 (§14 q.62: the files are UTF-8):
+        # the title as it is, with no warning.  A title byte that is not UTF-8 is read as U+FFFD, which the files hold,
+        # with one warning naming the file, the line and the byte (FIX2E6, S-2E5: round 5 wrote it with no warning)
+        d = os.path.join(self.tmp, "lat.raw")
+        for title, design in ((b"// caf\xe9", "// caf�"), ("// 10 kΩ divider".encode("utf-8"), "// 10 kΩ divider"),
+                              ("// café".encode("utf-8"), "// café")):
+            with self.subTest(title=title):
+                with open(os.path.join(self.tmp, "lat.scs"), "wb") as fh:
+                    fh.write(title + LATIN_2E2)
+                self.use(synth_runner())
+                rc, out, err = self.spectre(["lat.scs"])
+                self.assertEqual((rc, err), (0, ""), out)
+                if title == b"// caf\xe9":
+                    self.assertEqual(out.count("Warning from"), 1, out)
+                    self.assertIn("lat.scs:1: the byte 0xe9 is not UTF-8: the file is read as UTF-8, so the byte is read "
+                                  "as U+FFFD (the replacement character), which a title or a name that holds it carries "
+                                  "into the results files (§14 q.62); write the file in UTF-8", out)
+                else:
+                    self.assertNotIn("Warning from", out)
+                self.assertEqual(self.check_results(d).header["design"], design)
+                self.assertEqual(psfcheck.check(os.path.join(d, "op1.dc")).header["design"], design)
+                self.assertEqual(self.run_dirs(), [])
+                shutil.rmtree(d)
+        # a netlist name latin-1 could not hold, in a state file's first line (before: the same internal error; round 4: `?')
+        name = "Ωdiv.scs"
+        with open(os.path.join(self.tmp, name), "wb") as fh:
+            fh.write(b"// div" + LATIN_2E2)
+        self.use(synth_runner())
+        rc, out, err = self.spectre([name])
+        self.assertEqual((rc, err), (0, ""), out)
+        self.assertNotIn("Warning from", out)
+        with open(os.path.join(self.tmp, "x.ns"), encoding="utf-8") as fh:
+            self.assertEqual(fh.readline(), "# State file generated by Spectre from circuit file 'Ωdiv.scs'\n")
+        self.assertEqual(list(statefile.read(os.path.join(self.tmp, "x.ns"))[0]), ["a"])
+
+    def test_f6_a_later_paramdefault_file_wins(self):
+        # the defaults variable's file comes first, so the command line's wins, and of two on the command line the
+        # later one (before: the first file's tran lines won, the defaults variable's over the command line's)
+        self.deck(RC)
+        self.write("pdc.txt", "tran errpreset conservative\n")
+        self.write("pdl.txt", "tran errpreset liberal\n")
+        self.use(lambda *a: EngineResult(rc=2), engine="xyce")
+        liberal, conservative = "Xyce takes the method (trapgear2) only; reltol=0.01 ", "Xyce takes the method (gear2only)"
+        os.environ["SPECTRE_DEFAULTS"] = "+paramdefault pdc.txt"
+        self.addCleanup(os.environ.pop, "SPECTRE_DEFAULTS", None)
+        rc, out, _ = self.spectre(["+paramdefault", "pdl.txt", "rc.scs"], {"analog": "xyce"})
+        self.assertIn(liberal, out)
+        del os.environ["SPECTRE_DEFAULTS"]
+        for files, want in ((("pdc.txt", "pdl.txt"), liberal), (("pdl.txt", "pdc.txt"), conservative)):
+            with self.subTest(files=files):
+                rc, out, _ = self.spectre(["+paramdefault", files[0], "+paramdefault", files[1], "rc.scs"],
+                                          {"analog": "xyce"})
+                self.assertIn(want, out)
+
+    def test_f10_ahdllibdir_is_noted_on_xyce(self):
+        # Xyce compiles no .osdi: for a netlist with Verilog-A, -ahdllibdir gets a note saying where PyMS keeps what it
+        # compiles (before: silently ignored, and no directory made); VACASK, and a netlist without Verilog-A, none
+        self.write("vres.va", VRES_2E)
+        self.deck(VA_2E, "va.scs")
+        self.use(lambda *a: EngineResult(rc=2), engine="xyce")
+        note = ("Notice from spectre during initial setup.\n    -ahdllibdir lib: not applied on Xyce, whose PyMS keeps the "
+                "Verilog-A it compiles in its own cache (PYMS_VAE_CACHE, by default /tmp/pyms_vae_cache; §2.5)\n")
+        rc, out, _ = self.spectre(["-ahdllibdir", "lib", "va.scs"], {"analog": "xyce"})
+        self.assertIn(note, out)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "lib")))
+        os.environ["SPECTRE_DEFAULTS"] = "-ahdllibdir lib"                             # the defaults layer too
+        self.addCleanup(os.environ.pop, "SPECTRE_DEFAULTS", None)
+        rc, out, _ = self.spectre(["va.scs"], {"analog": "xyce"})
+        self.assertIn(note, out)
+        del os.environ["SPECTRE_DEFAULTS"]
+        self.deck(TWO)
+        rc, out, _ = self.spectre(["-ahdllibdir", "lib", "rc.scs"], {"analog": "xyce"})
+        self.assertNotIn("-ahdllibdir", out)
+        self.use(synth_runner())
+        rc, out, _ = self.spectre(["-ahdllibdir", "lib", "va.scs"])
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("-ahdllibdir", out)
+
+
+# =====================================================================================================
+# The guide trial of phase 2e, the final round (TRIAL2EF, docs/VAMOS_GUIDE.md §12)
+# =====================================================================================================
+
+# a VACASK tran long enough to signal in (10 s of a 1 kHz sine, the guide's long.scs) after two operating points
+LONG_2EF = TWO.replace("tr1 tran stop=1m", "tr1 tran stop=10 maxstep=10u")
+# bash in a pseudo-terminal runs `cmd` as its foreground job; once `ready` exists the terminal hangs up (the master is
+# closed), as when a terminal window is closed or an ssh session drops; the child then waits for the run to end
+HANGUP_2EF = r'''
+import os, pty, select, sys, time
+cmd, ready, done = sys.argv[1], sys.argv[2], sys.argv[3]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvpe("bash", ["bash", "--norc", "--noprofile", "-i"], dict(os.environ, PS1="$ "))
+def drain(t):
+    end = time.time() + t
+    while time.time() < end:
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if r:
+            try:
+                if not os.read(fd, 65536):
+                    return
+            except OSError:
+                return
+drain(1.0)
+os.write(fd, (cmd + "\n").encode())
+end = time.time() + 300
+while not os.path.exists(ready) and time.time() < end:
+    drain(0.05)
+time.sleep(0.3)
+os.close(fd)                                     # the hangup
+end = time.time() + 300
+while not os.path.exists(done) and time.time() < end:
+    time.sleep(0.1)
+try:
+    os.waitpid(pid, 0)
+except ChildProcessError:
+    pass
+'''
+
+
+class TestGuideTrial2e3(FlowCase):
+    """TRIAL2EF-01: one terminal hangup delivers SIGHUP twice (bash passes the SIGHUP it gets on to its foreground job,
+    and the kernel signals that job's process group again as bash exits: measured 0.3 ms apart), and vamos took the
+    second as the user's second signal: the engine was killed and nothing was converted, not even the analyses that had
+    finished.  stop.classify now calls a SIGHUP after a stop signal, and any stop signal within stop.HANGUP_WINDOW of a
+    SIGHUP, a repeat of the same hangup, which every handler (cli.py's, the flow's, both runners') ignores; a user's
+    second Ctrl-C still kills the engine at once."""
+
+    early = TestStartAndEnd.early
+    fired = TestSignals.fired
+
+    @unittest.skipUnless(POSIX_SIGNALS, "POSIX signals")
+    def test_ef01_one_hangup_is_one_signal(self):
+        self.addCleanup(stop.forget)
+        HUP, INT, TERM, QUIT = signal.SIGHUP, signal.SIGINT, signal.SIGTERM, signal.SIGQUIT
+
+        def kinds(*events):
+            stop.forget()
+            out, seen = [], False
+            for sig, t in events:
+                kind = stop.classify(sig, seen, now=t)
+                out.append(kind)
+                seen = seen or kind == "first"
+            return out
+        for events, want in ((((HUP, 0.0), (HUP, 0.0003)), ["first", "repeat"]),        # bash's, then the kernel's
+                             (((HUP, 0.0), (HUP, 30.0)), ["first", "repeat"]),          # a SIGHUP never escalates
+                             (((TERM, 0.0), (HUP, 0.001)), ["first", "repeat"]),        # systemd's SIGTERM, then SIGHUP
+                             (((INT, 0.0), (HUP, 0.2), (HUP, 0.2003)), ["first", "repeat", "repeat"]),   # window closed
+                             (((HUP, 0.0), (TERM, 0.5)), ["first", "repeat"]),          # within the window
+                             (((HUP, 0.0), (TERM, 1.5)), ["first", "second"]),          # after it: the user's kill
+                             (((HUP, 0.0), (INT, 2.0)), ["first", "second"]),
+                             (((INT, 0.0), (INT, 0.01)), ["first", "second"]),          # a user's second Ctrl-C
+                             (((TERM, 0.0), (TERM, 0.05)), ["first", "second"]),
+                             (((QUIT, 0.0), (INT, 0.1)), ["first", "second"]),
+                             (((INT, 0.0), (HUP, 0.2), (INT, 3.0)), ["first", "repeat", "second"])):
+            with self.subTest(events=events):
+                self.assertEqual(kinds(*events), want)
+        # the first SIGHUP taken by another handler (the runner's): the flow's handler sees the kernel's as a repeat
+        stop.forget()
+        self.assertEqual(stop.classify(HUP, False, now=0.0), "first")
+        self.assertEqual(stop.classify(HUP, False, now=0.0003), "repeat")
+        stop.forget()
+        self.assertEqual(stop.classify(HUP, False, now=5.0), "first")
+
+    @unittest.skipUnless(POSIX_SIGNALS, "POSIX signals")
+    def test_ef01_a_hangup_s_second_sighup_during_the_conversion_drops_nothing(self):
+        # the runner got the hangup's first SIGHUP (status 3); the kernel's SIGHUP during the conversion is the same
+        # hangup: the conversion goes on and writes every analysis (before: the second signal, tr1 dropped)
+        rc, out = self.fired("rows-after-hup", "SIGHUP@5000")
+        self.assertEqual(rc, 3, out)
+        d = os.path.join(self.tmp, "rc.raw")
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc", "tr1-tran", "op3-dc"])
+        self.assertEqual(len(psfcheck.check(os.path.join(d, "tr1.tran.tran")).sweep_values()), ROWS)
+        self.assertNotIn("the conversion was stopped", out)
+        self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+        # a SIGINT there is still the user's second signal: tr1 is dropped (§2.7)
+        shutil.rmtree(d)
+        rc, out = self.fired("rows-after-signal", "SIGINT@5000")
+        self.assertEqual(rc, 3, out)
+        self.assertEqual(self.check_results(d).keys(), ["op1-dc", "op2-dc"])
+
+    @unittest.skipUnless(POSIX_SIGNALS, "POSIX signals")
+    def test_ef01_two_sighups_while_vamos_starts_are_one_hangup(self):
+        # before flow.run takes over, a second stop signal ends vamos at once; the hangup's second SIGHUP is not one:
+        # status 3 with the warning and the last line (before: (3, "", ""), nothing printed)
+        rc, out, err = self.early("vamos.personalities", "SIGHUP,SIGHUP")
+        self.assertEqual((rc, err), (3, ""), out)
+        self.assertIn("Warning from spectre during initial setup.\n    the run was stopped by SIGHUP (§2.7)\n", out)
+        self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+        rc, out, err = self.early("vamos.personalities", "SIGINT,SIGINT")
+        self.assertEqual((rc, out, err), (3, "", ""))
+
+    def test_ef02_a_va_define_is_an_error_on_xyce_for_a_netlist_with_verilog_a(self):
+        # TRIAL2EF-02: Xyce's Verilog-A compile (PyMS) takes no macro definitions, so `-va,define BIGR` was a note while
+        # the module compiled its `else branch, exit 0.  Now each one is an error there, before anything runs (a prelude
+        # file that defines the macro and includes the source was measured: PyMS keys its build on the top file alone,
+        # and reused the stale build after the source was edited)
+        self.write("vres.va", VRES_2E)
+        self.deck(VA_2E, "va.scs")
+        self.use(never_called, engine="xyce")
+        for define, fix in (("BIGR", "run it on VACASK, or `define BIGR in the Verilog-A source"),
+                            ("BIGR=1", "`define BIGR 1 in the Verilog-A source")):
+            with self.subTest(define=define):
+                rc, out, err = self.spectre(["-va,define", define, "va.scs"], {"analog": "xyce"})
+                self.assertEqual((rc, err), (2, ""), out)
+                self.assertIn("Error from spectre during initial setup.\n    -va,define %s: not supported on Xyce in v1: "
+                              "Xyce's Verilog-A compile (PyMS) takes no macro definitions, so the module would compile "
+                              "as if BIGR were not defined (an `ifdef BIGR takes its `else branch) with exit status 0; "
+                              "%s (§2.3)\n" % (define, fix), out)
+                self.assertNotIn("not applied on Xyce", out)
+                self.assertFatal(out)
+        os.environ["SPECTRE_DEFAULTS"] = "-va,define BIGR"                             # the defaults layer too
+        self.addCleanup(os.environ.pop, "SPECTRE_DEFAULTS", None)
+        rc, out, _ = self.spectre(["va.scs"], {"analog": "xyce"})
+        self.assertEqual(rc, 2, out)
+        self.assertIn("    -va,define BIGR: not supported on Xyce in v1: ", out)
+        del os.environ["SPECTRE_DEFAULTS"]
+        # a netlist without Verilog-A: nothing compiles the macro, a note as before; VACASK runs a name alone
+        self.deck(TWO)
+        self.use(lambda *a: EngineResult(rc=2), engine="xyce")
+        rc, out, _ = self.spectre(["-va,define", "BIGR", "rc.scs"], {"analog": "xyce"})
+        self.assertIn("Notice from spectre during initial setup.\n    -va,define BIGR: not applied on Xyce, whose .hdl "
+                      "compile takes no macro definitions (§2.3)\n", out)
+        self.use(synth_runner())
+        rc, out, _ = self.spectre(["-va,define", "BIGR", "va.scs"])
+        self.assertEqual(rc, 0, out)
+
+    @needs_vacask
+    @needs_xyce
+    def test_ef03_a_pulse_whose_delay_is_minus_its_rise_on_both_engines(self):
+        # TRIAL2EF-03: t = 0 at the end of the rise.  Xyce started the transient at in = 5 and out = 5 (the fall's formula
+        # in its operating point), out 41 % high after five time constants, exit 0.  Now both engines give the analytic
+        # out of the RC (tau = 1 us): 1 until the fall at 2 us, the ramp's response to 2.5 us, then the decay; within 1 %
+        # (VACASK's own steps are 0.5 % off at 2.5 us), for a constant delay, one that reads a parameter, and a sweep's
+        tau, tf = 1e-6, 0.5e-6
+
+        def analytic(t: float) -> float:
+            if t <= 2e-6:
+                return 1.0
+            s = min(t, 2.5e-6) - 2e-6
+            ramp = 1.0 - s / tf + (tau / tf) * (1.0 - math.exp(-s / tau))
+            return ramp * math.exp(-(t - 2.5e-6) / tau) if t > 2.5e-6 else ramp
+        src = "V1 (in 0) vsource type=pulse val0=0 val1=1 delay=%s rise=%s fall=0.5u width=2u\n"
+        rc_ = "R1 (in out) resistor r=1k\nC1 (out 0) capacitor c=1n\n"
+        decks = [("constant", src % ("-0.5u", "0.5u") + rc_ + "tr1 tran stop=5u\n", "tr1.tran.tran"),
+                 ("parameter", "parameters rt=0.5u\n" + src % ("-rt", "rt") + rc_ + "tr1 tran stop=5u\n", "tr1.tran.tran"),
+                 ("sweep", src % ("0", "0.5u") + rc_ + "sw sweep dev=V1 param=delay values=[-0.5u -0.4u] {\n"
+                  "  tr1 tran stop=5u\n}\n", "sw-000_tr1.tran.tran")]
+        for name, body, result in decks:
+            self.deck("// a pulse whose delay is minus its rise\nsimulator lang=spectre\n" + body, "pn.scs")
+            for engine in ("vacask", "xyce"):
+                with self.subTest(deck=name, engine=engine):
+                    p = subprocess.run([LAUNCHER, "-spectre", "--vamos-analog=" + engine, "-raw", engine + ".raw", "pn.scs"],
+                                       cwd=self.tmp, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, universal_newlines=True, timeout=600)
+                    self.assertEqual(p.returncode, 0, p.stdout)
+                    tr = psfcheck.check(os.path.join(self.tmp, engine + ".raw", result))
+                    self.assertAlmostEqual(tr.at("in", 0.0), 1.0, places=9)
+                    for t in (0.0, 1e-6, 2e-6, 2.5e-6, 4e-6, 5e-6):
+                        self.assertLess(abs(tr.at("out", t) - analytic(t)), 0.01 * analytic(t), "out at %g s" % t)
+
+    def test_ef04_an_engine_override_that_is_vamos_itself_is_an_error(self):
+        # TRIAL2EF-04: §7's check of a VAMOS_<TOOL> that names vamos itself was missing for the engines under spectre:
+        # vamos ran itself as VACASK or Xyce (its usage text as an engine error) or as openvaf-r (in the tools list,
+        # exit 0).  Now it is the error VAMOS_CPP already gets, before any engine or compile runs (exit 2)
+        self.deck(TWO)
+        self.use(never_called)
+        self.use(never_called, engine="xyce")
+        self.addCleanup(os.environ.pop, "VAMOS_OPENVAF", None)
+        shim = os.path.join(ROOT, "shims", "spectre")                       # a link to bin/vamos
+        for var, engine, tool in (("VAMOS_VACASK", "vacask", "VACASK"), ("VAMOS_OPENVAF", "vacask", "openvaf-r"),
+                                  ("VAMOS_XYCE", "xyce", "Xyce")):
+            for value in (LAUNCHER, shim):
+                with self.subTest(var=var, value=value):
+                    os.environ[var] = value
+                    try:
+                        rc, out, err = self.spectre(["rc.scs"], {"analog": engine})
+                    finally:
+                        del os.environ[var]
+                    self.assertEqual((rc, err), (2, ""), out)
+                    self.assertIn("Error from spectre during initial setup.\n    %s=%s is vamos itself (it must name the "
+                                  "real %s)\n" % (var, value, tool), out)
+                    self.assertFatal(out)
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("pgrep"), "Linux process names and pgrep")
+    def test_ef09_a_spectre_run_is_named_spectre(self):
+        # TRIAL2EF-09: vamos ran as python3, so `pkill spectre', `killall spectre' and `pgrep spectre' found nothing and
+        # a script that stops Spectre by name silently failed.  Launched as spectre (bin/vamos through a link, or
+        # `vamos -spectre'), its process name is the invoked name, which those match
+        self.deck(TWO.replace("tr1 tran stop=1m", "tr1 tran stop=10 maxstep=1u"))
+        link = os.path.join(self.tmp, "links", "specsim")
+        os.makedirs(os.path.dirname(link))
+        os.symlink(LAUNCHER, link)
+        for argv, name in (([link, "rc.scs"], "specsim"), ([LAUNCHER, "-spectre", "rc.scs"], "spectre")):
+            with self.subTest(name=name):
+                env = dict(os.environ, VAMOS_SPECTRE_NAMES="specsim")
+                p = subprocess.Popen(argv, cwd=self.tmp, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, env=env, preexec_fn=_default_signals)
+                try:
+                    end, comm = time.time() + 120, ""
+                    while time.time() < end and p.poll() is None and comm != name:
+                        time.sleep(0.05)
+                        comm = self.read_comm(p.pid)
+                    self.assertEqual(comm, name)
+                    pids = subprocess.run(["pgrep", "-x", name], stdout=subprocess.PIPE, universal_newlines=True).stdout
+                    self.assertIn(str(p.pid), pids.split())
+                    p.send_signal(signal.SIGTERM)
+                    self.assertEqual(p.wait(timeout=120), 3)
+                finally:
+                    if p.poll() is None:
+                        p.kill()
+                        p.wait()
+
+    @staticmethod
+    def read_comm(pid: int) -> str:
+        try:
+            with open("/proc/%d/comm" % pid) as fh:
+                return fh.read().strip()
+        except OSError:
+            return ""
+
+    def long_run(self, args: Sequence[str]) -> Tuple[subprocess.Popen, List[int]]:
+        """bin/vamos on LONG_2EF, once its tran runs: (the process, VACASK's pid in the run directory)."""
+        from vamos_testlib import procs_under
+        self.deck(LONG_2EF)
+        p = subprocess.Popen([LAUNCHER, "-spectre"] + list(args), cwd=self.tmp, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True,
+                             preexec_fn=_default_signals)
+
+        def cleanup() -> None:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+        self.addCleanup(cleanup)
+        end = time.time() + 300
+        raw = None
+        while time.time() < end and p.poll() is None and raw is None:
+            for path in glob.glob(os.path.join(self.tmp, "*.run.*", "vamos_a3.raw")):
+                if os.path.getsize(path) >= 4096:
+                    raw = path
+            time.sleep(0.05)
+        self.assertIsNotNone(raw, "the tran never got going")
+        return p, procs_under(os.path.dirname(raw))
+
+    @unittest.skipUnless(POSIX_SIGNALS and sys.platform.startswith("linux"), "Linux signals and /proc")
+    @needs_vacask
+    def test_ef01_two_sighups_during_a_vacask_tran_are_one_hangup(self):
+        # VACASK held (SIGSTOP) so that the forwarded SIGTERM waits and the second SIGHUP comes while it still runs, as
+        # the kernel's does 0.3 ms after bash's: status 3, op1, op2 and the interrupted tr1 written and listed
+        p, engine = self.long_run(["rc.scs"])
+        for pid in engine:
+            os.kill(pid, signal.SIGSTOP)
+        time.sleep(0.2)
+        p.send_signal(signal.SIGHUP)
+        time.sleep(0.05)
+        p.send_signal(signal.SIGHUP)
+        time.sleep(0.3)
+        for pid in engine:
+            try:
+                os.kill(pid, signal.SIGCONT)
+            except OSError:
+                pass
+        out, _ = p.communicate(timeout=300)
+        self.assertEqual(p.returncode, 3, out)
+        self.assertIn("(vamos got SIGHUP and stopped VACASK); its partial results are written", out)
+        self.assertNotIn("second", out)
+        self.assertEqual(self.check_results(os.path.join(self.tmp, "rc.raw")).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
+        self.assertTrue(out.endswith(TRAILER_FATAL), out[-400:])
+
+    @unittest.skipUnless(POSIX_SIGNALS and sys.platform.startswith("linux") and shutil.which("bash"),
+                         "Linux, a pseudo-terminal and bash")
+    @needs_vacask
+    def test_ef01_a_terminal_hangup_under_an_interactive_bash(self):
+        # the trial's own case: bash -i in a pseudo-terminal runs the long run with +log; the terminal hangs up 0.3 s into
+        # the tran.  The log ends as a single SIGHUP's does (status 3), and op1, op2 and tr1 are written and listed
+        # (before: `stopped by a second SIGHUP: the engine was killed and nothing is converted', an empty rc.raw)
+        self.deck(LONG_2EF)
+        ready, done = os.path.join(self.tmp, "ready"), os.path.join(self.tmp, "done")
+        cmd = "%s -spectre +log hup.log rc.scs; touch %s" % (LAUNCHER, done)
+        watcher = subprocess.Popen([sys.executable, "-c", HANGUP_2EF, cmd, ready, done], cwd=self.tmp,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   preexec_fn=_default_signals)
+        try:
+            end = time.time() + 300
+            while time.time() < end and not glob.glob(os.path.join(self.tmp, "*.run.*", "vamos_a3.raw")):
+                time.sleep(0.05)
+            with open(ready, "w"):
+                pass
+            end = time.time() + 300
+            log = ""
+            while time.time() < end and TRAILER_FATAL not in log:
+                time.sleep(0.2)
+                log = self.read("hup.log") if os.path.exists(os.path.join(self.tmp, "hup.log")) else ""
+        finally:
+            with open(done, "w"):
+                pass
+            watcher.wait(timeout=60)
+        self.assertIn("(vamos got SIGHUP and stopped VACASK); its partial results are written", log)
+        self.assertNotIn("second", log)
+        self.assertTrue(log.endswith(TRAILER_FATAL), log[-400:])
+        self.assertEqual(self.check_results(os.path.join(self.tmp, "rc.raw")).keys(), ["op1-dc", "op2-dc", "tr1-tran"])
 
 
 if __name__ == "__main__":

@@ -155,18 +155,29 @@ def _interactive(option: str) -> Callable:
     return act
 
 
+# The reasons of the noted and unsupported rows that share one (§4 of the guide: every noted option prints
+# `<option>: <why>`, every unsupported one `<option> is not supported yet (<why>)`; the guide trial of phase 2e,
+# TRIAL2E1-14, found twenty rows that printed the option alone)
+_CMI_VERSION = "vamos loads no CMI library (Cadence's compiled model interface), so it has no CMI version (%M is empty)"
+_CMI_CONFIG = "the CMI configuration file is not read: vamos loads no CMI library (Cadence's compiled model interface)"
+_UWI = "vamos writes psfascii, nutascii or nutbin, not the user-defined waveform interface, UWI"
+_DIAGNOSE = "Spectre's diagnostics are not reproduced; the engines print their own messages"
+_MPS = "no MPS session, Spectre's interactive link to ADE or OCEAN: vamos runs the netlist, then exits"
+_SLAVE = "no slave session, a Spectre run that another tool controls: vamos runs the netlist, then exits"
+_CHECKLIMIT = "no checklimit results file is written: check and checklimit statements are parsed, not evaluated"
+
 # §2.3, one Opt per option and per abbreviation; scanned with option_chars "-+=" (§2.1).  The help
 # options and +%X/-%X are taken by spectre.args.prescan before the scan.
 OPTIONS: List[Opt] = [
     Opt("-V", "flag", _version("version")),
     Opt("-W", "flag", _version("subversion")),
-    Opt("-cmiversion", "flag", NOTED),
-    Opt("-cmiconfig", "next", NOTED),
+    Opt("-cmiversion", "flag", NOTED, _CMI_VERSION),
+    Opt("-cmiconfig", "next", NOTED, _CMI_CONFIG),
     Opt("-raw", "next", _set("raw")), Opt("-r", "next", _set("raw")),
     Opt("-format", "next", _format), Opt("-f", "next", _format),
     Opt("-outdir", "next", _set("outdir")),
     Opt("+rtsf", "flag", IGNORED),
-    Opt("-uwifmt", "next", UNSUPPORTED), Opt("-uwilib", "next", UNSUPPORTED),
+    Opt("-uwifmt", "next", UNSUPPORTED, _UWI), Opt("-uwilib", "next", UNSUPPORTED, _UWI),
     Opt("+log", "next", _log("both")), Opt("+l", "next", _log("both")),
     Opt("=log", "next", _log("file")), Opt("=l", "next", _log("file")),
     Opt("-log", "flag", _log("screen")), Opt("-l", "flag", _log("screen")),
@@ -182,7 +193,8 @@ OPTIONS: List[Opt] = [
     Opt("-maxwtl", "next", _int("maxwarnstolog", "-maxwtl")),
     Opt("-maxnotestolog", "next", _int("maxnotestolog", "-maxnotestolog")),
     Opt("-maxntl", "next", _int("maxnotestolog", "-maxntl")),
-    Opt("+varedefnerror", "flag", NOTED),
+    Opt("+varedefnerror", "flag", NOTED, "a parameter defined again is not an error: vamos notes it and uses the "
+                                         "last definition everywhere"),
     Opt("-E", "flag", _flag("cpp", True)),
     Opt("-D", "prefix", _cpp_list("defines", "-D")),
     Opt("-U", "prefix", _cpp_list("undefines", "-U")),
@@ -218,9 +230,11 @@ OPTIONS: List[Opt] = [
     Opt("-multithread", "flag", IGNORED), Opt("-mt", "flag", IGNORED),
     Opt("-64", "flag", IGNORED), Opt("-32", "flag", IGNORED),
     Opt("+mtmode", "next", IGNORED), Opt("-processor", "next", IGNORED), Opt("-proc", "next", IGNORED),
-    Opt("+diagnose", "flag", NOTED), Opt("+transteps", "flag", NOTED), Opt("+diagnose_fpe", "flag", NOTED),
-    Opt("+detect_negcap", "flag", NOTED), Opt("+fix_bad_pivot", "flag", NOTED),
-    Opt("+diagnose_minstep", "eq", NOTED), Opt("+diagnose_top", "eq", NOTED),
+    Opt("+diagnose", "flag", NOTED, _DIAGNOSE), Opt("+transteps", "flag", NOTED, _DIAGNOSE),
+    Opt("+diagnose_fpe", "flag", NOTED, _DIAGNOSE), Opt("+detect_negcap", "flag", NOTED, _DIAGNOSE),
+    Opt("+fix_bad_pivot", "flag", NOTED, "Spectre's pivoting aid is not reproduced; each engine uses its own "
+                                         "solver"),
+    Opt("+diagnose_minstep", "eq", NOTED, _DIAGNOSE), Opt("+diagnose_top", "eq", NOTED, _DIAGNOSE),
     Opt("+checkpoint", "flag", NOTED, "no checkpoint file is written"),
     Opt("+cp", "flag", NOTED, "no checkpoint file is written"),
     Opt("+savestate", "flag", NOTED, "no savestate file is written"),
@@ -235,8 +249,8 @@ OPTIONS: List[Opt] = [
     Opt("+interactive", "flag", _interactive("+interactive")), Opt("+interactive", "eq", _interactive("+interactive")),
     Opt("+inter", "flag", _interactive("+inter")), Opt("+inter", "eq", _interactive("+inter")),
     Opt("-interactive", "flag", IGNORED), Opt("-inter", "flag", IGNORED),
-    Opt("+mpssession", "eq", UNSUPPORTED), Opt("+mpshost", "eq", UNSUPPORTED),
-    Opt("-slave", "next", UNSUPPORTED), Opt("-slvhost", "next", UNSUPPORTED),
+    Opt("+mpssession", "eq", UNSUPPORTED, _MPS), Opt("+mpshost", "eq", UNSUPPORTED, _MPS),
+    Opt("-slave", "next", UNSUPPORTED, _SLAVE), Opt("-slvhost", "next", UNSUPPORTED, _SLAVE),
     Opt("-mdlcontrol", "flag", IGNORED), Opt("-mdl", "flag", IGNORED),
     Opt("+mdlcontrol", "flag", UNSUPPORTED, "MDL measurements are not run"),
     Opt("+mdlcontrole", "flag", UNSUPPORTED, "MDL measurements are not run"),
@@ -244,7 +258,7 @@ OPTIONS: List[Opt] = [
     Opt("=mdl", "next", UNSUPPORTED, "MDL measurements are not run"),
     Opt("=mdlcontrole", "next", UNSUPPORTED, "MDL measurements are not run"),
     Opt("=mdle", "next", UNSUPPORTED, "MDL measurements are not run"),
-    Opt("-checklimitfile", "next", NOTED), Opt("-cl", "next", NOTED),
+    Opt("-checklimitfile", "next", NOTED, _CHECKLIMIT), Opt("-cl", "next", NOTED, _CHECKLIMIT),
     Opt("+dochecklimit", "flag", IGNORED), Opt("+docl", "flag", IGNORED),
     Opt("-dochecklimit", "flag", IGNORED), Opt("-docl", "flag", IGNORED), Opt("-dynchecks", "flag", IGNORED),
     Opt("+lqtimeout", "next", IGNORED), Opt("+lqt", "next", IGNORED),
@@ -260,8 +274,9 @@ OPTIONS: List[Opt] = [
     Opt("-ahdllint_maxwarn", "flag", IGNORED), Opt("-ahdllint_maxwarn", "eq", IGNORED),
     Opt("-ahdllint_summary_maxentries", "flag", IGNORED), Opt("-ahdllint_summary_maxentries", "eq", IGNORED),
     Opt("-ahdllint_warn_id", "eq", IGNORED), Opt("-ahdlshipdbdir", "eq", IGNORED), Opt("-ahdlshipdbmode", "eq", IGNORED),
-    Opt("-ahdlsourceramp", "flag", NOTED),
-    Opt("+sensdata", "next", NOTED),
+    Opt("-ahdlsourceramp", "flag", NOTED, "Spectre's ramping of Verilog-A sources is not reproduced; the engines' "
+                                          "own operating-point methods apply"),
+    Opt("+sensdata", "next", NOTED, "no sensitivity data file is written (sens analyses are not in v1)"),
     Opt("+spp", "flag", IGNORED), Opt("-spp", "flag", IGNORED), Opt("-sppbin", "next", IGNORED),
     Opt("-env", "next", IGNORED),
     Opt("+escchars", "flag", _flag("escchars", True)),
@@ -274,7 +289,7 @@ TABLE: Table = Table(OPTIONS)
 _ACTED = ("  -raw/-r <dir>  -format/-f <fmt>  -outdir <dir>  +log/+l <file>  =log/=l <file>  -log/-l\n"
           "  -E  -D<x>[=<y>]  -U<x>  -I<dir>  -disableCPP  +config/=config <file>  -config\n"
           "  +pre_config/-pre_config <file>  +paramdefault/=paramdefault <file>  -paramdefault\n"
-          "  +errpreset=<p>  +aps=<p>  ++aps=<p>  -mts  -ahdllibdir <dir>  -va,define <m>[=<v>]  +escchars\n"
+          "  +errpreset=<p>  +aps=<p>  ++aps=<p>  -mts  -ahdllibdir <dir>  -va,define <m>  +escchars\n"
           "  +error/-error  +warn/-warn  +note/-note  +info/-info  +debug/-debug\n"
           "  -maxwarns/-maxw <n>  -maxnotes/-maxn <n>  -maxwarnstolog/-maxwtl <n>  -maxnotestolog/-maxntl <n>\n"
           "  +%X <string>  -%X  -V  -W  -help/-h [<topic>]  -helpsort/-hs  -helpfull/-hf  -helpsortfull/-hsf")
@@ -413,6 +428,15 @@ def note_vamos_options(job, opts: dict) -> None:
         job.note(opt, INAPPLICABLE, why)
 
 
+def fallback_profile() -> Optional[dict]:
+    """The banner profile of a log vamos opens before (or without) step 1b: $VAMOS_BANNER's, else, when that names
+    no usable profile (open_log reports it), the shipped one."""
+    try:
+        return banner.load_profile("spectre")
+    except ValueError:
+        return banner.load_profile("spectre", "spectre")
+
+
 def open_log(job, opts: dict, start: datetime) -> SpectreLog:
     """Step 1b (§1): the banner profile and the log.  A bad --vamos-banner is an error note and
     the shipped layout is used; a log file that cannot be opened is an error note and the log
@@ -423,7 +447,9 @@ def open_log(job, opts: dict, start: datetime) -> SpectreLog:
         prof = banner.load_profile("spectre", opts.get("banner"))
     except ValueError as e:
         job.notes.append(error("", str(e)))
-        prof = banner.load_profile("spectre")
+        # the shipped layout, whatever $VAMOS_BANNER names (TRIAL2EG-F03: a bad VAMOS_BANNER failed here a second
+        # time, and the run ended with exit status 2 and nothing printed)
+        prof = banner.load_profile("spectre", "spectre")
     ban = banner.Banner(prof, "spectre")
     try:
         return SpectreLog(job, ban, start)
@@ -514,7 +540,7 @@ def _internal_error(e: Exception, job, start: datetime, prog: str, args: List[st
             if job is None:
                 job = SpectreJob(prog, list(args), cwd)
             screen = dataclasses.replace(job, log_mode="screen", log_path=None, defaults={})
-            log = SpectreLog(screen, banner.Banner(banner.load_profile("spectre"), "spectre"), start)
+            log = SpectreLog(screen, banner.Banner(fallback_profile(), "spectre"), start)
         where = log.path
         if where is None:
             fh = tempfile.NamedTemporaryFile("w", prefix="vamos-spectre-", suffix=".traceback", delete=False)
@@ -543,7 +569,9 @@ trailer, the state files, and Spectre's exit status (0 completed, 1 an analysis 
 Spectre error, 3 stopped by a signal).  With no netlist the input is standard input (%%C is
 stdin).  The name vamos was invoked as (spectre, spectre<version>, or an alias listed in
 VAMOS_SPECTRE_NAMES) is %%S and names the defaults variable: <prog>_DEFAULTS, else
-<PROG>_DEFAULTS, else SPECTRE_DEFAULTS.
+<PROG>_DEFAULTS, else, for a name no shell can export, their escaped forms (spectre-23.1 reads
+_spectre_05523_0561_DEFAULTS, then _SPECTRE_05523_0561_DEFAULTS: _, then each byte that is not
+a letter or a digit as _ and its 3-digit octal code), else SPECTRE_DEFAULTS.
 
 Options vamos acts on:
 %s

@@ -909,7 +909,10 @@ class TestVacaskSpectre(unittest.TestCase):
         self.assertIn('  analysis vamos_a1 noise out="I2:Mid" in="I2:vb" ', text)
         self.assertIn('  analysis vamos_a2 acxf out=["I2:Mid", "out"] ', text)
         self.assertIn('  analysis vamos_a3 noise out="007" in="v1" ', text)
-        self.assertIn('  analysis vamos_a4 noise out="net4<0>" in="v1" ', text)
+        # re-decided by the user's escaped-name rule (2026-10-19, FIX2E3N): net4<0> prints as _net4_0740_076, in its
+        # string and on its instance lines alike (out="net4<0>" before, which VACASK also found)
+        self.assertIn('  analysis vamos_a4 noise out="_net4_0740_076" in="v1" ', text)
+        self.assertIn("rn (out _net4_0740_076) vamos_resistor", text)
 
     def test_golden_worked_example(self):
         """§7.1's control block for §7.3, byte for byte."""
@@ -5674,6 +5677,49 @@ class TestDriverRuns2c9(_Flow):
             v = complex(self.psf(d, "ph4", "ac1.ac").column("out")[0])
             self.assertAlmostEqual(abs(v), 0.5, delta=1e-9, msg=engine)
             self.assertAlmostEqual(cmath.phase(v), cmath.pi / 4, delta=1e-9, msg=engine)
+
+
+# The guide trial of phase 2e (TRIAL2E1-03): nodes whose escaped Spectre names hold a dot, at the top level (b\.c) and
+# inside a subckt (m\.n); b.c = 1k||2k / (1k + 1k||2k) = 0.4 and X1.m.n = 0.2 with V1 = 1 V
+DOTTED_2E = r"""// escaped node names
+simulator lang=spectre
+V1 (a\<0\> 0) vsource dc=1
+R1 (a\<0\> b\.c) resistor r=1k
+R2 (b\.c 0) resistor r=1k
+X1 (b\.c 0) half
+subckt half (p q)
+  R1 (p m\.n) resistor r=1k
+  R2 (m\.n q) resistor r=1k
+ends half
+op1 dc
+"""
+
+
+class TestGuideTrialRuns2e(_Flow):
+    """The guide trial of phase 2e through bin/vamos on both engines.  TRIAL2E1-03: a node whose escaped name holds a
+    dot is written: allpub left b.c out with the warning `signal `b.c' of analysis `op1' has no column in the engine
+    output' (vamos looked it up as b:c), and a save of b.c and X1.m.n made VACASK stop (`Node 'b:c' not found', exit
+    1) and Xyce refuse its deck (`There were 2 undefined symbols in .PRINT command: node B:C, node X1:M:N', exit 2)."""
+
+    @needs_vacask
+    @needs_xyce
+    def test_03_a_node_whose_name_holds_a_dot_is_written(self):
+        saved = DOTTED_2E.replace("op1 dc\n", "op1 dc\nsave b\\.c X1.m\\.n X1.R1:1\n")
+        for engine in ("vacask", "xyce"):
+            with self.subTest(engine=engine):
+                d, out = self.spectre("dot", DOTTED_2E, engine)
+                self.assertNotIn("no column", out)
+                op = self.psf(d, "dot", "op1.dc")
+                self.assertEqual(sorted(op.names()), ["V1:p", "X1.m.n", "a<0>", "b.c"])        # allpub: every net
+                self.assertAlmostEqual(op.value("b.c"), 0.4, delta=1e-9)
+                self.assertAlmostEqual(op.value("X1.m.n"), 0.2, delta=1e-9)
+                d, out = self.spectre("dots", saved, engine)
+                self.assertNotIn("Warning from", out)
+                op = self.psf(d, "dots", "op1.dc")
+                self.assertEqual(op.names(), ["b.c", "X1.m.n", "X1.R1:1"])
+                self.assertAlmostEqual(op.value("b.c"), 0.4, delta=1e-9)
+                self.assertAlmostEqual(op.value("X1.m.n"), 0.2, delta=1e-9)
+                self.assertAlmostEqual(abs(op.value("X1.R1:1")), 0.2e-3, delta=1e-12)
 
 
 if __name__ == "__main__":

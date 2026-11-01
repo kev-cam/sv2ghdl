@@ -776,14 +776,14 @@ anywhere on the line, and vamos removes them before the personality reads its ar
 vamos owns this namespace. An unknown option (`--vamos-analgo=xyce`), a missing value (`--vamos-analog`), a
 value given to a flag (`--vamos-strict=0`) or a value outside its choices (`--vamos-parhier=lcoal`) is an
 error (exit 2); for an unknown option the message names the nearest one (`unknown vamos option
---vamos-analgo=xyce (did you mean --vamos-analog?)`). An option that has no effect where it is given is a warning,
-`vamos: warning: <option> has no effect: <why>`, and `--vamos-strict` makes it an error. Examples: an AMS
-option in a digital compile, `--vamos-keep` in a compile without `-R`, a compile-time option given to
+--vamos-analgo=xyce (did you mean --vamos-analog?)`). An option that has no effect where it is given is a
+warning, `vamos: warning: <option> has no effect: <why>`, and `--vamos-strict` makes it an error. Examples:
+an AMS option in a digital compile, `--vamos-keep` in a compile without `-R`, a compile-time option given to
 `./simv`, `--vamos-analog-stop` beside a `.tran`.
 
 | option | where | effect |
 |---|---|---|
-| `--vamos-banner=<name\|path\|none>` | all | banner profile (§8); `none` prints only the provenance header |
+| `--vamos-banner=<name\|path\|none>` | all | banner profile (§8); `none` drops the profile's banners and keeps the provenance header (under spectre the messages, the `-V` line, the `run directory kept:` line and the last line stay too: §12, The banner profile) |
 | `--vamos-strict` | all | unsupported, unknown and ineffective options are errors; so is every warning of a compile |
 | `--vamos-verbose` | all | prints each command vamos runs (`vamos: + ...`) |
 | `--vamos-licenses` | - | prints the tool/licence table and exits |
@@ -798,14 +798,17 @@ option in a digital compile, `--vamos-keep` in a compile without `-R`, a compile
 | `--vamos-append-log` | `simv` | with `-l`, appends to the log (`vcs -R` uses it) |
 | `--vamos-daidir=<dir>` | `simv` | used by the generated `./simv`; not for direct use |
 
-Times are SPICE numbers: `20n`, `50p`, `1e-6`. The `where` column is what each personality's `-h` prints in
-brackets after an option: `spectre -h` lists only the options that have an effect under spectre, `vcs -h` and
-`vcs-ams -h` list `--vamos-psf-names` as `[spectre]`, and an option given where it has no effect is the
-warning above (an error under `--vamos-strict`) in every personality, the spectre log included.
+Times are SPICE numbers: `20n`, `50p`, `1e-6`. The `where` column lists every place an option has an effect,
+as `spectre -h` prints it in brackets (`[AMS compile, spectre]`); `spectre -h` lists only the options that
+have an effect under spectre. The usage text of `vamos -h`, `vcs -h` and `vcs-ams -h`, which a name vamos
+does not provide (`spectrespp`) prints too, brackets each option's first place alone: `--vamos-analog` is
+`[AMS compile]`, `--vamos-keep` `[./simv, or a compile with -R]` and `--vamos-psf-names` `[spectre]`. An
+option given where it has no effect is the warning above (an error under `--vamos-strict`) in every
+personality, the spectre log included.
 
 | variable | effect |
 |---|---|
-| `VAMOS_NVC`, `VAMOS_IVERILOG` | the real nvc / iverilog. In general, `VAMOS_<TOOL>` names any tool vamos looks up. Checked: a path that is not an executable file, or is vamos itself, is an error (exit 1); a bare name is looked up on PATH |
+| `VAMOS_NVC`, `VAMOS_IVERILOG` | the real nvc / iverilog. In general, `VAMOS_<TOOL>` names any tool vamos looks up. Checked: a path that is not an executable file, or is vamos itself, is an error (exit 1; under spectre exit 2, as every error vamos finds there: §12); a bare name is looked up on PATH |
 | `VAMOS_ANALOG` | `vacask` or `xyce`; below `--vamos-analog`, above `choose` |
 | `VAMOS_BANNER` | banner profile name or path; below `--vamos-banner` |
 | `VAMOS_VERBOSE=1` | the same as `--vamos-verbose` |
@@ -821,7 +824,7 @@ warning above (an error under `--vamos-strict`) in every personality, the spectr
 | `VAMOS_DEV=1` | dev mode: also look in the source build areas for nvc and iverilog (automatic in a source checkout; `VAMOS_DEV=0` does not turn it off) |
 | `VAMOS_REDIRECT` | `:`-separated extra directories to remove from the PATH vamos gives to the tools it runs |
 | `VAMOS_SPECTRE_NAMES` | `:`-separated alias names that run the spectre personality (`specsim`), beside `spectre` and `spectre<version>` (§12) |
-| `<prog>_DEFAULTS`, `<PROG>_DEFAULTS`, `SPECTRE_DEFAULTS` | Spectre's default command-line options, read by the spectre personality (§12) |
+| `<prog>_DEFAULTS`, `<PROG>_DEFAULTS`, their escaped forms, `SPECTRE_DEFAULTS` | Spectre's default command-line options, read by the spectre personality (§12; `_spectre_05523_0561_DEFAULTS` for `spectre-23.1`) |
 | `VAMOS_CPP` | the C preprocessor of a spectre run (`-E`, `-D`, `-U`, `-I`); checked like every `VAMOS_<TOOL>` |
 | `CDS_VLOGA_INCLUDE`, `CDS_AHDLCMI_SIMDB_DIR`, `CDS_AHDL_*` | Spectre's Verilog-A variables, as the spectre personality reads them (§12) |
 | `XDG_CONFIG_HOME` | where the user configuration layer is (default `~/.config`) |
@@ -829,7 +832,8 @@ warning above (an error under `--vamos-strict`) in every personality, the spectr
 
 The engine variables (`VAMOS_VACASK_HOME`, `VAMOS_VACASK`, `VAMOS_VACASK_MODULE_PATH`, `VAMOS_OPENVAF`,
 `VAMOS_XYCE`, `VAMOS_XYCE_LIBS`) are used as given when set, never replaced by the default: a value that is
-not an executable (a directory for `_HOME`, `_MODULE_PATH` and each `_LIBS` entry) stops the AMS compile.
+not an executable (a directory for `_HOME`, `_MODULE_PATH` and each `_LIBS` entry) stops the AMS compile and
+a spectre run, and a spectre run also stops when `VAMOS_VACASK`, `VAMOS_OPENVAF` or `VAMOS_XYCE` names vamos.
 
 vamos sets `VAMOS_STACK`, `VAMOS_DEPTH`, `VAMOS_LAUNCHER` and `VAMOS_ARGV0` for its own use. Do not set them
 yourself. For a run's nvc it also sets `NVC_REPORT_END_TIME` (the footer's time), `SV2VHDL_FILE_DIR` (the
@@ -841,7 +845,8 @@ them, `NVC_RESOLVER_DIR` and `NVC_WORK` (the resolver plugin's cache and work li
 - **Provenance.** Every compile and every run starts with the tools it actually ran, each with its version,
   licence and path ("tools used", see §3). This header is printed whatever the banner profile, and it is
   also saved in `<daidir>/vamos.tools.json`. A version shown as `?` means the tool printed no version (it
-  could not run, or printed an error). The columns are as wide as their widest entry.
+  could not run, or printed an error). Each column is as wide as its widest entry, and at least 8 characters for
+  the tool's name, 14 for the version and 26 for the licence.
 - **No vendor text.** vamos never prints vendor licence or copyright text. Licence options (`-licqueue`,
   `+vcs+lic+wait`) are accepted and ignored.
 - **Banner profiles.** The compile banner, the `Top Level Modules:` summary, the `CPU time` line and the run
@@ -869,7 +874,9 @@ them, `NVC_RESOLVER_DIR` and `NVC_WORK` (the resolver plugin's cache and work li
   order: the package; a site layer, `etc/vamos/` in the directory above the checkout (for
   `/usr/local/src/sv2ghdl`, that is `/usr/local/src/etc/vamos/`); `~/.config/vamos/`; `~/.vamos/`;
   `./.vamos/`. The last layer that has the file wins, and it replaces the whole profile, so copy every key,
-  not just the ones you change. The keys are
+  not just the ones you change. A name or path that names no profile is an error, and so is a profile you
+  name that is not valid JSON (the message gives the file and the place of the error); a copy of the
+  personality's own profile that is not valid JSON is skipped, as a missing one is. The keys are
   `brand`, `compile_start`, `compile_tops`, `compile_done`, `compile_failed` and `run_footer`. The
   placeholders are listed in the shipped file's `_comment`; `{exe}` is the executable relative to the current
   directory (`Vamos: ./sim/tb_simv is up to date`). No placeholder exists for licence text. The spectre
@@ -1078,8 +1085,12 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
 `simulator lang=spice` sections, or a SPICE-mode file), runs its analyses and writes what Spectre writes: a
 directory of PSF files indexed by `logFile` (or one nutmeg file), the `+log` file, state files and Spectre's
 exit status. The contract is docs/VAMOS_SPECTRE_DESIGN.md. Its §0 lists what v1 runs and what it refuses,
-and the `§` numbers inside vamos's messages are that document's sections. The runs below were made in an
-empty directory, shown as `/work/spectre`, with `shims/` first on PATH.
+and the `§` numbers inside vamos's messages are that document's sections. The runs below were made in empty
+directories, shown as `/work/spectre`: each example starts in one of its own, unless it uses the files of an
+earlier one (`state2.scs` reads what `state.scs` wrote), so a listing such as `ls *.log` shows only what that
+example wrote, where one directory for all of them would list the earlier examples' files too. `SV2GHDL` names
+the checkout and `shims/` is first on PATH: `export SV2GHDL=/usr/local/src/sv2ghdl` (your checkout, as in §2),
+then `export PATH=$SV2GHDL/shims:$PATH`.
 
 ### The names
 
@@ -1090,7 +1101,8 @@ vamos runs the spectre personality when it is invoked as:
   rule is `spectre`, an optional `-`, `_` or `.`, then a digit, then anything);
 - a name listed in `VAMOS_SPECTRE_NAMES`, colon-separated: `export VAMOS_SPECTRE_NAMES=specsim:myspectre`
   (`specsim` is the Spectre User Guide's own alias example);
-- `vamos -spectre <args>`.
+- `vamos -spectre <args>`, with `bin/` on PATH (§2, Put vamos on PATH; `shims/` holds no `vamos`), or as
+  `$SV2GHDL/bin/vamos -spectre <args>`.
 
 The name you ran is `%S` in file names, the `<prog>` of `<prog>_DEFAULTS`, and the `<prog>` of every message
 and of the log's last line (`specsim completes with 0 errors, 0 warnings, and 0 notices`). Under
@@ -1099,10 +1111,13 @@ and of the log's last line (`specsim completes with 0 errors, 0 warnings, and 0 
 Any other name that starts with `spectre` is a Cadence program vamos does not provide. A link named
 `spectrespp` or `spectre_encrypt` (or `spectre-` with no digit after it) prints
 `vamos: error: 'spectrespp' is a Cadence program vamos does not provide (vamos provides spectre, and the
-alias names listed in VAMOS_SPECTRE_NAMES)`, then the usage text, and exits 2. An alias that is not listed
-in `VAMOS_SPECTRE_NAMES` is an ordinary unknown name: the usage text, exit 2.
+alias names listed in VAMOS_SPECTRE_NAMES)`, then the usage text, and exits 2. That is vamos's own usage
+text, whose brackets give each `--vamos-*` option's first place alone (`[AMS compile]` for `--vamos-analog`);
+`spectre -h` names every place (§7). An alias that is not listed in `VAMOS_SPECTRE_NAMES` is an ordinary
+unknown name: the usage text, exit 2.
 
 ```sh
+export SV2GHDL=/usr/local/src/sv2ghdl        # your checkout (§2)
 export PATH=$SV2GHDL/shims:$PATH             # shims/spectre is a link to bin/vamos
 spectre -h                                   # the usage text; the last line is this guide's path
 spectre -h resistor                          # the dispositions of a primitive's parameters
@@ -1119,7 +1134,18 @@ the shim first on the PATH that ADE inherits, or point ADE's simulator setting a
 The vamos options (`--vamos-*`, §7) are read from the command line only. Under spectre `--vamos-analog`,
 `--vamos-keep`, `--vamos-psf-names`, `--vamos-banner`, `--vamos-strict` and `--vamos-verbose` have an effect;
 the vcs-ams compile options and the `./simv` options get the `has no effect` warning in the log (an error
-under `--vamos-strict`).
+under `--vamos-strict`). A `--vamos-*` option that is mistyped, lacks its value or has a value it does not
+take is a usage error of vamos itself, found before the spectre personality starts (§7): one line on
+stderr and exit status 2, with no Spectre message, no `+log` file, no results and no last line. The
+netlist is not read, so `rc.scs` (the Quick start's, below) need not exist yet:
+
+```
+$ spectre --vamos-analgo=xyce +log run.log rc.scs; echo $?
+vamos: error: unknown vamos option --vamos-analgo=xyce (did you mean --vamos-analog?)
+2
+$ ls run.log
+ls: cannot access 'run.log': No such file or directory
+```
 
 ### Quick start
 
@@ -1145,13 +1171,14 @@ swp sweep param=rval values=[1k 2k] {
 ```
 
 ```
+$ export SV2GHDL=/usr/local/src/sv2ghdl
 $ export PATH=$SV2GHDL/shims:$PATH
 $ spectre rc.scs
 vamos 0.1.0 (spectre personality) - tools used:
   vamos      git-<commit>         GPL-3.0-or-later           /usr/local/src/sv2ghdl/bin/vamos
   VACASK     0.3.4-91-g64489cf7   AGPL-3.0-only              /opt/build.VACASK/Release/simulator/vacask
   OpenVAF-r  20260616-3-g0e83f1ed GPL-3.0-only               /opt/openvaf-r-20260616/openvaf-r
-Simulating `rc.scs' on myhost at 10:46:51 AM, Sat Oct 17, 2026.
+Simulating `rc.scs' on myhost at 4:01:01 AM, Mon Oct 19, 2026.
 
 Circuit inventory:
               nodes 2
@@ -1173,8 +1200,8 @@ Transient Analysis `tr': time = (0 s -> 5 ms)
 *********************************************
 Total time required for tran analysis `tr' was 0.00 s.
 
-Aggregate audit (10:46:51 AM, Sat Oct 17, 2026):
-Time used: CPU = 0.13 s, elapsed = 1 s.
+Aggregate audit (4:01:01 AM, Mon Oct 19, 2026):
+Time used: CPU = 0.10 s, elapsed = 0 s.
 spectre completes with 0 errors, 0 warnings, and 0 notices
 $ ls rc.raw
 logFile
@@ -1187,13 +1214,17 @@ swp_tr.sweep
 
 The screen shows the tools the run used (§8), the start line, the circuit inventory, a banner and a time for
 each analysis, the aggregate audit and the last line, which scripts grep (How a run ends, below). The sweep
-runs `tr` once for each value of `rval`, under one banner.
+runs `tr` once for each value of `rval`, under one banner. The tools are the engine's, listed before the
+netlist is read: OpenVAF-r is in every VACASK run's list, as VACASK runs with it named in its environment
+(`SIM_OPENVAF`), although vamos runs it only to compile a netlist's Verilog-A (`--vamos-verbose` shows each
+command vamos runs). So a `VAMOS_OPENVAF` that names nothing usable stops every VACASK run.
 
 The results are the directory `rc.raw`: the netlist's name with `.raw` (`%C:r.raw`), beside the netlist. It
 holds one PSF ASCII file per analysis, named after it (`myop.dc`, `myac.ac`), the sweep's parent file
 `swp_tr.sweep`, one file per sweep point (`swp-000_tr.tran.tran` for `rval` = 1k, `swp-001_tr.tran.tran` for
 2k), and the index, `logFile` (Outputs, below). The engine runs in a run directory beside the results, which
-vamos removes after a successful run. A PSF file is text. `myac.ac`, shortened:
+vamos removes after a successful run. A PSF file is text, in UTF-8: every name and the title are written as
+they are (Names in the engines' decks, below), as in the nutmeg and state files. `myac.ac`, shortened:
 
 ```
 $ cat rc.raw/myac.ac
@@ -1248,7 +1279,160 @@ END
 ```
 
 Signals carry Spectre's names: a node by its name (`out`), the current of a source's terminal as `V1:p`, and
-a name inside a subckt as a path (`I2.r3`, the noise trace of resistor `r3` in instance `I2`).
+a name inside a subckt as a path (`I2.r3`, the noise trace of resistor `r3` in instance `I2`). A name written
+with backslash escapes is the name itself: the nodes `a\<0\>` and `b\.c` are the signals `a<0>` and `b.c`
+(`a\<0\>` under `+escchars`), and a node `m\.n` inside instance `X1` is `X1.m.n`.
+
+**Names in the engines' decks.** A deck cannot carry every name Spectre allows, so vamos prints each netlist
+name that is not a plain identifier (ASCII letters, digits and `_`, not starting with `_`) by one reversible
+rule: `_`, then the name's bytes (UTF-8), each byte that is not a letter or a digit written as `_` and its
+3-digit octal code. `b.c` is `_b_056c`, `a<0>` is `_a_0740_076`, `vdd!` is `_vdd_041`, `a b` is `_a_040b`
+and a subckt instance `X\.1` is `_X_0561`. A name that starts with `_` is escaped too (`_u` is `__137u`, a
+parameter `_rv` is `__137rv`), so `_b_056c`, a name of its own that only looks escaped, prints as
+`__137b_137056c` and never meets `b.c`. The engines' own `:` joins a path's names (`_X_0561:_m_056n`; a Xyce
+element keeps its letter, `x_X_0561`). Everything vamos writes gives the names back (two exceptions, a nutmeg
+variable with a blank or a comma and a results file's name with a `/`, are below): the PSF and nutmeg signals,
+`logFile`, the state files and the messages, the engines' messages too (Xyce's in its upper case):
+
+```
+$ cat esc.scs
+// escaped names
+simulator lang=spectre
+V1 (a\<0\> 0) vsource dc=1
+R1 (a\<0\> b\.c) resistor r=1k
+R2 (b\.c 0) resistor r=1k
+X\.1 (b\.c 0) half
+subckt half (p q)
+  R1 (p m\.n) resistor r=1k
+  R2 (m\.n q) resistor r=1k
+ends half
+op1 dc write="op1.ns"
+save b\.c X\.1.m\.n X\.1.R1:1
+$ spectre --vamos-keep esc.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ sed -n '/^VALUE/,$p' esc.raw/op1.dc
+VALUE
+"b.c" "V" 4.000000000000000e-01
+"X.1.m.n" "V" 2.000000000000000e-01
+"X.1.R1:1" "I" 2.000000000000000e-04 PROP(
+"units" "A"
+)
+END
+$ cat op1.ns
+# State file generated by Spectre from circuit file 'esc.scs'
+# during 'op1' at 10:46:04 AM, oct 19, 2026.
+a<0> 1
+b.c 0.4
+X.1.m.n 0.2
+V1:p -0.0006
+$ grep -E '^(R1|R2|_X|subckt|  R|  save)' esc.run.*/vamos.sim
+R1 (_a_0740_076 _b_056c) vamos_resistor r=1000.0
+R2 (_b_056c 0) vamos_resistor r=1000.0
+_X_0561 (_b_056c 0) half
+subckt half (p q)
+  R1 (p _m_056n) vamos_resistor r=1000.0 $mfactor=$mfactor
+  R2 (_m_056n q) vamos_resistor r=1000.0 $mfactor=$mfactor
+  save default p('_X_0561:R1', i)
+$ spectre --vamos-analog=xyce --vamos-keep esc.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep -E '^(R1|x_X|.subckt|.PRINT)' esc.run.*/vamos_a1.cir
+R1 _a_0740_076 _b_056c 1000.0
+x_X_0561 _b_056c 0 half
+.subckt half p q params: vamos_mfactor=1.0
+R1 p _m_056n 1000.0 m={vamos_mfactor}
+.PRINT DC FORMAT=RAW FILE=vamos_a1.raw V(*) I(X_X_0561:R1) I(V1)
+$ cat dang.scs
+// a node with one connection
+simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a 0) resistor r=1k
+R2 (a c\-d) resistor r=1k
+op1 dc
+$ spectre --vamos-analog=xyce dang.scs | grep -A 1 Warning
+Warning from spectre during DC analysis `op1'.
+    Xyce: Netlist warning: Voltage Node (C-D) connected to only 1 device Terminal
+```
+
+Xyce's results are the same `b.c`, `X.1.m.n` and `X.1.R1:1`. Paths join Spectre's names with `.`, as Spectre
+writes them, so two names must not give one path: a top-level node `b\.c` beside the node `c` of an instance
+`b` is an error (`node b.c at the top level and node c of b have one hierarchical name, b.c: ...`), and so is
+an instance `R\.1` beside the instance `1` of an instance `R`. A path is split by the netlist: with instances
+`X` and `X\.1`, `X.1.m` is the node `m` of `X.1` when `X`'s subckt has nothing named `1.m`. In an engine's
+message a path keeps the engine's `:` between its names, each name given back: the node `m\.n` of the instance
+`X\.1` is `X.1:M.N` in Xyce's `Voltage Node (X.1:M.N) connected to only 1 device Terminal`.
+
+Xyce wants each element's name to start with its letter, which vamos adds where the name lacks it (`load` is
+`rload`, `R\<1\>` is `r_R_0741_076`, an instance `sub1` is `xsub1`). Where that would be the name of an
+element whose own name starts with the letter (`Rload`, `r_R_0741_076`, `xsub1`, anywhere in the netlist,
+compared as Xyce does, in upper case), the element vamos adds the letter to prints as the letter, a `_` and its
+name instead (`r_load`, `r__R_0741_076`, `x_sub1`; one `_` more while that is taken too), so that no two
+elements share a name, and the results and messages carry the netlist's names:
+
+```
+$ cat letters.scs
+// R<1> beside a resistor named r_R_0741_076
+simulator lang=spectre
+V1 (a 0) vsource dc=1
+R\<1\> (a b) resistor r=1k
+r_R_0741_076 (b 0) resistor r=3k
+op1 dc
+$ spectre --vamos-analog=xyce --vamos-keep letters.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep -i '^r' letters.run.*/vamos_a1.cir
+r__R_0741_076 a b 1000.0
+r_R_0741_076 b 0 3000.0
+$ grep '"b"' letters.raw/op1.dc
+"b" "V" 7.500000000000000e-01
+```
+
+The PSF, nutmeg and state files are UTF-8 (§14 q.62), so a name is written there as it is, whatever its
+characters (`nΩ`, and in a path `X1.nΩ`), and a state file of such names reads back as the netlist's names.
+Only two formats hold less: ngspice ends a nutmeg variable's name at a blank or a comma, and a file's name
+cannot hold a `/`, so those names are written in their escaped form, by the rule above, with a notice (Outputs,
+below):
+
+```
+$ cat uni.scs
+// node names Latin-1 cannot hold
+simulator lang=spectre
+V1 (a 0) vsource dc=1
+R1 (a n\Ω) resistor r=1k
+R2 (n\Ω n\Ж) resistor r=1k
+R3 (n\Ж 0) resistor r=1k
+op1 dc write="u.ns"
+$ spectre uni.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ sed -n '/^VALUE/,$p' uni.raw/op1.dc
+VALUE
+"a" "V" 1.000000000000000e+00
+"nΩ" "V" 6.666666666666666e-01
+"nЖ" "V" 3.333333333333333e-01
+"V1:p" "I" -3.333333333333334e-04 PROP(
+"units" "A"
+)
+END
+$ cat u.ns
+# State file generated by Spectre from circuit file 'uni.scs'
+# during 'op1' at 9:12:40 PM, oct 23, 2026.
+a 1
+nΩ 0.666666666666667
+nЖ 0.333333333333333
+V1:p -0.000333333333333333
+```
+
+A title is written as it is too (`// 10 kΩ divider` stays so in every file), and so is the netlist's name in a
+state file's first line. The netlist is read as UTF-8: a byte that is not UTF-8 (a Latin-1 `é`, 0xe9) is read
+as U+FFFD, the replacement character, which a title or a name that holds it carries into the files, with one
+warning per file naming the line of the first such byte:
+
+```
+$ printf '// caf\xe9 divider\nsimulator lang=spectre\nV1 (in 0) vsource dc=1\nR1 (in 0) resistor r=1k\nop1 dc\n' > lat.scs
+$ spectre lat.scs | grep -A 1 Warning
+Warning from spectre during circuit read-in.
+    /work/spectre/lat.scs:1: the byte 0xe9 is not UTF-8: the file is read as UTF-8, so the byte is read as U+FFFD (the replacement character), which a title or a name that holds it carries into the results files (§14 q.62); write the file in UTF-8
+$ grep '"design"' lat.raw/op1.dc
+"design" "// caf� divider"
+```
 
 **Reading the results.** Two PSF readers come with sv2ghdl: `tests/vamos/psfcheck.py`, the strict reader the
 tests use (standard library only, Python 3.9 or newer), and a copy of psf-parser (MIT; Python 3.10 or newer)
@@ -1307,13 +1491,15 @@ Spectre's tolerance settings (`reltol`, `vabstol`, `iabstol`, and a `tran`'s `re
 `errpreset`) are not passed to Xyce, whose tolerances have other meanings; only the integration method is.
 `rc.scs` sets none of them, so the run above prints no notice. A tolerance option that an `options` statement
 sets (`reltol`, `vabstol`, `iabstol`) gets a notice of its own, and a `tran` gets one when the run sets its
-tolerances or method: an `options` `reltol`, the `tran`'s own `reltol`, `relref`, `lteratio`, `errpreset` or
-`method`, `+errpreset`, `+aps`, or a `+paramdefault` file that sets them. `rctol.scs` is `rc.scs` with an
-`options` line:
+tolerances or method: an `options` `reltol`, the `tran`'s `relref`, `lteratio`, `errpreset` or `method`,
+`+errpreset=<p>`, `+aps=<p>` or `++aps=<p>` (a bare `+aps` or `++aps` is ignored), or a `+paramdefault` file
+that sets them. A `tran` has no `reltol` of its own: `tr tran stop=5m reltol=1e-4` is the error
+`tr tran: reltol= is not a parameter of a Spectre tran analysis (§3.11)`, exit status 2, on both engines.
+`rctol.scs` is `rc.scs` with an `options` line after its `parameters` line, which makes the `tran` line 15:
 
 ```
-$ grep options rctol.scs
-opts options reltol=1e-4 vabstol=1e-7
+$ grep -n options rctol.scs
+4:opts options reltol=1e-4 vabstol=1e-7
 $ spectre --vamos-analog=xyce rctol.scs
 ...
 Notice from spectre during initial setup.
@@ -1332,10 +1518,75 @@ node is not ground, an instance of a subckt without ports, an alter of an instan
 instance paths reach (Xyce's deck would change the definition both share), two names that differ only in case
 (`A` and `a`, which Xyce would merge), a noise analysis of a circuit that holds a Verilog-A instance (PyMS
 devices have no noise sources), a resistor's `isnoisy` that reads a parameter a sweep of the noise analysis
-changes, a Verilog-A module that PyMS cannot build (one that uses `$abstime`), and a Verilog-A `` `include ``
-that PyMS would not find beside the file that includes it (it does not search `CDS_VLOGA_INCLUDE` or `-I`):
-each is an error naming the construct, with exit status 2 (Troubleshooting, below). A noise analysis on Xyce
-writes each instance's `total` noise only, without its contributions (a notice). VACASK runs all of these.
+changes, a transient's `ic` or `readic` entry for a node that a voltage source of the netlist touches without
+tying it to the ground (Xyce applies no `.IC` to such a node, and would start from the operating point without
+a word), one for a node that only vamos's own current probes touch (the saved terminal currents of devices with
+more than two terminals: the probes would make Xyce's matrix singular), a Verilog-A module that PyMS cannot
+build (one that uses `$abstime`), one that reads a current `I(...)` in an expression (PyMS assigns currents
+from voltages only), a Verilog-A `` `include `` that PyMS would not find beside the file that includes it (it
+does not search `CDS_VLOGA_INCLUDE` or `-I`), a use of a Verilog-A macro that PyMS would compile wrong without
+an error (one that is not defined where it is used, and one that PyMS expands with another definition than the
+one in force there: it expands a file's macros at the file's end, and it reads `` `define RV (2000.0) `` as a
+macro with an argument; an undefined `` `attr(...) `` annotation, PyMS's own form, is accepted where PyMS
+drops it: Verilog-A on Xyce, below), a Verilog-A parameter default that PyMS would take as 0 or read otherwise
+than Verilog-A does (a scaled number inside an expression, such as `1k * 1`, the scale factor `a`, two
+parameters declared in one statement, a function call, the ternary, a digit separator, a name written in
+capitals with a default that is not a number, the division of two integers: Troubleshooting), and a
+`-va,define` for a netlist with Verilog-A (PyMS takes no macro): each is an error naming the construct, with
+exit status 2 (Troubleshooting, below). A noise analysis on Xyce writes each instance's `total` noise only,
+without its contributions (a notice). VACASK runs all of these, except a macro that is not defined where it is
+used, a `-va,define` that gives a value and a parameter default that is not Verilog-A (a digit separator, a
+based literal), which it refuses too (Troubleshooting).
+
+**Verilog-A on Xyce.** The Verilog-A rows of this section use a one-resistor module, `vres.va`, in the divider
+`va.scs`. Xyce's Verilog-A route is PyMS, which compiles the module when Xyce reads the deck: the first run
+takes a few seconds longer and its `vamos_a1.norun.log` holds PyMS's preprocessor note, while a later run
+finds the module in PyMS's caches (`/tmp/pyms_vae_cache`, `/tmp/pyms_hdl_cache`) and logs the registration
+line alone:
+
+```
+$ cat vres.va va.scs
+`include "disciplines.vams"
+module vres(p, n);
+  inout p, n;
+  electrical p, n;
+  parameter real r = 1k;
+  analog I(p, n) <+ V(p, n) / r;
+endmodule
+// a Verilog-A resistor in a divider
+simulator lang=spectre
+ahdl_include "vres.va"
+V1 (in 0) vsource dc=1
+X1 (in out) vres
+R2 (out 0) resistor r=1k
+op1 dc
+$ spectre va.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep '"out"' va.raw/op1.dc
+"out" "V" 5.000000000000000e-01
+$ spectre --vamos-analog=xyce --vamos-keep va.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep '"out"' va.raw/op1.dc
+"out" "V" 4.999999997500000e-01
+$ grep -h -E 'disciplines|registered' va.run.*/vamos_a1.norun.log
+Netlist warning: .HDL: compiled and registered vres from vres.va
+preprocess: warning: 'disciplines.vams' not found (skipped)
+```
+
+PyMS builds a contribution that assigns a current from voltages (`I(p, n) <+ V(p, n) / r`) or a voltage from
+voltages or constants, and it reads no current: a module that reads `I(...)` in an expression
+(`V(p, n) <+ r * I(p, n)`, or a named branch's `V(br) <+ r * I(br)`) is an error on Xyce before PyMS runs
+(Troubleshooting; PyMS's own C++ compile failed on the node pair's current, and it took the named branch's as
+0, `out` = 1 where VACASK gives 0.5). PyMS ships no `disciplines.vams` and skips the include with the note in
+`vamos_a1.norun.log` above: it knows the `electrical` discipline itself, so a module whose nodes are electrical
+builds with or without the include (VACASK's openvaf-r needs it), and it reads a node of another discipline
+(`thermal t;`) as a plain terminal (a module with such a third port ran right on both engines, `out` 0.5).
+PyMS reads a parameter default as a number, as the name of another parameter whose default is a number, or as
+arithmetic of numbers and parameter names, which it evaluates as Python does (`2 * rr`, `1000 * 1`,
+`(1000.0)`); vamos refuses the defaults it would get wrong (Troubleshooting). An undefined `` `attr(...) ``,
+the CMC models' annotation, is accepted on Xyce where PyMS drops it: at the end of a module header or of a
+parameter statement (`` parameter real r = 1k `attr(info="resistance"); ``) and as a statement of its own;
+VACASK's openvaf-r refuses every undefined macro.
 
 The other way round, some sweeps and alters are refused on VACASK and run on Xyce. VACASK evaluates a parameter
 that the netlist binds to an expression again at each analysis after a change of a netlist parameter, temp or
@@ -1355,13 +1606,13 @@ instance inside a subckt instance that writes its own `m`, and a sine whose freq
 
 | path | contents |
 |---|---|
-| `<netlist>.raw/` | the results directory (`%C:r.raw`, beside the netlist): one PSF ASCII file per analysis and `logFile`. `-raw <path>` names another, else `options rawfile=` in the netlist; `-outdir <dir>` moves the default name into `<dir>` (`spectre -outdir out rc.scs` writes `out/rc.raw`), as it moves every default output name without a `/` |
+| `<netlist>.raw/` | the results directory (`%C:r.raw`, beside the netlist): one PSF ASCII file per analysis and `logFile`. `-raw <path>` names another, else `options rawfile=` in the netlist; `-outdir <dir>` moves the default name into `<dir>` (`spectre -outdir out rc.scs` writes `out/rc.raw`), and so it moves a `+log`, `=log`, `write=` or `writefinal=` name that holds no `/` (below), while a name you give with `-raw` or `options rawfile=` stays where it says (`spectre -outdir o -raw r.raw st.scs`, with `st.scs` from State files, below, writes `r.raw` and `o/op1.ns`). vamos makes `<dir>` when it puts something there, and also when the netlist's `options rawfile=` sends the results elsewhere, where `<dir>` stays empty; with `-raw` on the command line and nothing else going there, `<dir>` is not made |
 | `<raw>/logFile` | the index: the analyses that finished, in the order they ran |
 | `<raw>/<name>.dc`, `.ac`, `.noise`, `.xf`, `.tran.tran` | one file per analysis |
 | `<raw>/<sweep>_<child>.sweep`, `<raw>/<sweep>-<NNN>_<child>.<ext>` | a sweep's parent file, and one file per point, counted from `000` |
 | `<netlist>.ahdlSimDB/` | the Verilog-A that a VACASK run compiled (`<module>_<sha1>.osdi`), in the current directory (in `-outdir` when one is given), unless `-ahdllibdir` or `CDS_AHDLCMI_SIMDB_DIR` names another |
 | `<netlist>.run.<random>/` | the run directory, beside the results (in the current directory when the results path is the current directory or its directory cannot be written): the engine's decks, rawfiles and logs. Removed after exit status 0 unless `--vamos-keep` is given; kept after 1, 2 or 3 |
-| the `+log` or `=log` file | the screen's lines (below) |
+| the `+log` or `=log` file | the screen's lines (below); `-maxwarns` and `-maxnotes` limit the screen and `-maxwarnstolog` and `-maxnotestolog` the file, so with a limit the two differ (Options) |
 | state files | `write=`, `writefinal=` (below) |
 
 A run with no netlist argument reads standard input: `spectre < rc.scs` writes `stdin.raw`. A spectre run
@@ -1383,9 +1634,62 @@ swp_000_tr.tran
 swp_001_tr.tran
 ```
 
+An analysis's or a sweep's name is the name its escapes spell, as an instance's: `my\.op dc` writes
+`my.op.dc`, and an analysis `o\ p` in a sweep `s\-w` writes `s-w-000_o p.dc`. A `/` cannot be part of a file's
+name, so a name that holds one is written in its escaped form, with a notice, by the rule of the engines' decks
+(Names in the engines' decks, above):
+
+```
+$ cat an.scs
+// analysis and sweep names with escapes
+simulator lang=spectre
+parameters rv=1k
+V1 (in 0) vsource dc=1
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+my\.op dc
+s\-w sweep param=rv values=[1k 2k] {
+  o\ p dc
+}
+a\/b dc
+$ spectre an.scs | grep -A 1 Notice
+Notice from spectre during DC analysis `a/b'.
+    analysis a/b is written as _a_057b: a / cannot be part of the name of its results file, so the name is written escaped by the rule of the engines' decks
+$ ls an.raw
+_a_057b.dc
+logFile
+my.op.dc
+s-w-000_o p.dc
+s-w-001_o p.dc
+s-w_o p.sweep
+```
+
 A SPICE-mode netlist's analyses have Spectre's names for them: `.op` writes `opBegin.dc`, `.dc` writes
 `srcSweep.dc`, `.ac` `frequencySweep.ac` and `.tran` `timeSweep.tran.tran` (`timeSweep.tran` with legacy
-names).
+names). Those are the names of the first analysis of each Spectre type; a later one of the same type is
+named `<type><n>`, counted from 2: a second `.ac` writes `ac2.ac` and a second `.tran` `tran2.tran.tran`.
+`.op` and `.dc` are both of the type `dc`, so a netlist with both, the common case, has one `dc2`:
+
+```
+$ cat s.sp
+* a SPICE-mode .op, then a .dc
+V1 in 0 DC 1
+R1 in out 1k
+R2 out 0 1k
+.op
+.dc V1 0 1 0.5
+.end
+$ spectre s.sp
+...
+DC Analysis `dc2': v1:dc = (0 V -> 1 V)
+...
+$ ls s.raw
+dc2.dc
+logFile
+opBegin.dc
+```
+
+With the `.dc` first, the files are `srcSweep.dc` and `dc2.dc`, the `.op`'s.
 
 **`logFile`** is PSF ASCII as well, one entry per analysis that finished, in the order the analyses ran, a
 sweep's parent first and then its points; shortened:
@@ -1512,8 +1816,9 @@ ngspice-45.2 done
 ```
 
 **The log file.** `+log <file>` writes the screen's lines to a file as well, `=log <file>` to the file only,
-and `-log`, the default, to the screen only. The name takes percent codes, and a name without a `/` goes into
-`-outdir` when one is given (`spectre -outdir o +log run.log rc.scs` writes `o/run.log` and `o/rc.raw`):
+and `-log`, the default, to the screen only (each output under its own message limits, Options). The name
+takes percent codes, and a name without a `/` goes into `-outdir` when one is given
+(`spectre -outdir o +log run.log rc.scs` writes `o/run.log` and `o/rc.raw`):
 
 ```
 $ spectre =log %C:r.%D.log rc.scs
@@ -1571,6 +1876,48 @@ spectre completes with 0 errors, 1 warnings, and 0 notices
 directory, or to `-outdir` when it has no `/` (`spectre -outdir st state.scs` writes `st/op1.ns`, `st/tr1.fin`
 and `st/state.raw`); a name it reads is relative to the current directory.
 
+A state file names nodes as the results do (`b.c`, `X.1.m.n`, `nΩ`), in UTF-8; a file you write by hand in a
+Latin-1 editor reads too (a file whose bytes are not UTF-8 is read as Latin-1, as a whole: in a file that mixes
+Latin-1 and UTF-8 bytes the UTF-8 names read as Latin-1 and match no node, the warning
+`readns nÎ© does not name a net of the circuit`, while the Latin-1 ones apply). A blank, `#`, `\` or a node's
+`:` in a name is written with a backslash before it, and a file is read as the netlist reads names, a backslash
+escaping the next character, so a file you write by hand may use the netlist's spellings:
+
+```
+$ cat st.scs hand.ns
+// a node whose name holds a blank
+simulator lang=spectre
+V1 (in 0) vsource dc=1
+R1 (in a\ b) resistor r=1k
+R2 (a\ b 0) resistor r=1k
+op1 dc write="op1.ns"
+op2 dc readns="hand.ns"
+a\ b 0.5
+$ spectre st.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ cat op1.ns
+# State file generated by Spectre from circuit file 'st.scs'
+# during 'op1' at 10:47:51 AM, oct 19, 2026.
+a\ b 0.5
+in 1
+V1:p -0.0005
+```
+
+ngspice's reader ends a nutmeg variable's name at a blank or a comma (it read `a b` as `a`, with
+`Warning: bad var param voltage`), so in a nutmeg file such a name is written in its escaped form, with a
+notice:
+
+```
+$ spectre -format nutascii -raw st.nut st.scs | grep -A 1 Notice
+Notice from spectre during DC analysis `op1'.
+    signal a b is written as _a_040b in the nutmeg file: ngspice ends a variable name at a blank or a comma, so it is written escaped by the rule of the engines' decks
+$ grep -m 1 -A 3 '^Variables:' st.nut
+Variables:
+	0	_a_040b	voltage
+	1	in	voltage
+	2	V1:p	current
+```
+
 vamos reads every state file before the engine runs, so one run cannot hand a state from one analysis to the
 next. A `readic=` (or `read=`) of a file that an earlier analysis of the same run writes is an error naming
 both analyses (exit status 2, before any analysis runs); a `readns=` of such a file is a warning, and the file
@@ -1602,9 +1949,9 @@ writes is read as the previous run left it.
 ```
 $ spectre --vamos-keep rc.scs
 ...
-run directory kept: /work/spectre/rc.run.3isk93t8
-Aggregate audit (10:47:09 AM, Sat Oct 17, 2026):
-Time used: CPU = 0.10 s, elapsed = 0 s.
+run directory kept: /work/spectre/rc.run.tq8p5scx
+Aggregate audit (4:01:03 AM, Mon Oct 19, 2026):
+Time used: CPU = 0.09 s, elapsed = 0 s.
 spectre completes with 0 errors, 0 warnings, and 0 notices
 $ ls rc.run.*
 vacask.log
@@ -1615,11 +1962,13 @@ vamos_a3.raw
 ```
 
 `vamos.sim` is the VACASK deck vamos wrote, `vamos_a<k>.raw` the engine's rawfile of analysis k, and
-`vacask.log` VACASK's own output. A Xyce run directory holds one deck per analysis, `vamos_a<k>.cir`, with
-its print file `vamos_a<k>.raw` and its log `vamos_a<k>.log`, and `vamos_a1.norun.log`, Xyce's check
-(`Xyce -norun`) of the first deck:
+`vacask.log` VACASK's own output. Each run makes a directory of its own, so remove the kept one when you are
+done with it (`ls rc.run.*` lists every kept directory, each under its name). A Xyce run directory holds one
+deck per analysis, `vamos_a<k>.cir`, with its print file `vamos_a<k>.raw` and its log `vamos_a<k>.log`, and
+`vamos_a1.norun.log`, Xyce's check (`Xyce -norun`) of the first deck:
 
 ```
+$ rm -rf rc.run.*
 $ spectre --vamos-keep --vamos-analog=xyce rc.scs
 ...
 $ ls rc.run.*
@@ -1654,7 +2003,7 @@ include tree. Two modules of one `lib/` that include `../inc/rdefs.vams` run as 
 |---|---|---|
 | 0 | every analysis ran and wrote its results, notes and warnings allowed | `spectre completes with 0 errors, M warnings, and K notices`, after the aggregate audit |
 | 1 | an analysis or a sweep point failed in the engine; the other analyses ran and were written | `spectre completes with N errors, M warnings, and K notices`, after the aggregate audit |
-| 2 | vamos stopped the run: a usage, netlist or setup error, a construct v1 refuses, a `--vamos-strict` failure, a missing netlist or tool, an engine error, an internal error | `spectre terminated prematurely due to fatal error.` |
+| 2 | vamos stopped the run: a usage, netlist or setup error, a construct v1 refuses, a `--vamos-strict` failure, a missing netlist or tool, an engine error, an internal error | `spectre terminated prematurely due to fatal error.`; none after a `--vamos-*` usage error, whose one line goes to stderr (The names, above) |
 | 3 | a signal stopped it: SIGINT (Ctrl-C), SIGTERM, SIGHUP or SIGQUIT | `spectre terminated prematurely due to fatal error.` |
 
 The last line names the program you ran (The names, above). Status 1 means what it means to Spectre, an
@@ -1797,8 +2146,12 @@ is killed, and the warning says so (`VACASK did not stop within 5 s and was kill
 at once, and then nothing is converted
 (`stopped by a second SIGINT: the engine was killed and nothing is converted (§2.7)`). Where `./simv` exits
 130 after a Ctrl-C (§5), spectre exits 3, Spectre's status. A Ctrl-C right after the start, before vamos has
-printed anything, ends the run too, with status 3: the screen shows the warning
-`the run was stopped by SIGINT (§2.7)` and the last line.
+printed anything, ends the run too, with status 3: the warning `the run was stopped by SIGINT (§2.7)` and the
+last line go where the log mode sends every line, so with `=log` they are in the log file alone. `bin/vamos`
+holds the signals while Python loads vamos; only one in the first few milliseconds, before Python runs the
+launcher's first line (here about 15 ms), ends the run at once with no Spectre message and no last line: a
+Ctrl-C with status 130, or 1 with a `Fatal Python error` on stderr, SIGTERM with 143, SIGHUP with 129 and
+SIGQUIT with 131, and SIGUSR1 and SIGUSR2 end it too (138 and 140).
 
 Writing a long transient takes a while: here about 2.5 s for the million points of `tr1`, after VACASK's
 1.7 s. A Ctrl-C while vamos writes the results lets the file being written finish, says so at once, keeps the
@@ -1814,7 +2167,7 @@ Total time required for tran analysis `tr1' was 1.69 s.
 
 Notice from spectre during transient analysis `tr1'.
     stopping after `tr1' is written; a second interrupt drops it
-Warning from spectre during initial setup.
+Warning from spectre during transient analysis `tr1'.
     the conversion was stopped by SIGINT: the analyses converted before it are written and listed in logFile (§2.7)
 run directory kept: /work/spectre/long.run.si82jjcn
 spectre terminated prematurely due to fatal error.
@@ -1823,9 +2176,58 @@ $ echo $?
 ```
 
 `tr1.tran.tran` is complete, and `logFile` lists it. A second Ctrl-C drops the file being written: it is
-neither written nor listed. Ctrl-Z suspends vamos and the engine together, and `fg` resumes both. A run
+neither written nor listed, and the warning names its analysis. After a Ctrl-C that stopped the engine, the
+next one is the second: while vamos writes the interrupted analysis, it drops it, although the warning before
+said that its partial results are written (two `kill -INT` 50 ms apart, 0.5 s into the transient):
+
+```
+$ spectre long.scs
+...
+**********************************************
+Transient Analysis `tr1': time = (0 s -> 10 s)
+**********************************************
+Warning from spectre during transient analysis `tr1'.
+    analysis `tr1' was interrupted at time = 3.01549 s (vamos got SIGINT and stopped VACASK); its partial results are written
+Total time required for tran analysis `tr1' was 0.53 s.
+
+Warning from spectre during transient analysis `tr1'.
+    the conversion was stopped by SIGINT (a second interrupt, which drops `tr1'): the analyses converted before it are written and listed in logFile (§2.7)
+run directory kept: /work/spectre/long.run.5uegphls
+spectre terminated prematurely due to fatal error.
+$ ls long.raw
+logFile
+op1.dc
+```
+
+Ctrl-Z suspends vamos and the engine together, and `fg` resumes both. A run
 started in the background of a script (`spectre x.scs &`) has SIGINT ignored, as the shell sets it up; stop it
-with SIGTERM (`kill <pid>`), which also ends it with status 3.
+with SIGTERM (`kill <pid>`, or `pkill spectre`), which also ends it with status 3. vamos is a Python program:
+on Linux its process takes the name you ran (`spectre`, or an alias), which `ps`, `top`, `pgrep`, `pkill` and
+`killall` show and match, while its command line stays Python's (`python3 -c ...`, the checkout, then your
+arguments), which is what `pgrep -f` reads:
+
+```
+$ spectre long.scs > long.out &
+$ sleep 1; pkill spectre; wait $!; echo $?
+3
+$ tail -n 1 long.out
+spectre terminated prematurely due to fatal error.
+```
+
+Where a signal lands depends on how long vamos takes to start, 0.3 to 1.5 s here (the checkout on a slow file
+system, no `.pyc` kept under `PYTHONDONTWRITEBYTECODE`), so the fixed sleeps of these examples assume that
+start-up: a signal that arrives during the setup, before the tools line, stops the run before any analysis,
+with the warning under `initial setup`, the last line, exit status 3 and no results, and nothing else on the
+screen:
+
+```
+$ spectre long.scs > early.out & sleep 0.2; kill -TERM $!; wait $!; echo $?
+3
+$ cat early.out
+Warning from spectre during initial setup.
+    the run was stopped by SIGTERM (§2.7)
+spectre terminated prematurely due to fatal error.
+```
 
 The screen going away does not stop a run. When the reader of vamos's output is gone
 (`spectre x.scs | head -1`, a pager quit early) or the output is closed (`>&-`), the run goes on without the
@@ -1841,7 +2243,29 @@ $ spectre rc.scs >&-; echo $?
 ```
 
 A terminal that hangs up sends SIGHUP, which stops the run as a Ctrl-C does: status 3, with the analyses that
-finished and the interrupted one written, and the screen's lines in the `+log` file.
+finished and the interrupted one written, and the screen's lines in the `+log` file. One hangup usually
+delivers SIGHUP twice: the shell passes the one it gets on to its foreground job, and the kernel signals that
+job again as the shell exits. So a SIGHUP after a stop signal is never a second signal, and neither is any
+stop signal that comes within 1 s of a SIGHUP: they are one hangup. A second Ctrl-C is the second signal
+however soon it follows the first, once vamos has taken the first. Two that arrive together, before vamos has
+taken the first, are one: a shell's two `kill -INT` builtins with no pause between (one interruption,
+`tr1.tran.tran` written), while two `pkill -INT -x spectre` commands are far enough apart to be two, and the
+second drops the interrupted analysis (`long.raw` holds `logFile` and `op1.dc`). Here the window of an
+interactive bash was closed 0.8 s into the transient of `spectre +log hup.log long.scs`:
+
+```
+$ tail -n 6 hup.log
+Warning from spectre during transient analysis `tr1'.
+    analysis `tr1' was interrupted at time = 5.08909 s (vamos got SIGHUP and stopped VACASK); its partial results are written
+Total time required for tran analysis `tr1' was 0.85 s.
+
+run directory kept: /work/spectre/long.run._2n43as6
+spectre terminated prematurely due to fatal error.
+$ ls long.raw
+logFile
+op1.dc
+tr1.tran.tran
+```
 
 SIGUSR1 prints a status line, and the run goes on (here `kill -USR1` from another shell, 0.8 s into the
 transient of `long.scs` and again while vamos writes its results):
@@ -1867,7 +2291,8 @@ The status line goes to the screen under `=log` too, and into the log file. Befo
 `spectre status: no analysis running (setting up), elapsed = 0 s.`; on Xyce it names the deck and Xyce's
 progress (`` spectre status: analysis `tr1' running, Xyce deck vamos_a2.cir (2 of 2), 12.0006 % complete,
 elapsed = 4 s. ``). SIGUSR2 prints the notice
-`checkpoint not supported: SIGUSR2 is ignored and the run continues`, whenever it comes, and the run goes on.
+`checkpoint not supported: SIGUSR2 is ignored and the run continues`, whenever it comes after the first few
+milliseconds (above), and the run goes on.
 
 ### The defaults variable
 
@@ -1876,14 +2301,70 @@ Values"]. vamos reads the first of these that exists: `<prog>_DEFAULTS` (`spectr
 then `<PROG>_DEFAULTS` in capitals when it differs (`SPECSIM_DEFAULTS` for a `specsim` alias), then
 `SPECTRE_DEFAULTS`. A variable that exists but is empty means no defaults, and the next one is not read.
 
+Exported in your shell, such a variable applies to every later run there, and the other runs of this section
+have none, so unset it when you are done:
+
 ```sh
 export SPECTRE_DEFAULTS="+param range.lmts +log %C:r.o -E"
 export SPECSIM_DEFAULTS="+param corner.lmts =log %C:r.log -f psfbin"
+unset SPECTRE_DEFAULTS SPECSIM_DEFAULTS      # the other runs of this section have none
 ```
+
+A name with a `-` or a `.` (`spectre-23.1`, `spectre.23.1.0.242`) gives a variable name that no shell can
+export, and `bin/vamos` is a `/bin/sh` script: where `/bin/sh` is dash (Debian, Ubuntu: the runs here) it drops
+such a variable before vamos starts, even one that `env` sets. So vamos reads the name's escaped form too, which
+every shell exports: `_`, then the name with each character that is not a letter or a digit written as `_` and
+its 3-digit octal code (`-` is `_055`, `.` is `_056`), the rule of the engines' decks (Quick start, Names in the
+engines' decks). `spectre-23.1` reads `spectre-23.1_DEFAULTS`, then `SPECTRE-23.1_DEFAULTS`,
+`_spectre_05523_0561_DEFAULTS`, `_SPECTRE_05523_0561_DEFAULTS` and `SPECTRE_DEFAULTS`, so its own variable wins
+where it reaches vamos (`env` where `/bin/sh` is bash, as on Cygwin). A name without them (`spectre231`,
+`spectre_23`) has variables of its own everywhere. Under dash, with an alias link of your own:
+
+```
+$ ls -l /bin/sh | sed "s/.*-> //"
+dash
+$ mkdir links && ln -s $SV2GHDL/bin/vamos links/spectre-23.1
+$ dash -c 'export spectre-23.1_DEFAULTS="=log a.log"'; echo $?
+dash: 1: export: spectre-23.1_DEFAULTS: bad variable name
+2
+$ dash -c 'export _spectre_05523_0561_DEFAULTS="=log %S.log"; links/spectre-23.1 rc.scs; echo $?'
+0
+$ tail -n 1 spectre-23.1.log
+spectre-23.1 completes with 0 errors, 0 warnings, and 0 notices
+$ env 'spectre-23.1_DEFAULTS==log literal.log' _spectre_05523_0561_DEFAULTS='=log escaped.log' links/spectre-23.1 rc.scs; ls *.log
+escaped.log
+spectre-23.1.log
+```
+
+`env` set both variables there, and dash, running `bin/vamos`, dropped the literal one. `spectre -h` gives the
+rule.
 
 The command line beats the netlist's `options` statements, which beat the defaults. The list options
 (`-D`, `-U`, `-I`, `+config`, `+paramdefault`, `-va,define`) accumulate, defaults first; for every other
-setting the command line's value wins. Each layer is scanned on its own, so the `+config`/`=config`/
+setting the command line's value wins. Where two list entries conflict, a later `+paramdefault` line for the
+same primitive and parameter beats an earlier one, so the command line's file beats the variable's; cpp gets
+every `-D` before every `-U`, so a `-U<x>` undefines `x` wherever it stands, a `-UB` in the variable beating
+a `-DB` on the command line (`--vamos-verbose` prints the cpp command; `R1` is 1k, so `out` is 0.5):
+
+```
+$ cat cpp.scs
+// cpp: R1 is 3k when A and B are both defined
+simulator lang=spectre
+V1 (in 0) vsource dc=1
+#if defined(A) && defined(B)
+R1 (in out) resistor r=3k
+#else
+R1 (in out) resistor r=1k
+#endif
+R2 (out 0) resistor r=1k
+op0 dc
+$ SPECTRE_DEFAULTS=-UB spectre --vamos-verbose -DA -DB cpp.scs | grep cpp.out
+/usr/bin/cpp -traditional-cpp -nostdinc -undef -DA -DB -UB /work/spectre/cpp.scs /work/spectre/cpp.run.7974i8t_/cpp.out
+$ grep '"out"' cpp.raw/op0.dc
+"out" "V" 5.000000000000000e-01
+```
+
+Each layer is scanned on its own, so the `+config`/`=config`/
 `-config` rules apply within the variable and within the command line separately (a `-config` on the
 command line does not drop a `+config` from the variable). A `-%X` on the command line undefines a `+%X`
 from the variable.
@@ -1891,9 +2372,11 @@ from the variable.
 Spectre reads only the options the 5.0 Reference marks with a dagger from the variable. `-help` and its
 forms, `-V`, `-W`, `-env`, `-%X`, `+note`/`-note`, `-slave`, `-slvhost`, `+sensdata`, `+interactive`/
 `-interactive`, `+mpssession` and `+mpshost` are ignored there, each with the notice `Spectre does not read
-<option> from <variable>; ignored`; a `--vamos-*` token there is a warning (`vamos options are read from the
-command line only, not from SPECTRE_DEFAULTS; use VAMOS_ANALOG, VAMOS_BANNER or VAMOS_VERBOSE`); a
-non-option token there (a netlist name) is an error.
+<option> from <variable>; ignored`. A `--vamos-*` token there has no effect, which a warning says
+(`--vamos-keep has no effect: vamos options are read from the command line only, not from SPECTRE_DEFAULTS;
+use VAMOS_ANALOG, VAMOS_BANNER or VAMOS_VERBOSE`), an error under `--vamos-strict`
+(`--vamos-strict: 1 unsupported/unknown option(s): --vamos-keep`, exit status 2). A non-option token there (a
+netlist name) is an error.
 
 ### Options
 
@@ -1905,7 +2388,13 @@ from standard input and `%C` is `stdin`. The abbreviations are the manual's (`-r
 `-ac`, `-cc`, `+p`, `-p`, `-h`, `-hs`, `-hf`, `-hsf`). `-f` is `-format`, not an option file. Unlike vcs,
 three options are usage errors (exit 2): `+top`, `+interactive` and `-format uwi` (with any unknown
 `-format` value). Every other option gets one of §4's dispositions; an unknown one is the warning
-`unknown option <x> ignored`, an error under `--vamos-strict`.
+`unknown option <x> ignored`, an error under `--vamos-strict`. An option the table writes with an operand
+(`<f>`, `<x>`, `N`) takes the next token as its value, whatever its disposition: `spectre -env ade rc.scs`
+runs `rc.scs`, while `spectre -env rc.scs` takes `rc.scs` as the value of `-env` and, with no netlist left,
+reads standard input. Under `--vamos-strict` every warning vamos gives before the engine runs is an error that
+stops the run (exit status 2): an unknown or unsupported option, the `has no effect` warning, and the
+netlist's and setup's warnings (`tr2 readic: 1 current entries of /work/spectre/tr1.fin not applied`, from
+`state2.scs` in Outputs); the engines' warnings, and vamos's while it writes the results, stay warnings.
 
 | option | disposition |
 |---|---|
@@ -1914,48 +2403,92 @@ three options are usage errors (exit 2): `+top`, `+interactive` and `-format uwi
 | `-raw`/`-r <path>`, `-format`/`-f <fmt>`, `-outdir <dir>` | mapped. Formats: `psfascii`, `nutascii`, `nutbin` as given; `psfbin psfbinf psfxl sst2 fsdb fsdb5 wdf wsfbin wsfascii awb tr0ascii` are written as psfascii (a note); `uwi` or anything else is an error |
 | `+log`/`+l <file>`, `=log`/`=l <file>`, `-log`/`-l` | the screen and the file, the file only, the screen only (the default); the path takes percent codes and is relative to the current directory, or to `-outdir` when it has no `/` |
 | `+error -error +warn -warn +note -note +info -info +debug -debug` | whether that class of message is printed; the counts in the last line are unaffected |
-| `-maxwarns`/`-maxw N`, `-maxnotes`/`-maxn N`, `-maxwarnstolog`/`-maxwtl N`, `-maxnotestolog`/`-maxntl N` | how often one kind of warning or notice is printed per analysis, on the screen and in the log file; at the limit one notice says the rest are suppressed |
+| `-maxwarns`/`-maxw N`, `-maxnotes`/`-maxn N` | how often one kind of warning or notice is printed on the screen, counted afresh for each analysis while the engine runs it; the messages before the engine runs (read-in and setup) share one count, whichever analysis they name, so under `-maxnotes 1` the second of `dc op1: oppoint=rawfile: operating-point information is not written` and its `dc op2` twin is suppressed, and so do the messages while vamos writes the results, whichever analysis they name (under `-maxnotes 1` the notice that `a/2` is written as `_a_0572` is suppressed after the one of `a/1`). At the limit one notice says the rest are suppressed (`further warnings of this kind are suppressed (-maxwarns 2)`). Two messages are of one kind when their texts differ only in numbers (every run of digits, inside a name too) and in quoted names (`` `...' ``, `'...'`, `"..."`): `unknown option -bogus1 ignored` and `unknown option -bogus2 ignored` are one kind, `unknown option -bogusa ignored` and `unknown option -bogusb ignored` two, and so are the notices of `+param a` and `+param b`. They do not limit the log file (the next row does), so under `=log`, with nothing on the screen, they change nothing |
+| `-maxwarnstolog`/`-maxwtl N`, `-maxnotestolog`/`-maxntl N` | the same limits for the `+log` or `=log` file alone, whose notice names them (`further warnings of this kind are suppressed (-maxwarnstolog 1)`); they do not limit the screen. The counts in the last line are unaffected by all four |
 | `+%X string`, `-%X` | define or undefine the percent code `%X` (below) |
-| `-E`, `-D<x>[=<y>]`, `-U<x>`, `-I<dir>`, `-disableCPP` | the C preprocessor (`cpp -traditional-cpp -nostdinc -undef`, found as `VAMOS_CPP`, then on PATH): `-E` always runs it, `-D`/`-U`/`-I` run it unless `-disableCPP` is given; a missing cpp is an error; `-I` also names search directories for `include`, PWL `file=`, `ahdl_include` and Verilog-A `` `include `` (VACASK; on Xyce a Verilog-A header found only there is an error) |
-| `+config <f>`, `=config <f>`, `-config`, `+pre_config <f>`, `-pre_config <f>` | netlist fragments appended (`config`) or prepended after the title (`pre_config`); `=config` drops every `+config`, `-config` drops every `+config` and every preceding `=config`, `-pre_config` drops every `+pre_config` |
-| `+paramdefault <f>`, `=paramdefault <f>`, `-paramdefault` | defaults for analysis and `options` parameters the netlist does not set (lines `primitive parameter value`); the same `+`/`=`/`-` rules |
+| `-E`, `-D<x>[=<y>]`, `-U<x>`, `-I<dir>`, `-disableCPP` | the C preprocessor (`cpp -traditional-cpp -nostdinc -undef`, then every `-D`, every `-U` and every `-I`; found as `VAMOS_CPP`, then on PATH): `-E` always runs it, `-D`/`-U`/`-I` run it unless `-disableCPP` is given; a missing cpp is an error; `-I` also names search directories for `include`, PWL `file=`, `ahdl_include` and Verilog-A `` `include `` (VACASK; on Xyce a Verilog-A header found only there is an error). A file `#include` brings in is read in its own language (Included files, below) |
+| `+config <f>`, `=config <f>`, `-config`, `+pre_config <f>`, `-pre_config <f>` | netlist fragments appended (`config`) or prepended after the title (`pre_config`); `=config` drops every `+config`, `-config` drops every `+config` and every preceding `=config`, `-pre_config` drops every `+pre_config`. Unlike `-config`, `-pre_config` takes a file operand, as the manual writes it, and does not read it: `+pre_config f50.scs -pre_config f77.scs t.scs` runs `t.scs` with neither fragment |
+| `+paramdefault <f>`, `=paramdefault <f>`, `-paramdefault` | defaults for analysis and `options` parameters the netlist does not set (lines `primitive parameter value`; of two lines for one parameter the later wins); the same `+`/`=`/`-` rules |
 | `+errpreset=<p>`, `+aps=<p>`, `++aps=<p>` | the errpreset of every `tran` that sets none; `+aps=`/`++aps=` override every `tran`'s |
-| `-mts` | multi-technology mode off: `options` statements inside subckts are global (a note) |
-| `-ahdllibdir <dir>`, `-va,define <m>[=<v>]` | where compiled Verilog-A is kept; a macro for the Verilog-A compiler (VACASK; a note on Xyce) |
-| `+escchars` | backslash-escape non-name characters in PSF signal names (an ADE option) |
+| `-mts` | multi-technology mode off: `options` statements inside subckts are global (a note). Without it such a statement is an error (Troubleshooting), as v1 does not model the multi-technology mode |
+| `-ahdllibdir <dir>`, `-va,define <m>` | `-ahdllibdir`: where VACASK keeps the Verilog-A it compiles; on Xyce, for a netlist with Verilog-A, a note (`-ahdllibdir lib: not applied on Xyce, whose PyMS keeps the Verilog-A it compiles in its own cache (PYMS_VAE_CACHE, by default /tmp/pyms_vae_cache; §2.5)`), and no directory is made. `-va,define`: a macro the Verilog-A compiler defines, for `` `ifdef `` (VACASK). A value, `-va,define <m>=<v>`, is an error on VACASK for a netlist with Verilog-A: openvaf-r would leave the macro undefined (Troubleshooting). `` `define `` the value in the Verilog-A source instead. On Xyce, whose Verilog-A compile takes no macro, every `-va,define` is an error for a netlist with Verilog-A (Troubleshooting) and a note for one without |
+| `+escchars` | a backslash before each character of a PSF signal name that is not a letter, a digit, `_`, `!`, `.` or `:` (an ADE option): `a<0>` is `a\<0\>`, `a b` is `a\ b`. `.` and `:` stay as they are, the separators of a path and of a terminal, so a node `b\.c` is `b.c` there too. The title, the descriptions and the `logFile`'s names of analyses and files are written as they are; `psfcheck.py --escchars` reads the files |
 | `+top <subckt>`, `+interactive[=type]`/`+inter` | errors (exit 2) |
-| `-uwifmt`, `-uwilib`, `+recover[=f]`/`+rec`, `+mpssession=`, `+mpshost=`, `-slave`, `-slvhost`, `+mdlcontrol`, `+mdlcontrole`, `=mdlcontrol`/`=mdl`, `=mdlcontrole`/`=mdle` | unsupported (a warning): no recovery, no MDL measurements |
-| `-cmiversion`, `-cmiconfig`, `+varedefnerror`, `+param`/`+p`, `+preset=`, `+postlpreset=`, `-preset_override`, `+diagnose`, `+transteps`, `+diagnose_fpe`, `+detect_negcap`, `+fix_bad_pivot`, `+diagnose_minstep=`, `+diagnose_top=`, `+checkpoint`/`+cp`, `+savestate`/`+ss`, `-checklimitfile`/`-cl`, `-ahdlsourceramp`, `+sensdata` | noted |
-| `+rtsf`, `-cols`/`-c`, `-colslog`, `-param`/`-p`, `+aps`, `++aps`, `+xps`, `+ms`, `+xdp`, `+speed`, `+query`, `+lite`, `-hpc`, `+dcopt`, `+disk_check`, `-clearcache`/`-cc`, `+hosts`, `+multithread`/`+mt[=N]`, `-multithread`/`-mt`, `-64`, `-32`, `+mtmode`, `-processor`/`-proc`, `-checkpoint`/`-cp`, `-savestate`/`-ss`, `-recover`/`-rec`, `-interactive`/`-inter`, `-mdlcontrol`/`-mdl`, `+dochecklimit`/`+docl`, `-dochecklimit`/`-docl`, `-dynchecks`, `+lqtimeout`/`+lqt`, `+lqsleep`/`+lqs`, `+lmode`, `+lorder`, `-alias`, `+lqmmtoken`, `+lsuspend`/`+lsusp`, `+liclog`, `-ahdlcom`/`-ac`, `-ahdllint*`, `-rf_ahdl_functionality`, `-ahdlshipdbdir=`, `-ahdlshipdbmode=`, `+spp`, `-spp`, `-sppbin`, `-env`, `+logstatus` | ignored (threading, licensing, accelerator modes, GUI environments) |
+| `-uwifmt <x>`, `-uwilib <x>`, `+recover[=f]`/`+rec`, `+mpssession=`, `+mpshost=`, `-slave <x>`, `-slvhost <h>`, `+mdlcontrol`, `+mdlcontrole`, `=mdlcontrol`/`=mdl <f>`, `=mdlcontrole`/`=mdle <f>` | unsupported: a warning that gives the reason (`-slave x is not supported yet (no slave session, a Spectre run that another tool controls: vamos runs the netlist, then exits)`): no UWI output, no recovery, no MPS or slave session, no MDL measurements |
+| `-cmiversion`, `-cmiconfig <f>`, `+varedefnerror`, `+param`/`+p <f>`, `+preset=`, `+postlpreset=`, `-preset_override`, `+diagnose`, `+transteps`, `+diagnose_fpe`, `+detect_negcap`, `+fix_bad_pivot`, `+diagnose_minstep=`, `+diagnose_top=`, `+checkpoint`/`+cp`, `+savestate`/`+ss`, `-checklimitfile`/`-cl <f>`, `-ahdlsourceramp`, `+sensdata <f>` | noted: a notice that gives the reason (`+diagnose: Spectre's diagnostics are not reproduced; the engines print their own messages`) |
+| `+rtsf`, `-cols`/`-c <n>`, `-colslog <n>`, `-param`/`-p`, `+aps`, `++aps`, `+xps`, `+ms`, `+xdp`, `+speed=`, `+query=`, `+lite`, `-hpc`, `+dcopt`, `+disk_check`, `-clearcache`/`-cc`, `+hosts <h>`, `+multithread`/`+mt[=N]`, `-multithread`/`-mt`, `-64`, `-32`, `+mtmode <m>`, `-processor`/`-proc <p>`, `-checkpoint`/`-cp`, `-savestate`/`-ss`, `-recover`/`-rec`, `-interactive`/`-inter`, `-mdlcontrol`/`-mdl`, `+dochecklimit`/`+docl`, `-dochecklimit`/`-docl`, `-dynchecks`, `+lqtimeout`/`+lqt <s>`, `+lqsleep`/`+lqs <s>`, `+lmode <m>`, `+lorder <o>`, `-alias <a>`, `+lqmmtoken`, `+lsuspend`/`+lsusp`, `+liclog`, `-ahdlcom`/`-ac <x>`, `-ahdllint_log <f>` and the other `-ahdllint*`, `-rf_ahdl_functionality <x>`, `-ahdlshipdbdir=`, `-ahdlshipdbmode=`, `+spp`, `-spp`, `-sppbin <f>`, `-env <e>`, `+logstatus` | ignored (threading, licensing, accelerator modes, GUI environments). `+speed` and `+query` take a value: written bare they are unknown options (a warning) |
 
 The full table is `OPTIONS` in `vamos/personalities/spectre.py`.
 
-**Percent codes.** `%A` the analysis name, `%C` the input file as given (`stdin` for standard input), `%D` the
-date as `yy-mm-dd`, `%H` the host, `%M` the CMI version (empty), `%P` the process id, `%S` the invoked name,
-`%T` the start time `hh:mm:ss`, `%V` vamos's version, `%%` a percent. `+%X string` defines or redefines a
-code and `-%X` undefines it (back to the predefined value, or to nothing). The colon modifiers `:r` (root),
-`:e` (extension), `:h` (head; `.` without a slash), `:t` (tail) and `::` (a literal colon) chain left to
-right: for `/users/maxwell/circuits/opamp.ckt`, `%C:r.raw` is `/users/maxwell/circuits/opamp.raw`, `%C:t:r`
-is `opamp` and `%C:e.%C:r:t` is `ckt.opamp`. The codes apply in `-raw`, `+log`/`=log`, `-outdir`,
-`-checklimitfile`, the `rawfile`/`rawfmt` options, `include` names and the netlist's quoted strings.
+**Included files.** A file that `include` brings in, or `#include` under cpp, is read in its own language,
+as Spectre reads it: Spectre when its name ends in `.scs` or its first line is `simulator lang=spectre`, else
+SPICE, Spectre's default; after it the including file's language holds again. So a Spectre header named
+`params.h` needs that first line, or a `.scs` name: without it, its Spectre statements are read as SPICE, and
+the error says what SPICE makes of them (`parameters` reads as an HSPICE port element `P`):
 
-**Messages and the log.** Every line goes to the screen and/or the log file; nothing goes to stderr.
-Messages take Spectre's 5.1 form, `Warning from spectre during command-line processing.` followed by the
-indented text (`Error from ...`, `Notice from ...`), and the last line is `spectre completes with N errors,
-M warnings, and K notices` after exit status 0 or 1 and `spectre terminated prematurely due to fatal error.`
-after 2 or 3. `<prog>` is the name you ran. An internal error of vamos is one line on the screen
-(`internal error: ...`, naming the file that holds the traceback) and exit status 2 with the trailer.
+```
+$ cat ph.scs params.h
+// a cpp header that sets a Spectre parameter
+simulator lang=spectre
+#include "params.h"
+V1 (in 0) vsource dc=1
+R1 (in out) resistor r=rv
+R2 (out 0) resistor r=1k
+op1 dc
+parameters rv=2k
+$ spectre -E ph.scs
+...
+Error from spectre during circuit read-in.
+    /work/spectre/params.h:1: parameters: a port element (HSPICE P) is not supported
+run directory kept: /work/spectre/ph.run.nevaeunu
+spectre terminated prematurely due to fatal error.
+$ printf 'simulator lang=spectre\nparameters rv=2k\n' > params.h
+$ spectre -E ph.scs
+...
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep '"out"' ph.raw/op1.dc
+"out" "V" 3.333333333333333e-01
+```
+
+**Percent codes.** `%A` the analysis name (below), `%C` the input file as given (`stdin` for standard
+input), `%D` the date as `yy-mm-dd`, `%H` the host, `%M` the CMI version (empty), `%P` the process id, `%S`
+the invoked name, `%T` the start time `hh:mm:ss`, `%V` vamos's version, `%%` a percent. `+%X string` defines
+or redefines a code and `-%X` undefines it (back to the predefined value, or to nothing). The colon modifiers
+`:r` (root), `:e` (extension), `:h` (head; `.` without a slash), `:t` (tail) and `::` (a literal colon) chain
+left to right: for `/users/maxwell/circuits/opamp.ckt`, `%C:r.raw` is `/users/maxwell/circuits/opamp.raw`,
+`%C:t:r` is `opamp` and `%C:e.%C:r:t` is `ckt.opamp`. The codes apply in `-raw`, `+log`/`=log`, `-outdir`,
+`-checklimitfile`, the `rawfile`/`rawfmt` options, `include` names and the netlist's quoted strings. `%A` is
+the name of the analysis in whose own quoted strings it stands: `op1 dc write="%A.ns"` writes `op1.ns`, and
+`tr1 tran stop=1u writefinal="%A.fin"` writes `tr1.fin`. Everywhere else, the command line included, it is
+empty, so `-raw %A.raw` writes the results into the hidden directory `.raw`. A `/` in the analysis name is
+escaped in `%A` as in the name of its results file (Outputs, File names), by the rule of the engines' decks:
+`` op\/1 dc write="%A.ns" `` writes `_op_0571.ns` beside `_op_0571.dc`, with the notice
+`%A in the quoted strings of analysis op/1 is written as _op_0571: a / cannot be part of a file name, so the
+name is written escaped by the rule of the engines' decks, as the name of its results file is`.
+
+**Messages and the log.** Every line goes to the screen and/or the log file; nothing goes to stderr, apart
+from the one line of a `--vamos-*` usage error (The names, above), which comes before the log and has no
+last line, and the Python error a Ctrl-C in a run's first milliseconds can leave (How a run ends).
+Messages take Spectre's 5.1 form, `Warning from spectre during command-line processing.`
+followed by the indented text (`Error from ...`, `Notice from ...`). The phase in a message's first line is the
+stage the message belongs to, which is not always the one the run is in: vamos's own messages about an
+analysis (`initial setup`) come before the engine's read-in messages (`circuit read-in`; the `rctol.scs` run in
+Choosing the engine, above), and a message about the results names the analysis being written. The last line is
+`spectre completes with N errors, M warnings, and K notices` after exit status 0 or 1 and
+`spectre terminated prematurely due to fatal error.` after 2 or 3. `<prog>` is the name you ran. An
+internal error of vamos is one line on the screen (`internal error: ...`, naming the file that holds the
+traceback) and exit status 2 with the trailer.
 
 ### Environment variables
 
 | variable | effect |
 |---|---|
-| `<prog>_DEFAULTS`, `<PROG>_DEFAULTS`, `SPECTRE_DEFAULTS` | the defaults variable (above) |
+| `<prog>_DEFAULTS`, `<PROG>_DEFAULTS`, their escaped forms, `SPECTRE_DEFAULTS` | the defaults variable (above) |
 | `VAMOS_SPECTRE_NAMES` | `:`-separated alias names of the personality |
-| `VAMOS_ANALOG`, `VAMOS_BANNER`, `VAMOS_VERBOSE`, `VAMOS_<TOOL>` | as for every personality (§7); `VAMOS_CPP` names the C preprocessor |
-| `CDS_AHDLCMI_SIMDB_DIR` | where compiled Verilog-A is kept when `-ahdllibdir` is not given (an error when it is missing or not writable) |
+| `VAMOS_ANALOG`, `VAMOS_BANNER`, `VAMOS_VERBOSE`, `VAMOS_<TOOL>` | as for every personality (§7); `VAMOS_CPP` names the C preprocessor. A `VAMOS_BANNER` that names no profile, or a profile that is not valid JSON, is an error (The banner profile) |
+| `CDS_AHDLCMI_SIMDB_DIR` | where VACASK keeps the Verilog-A it compiles when `-ahdllibdir` is not given (an error when it is missing or not writable); not read on Xyce |
 | `CDS_VLOGA_INCLUDE` | the Verilog-A include directories (before `-I`); noted on Xyce, whose `.hdl` compile takes none, and a header found only there (or through `-I`) is an error on Xyce (Troubleshooting) |
-| `CDS_AHDL_FINISH_MODE`, `CDS_AHDL_DDT_SCALE`, `CDS_AHDL_IDT_SCALE`, `CDS_AHDL_IGNORE_HIDDEN_STATE`, `CDS_AHDL_IGNORE_OPPOINT`, `CDS_AHDL_AUTOGDEV_SUPPORT`, `CDS_AHDL_LRM_COMPATIBILITY` | a warning when set to a non-default value; not applied (they change results) |
+| `CDS_AHDL_FINISH_MODE`, `CDS_AHDL_DDT_SCALE`, `CDS_AHDL_IDT_SCALE`, `CDS_AHDL_IGNORE_HIDDEN_STATE`, `CDS_AHDL_IGNORE_OPPOINT`, `CDS_AHDL_AUTOGDEV_SUPPORT`, `CDS_AHDL_LRM_COMPATIBILITY` | never applied (they change results); for a netlist with Verilog-A, a warning when one is set to a value other than the Spectre Reference's default (`CDS_AHDL_IGNORE_HIDDEN_STATE=yes: not applied; a Verilog-A setting that changes results (§2.8)`). The defaults, compared as numbers: `FINISH_MODE` 0, `DDT_SCALE` 1e-17, `IDT_SCALE` 1, `LRM_COMPATIBILITY` 2.3 (a word such as `no` is not the default). The two switches are compared as words, in any case: `IGNORE_HIDDEN_STATE` warns only for `yes` and `AUTOGDEV_SUPPORT` only for `no`, so `1` and `0` pass with no warning. `IGNORE_OPPOINT`, whose default depends on the model, warns for any value |
 | `CDS_AHDLCMI_SHIPDB_COPY`, `CDS_AHDLCMI_SHIPDB_DIR`, `CDS_AHDL_COMPILEC_MAX_LOAD`, `CDS_AHDL_REUSE_LIB`, `CDS_CMI_COMPLEVEL` | ignored (caches and performance) |
 
 ### The banner profile
@@ -1964,17 +2497,38 @@ The screen and `+log` layout comes from `vamos/banners/spectre.json`, selected a
 (`--vamos-banner=<name|path|none>`, `$VAMOS_BANNER`, then `spectre`, whatever name vamos was invoked as).
 Its keys: `version`, `subversion` (the `-V`/`-W` line), `run_start`, `inventory`, `analysis_banner`,
 `analysis_done`, `audit`, `error_block`, `warning_block`, `notice_block`, `trailer_ok`, `trailer_fatal`, plus
-`brand`; the placeholders are in the file's `_comment` (`{prog}` is the invoked name). A profile changes the
+`brand`, which only the `version` and `subversion` templates use, the `-V`/`-W` line: under a copy with
+`"brand": "acme"` (§8's recipe) `spectre --vamos-banner=acme -V` prints `acme 0.1.0 (spectre personality)`,
+while the screen of a run is the same as under the shipped profile until one of the copy's other templates
+uses `{brand}`; the placeholders are in the file's `_comment` (`{prog}` is the invoked name). A profile
+changes the
 layout only: `version`, `subversion`, the three message blocks and the two trailers always print, from the
-profile or, for a missing key, an invalid template (which also gets one notice) or `--vamos-banner=none`,
-from vamos's built-in text, so a script that greps the last line always finds it. `none` drops only
+profile or, for a missing key, an invalid template (which also gets one notice, counted in the last line) or
+`--vamos-banner=none`, from vamos's built-in text, so a script that greps the last line always finds it,
+on the screen or in the log file as the log mode has it (a `--vamos-*` usage error,
+found before any of this, prints no last line: The names, above). `none` drops only
 `run_start`, `inventory`, `analysis_banner`, `analysis_done` and `audit`. No key holds licence or copyright
-text, and no key holds a PSF format field.
+text, and no key holds a PSF format field. A choice that names no profile, or a profile file that is not valid
+JSON, is an error (exit status 2), printed in the shipped layout with the last line, whether `--vamos-banner`
+or `VAMOS_BANNER` makes it:
+
+```
+$ VAMOS_BANNER=nosuchprofile spectre rc.scs | tail -n 3
+Error from spectre during command-line processing.
+    no banner profile named 'nosuchprofile'
+spectre terminated prematurely due to fatal error.
+$ mkdir -p .vamos/banners && echo "{ not json" > .vamos/banners/broken.json
+$ spectre --vamos-banner=broken rc.scs | tail -n 3
+Error from spectre during command-line processing.
+    banner profile /work/spectre/.vamos/banners/broken.json is not valid JSON: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
+spectre terminated prematurely due to fatal error.
+```
 
 ### Troubleshooting
 
-Every message is a Spectre message block, `Error from spectre during <phase>.` (or `Warning from`, `Notice
-from`) followed by the indented text; the table gives the text. A message from the netlist starts with its
+Every message is a Spectre message block, `Error from spectre during <phase>.` (or `Warning from`,
+`Notice from`) followed by the indented text; the table gives the text. The one exception is a `--vamos-*`
+usage error, a `vamos: error:` line on stderr (its row says so). A message from the netlist starts with its
 file and line. A construct that v1 does not run is an error that names it, with exit status 2
 (docs/VAMOS_SPECTRE_DESIGN.md §0 lists them).
 
@@ -1982,47 +2536,64 @@ file and line. A construct that v1 does not run is an error that names it, with 
 |---|---|
 | `nosuch.scs: netlist nosuch.scs not found` (exit 2) | the netlist path, relative to the current directory. With no netlist argument, spectre reads standard input |
 | `<file>:<line>: unclosed '('` and the other netlist errors (exit 2) | a netlist error at that line; no analysis runs (How a run ends) |
-| `<file>:<line>: CPP directive without -E: #include is not processed (give -E, or -D/-U/-I without -disableCPP)` (exit 2) | a `#include`, `#define` or `#if` line needs the C preprocessor: give `-E` |
+| `<file>:<line>: CPP directive without -E: #include is not processed (give -E, or -D/-U/-I without -disableCPP)` (exit 2) | a `#include`, `#define` or `#if` line needs the C preprocessor: give `-E`. The file a `#include` brings in is read in its own language (the next row) |
+| `params.h:1: parameters: a port element (HSPICE P) is not supported`, `parts.inc:1: '(in out)' is not a node name`, `half.h:1: subckt: an S-parameter element (HSPICE S) is not supported` and other SPICE errors in a file that `include` or `#include` brings in (exit 2) | a Spectre-language file read as SPICE: its name does not end in `.scs` and its first line is not `simulator lang=spectre` (Options, Included files). Give it that first line, or a `.scs` name |
 | `VAMOS_CPP=/nonexistent: no such file (it must name the real cpp)` (exit 2) | the C preprocessor's override names no tool; fix it, or unset it to use the `cpp` on PATH |
-| `VAMOS_VACASK=/nonexistent is not an executable` (exit 2), also for `VAMOS_OPENVAF` and `VAMOS_XYCE` | an engine override names nothing usable; fix or unset it (§7) |
+| `VAMOS_VACASK=/nonexistent is not an executable` (exit 2), also for `VAMOS_OPENVAF` and `VAMOS_XYCE`; `VAMOS_VACASK=/usr/local/src/sv2ghdl/bin/vamos is vamos itself (it must name the real VACASK)` (exit 2), also `VAMOS_OPENVAF=... (it must name the real openvaf-r)` and `VAMOS_XYCE=... (it must name the real Xyce)` | an engine override names nothing usable, or names vamos (`bin/vamos`, or a shim such as `shims/spectre`); fix or unset it (§7) |
 | `unknown option -bogus ignored` (warning) | not a Spectre option. Under `--vamos-strict` the run stops: `--vamos-strict: 1 unsupported/unknown option(s): -bogus` (exit 2) |
+| `vamos: error: unknown vamos option --vamos-analgo=xyce (did you mean --vamos-analog?)` (on stderr, exit 2), also `vamos: error: --vamos-strict takes no value (--vamos-strict=0)` | a `--vamos-*` option that is mistyped, lacks its value or has a value it does not take (§7). vamos stops before the spectre personality starts: one line on stderr, with no Spectre message, no `+log` file and no last line. Fix the option |
 | `+top tb: exposing a subcircuit's contents at the top level is not supported`, `-format uwi: the user-defined output format is not supported` (exit 2) | two of the three option errors (Options, above); remove the option |
+| `<file>:<line>: o2 options inside subckt s1: Spectre's multi-technology mode scopes temp, tnom, scale and scalem given there to the subckt, which v1 does not model (an error in v1; -mts makes them global, §3.6)` (exit 2) | an `options` statement inside a subckt, whatever it sets (`reltol` too): v1 does not model Spectre's multi-technology mode, which scopes the statement's temp, tnom, scale and scalem to the subckt. Give `-mts`, which makes them global with the notice `o2 options inside subckt s1: global under -mts (§3.6)`, or move the statement to the top level |
 | `xf xf1: xf is not available on Xyce (§3.11); use --vamos-analog=vacask` (exit 2) | `xf` runs on VACASK only |
+| `` -va,define BIGR=1: openvaf-r leaves a macro that is given a value undefined (-D BIGR=1: an `ifdef BIGR takes its else branch, and `BIGR is not declared); not supported on VACASK in v1: give -va,define BIGR alone, or `define the value in the Verilog-A source (§2.3) `` (exit 2) | a `-va,define` with a value, on the command line or in the defaults variable, for a netlist with Verilog-A on VACASK: openvaf-r takes `-D NAME=VALUE` but leaves `NAME` undefined, so the module would compile its `` `else `` branch with exit status 0. Give the name alone (`-va,define BIGR` selects the `` `ifdef BIGR `` branch), or `` `define `` the value in the `.va` file. On Xyce see the next row |
+| `` -va,define BIGR: not supported on Xyce in v1: Xyce's Verilog-A compile (PyMS) takes no macro definitions, so the module would compile as if BIGR were not defined (an `ifdef BIGR takes its `else branch) with exit status 0; run it on VACASK, or `define BIGR in the Verilog-A source (§2.3) `` (exit 2), and for a value `` ...; `define BIGR 1 in the Verilog-A source (§2.3) `` | any `-va,define`, on the command line or in the defaults variable, on Xyce for a netlist with Verilog-A. PyMS takes no macro: a file that defines the macro and includes the module's source was tried, and PyMS reused its first build after the source was edited, so v1 gives none. Run it on VACASK, where `-va,define BIGR` selects the `` `ifdef BIGR `` branch, or `` `define `` the macro in the `.va` file. For a netlist without Verilog-A it is the note `-va,define BIGR: not applied on Xyce, whose .hdl compile takes no macro definitions (§2.3)` |
 | `X1: Verilog-A parameters (r) on Xyce: PyMS ignores parameter overrides, so they are not supported (VACASK honours them)` (exit 2) | a Verilog-A instance with parameters on Xyce, given on the instance (`X1 (a b) vres r=500`) or by its model card (`model rva vres r=500`): Xyce's Verilog-A route (PyMS) ignores them. Use VACASK |
-| `nodes A and a differ only in case; Xyce would merge them` (exit 2) | Spectre names are case-sensitive and Xyce's are not. Rename one of them, or use VACASK |
+| `nodes A and a differ only in case; Xyce would merge them` (exit 2), and the same for elements (`elements load and Load differ only in case; Xyce would merge them`) | Spectre names are case-sensitive and Xyce's are not. Rename one of them, or use VACASK. Two elements whose names differ in more than case never share a Xyce name (Names in the engines' decks): `load` beside `Rload` runs |
+| `node b.c at the top level and node c of b have one hierarchical name, b.c: a name that holds a '.' must not repeat another path; not supported in v1 (§3.2)` (exit 2), and the same for two instances | an escaped name with a dot (`b\.c`) spells the path of another (the node `c` of the instance `b`), and one signal could not carry both (Quick start, after Names in the engines' decks). Rename one of them |
 | `` analysis `nz1': noise nz1: the output across two nodes (a, b) is not supported on Xyce in v1 (Xyce aborts on .NOISE V(a,b)); VACASK runs it `` (exit 2) | a noise output whose second node is not ground, on Xyce. Use VACASK |
 | `X1: subckt bias has no ports: on Xyce the instances of a portless subckt share its internal nodes; not supported in v1 on Xyce (VACASK runs it)` (exit 2) | an instance of a subckt without ports, on Xyce. Use VACASK |
 | `alter a1: on Xyce X1.R1 lies in subckt half, which 2 instance paths reach (X1, X2): changing the shared definition would change every path; not supported in v1 (§5.3)` (exit 2) | an alter, on Xyce, of an instance inside a subckt that two or more instance paths reach (`X1` and `X2` are both `half`): Xyce's deck carries the alter into the subckt's definition, which would change `X2.R1` too. VACASK runs it (`R1` altered to 3k in a divider: `out` 0.25, `out2` stays 0.5). Give `X1` a subckt of its own, or use VACASK |
 | `` analysis `nz1': noise nz1: the Verilog-A instance X1 (module vres) carries no noise sources on Xyce (PyMS devices define no DNO, and ONOISE would leave the module's noise out); not supported in v1 (VACASK runs it) `` (exit 2) | a noise analysis of a circuit that holds a Verilog-A instance, on Xyce. Use VACASK |
 | `R2: isnoisy=nflag of R2 reads a parameter that noise nz1 sweeps (sw): Xyce has no resistor noise switch, ...` (exit 2) | a resistor's `isnoisy` that reads a parameter a sweep of the noise analysis changes, on Xyce: the deck's noise-free form is fixed. Use VACASK |
 | `` <file>: `include "rdefs.vams" is not found beside the file that includes it, where Xyce's PyMS looks for it [E75], ... `` (exit 2) | a Verilog-A header that Xyce's PyMS would not find, so it would build the module without it: it looks beside the file that includes it (and in `PYMS_INCLUDE_PATH`), not in `CDS_VLOGA_INCLUDE` or `-I` (the message names the directory that holds the header). Put the header beside the `.va` file, or use VACASK |
+| `` <file>:<line>: `RV is not defined: no `define RV in the Verilog-A source or the files it includes, and Xyce's PyMS compiles a use of an undefined macro without an error, so the module would run wrong ... `` (exit 2), and for a macro not defined where it is used `` `RV is not defined here: its `define (vres3.va:3) is in an `ifdef or `ifndef branch that is not taken, and ... ``, `` `RV is not defined here: `undef RV at vres3.va:3 comes first, and ... `` or `` `RV is used before its `define (vres3.va:9): ... `` | a use of a Verilog-A macro that is not defined where it stands, on Xyce: nothing in the module's include tree `` `define ``s it, its `` `define `` sits in an `` `ifdef `` branch that is not taken, an `` `undef `` came before the use, or the `` `define `` comes after it. PyMS compiles such a use without an error, and the module runs wrong (a parameter default `` `RV `` gave `V1:p` = -1e-12 A with exit status 0). vamos reads the conditions as PyMS does, which defines `insideADMS` itself. `` `define `` the macro before its use; VACASK refuses these too (`` macro '`RV' has not been declared ``). The macros of the standard headers (`` `M_PI ``, `` `P_K ``) need no `` `define `` |
+| `` <file>:<line>: `RV is undefined by the `undef RV at vres3.va:9 after this use: Xyce's PyMS expands the macros of a file at its end, ... ``, `` `RV is defined again at vres3.va:9 after this use: Xyce's PyMS expands every use with the last definition ... `` and `` `RV is defined at vres3.va:2 as `RV (2000.0)', which Xyce's PyMS reads as a macro with the argument 2000.0 and no body ... `` (exit 2) | a macro use that Xyce's PyMS would expand otherwise than Verilog-A does: PyMS expands the macros of a file at the file's end, with the definitions in force there, so an `` `undef `` after the use leaves it as written and a second `` `define `` gives it the last value; and it takes a `(` after blanks for an argument list, so `` `define RV (2000.0) `` is a macro with the argument `2000.0` and no body. Each gave `V1:p` = -1e-12 A, or the other value, with exit status 0; VACASK runs them as Verilog-A reads them. Give the macro one definition, without the `` `undef ``, write `` `define RV 2000.0 ``, or run it on VACASK |
+| `` <file>:<line>: `attr is not defined, and Xyce's PyMS leaves an undefined macro as it stands: it drops `attr(...) as an annotation at the end of a module header or of a parameter statement (BSIM-CMG's `attr) and as a statement of its own, but here it reads it and the statement after it (I ( p , n ) ...) as one statement and drops both ... `` (exit 2), also `` ... but here it leaves it in the statement as an operand, and the C++ compile of the module's evaluator fails ... `` | an undefined `` `name(...) `` (the CMC models' `` `attr(info="...") `` annotation, used without its `` `define ``) where PyMS's parser does not drop it: before a statement of an analog block (PyMS swallows the statement: a device that conducted nothing, with exit status 0), inside an expression, before a parameter's name or its range, or after `electrical`. At the end of a module header or of a parameter statement, and as a statement of its own, PyMS drops it and vamos accepts it (Quick start, Verilog-A on Xyce); VACASK's openvaf-r refuses every undefined macro (`` macro '`attr' has not been declared ``). `` `define attr(txt) (*txt*) `` as the CMC trees do, or move or drop the annotation |
+| `` <file>:<line>: parameter r of module a1: its default 1k * 1 holds the scaled number 1k inside an expression, which Xyce's PyMS evaluates as 0 ... `` (exit 2), also `` its default 1000a * 1e18 holds 1000a, whose scale factor a (1e-18) Xyce's PyMS does not read ... ``, `` one statement declares r and g: Xyce's PyMS reads only the first of them ... ``, `` its default pow(10, 3) holds the function call pow(...), which Xyce's PyMS evaluates as 0 ... `` (also `` holds the ternary ?: ``, `` holds the digit separator of 1_000 (PyMS reads the tokens `1' and `_000') `` and `` holds the name rx, which is not a parameter of the module ``), `` its default 2 * RR is not a number, and the parameter's name R is written in capitals: Xyce's PyMS registers such a default as 0 on Xyce's side ... `` and `` its default 1 / 1000 holds the integer division 1 / 1000, which Verilog-A truncates to an integer and Xyce's PyMS evaluates as Python does, to a real ... `` | a Verilog-A parameter default that Xyce's PyMS would take as 0, so that the device conducts nothing with exit status 0, or read otherwise than Verilog-A does. PyMS reads a default as a number (a scale factor only when the default is the number alone: `1k` and `1K` run, `1k * 1` does not; not `a`), as the name of another parameter whose default is a number, or as arithmetic of numbers and parameter names, which it evaluates as Python does: `+`, `-`, `*`, `/`, `%`, parentheses and a comparison run right (`2 * rr`, `1000 * 1`, `(1000.0)`), while a function call (`pow`, `sqrt`, `exp`, `abs`, `min`, `max`, `floor`, `ln`, `$simparam`), the ternary, a digit separator (`1_000`), the power operator `**`, `!`, `&&`, `||`, a two-character comparison (`>=`, `==`) and a name that is not a parameter are 0 there; a parameter whose name is written in capitals gets 0 for any default that is not a number or such a name (PyMS's device shell hands the evaluator the parameters in capitals, and the evaluator takes the shell's values for the names it finds: `R = 2 * RR` conducted nothing where `r = 2 * rr` runs); the division of two integers is Python's real division (`1 / 1000` is 0.001 where Verilog-A gives 0), and `%` with a negative operand takes Python's sign. It reads only the first parameter of a statement that declares two. Write the default as a number (`1e3`), or as arithmetic of numbers and parameter names under a name with a lower-case letter, give each parameter a statement of its own, or run it on VACASK, which runs the forms that are Verilog-A (openvaf-r refuses a digit separator, a based literal, a bitwise operator on a real and a name that is not declared) |
+| `` <file>:<line>: module vres reads the current I(p, n) in an expression: Xyce's PyMS builds a contribution that assigns a current from voltages (I(a, b) <+ f(V(...))) and reads no current: the C++ compile of its evaluator fails on a node pair's current (`'p' was not declared in this scope'), so Xyce would not run the module (PyMS could not build it); not supported on Xyce in v1: write the contribution the other way round (I(p, n) <+ V(p, n) / r), or run it on VACASK `` (exit 2), and for a named branch `` ... and reads no current: it takes a named branch's current as 0, so the module would run wrong (measured: `V(br) <+ r * I(br)' gave out = 1 where VACASK gives 0.5, with exit status 0); ... `` | a Verilog-A module that reads a current, on Xyce: `V(p, n) <+ r * I(p, n)`, `cur = I(p, n)`, or `V(br) <+ r * I(br)` with `branch (p, n) br` (Quick start, Verilog-A on Xyce). Write the contribution as a current from voltages, or use VACASK |
 | `` Xyce, the deck of analysis `op1' (vamos_a1.cir): PyMS could not build Verilog-A module vramp (<file>), which Xyce would run as a device that contributes nothing, so the run stops (§4.5 item 13): ... `` (exit 2) | a Verilog-A module that PyMS cannot build, for example one that uses `$abstime` (the message ends `PyMS has no $abstime [E125], VACASK runs the module`), or any module when `PYMS_VAE_CACHE` holds a space (the message says so). Use VACASK, or a cache path without a space |
 | `dc dc1 at rv=0: resistor R1 on path top level: r=rv evaluates to 0, and vamos prints a short only for the constant r=0: ...`, `dc op2 (after alter a1): resistor R1 on path top level: its r, set by a sweep or alter, is 0, ...` (exit 2) | a resistance that a sweep or an alter drives to 0 where an analysis runs: a sweep of a parameter that its `r` reads (`r=rv` and `dc1 dc param=rv start=0 stop=2k step=1k`), or a `dev=` sweep or an alter of the `r` itself. Spectre would make it a short, while VACASK's resistor fails with NaN at r=0 and Xyce's turns into an open circuit, so v1 refuses it on both engines. Start the sweep above 0 (`start=1k`), or alter to a value above 0. For a short, give the resistor the constant `r=0`, or a constant expression equal to 0 (`r=1k-1k`): both engines run it as one (VACASK as a 0 V source, with the notice `R1: r=0 printed as a 0 V vamos_vsource (VACASK's resistor masters cannot take r=0)`). `r=0*rv` reads a parameter, so it is this error |
 | `dc dc1: R1 prints as a short (its r is the constant 0, §3.8, §4.5 item 10: a 0 V source on VACASK, R=0 on Xyce); a sweep of its r is not supported in v1`, `alter a1: R1 prints as a short (...); an alter of its r is not supported in v1 on VACASK (Xyce runs it)` (exit 2) | a sweep of a parameter of a resistor printed as a short (its `r` is the constant 0), on both engines, or an alter of one on VACASK, whose 0 V source has none of the resistor's parameters. Xyce runs the alter (`r` altered to 1k: `out` goes from 1 to 0.5). To sweep the resistor, give it a value other than 0 in the netlist: with `r=1k`, `dc dev=R1 param=r start=1k stop=3k step=1k` runs on both engines. Run the alter with `--vamos-analog=xyce`, or each value as a netlist of its own |
 | `sweep sw1: a sweep of the isnoisy of R1 is not supported in v1: the switch chooses the resistor's form (VACASK's noisy, Xyce's noise-free G form, §4.5 item 7) per deck, not per point; alter it between analyses instead`, `alter a1: isnoisy=maybe of R1 is not yes, no, true, false or a number (§4.5 item 7)` (exit 2) | a sweep of a resistor's noise switch (`dev=R1 param=isnoisy`), on both engines, or an alter of it to a word it does not take. Alter it between analyses instead: with `a1 alter dev=R1 param=isnoisy value=no` between two noise analyses the run goes through on both engines, and the second analysis lists `R2` alone, with the noise of a netlist that gives `R1` `isnoisy=no` |
 | `sweep sw1: on VACASK rise of V1 is bound to the expression rt, which reads rt: VACASK cannot sweep such a parameter ('is bound to an expression'); sweep what it reads instead (sub= for a subckt parameter, param= for a netlist parameter) [E, phase 1b]`, `sweep sw1: on VACASK sinedc of V1 is printed on its instance line as sinedc=vv, which reads vv: ...` (exit 2) | a `dev=` sweep, on VACASK, of a source field bound to an expression that vamos's switch cannot carry (Choosing the engine, above): a pulse's `rise` or `fall` that reads a parameter (`rise=rt`), or a sine's `sinedc` that the netlist leaves to its default, a `dc` that reads one (`dc=vv`). VACASK sweeps every other parameter bound to an expression through the switch, with Xyce's values (`r=rv`, `c=cv`, `gain=g`, `gm=gg`, `coupling=kk`, `area=ar`, `dc=vv`; a diode's `area` to about 3e-5). Sweep the netlist parameter the expression reads (`sw1 sweep param=rt values=[1u 2u]`), write the field (`sinedc=vv`, which the switch carries), or run it on Xyce, which sweeps the instance parameter: each gives the same values |
-| `V1: the multiplier of a vsource is not a device parameter on VACASK (folded into the element, or without effect); a sweep or alter of m is not supported in v1` (exit 2), `of a vcvs` and `of a ccvs` for those; for a sweep on Xyce, `V1: the vsource field m cannot be swept on Xyce in v1 (the deck prints a derived value for it)` (exit 2); `X1.R1: VACASK sets the device's $mfactor, which also carries the multiplier of the enclosing instance X1 (m=3.0): a sweep or alter of its m is not supported on VACASK in v1 (Xyce runs it)` (exit 2) | a sweep or an alter of the multiplier `m` of a voltage source, a vcvs or a ccvs: VACASK has no such device parameter, and Xyce refuses a sweep of a voltage source's `m`. Xyce runs the alter (a 1 V source across 1k: `V1:p` = -1 mA at m=1 and at m=2). The last: on VACASK, the `m` of an instance inside a subckt instance that writes its own `m` (`X1 (in out) half m=3`), which Xyce runs (`out` 0.75, then 0.857 with `R1`'s `m` altered to 2); without an `m` on the X line VACASK alters and sweeps it as Xyce does (0.5, then 0.667). Leave `m` out of the sweep or alter, or run the alter on Xyce |
-| `dc dc1 at rv=2000: alter a1 set r of R1, which the netlist binds to the expression rv (it reads rv), and dc dc1 (its sweep of rv) changes rv after the alter: whether Spectre keeps the altered value or re-evaluates the expression is not known (VACASK and Xyce keep the alter): not supported in v1 (§5.3; alter what the expression reads instead)` (exit 2), also `alter a1 set rw, which the netlist binds to the expression 2.0 * rv`, `alter a1 set rr of X1, which subckt half binds to the default q * 1000.0` and `(VACASK re-evaluates it, Xyce keeps the alter)` | an alter of a parameter that the netlist binds to an expression (`R1 (in out) resistor r=rv`, `model dmod diode is=isv`, a netlist parameter `rw=2*rv`, a subckt default `rr=q*1k` that the X line leaves), and later a sweep or an alter of what the expression reads. The manuals do not say which of the two values Spectre takes, so v1 refuses it on both engines. The parenthesis says what the engines do: both keep the alter, except a pulse's `rise` or `fall`, which VACASK evaluates again. Alter what the expression reads (`a1 alter param=rv value=3k`), so that `R1` follows the sweep, or give `R1` a constant `r` if it must keep the altered value: both run on both engines |
+| `V1: the multiplier of a vsource is not a device parameter on VACASK (folded into the element, or without effect); a sweep or alter of m is not supported in v1` (exit 2), `of a vcvs` and `of a ccvs` for those; for a sweep on Xyce, `V1: the vsource field m cannot be swept on Xyce in v1 (the deck prints a derived value for it)` (exit 2); `X1.R1: VACASK sets the device's $mfactor, which also carries the multiplier of the enclosing instance X1 (m=3.0): a sweep or alter of its m is not supported on VACASK in v1 (Xyce runs it)` (exit 2) | a sweep or an alter of the multiplier `m` of a voltage source, a vcvs or a ccvs: VACASK has no such device parameter, and Xyce refuses a sweep of a voltage source's `m`. Xyce runs the alter (a 1 V source across 1k: `V1:p` = -1 mA at m=1 and at m=2). The last: on VACASK, the `m` of an instance inside a subckt instance that writes its own `m`. With a subckt `one` that holds only `R1 (a b) resistor r=1k`, `X1 (in out) one m=3` and `R2 (out 0) resistor r=1k` at the top level, `a1 alter dev=X1.R1 param=m value=2` runs on Xyce (`out` 0.75, then 0.857); without the `m` on the X line VACASK alters and sweeps it as Xyce does (0.5, then 0.667). With a subckt `half (t m)` that holds the whole divider, `R1 (t m) resistor r=1k` and `R2 (m 0) resistor r=1k`, and `X1 (in out) half m=3`, both resistors are scaled by the X line's `m`: the same alter gives Xyce's `out` 0.5, then 0.667. Leave `m` out of the sweep or alter, or run the alter on Xyce |
+| `dc dc1 at rv=2000: alter a1 set r of R1, which the netlist binds to the expression rv (it reads rv), and dc dc1 (its sweep of rv) changes rv after the alter: whether Spectre keeps the altered value or re-evaluates the expression is not known (VACASK and Xyce keep the alter): not supported in v1 (§5.3; alter what the expression reads instead)` (exit 2), also `alter a1 set rw, which the netlist binds to the expression 2.0 * rv`, `alter a1 set rr of X1, which subckt half binds to the default q * 1000.0` and `(VACASK re-evaluates it, Xyce keeps the alter)` | an alter of a parameter that the netlist binds to an expression (`R1 (in out) resistor r=rv`, `model dmod diode is=isv`, a netlist parameter `rw=2*rv`, a subckt default `rr=q*1k` that the X line leaves), and later a sweep or an alter of what the expression reads. The manuals do not say which of the two values Spectre takes, so v1 refuses it on both engines. The parenthesis says what the engines do: both keep the alter, except for the targets vamos's switch cannot carry (Choosing the engine, above): a pulse's `rise` or `fall`, a pwl's `wave`, an `isnoisy` that reads a parameter and a sine's `sinedc` left to a `dc` that reads one, which VACASK evaluates again. Alter what the expression reads (`a1 alter param=rv value=3k`), so that `R1` follows the sweep, or give `R1` a constant `r` if it must keep the altered value: both run on both engines |
 | `dc dc1 at R1:r=1000, rv=2000: sweep sw1 sets r of R1, which the netlist binds to the expression rv (it reads rv), and dc dc1 (its sweep of rv) changes rv inside it: whether Spectre keeps the swept value or re-evaluates the expression is not known (VACASK keeps it, Xyce re-evaluates the expression at some points): not supported in v1 (§5.3; sweep what the expression reads instead)` (exit 2) | the question of the row above, for a sweep: a sweep of a parameter bound to an expression (`dev=R1 param=r` on `r=rv`) around a sweep of what the expression reads (`param=rv`), on both engines. Nest them the other way round, which sets `r` at every point: `sw1 sweep param=rv values=[1k 2k] { dc1 dc dev=R1 param=r values=[1k 3k] }` runs on both engines (`out` 0.5 and 0.25 at both values of `rv`) |
 | `tran tr1: on VACASK, alter a1 set rise of V1, which the netlist binds to the expression rt (it reads rt); alter a2 changes r of R1, which the VACASK deck sets through a variable, and VACASK re-evaluates such a binding at the next analysis after a change of a netlist parameter, temp or tnom, so the alter's value is lost (Xyce keeps it, as Spectre does while nothing the expression reads changes): not supported on VACASK in v1 (Xyce runs it)` (exit 2), the change also named as `alter a2 changes other`, `alter a2 changes X1:q` or `the temp=50 in force at VACASK's first elaboration changes temp` | an alter, on VACASK, of a parameter bound to an expression that vamos's switch cannot carry: a pulse's `rise` or `fall` (`rise=rt`), an `isnoisy` that reads a parameter (`alter a1 set isnoisy of R1, which the netlist binds to the expression nflag`), a pwl's `wave` (`alter a1 set wave of V1, which the netlist binds to the expression [0.0 0.0 1e-06 vp 3e-06 vp]`), a field left to a default that reads one (`alter a1 set sinedc of V1, whose default, the dc, the netlist binds to the expression vv`), a parameter of a model group that one of its cards leaves out (`alter a1 set vth0 of model nch, which the netlist binds to the expression vt`, where card 2 gives no `vth0`), or a field the control block prints as a constant where the instance line derives it (`alter a2 set td1 of V1, so the control block's statement of V1 prints td2=1.5e-06, which its instance line binds to the expression t2 - 1e-06`); and then, or between the previous analysis and the alter, a change that VACASK evaluates the binding again at: another netlist parameter, temp or tnom, a target vamos's deck sets through its switch, for an instance inside a subckt a parameter of the subckt instance that holds it (the message adds `or of a parameter of the subckt instance X1 that holds it`), or, for an alter before the first analysis, a temp or tnom other than 27 (`options temp=50`). VACASK evaluates the binding again at the next analysis and loses the alter. Run it on Xyce, alter what the expression reads (`a1 alter param=vp value=2`), write the field as a constant (`td2=10u` for the last), or make the other change first, with an analysis between it and the alter (`a2 alter dev=R1 param=r value=3k`, `op0 dc`, then `a1 alter dev=V1 param=rise value=2u`): each runs on both engines |
 | `alter a1: on VACASK the control block's alter of V1 would print td2=2e-06 - td, which reads td: a VACASK control-block statement cannot read a netlist parameter, temp or tnom ('Variable or constant ... not defined'), and left out the field would keep the instance's own value (its binding on the instance line, or VACASK's default where that line prints none), not this one: not supported on VACASK in v1 (Xyce runs it)` (exit 2), also `would print val1=vv, which reads vv` | an alter of a source, on VACASK, whose new state holds a field that reads a parameter where VACASK's control-block statement can neither print it nor leave it out: a constant `td2` altered beside `td1=td` (the deck prints an exp's td2 less its td1), or a switch to `type=pulse` of a dc source whose `val1=vv` its instance line does not print. Write the fields the message names as constants (`td1=1u`, `val1=2`: both run on both engines), or run it on Xyce |
-| `<file>:<line>: the alter of instance r of R1 sets '3k', not a number, where the deck prints the parameter through a switchable hook; not supported in v1` (exit 2), or, with a change after the alter, the message of the `tran tr1: on VACASK, alter a1 set rise of V1, ...` row ending `so the alter's value can be lost (vamos cannot compare the alter's value 2u with it; Xyce keeps it): ...`; on Xyce `` Xyce, the deck of analysis `op2' (vamos_a2.cir): Netlist error: Unrecognized character: " in expression {"3k"} `` (exit 2) | an alter whose value is a quoted word (`value="3k"`) for a parameter that takes a number. VACASK's deck prints a parameter bound to an expression (`r=rv`) through its switch, which needs a number; for a target the switch cannot carry (`rise=rt`), vamos cannot compare the word with the expression when a change follows. Xyce stops at the word in its deck, although VACASK's message says `Xyce runs it`. Write the value as a number (`a1 alter dev=R1 param=r value=3k` runs on both engines) |
+| `<file>:<line>: the alter of instance rise of V1 sets '2u', not a number, where the source's rise takes a number; not supported in v1 (write value=2u, without the quotes)` (exit 2, on both engines); on VACASK, for a parameter bound to an expression (`r=rv`), `<file>:<line>: the alter of instance r of R1 sets '3k', not a number, where the deck prints the parameter through a switchable hook; not supported in v1` (exit 2); for any other parameter the engine's own error: VACASK's `Cannot convert string into real.` at the alter's line of `vamos.sim`, Xyce's `` Xyce, the deck of analysis `op2' (vamos_a2.cir): Netlist error: Unrecognized character: " in expression {"3k"} `` (exit 2) | an alter whose value is a quoted word (`value="3k"`) for a parameter that takes a number. A source's field is refused before any engine runs; VACASK's deck prints a parameter bound to an expression through its switch, which needs a number; any other parameter reaches the engine, which stops at the word. Write the value as a number (`a1 alter dev=R1 param=r value=3k` runs on both engines) |
 | `alter a0 changes a structural condition on path top level: the condition sel > 0 takes its else branch, where it takes its if branch at the netlist's own values: vamos refuses a sweep or alter that changes an if branch, as Spectre does (§3.7, §14 q.13)` (exit 2) | a sweep or an alter that changes the branch an `if` takes, before the first analysis too (`if (sel > 0)` and `a0 alter param=sel value=-1`), on both engines. Write each branch's netlist as a netlist of its own (with `parameters sel=-1` the else branch runs on both engines), or sweep or alter something the condition does not read |
-| `tran tr1 (after alter a1): the pulse of V1 has period=1e-05 s, not longer than rise+fall+width = 2.1e-05 s: an explicit period no longer than rise+fall+width is an error (§3.8.1; VACASK stops at its setup with 'Period of pulse transient must be greater than rise+fall+width')` (exit 2), and in the same form `the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1; ...)`, `the exp of V1 has tau1=0 s: an exp time constant of 0 is an error in v1 (ref5 p.685 gives no exp formula that defines it; ...)`, `the sine of V1 has freq=-50000 Hz: a sine with a negative freq is an error in v1, as the constant is (...)` and `the pwl of V1 has its first time point at -5e-07 s: a pwl time point before 0 is an error, as the constant is (§3.8.1; ...)` | a sweep or an alter, of a source's field or of a parameter the field reads, that gives the field a value that would be an error in the netlist (§3.8.1): a pulse's period no longer than rise+fall+width, a negative rise, fall or width, pwl time points that do not increase, a pwl time point before 0, a pwl of one point, an exp's td2 no later than its td1 or a time constant of 0, a sine's negative freq, or its freq of 0 with a damp other than 0. Both engines refuse it in every analysis that uses the waveform: a tran, and an analysis whose dc the source derives, the waveform's value at t = 0 (`dc op1 (after alter a1): ...; its dc is the waveform's value at t = 0)`). A netlist without analyses is checked too (`the netlist: the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1)`). The clause after the citation says what the engines would do. Change the sweep, alter or parameter value; a pwl that should start before 0 runs with a negative `delay=` (`wave=[0 0 1.5u 1 3.5u 1] delay=-0.5u`, on both engines) |
-| `tran tr1 (after alter a1): on VACASK the sine of V1 has freq=0 Hz, and VACASK stops at its setup with 'Frequency of sinusoidal transient must be greater than 0': not supported on VACASK in v1 (Xyce runs it)` (exit 2), also `alter a1, VACASK's first elaboration (after alter a1): ...` and `dc op1, VACASK's setup before the first point of sweep sw1: ...` | a sine whose freq a sweep or an alter makes 0 (`freq=fr` and `a1 alter param=fr value=0`), on VACASK, which needs a freq above 0 wherever it sets the waveform up: in an analysis that uses it, at its first elaboration (an alter of the field before the first analysis), and before a sweep's first point, in the values in force then (`parameters qfr=0`, which every analysis sweeps away from 0). Xyce runs these (a freq of 0 holds the sine at its value at t = 0). Give the parameter a value other than 0 in the netlist (`parameters qfr=100k` runs on both engines), keep the sweep or alter away from 0, or run it on Xyce. A sine whose freq is the constant 0 runs on both engines (the next row) |
-| `V1: type=sine with freq=0 is a constant: folded into dc (§3.8.1)` (notice); `sweep sw1 at V1:damp=100000: the sine of V1 has freq=0 and damp=100000: a sine with freq=0 and damp != 0 is not a constant: give the frequency (§3.8.1)` (exit 2) | a sine whose freq is the constant 0 is Spectre's constant, sinedc + ampl * sin(sinephase): a given `dc` stays the value of the DC-type analyses, and a tran holds the constant (`sinedc=0.2 ampl=0.5 freq=0 sinephase=30 dc=0.25`: `in` = 0.25 in an op and 0.45 in a tran, on both engines). A sweep or an alter of its fields reaches them (a sweep of `ampl` to 1 gives 0.7); one that gives it a damp other than 0 is an error on both engines: give the frequency |
+| `tran tr1 (after alter a1): the pulse of V1 has period=1e-05 s, not longer than rise+fall+width = 2.1e-05 s: an explicit period no longer than rise+fall+width is an error (§3.8.1; VACASK stops at its setup with 'Period of pulse transient must be greater than rise+fall+width')` (exit 2), and in the same form `the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1; ...)`, `the exp of V1 has tau1=0 s: an exp time constant of 0 is an error in v1 (ref5 p.685 gives no exp formula that defines it; ...)`, `the sine of V1 has freq=-50000 Hz: a sine with a negative freq is an error in v1, as the constant is (...)` and `the pwl of V1 has its first time point at -5e-07 s: a pwl time point before 0 is an error, as the constant is (§3.8.1; ...)` | a sweep or an alter, of a source's field (`a1 alter dev=V1 param=period value=10u`) or of a parameter the field reads, that gives the field a value that would be an error in the netlist (§3.8.1): a pulse's period no longer than rise+fall+width, a negative rise, fall or width, pwl time points that do not increase, a pwl time point before 0, a pwl of one point, an exp's td2 no later than its td1 or a time constant of 0, a sine's negative freq, or its freq of 0 with a damp other than 0. Both engines refuse it in every analysis that uses the waveform: a tran, and an analysis whose dc the source derives, the waveform's value at t = 0 (`dc op1 (after alter a1): the pulse of V1 has period=1e-05 s, not longer than rise+fall+width = 2.1e-05 s: an explicit period no longer than rise+fall+width is an error (§3.8.1; its dc is the waveform's value at t = 0)`). A `dev=` alter of the field itself to such a number makes the field a constant, as the netlist's own would be: it is refused in every analysis after the alter, one whose source gives its `dc` too (`dc op1 (after alter a1): the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1)`), while a sweep of the field, or an alter of a parameter it reads, is refused only where the waveform is used. A netlist without analyses is checked too (`the netlist: the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1)`). An alter after the last analysis is checked too, but no analysis runs in that state, so it is a warning, and the run goes on with its status unchanged: `the netlist (after alter a1): the pulse of V1 has fall=-1e-07 s: a negative fall is an error (§3.8.1) where an analysis runs, and no analysis runs in this state: the run goes on` (the period form the same). The clause after the citation says what the engines would do. Change the sweep, alter or parameter value; a pwl that should start before 0 runs with a negative `delay=` (`wave=[0 0 1.5u 1 3.5u 1] delay=-0.5u`, on both engines) |
+| `tran tr1 (after alter a1): on VACASK the sine of V1 has freq=0 Hz, and VACASK stops at its setup with 'Frequency of sinusoidal transient must be greater than 0': not supported on VACASK in v1 (Xyce runs it)` (exit 2), also `alter a1, VACASK's first elaboration (after alter a0): ...` and `dc op1, VACASK's setup before the first point of sweep sw1: ...` | a sine whose freq a sweep or an alter makes 0 (`freq=fr` and `a1 alter param=fr value=0`), on VACASK, which needs a freq above 0 wherever it sets the waveform up: in an analysis that uses it, at its first elaboration, and before a sweep's first point, in the values in force then (`parameters qfr=0`, which every analysis sweeps away from 0). VACASK first elaborates the circuit at the first `alter` of an instance or a model, when that comes before the first analysis: `a0 alter param=fr value=0`, `a1 alter dev=R1 param=r value=2k` and `a2 alter param=fr value=1k` before a tran give `alter a1, VACASK's first elaboration (after alter a0): on VACASK the sine of V1 has freq=0 Hz, and VACASK stops at its setup with 'Frequency of sinusoidal transient must be greater than 0': not supported on VACASK in v1 (Xyce runs it)`. Xyce runs these (a freq of 0 holds the sine at its value at t = 0). Give the parameter a value other than 0 in the netlist (`parameters qfr=100k` runs on both engines), keep the sweep or alter away from 0, or run it on Xyce. A sine whose freq is the constant 0 runs on both engines (the next row) |
+| `V1: type=sine with freq=0 is a constant: folded into dc (§3.8.1)` (notice); `sweep sw1 at V1:damp=100000: the sine of V1 has freq=0 and damp=100000: a sine with freq=0 and damp != 0 is not a constant: give the frequency (§3.8.1)` (exit 2) | a sine whose freq is the constant 0 is Spectre's constant, sinedc + ampl * sin(sinephase): a given `dc` stays the value of the DC-type analyses, and a tran holds the constant (`sinedc=0.2 ampl=0.5 freq=0 sinephase=30 dc=0.25`: `in` = 0.25 in an op and 0.45 in a tran, on both engines). A sweep or an alter of its fields reaches them (a sweep of `ampl` to 1 gives 0.7); one that gives it a damp other than 0 is an error on both engines: give the frequency. An alter that sets a sine's freq to 0 makes it that constant, with the notice at the alter's line (`alter a1: V1: type=sine with freq=0 is a constant: folded into dc (§3.8.1)`) |
 | `sweep sw1: the delay of the exp source V1 is folded into its td1 and td2 (§3.8.1), so a sweep of it would set VACASK's absolute td1 and nothing in Xyce's deck: not supported in v1 (write delay=<a netlist parameter> and sweep that with param=)` (exit 2) | a `dev=` sweep of an exp source's `delay`, on both engines. Write the delay as a parameter and sweep that: `parameters dl=0.5u`, `delay=dl` and `sw1 sweep param=dl values=[0.5u 1u]` run on both engines |
 | `option reltol=0.0001 is not mapped on Xyce: ...` (also `vabstol`, `iabstol`), `tran tr: Xyce takes the method (traponly) only; ...`, `` nz1: noise analysis `nz1' on Xyce: the per-instance STRUCTs carry only `total' (DNO), no contributions `` (notices) | information: Xyce's differences, the first two for the settings the run makes (Quick start, Choosing the engine) |
-| `<dir>/code/bsimcmg.va: openvaf-r failed (exit status 65):` followed by openvaf-r's errors, the first `error: unexpected token '(*'; expected ';'` at `` module bsimcmg(d, g, s, e) `attr(...) `` (exit 2) | a CMC Verilog-A model (the benchmark decks under xyce's `utils/ADMS/examples`, run as `spectre -I../code gummel_n.sp`) on VACASK: openvaf-r does not compile these trees yet (the design's phase 3 runs them on VACASK once it does) |
-| `` Xyce, the deck of analysis `srcSweep' (vamos_a1.cir): Netlist error in file vamos_a1.cir at or near line 9 Unrecognized parameter BULKMOD for device MX1 `` (also `Unrecognized fields for device MX1`) (exit 2) | the same CMC model on Xyce: Xyce's check of the first deck (`Xyce -norun`) rejects the model card's parameters on the Verilog-A device; v1 does not run Verilog-A model-card parameters on Xyce (docs/VAMOS_SPECTRE_DESIGN.md §0) |
-| `model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108; using it is an error` (a notice at the card), then `X1: model nmos1 is left out: ...` (exit 2) | the BSIM-CMG 108 and 110 benchmark cards name `bsimcmg`, while their `.hdl` files declare `bsimcmg_108` and `bsimcmg_110`, and v1 has no built-in `bsimcmg` (§0) |
+| `<dir>/code/bsimcmg.va: openvaf-r failed (exit status 65):` followed by openvaf-r's errors, the first `error: unexpected token '(*'; expected ';'` at `` module bsimcmg(d, g, s, e) `attr(...) `` (exit 2) | a CMC Verilog-A model (the benchmark decks under xyce's `utils/ADMS/examples`, run as `spectre -I../code gummel_n.sp` in the `bsimcmg_107.0.0` tree, whose card names its module `bsimcmg`; the 108 and 110 trees stop at the model-card row below first) on VACASK: openvaf-r does not compile these trees yet (the design's phase 3 runs them on VACASK once it does) |
+| `` <dir>/code/bsimcmg_body.include:1924: `REFTEMP is defined at common_defs.include:52 as `REFTEMP (300.15)    /* 27 degrees C */', which Xyce's PyMS reads as a macro with the argument 300.15 and no body ... `` (also `` `CONSTCtoK ``), and in the same run `` <dir>/code/bsimcmg_body.include:283: parameter VSAT1R of module bsimcmg: its default VSAT1 is not a number, and the parameter's name VSAT1R is written in capitals ... `` and ten more parameter defaults (13 errors, exit 2; 11 once the two `` `define ``s are written without the parenthesis) | the same CMC model on Xyce, the 107 tree (the 108 tree's `` `REFTEMP `` lines are 2119 and 2121): PyMS would read the tree's `` `define REFTEMP (300.15) `` as a macro with an argument (the macro rows above), and its parameter defaults in capitals that name a parameter whose own default is a name (`VSAT1R = VSAT1`, `VSAT1 = VSAT`) or arithmetic (`LSP = 0.2 * (L + XL)`) as 0 (the defaults row above); v1 does not run Verilog-A model-card parameters on Xyce either (docs/VAMOS_SPECTRE_DESIGN.md §0) |
+| `model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108; using it is an error` (a notice at the card), then `X1: model nmos1 is left out: ...` (exit 2) | the BSIM-CMG 108 and 110 benchmark cards name `bsimcmg`, while their `.hdl` files declare `bsimcmg_108` and `bsimcmg_110`, and v1 has no built-in `bsimcmg` (§0): these two trees stop here, on both engines, before the two rows above, until the card is renamed (`bsimcmg_108`) |
 | `.alter is not supported (one simulation per run)` (exit 2) | SPICE mode: `.alter` is not in v1. Run each variant as a netlist of its own, or use the Spectre language's `alter` |
 | `.print ids=par'-i(vdrain)': an output expression is not written (§0)` (warning); `.hdl is read as ahdl_include`, `.option post ignored (output and listing control)`, `a SPICE-mode netlist saves allpub (...)` (notices) | a SPICE-mode netlist's output requests: the saved signals are written, output expressions are not |
 | `` Error from spectre during DC analysis `op2'. `` with the engine's messages (exit 1) | the engine could not solve the analysis; the other analyses ran (How a run ends) |
 | `` sweep `sw' of analysis `op1' failed at point 2 of 3: the results of point 1 are written, the later points have none `` (warning) | a sweep point failed (How a run ends) |
-| `` analysis `tr1' was interrupted at time = ... s (vamos got SIGINT and stopped VACASK); its partial results are written `` (warning, exit 3); `` stopping after `tr1' is written; a second interrupt drops it `` (notice), then `the conversion was stopped by SIGINT: ...` (warning, exit 3); `the run was stopped by SIGINT (§2.7)` (warning, exit 3) | a signal stopped the run: during an analysis, while vamos wrote the results, or before the engine ran (How a run ends) |
+| `` analysis `tr1' was interrupted at time = ... s (vamos got SIGINT and stopped VACASK); its partial results are written `` (warning, exit 3); `` stopping after `tr1' is written; a second interrupt drops it `` (notice), then `the conversion was stopped by SIGINT: ...` (warning, exit 3), after a second signal `` the conversion was stopped by SIGINT (a second interrupt, which drops `tr1'): ... ``; `the run was stopped by SIGINT (§2.7)` (warning, exit 3) | a signal stopped the run: during an analysis, while vamos wrote the results, or before the engine ran (How a run ends) |
+| `vamos got SIGINT and passed it on, but VACASK ran every analysis to its end: all of them are written` (warning, exit 3), on Xyce `` vamos got SIGINT and passed it on, but Xyce ran analysis `tr1' to its end: its results are written `` (with `, and the analyses after it are not run` when more were planned) | an engine that does not stop for the SIGTERM vamos passes on (one run through a wrapper that ignores it): the analyses it finished are written in full, and the run ends with status 3, for the signal. A second Ctrl-C kills such an engine at once (How a run ends) |
 | `run directory kept: <dir>` | after exit status 1, 2 or 3, or with `--vamos-keep`: the engine's decks, output and logs, for a look or a report. Remove it when done |
 | `<raw> is a directory: the nutascii results are written to <raw>/<netlist>.raw (§8.5)` (notice) | a nutmeg run whose results path is an earlier PSF run's directory; give `-raw` |
+| `signal a b is written as _a_040b in the nutmeg file: ngspice ends a variable name at a blank or a comma, ...` (notice), `analysis a/b is written as _a_057b: a / cannot be part of the name of its results file, ...` (notice), `%A in the quoted strings of analysis op/1 is written as _op_0571: a / cannot be part of a file name, ...` (notice) | a name that a results file's format cannot carry as it is, written in its escaped form, by the rule of the engines' decks (Quick start, Names in the engines' decks; Outputs, File names), and `%A` in an analysis's quoted strings (Options, Percent codes). Every other name, and every title, is written as it is: the files are UTF-8 (§14 q.62) |
+| `<file>:<line>: the byte 0xe9 is not UTF-8: the file is read as UTF-8, so the byte is read as U+FFFD (the replacement character), which a title or a name that holds it carries into the results files (§14 q.62); write the file in UTF-8` (warning) | a netlist written in Latin-1 or another encoding that is not UTF-8: one warning per file, at the first such byte; a title or a name that holds it is written with the replacement character (Quick start, Names in the engines' decks). Convert the file to UTF-8 |
+| `tran tr1: ic out=0.5 is on a node the voltage source Vm touches: Xyce applies no .IC to a node a voltage source touches (its initial-condition colouring leaves out every node of a V element), so the initial condition would be lost silently ...` (exit 2), and for a state file `tran tr1: readic=s.ns: out=0.5 is on a node the voltage source Vm touches: ...` | on Xyce, an `ic` statement or a `readic=`/`read=` entry for a node that a voltage source of the netlist touches (a 0 V ammeter `Vm (out mid) vsource dc=0`, an `iprobe`, a floating source), where voltage sources do not tie the node to the ground (then they fix its voltage on both engines, and the ic has no effect). Xyce drops such an `.IC` without a word, so the transient started from the operating point (`out` = 0 at t = 0 where VACASK gives 0.5). Run it on VACASK, or give the initial condition to a node no voltage source touches. A current vamos measures itself (`save C1:1`) adds no such source on Xyce: its probe is a vcvs, which keeps the ic; on an `ic` or `nodeset` node the probe of a two-terminal element sits in series with the element's other terminal, reversed, so the node keeps the element and Xyce's matrix stays regular (`save out C1:1 R1:2` beside `ic out=0.5`: `out` 0.5 at t = 0 on both engines, `C1:1` and `R1:2` as VACASK's) |
+| `` tran tr1: ic out=0.5 is on node out, which only vamos's current probes touch (the saved currents X1:2, X2:1): on Xyce a probe is a zero-gain vcvs, and an .IC on a node that connects only through such elements makes Xyce's matrix singular (measured: `Numerically singular matrix found by Amesos', exit status 1, no results); not supported on Xyce in v1: leave one of these currents unsaved, or run it on VACASK `` (exit 2) | on Xyce, a transient's `ic` (or `readic` entry) on a node whose every element is a saved terminal current of a device with more than two terminals (two subckt ports here, `save out X1:2 X2:1`): the probes vamos adds would be the node's only elements. A two-terminal element's probe moves to its other terminal (the row above), so the shape needs such devices only. Leave one of these currents unsaved, or run it on VACASK |
+| `no banner profile named 'nosuchprofile'`, `banner profile <file> is not valid JSON: <where>` (exit 2) | `--vamos-banner` or `VAMOS_BANNER` names no profile, or a profile file with a JSON error at the place the message gives (The banner profile). Fix the name or the file, or unset `VAMOS_BANNER` |
 | `op2 readns: 1 current entries of <file> not applied` (notice; a warning for `readic`) | a state file's source currents are not applied (Outputs) |
 | `tran tr2: readic=tr1.fin is the file tran tr1 writes earlier in this run (writefinal=tr1.fin): ...` (exit 2); `dc op2: readns=op1.ns is the file dc op1 writes earlier in this run (write=op1.ns): ...` (warning) | one run cannot hand a state file from one analysis to the next: vamos reads state files before the engine runs (Outputs). Run the analyses as two runs |
 | `internal error: <exception>: <text> (the traceback is in <file>)` (exit 2) | a bug in vamos. The traceback is in the run directory (`<dir>/vamos-spectre.traceback`, and the directory is kept), or, when the run stopped before it made one, in the `+log`/`=log` file, or else in a temporary file (`/tmp/vamos-spectre-<random>.traceback`). Report it with that file. An error whose text ends `(internal)` is a check of vamos's own that failed: a bug too; report it with the netlist |
@@ -2036,11 +2607,31 @@ cannot carry, VACASK refuses such an alter: the message of the row `tran tr1: on
 V1, ...` names `the temp=50 in force at VACASK's first elaboration` as the change. Put an analysis before the
 alter, or run it on Xyce.
 
-One case gives a wrong value on Xyce with exit status 0 and no message: a pulse whose delay is exactly minus
-its rise, so that t = 0 is the end of the rise. With
-`V1 (in 0) vsource type=pulse val0=0 val1=1 delay=-0.5u rise=0.5u fall=0.5u width=2u`, Xyce gives `in` = 5
-at t = 0, the point the transient starts from, where VACASK gives 1; the later points agree. Run it on
-VACASK, or write the waveform as a pwl (`type=pwl wave=[0 1 2u 1 2.5u 0]` starts at 1 on both engines).
+A pulse whose delay is exactly minus its rise puts t = 0 at the end of the rise. Xyce's own pulse takes there
+neither the rise nor the top in the operating point a transient starts from, but the formula of the fall:
+`in` = 5 at t = 0 where 1, and every node behind a capacitor wrong for the whole transient, with exit status
+0. So on Xyce vamos prints such a delay a relative 1e-15 earlier, which keeps t = 0 just past the end of the
+rise and moves the waveform by about 5e-22 s; a delay or a rise that reads a parameter, and a sweep of the
+delay, print the same test in the deck's expression, which Xyce evaluates at each point. Both engines then
+follow the RC's analytic `out` (1 until the fall at 2 us, then 0.7869 at 2.5 us and 0.0646 at 5 us; VACASK's
+own time steps are 0.5 % off at 2.5 us):
+
+```
+$ cat pulseneg.scs
+// a pulse whose delay is minus its rise, through an RC
+simulator lang=spectre
+V1 (in 0) vsource type=pulse val0=0 val1=1 delay=-0.5u rise=0.5u fall=0.5u width=2u
+R1 (in out) resistor r=1k
+C1 (out 0) capacitor c=1n
+tr1 tran stop=5u
+$ spectre -raw pv.raw pulseneg.scs > pv.out; spectre --vamos-analog=xyce -raw px.raw pulseneg.scs > px.out; tail -qn 1 pv.out px.out
+spectre completes with 0 errors, 0 warnings, and 0 notices
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ PYTHONPATH=$SV2GHDL/tests/vamos python3 -c 'import psfcheck; print([["%.4f" % psfcheck.check(r + "/tr1.tran.tran").at(n, t) for n, t in (("in", 0), ("out", 0), ("out", 1e-6), ("out", 2.5e-6), ("out", 5e-6))] for r in ("pv.raw", "px.raw")])'
+[['1.0000', '1.0000', '1.0000', '0.7833', '0.0648'], ['1.0000', '1.0000', '1.0000', '0.7870', '0.0646']]
+$ spectre --vamos-analog=xyce --vamos-keep -raw px.raw pulseneg.scs > /dev/null; grep PULSE pulseneg.run.*/vamos_a1.cir
+V1 in 0 DC 1.0 PULSE(0.0 1.0 -5.000000000000005e-07 5e-07 5e-07 2e-06 2e+30)
+```
 
 To see what vamos runs, add `--vamos-verbose`; `--vamos-keep` keeps the run directory, with the decks the
 engine ran.

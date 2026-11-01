@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import string
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -562,6 +563,17 @@ class TestOptionTable(unittest.TestCase):
                 self.assertEqual(dispositions(j), [(row, UNSUPPORTED)])
                 self.assertEqual(j.notes, [])
 
+    def test_every_noted_and_unsupported_row_says_why(self):
+        # the guide trial of phase 2e (TRIAL2E1-14): §4's dispositions print `<option>: <why>` (noted) and `<option>
+        # is not supported yet (<why>)` (unsupported); twenty rows printed the option alone (`+diagnose`, `-slave x is
+        # not supported yet`), so the user could not tell what is lost
+        self.assertEqual([o.name for o in spectre.OPTIONS if o.act in (NOTED, UNSUPPORTED) and not o.note], [])
+        for row in self.NOTED + self.UNSUPPORTED:
+            with self.subTest(row=row):
+                notes = optable.unmapped_notes(build(row.split() + ["x.scs"]))
+                self.assertEqual(len(notes), 1)
+                self.assertRegex(notes[0].message, r"^%s(: \w| is not supported yet \(\w.*\)$)" % re.escape(row))
+
     def test_error_rows_append_to_notes(self):
         for row in self.ERRORS:
             with self.subTest(row=row):
@@ -781,10 +793,12 @@ class TestDefaultsLayer(unittest.TestCase):
         self.assertTrue(cpp_runs(j))
         self.assertEqual(effective(j, "mts"), False)
 
-    def test_vamos_options_in_the_defaults_are_unsupported(self):
-        # the counterpart of test_vamos_options_in_option_files_are_reported (§1)
+    def test_vamos_options_in_the_defaults_have_no_effect(self):
+        # the counterpart of test_vamos_options_in_option_files_are_reported (§1); FIX2E5 (TRIAL2EH-F7): INAPPLICABLE,
+        # `<tok> has no effect: ...', where UNSUPPORTED's `is not supported yet' promised a feature; still an error
+        # under --vamos-strict (the last line)
         j = build(["x.scs"], {"SPECTRE_DEFAULTS": "--vamos-analog=xyce -maxw 2 --vamos-strict"})
-        self.assertEqual(dispositions(j), [("--vamos-analog=xyce", UNSUPPORTED), ("--vamos-strict", UNSUPPORTED)])
+        self.assertEqual(dispositions(j), [("--vamos-analog=xyce", INAPPLICABLE), ("--vamos-strict", INAPPLICABLE)])
         self.assertIn("command line only, not from SPECTRE_DEFAULTS", j.unmapped[0].note)
         self.assertIn("VAMOS_ANALOG, VAMOS_BANNER or VAMOS_VERBOSE", j.unmapped[0].note)
         self.assertEqual((j.defaults, j.notes), ({"maxwarns": 2}, []))
@@ -866,6 +880,102 @@ class TestDefaultsLayer(unittest.TestCase):
         self.assertEqual(text.count("Warning from spectre"), 7)
         self.assertEqual(text.count("further warnings of this kind"), 2)
         self.assertEqual(log.counts["warnings"], 12)
+
+
+class TestEscapedDefaultsVariable(InTmp):
+    """F9, decided by the user's rule (2026-10-19): an invoked name that is not an environment-variable name
+    (spectre-23.1, spectre.23.1.0.242) also reads escape_name(<prog>)_DEFAULTS, and the escaped upper-case form,
+    which every POSIX shell exports; dash (/bin/sh on Debian and Ubuntu) drops spectre-23.1_DEFAULTS before vamos
+    runs.  The literal name, when it reaches vamos (bash, env), still wins."""
+
+    ESC = "_spectre_05523_0561_DEFAULTS"
+    ESC_UP = "_SPECTRE_05523_0561_DEFAULTS"
+
+    def test_the_lookup_order(self):
+        from vamos.spectre import args as sargs
+        self.assertEqual(sargs.defaults_vars("spectre-23.1"),
+                         ["spectre-23.1_DEFAULTS", "SPECTRE-23.1_DEFAULTS", self.ESC, self.ESC_UP, "SPECTRE_DEFAULTS"])
+        self.assertEqual(sargs.defaults_vars("spectre.23.1.0.242"),
+                         ["spectre.23.1.0.242_DEFAULTS", "SPECTRE.23.1.0.242_DEFAULTS",
+                          "_spectre_05623_0561_0560_056242_DEFAULTS", "_SPECTRE_05623_0561_0560_056242_DEFAULTS",
+                          "SPECTRE_DEFAULTS"])
+        # a name every shell exports has no escaped form: the list is §2.2's
+        self.assertEqual(sargs.defaults_vars("spectre_23"), ["spectre_23_DEFAULTS", "SPECTRE_23_DEFAULTS",
+                                                              "SPECTRE_DEFAULTS"])
+        # an alias that starts with _ is escaped too (its literal name is exportable, and it comes first)
+        self.assertEqual(sargs.defaults_vars("_sim"), ["_sim_DEFAULTS", "_SIM_DEFAULTS", "__137sim_DEFAULTS",
+                                                        "__137SIM_DEFAULTS", "SPECTRE_DEFAULTS"])
+        tok = sargs.defaults_tokens
+        self.assertEqual(tok({self.ESC: "-maxw 1", "SPECTRE_DEFAULTS": "-maxw 2"}, "spectre-23.1"),
+                         (self.ESC, ["-maxw", "1"]))
+        self.assertEqual(tok({self.ESC_UP: "-maxw 3", "SPECTRE_DEFAULTS": "-maxw 2"}, "spectre-23.1"),
+                         (self.ESC_UP, ["-maxw", "3"]))
+        self.assertEqual(tok({self.ESC: "-maxw 1", self.ESC_UP: "-maxw 3"}, "spectre-23.1")[0], self.ESC)
+        # the literal names win when they reach vamos
+        self.assertEqual(tok({"spectre-23.1_DEFAULTS": "-maxw 4", self.ESC: "-maxw 1"}, "spectre-23.1"),
+                         ("spectre-23.1_DEFAULTS", ["-maxw", "4"]))
+        self.assertEqual(tok({"SPECTRE-23.1_DEFAULTS": "-maxw 5", self.ESC: "-maxw 1"}, "spectre-23.1")[0],
+                         "SPECTRE-23.1_DEFAULTS")
+        # an empty escaped variable means no defaults, and SPECTRE_DEFAULTS is not read
+        self.assertEqual(tok({self.ESC: "", "SPECTRE_DEFAULTS": "-maxw 2"}, "spectre-23.1"), (self.ESC, []))
+
+    def test_the_variable_names_itself_in_its_messages(self):
+        j = build(["x.scs"], {self.ESC: "--vamos-strict -help"}, prog="spectre-23.1")
+        notes = {u.option: (u.disposition, u.note) for u in j.unmapped}
+        self.assertIn("command line only, not from %s;" % self.ESC, notes["--vamos-strict"][1])
+        self.assertEqual(notes["-help"], (NOTED, "Spectre does not read -help from %s; ignored" % self.ESC))
+
+    def test_in_process_the_literal_name_still_wins(self):
+        rc, out, err = self.spectre(["x.scs"], argv0="spectre-23.1",
+                                    **{"spectre-23.1_DEFAULTS": "=log lit.log", self.ESC: "=log esc.log"})
+        self.assertEqual((rc, out, err), (2, "", ""))
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "lit.log")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "esc.log")))
+        rc, out, err = self.spectre(["x.scs"], argv0="spectre-23.1", **{self.ESC: "=log %S.log"})
+        self.assertEqual((rc, out, err), (2, "", ""))
+        self.assertTrue(open(os.path.join(self.tmp, "spectre-23.1.log")).read().endswith(
+            "spectre-23.1 terminated prematurely due to fatal error.\n"))
+
+    def _link(self, name):
+        d = os.path.join(self.tmp, "links")
+        os.makedirs(d, exist_ok=True)
+        try:
+            os.symlink(LAUNCHER, os.path.join(d, name))
+        except (OSError, NotImplementedError, AttributeError) as e:
+            self.skipTest("no symlinks here: %s" % e)
+        return os.path.join(d, name)
+
+    def test_the_escaped_variable_exported_under_dash(self):
+        """Through bin/vamos, from a dash script that exports the escaped variable (an `export spectre-23.1_DEFAULTS'
+        is a dash error, and env's literal one dash drops); with SPECTRE_DEFAULTS set too, the escaped one is read."""
+        dash = shutil.which("dash")
+        if dash is None:
+            self.skipTest("no dash here")
+        prog = self._link("spectre-23.1")
+        script = ('export %s="=log %%S.log -maxw 7"; export SPECTRE_DEFAULTS="=log plain.log"; exec "$1" x.scs'
+                  % self.ESC)
+        env = {k: v for k, v in os.environ.items() if not k.endswith("_DEFAULTS")}
+        env.pop("VAMOS_ARGV0", None)
+        r = subprocess.run([dash, "-c", script, "dash", prog], cwd=self.tmp, env=env, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        self.assertEqual((r.returncode, r.stdout, r.stderr), (2, "", ""))
+        log = os.path.join(self.tmp, "spectre-23.1.log")
+        self.assertTrue(os.path.isfile(log), os.listdir(self.tmp))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "plain.log")))
+        text = open(log).read()
+        self.assertIn("x.scs: netlist x.scs not found", text)
+        self.assertTrue(text.endswith("spectre-23.1 terminated prematurely due to fatal error.\n"), text)
+        # the literal variable through env: dash drops it before it can reach bin/vamos, the escaped one is read
+        script = 'exec env "spectre-23.1_DEFAULTS==log lit.log" "$1" x.scs'
+        env[self.ESC] = "=log esc.log"
+        r = subprocess.run([dash, "-c", script, "dash", prog], cwd=self.tmp, env=env, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        self.assertEqual((r.returncode, r.stderr), (2, ""))
+        got = sorted(f for f in os.listdir(self.tmp) if f in ("lit.log", "esc.log"))
+        sh_is_dash = os.path.realpath("/bin/sh").endswith("dash")
+        # bin/vamos is a /bin/sh script: where /bin/sh is dash the literal name is dropped there (WSL), where it is
+        # bash it reaches vamos and wins (Cygwin)
+        self.assertEqual(got, ["esc.log"] if sh_is_dash else ["lit.log"], (got, os.path.realpath("/bin/sh")))
 
 
 class TestPercentCodes(unittest.TestCase):
@@ -1108,9 +1218,29 @@ class TestSpectreLog(TempDir):
         self.assertTrue(out.endswith("spectre completes with 0 errors, 7 warnings, and 3 notices\n"), out)
         text = open(os.path.join(self.tmp, "l.log")).read()
         self.assertEqual(text.count("node `n"), 3)                           # -maxwarnstolog 3 for the file
-        self.assertIn("(-maxwarns 3)", text)
+        # the guide trial of phase 2e (TRIAL2EF-07): the file's notice names the option that limits the file (this test
+        # pinned `(-maxwarns 3)', an option the user did not give and one that does not limit the log)
+        self.assertIn("further warnings of this kind are suppressed (-maxwarnstolog 3)", text)
+        self.assertNotIn("(-maxwarns 3)", text)
         self.assertEqual(text.count("note "), 3)                            # no -maxnotestolog: unlimited
         self.assertIn("further warnings of this kind during analysis `op1'", out) if False else None
+
+    def test_the_log_s_notice_names_the_tolog_limit(self):
+        # TRIAL2EF-07: -maxnotestolog alone limits the file and its notice names it; the screen is not limited
+        log = self.log(self.job("-maxntl", "1", "+log", "n.log", "x.scs"))
+
+        def emit():
+            for i in range(3):
+                log.message(Note(NOTE, "", "note %d" % i), "setup")
+            log.finish(0)
+        out, _ = self.capture(emit)
+        self.assertEqual(out.count("note "), 3)
+        self.assertNotIn("suppressed", out)
+        with open(os.path.join(self.tmp, "n.log")) as fh:
+            text = fh.read()
+        self.assertEqual(text.count("note "), 1)
+        self.assertIn("further notices of this kind are suppressed (-maxnotestolog 1)", text)
+        self.assertNotIn("(-maxnotes 1)", text)
 
     def test_trailer_forms_and_the_invoked_name(self):
         for status, want in ((0, "specsim completes with 0 errors, 0 warnings, and 0 notices"),
@@ -1157,6 +1287,34 @@ class TestSpectreLog(TempDir):
         self.assertIn("Warning from spectre during s.\n    w1\n", out)
         self.assertIn("Warning from spectre during s.\n    w2\n", out)
         self.assertTrue(out.endswith("spectre completes with 0 errors, 2 warnings, and 1 notices\n"), out)
+
+    def test_the_last_line_counts_an_invalid_trailer_templates_notice(self):
+        # the guide trial of phase 2e (TRIAL2E2-F7): the notice of an invalid trailer_ok template comes just above the
+        # last line, and the last line counts it, as it counts the audit's (before: the counts were taken before the
+        # template was tried, so K was one short); the file gets the same lines
+        from vamos.spectre.log import SpectreLog
+        prof = dict(banner.load_profile("spectre"))
+        prof["trailer_ok"] = "{prog} done {nosuch}"
+        for audit, want in ((None, 1), ("AUDIT {bogus}", 2)):
+            with self.subTest(audit=audit):
+                if audit is not None:
+                    prof["audit"] = audit
+                log = SpectreLog(self.job("+log", "t.log", "x.scs"), banner.Banner(prof, "spectre"), datetime.now())
+                out, _ = self.capture(lambda: (log.message(Note(WARNING, "", "w1"), "s"), log.finish(0)))
+                self.assertEqual(out.count("banner template 'trailer_ok' is invalid: 'nosuch'; the built-in text is used"),
+                                 1, out)
+                last = "spectre completes with 0 errors, 1 warnings, and %d notices\n" % want
+                self.assertTrue(out.endswith("Notice from spectre during setup.\n    banner template 'trailer_ok' is "
+                                             "invalid: 'nosuch'; the built-in text is used\n" + last), out)
+                with open(os.path.join(self.tmp, "t.log")) as fh:
+                    self.assertTrue(fh.read().endswith(last))
+        # trailer_fatal has no counts: its notice is printed and counted all the same
+        prof = dict(banner.load_profile("spectre"), trailer_fatal="{prog} died {nosuch}")
+        log = SpectreLog(self.job("x.scs"), banner.Banner(prof, "spectre"), datetime.now())
+        out, _ = self.capture(lambda: log.finish(2))
+        self.assertTrue(out.endswith("banner template 'trailer_fatal' is invalid: 'nosuch'; the built-in text is used\n"
+                                     "spectre terminated prematurely due to fatal error.\n"), out)
+        self.assertEqual(log.counts["notices"], 1)
 
     def test_run_layout(self):
         from vamos.netlist import ir, plan

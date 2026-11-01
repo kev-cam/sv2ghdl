@@ -42,40 +42,13 @@
  },
  "messages": [],
  "xyce": {
-  "status": 0,
-  "files": [
-   "logFile",
-   "op1.dc",
-   "op2.dc",
-   "tr1.tran.tran"
-  ],
-  "values": [
-   {
-    "file": "op1.dc",
-    "signal": "out",
-    "at": null,
-    "value": 0.5,
-    "rel": 1e-06
-   },
-   {
-    "file": "op2.dc",
-    "signal": "out",
-    "at": null,
-    "value": 0.5,
-    "rel": 1e-06
-   },
-   {
-    "file": "tr1.tran.tran",
-    "signal": "out",
-    "at": 1e-06,
-    "value": 0.5,
-    "rel": 1e-06
-   }
-  ],
+  "status": 2,
+  "files": [],
+  "values": [],
   "messages": [
    [
-    "note",
-    "va,define"
+    "error",
+    "va,define VAMOS_HALF: not supported on Xyce in v1"
    ]
   ]
  }

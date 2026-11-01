@@ -2,7 +2,9 @@
 
     python3 psf_latin1.py <repo> <psf_parser dir> <out dir>
 
-vamos/output/psf.py writes its files in latin-1 (the sign is the byte 0xa7); psf-parser decodes UTF-8.
+vamos/output/psf.py writes its files in UTF-8 (§14 q.62, decided 2026-10-23; the sign is the bytes 0xc2 0xa7), which
+psf-parser decodes: it reads the title.  Before (phase 2c to round 4 of phase 2e) the files were latin-1 (the sign the
+byte 0xa7), and psf-parser stopped at it with a UnicodeDecodeError, on every file of the run.
 """
 import os
 import sys
@@ -22,11 +24,12 @@ psf.write_analysis(out, res, head)
 path = os.path.join(out, "op.dc")
 with open(path, "rb") as fh:
     data = fh.read()
-print("the section sign as latin-1 0xa7: %s; as UTF-8: %s" % (b"\xa7" in data, "§".encode("utf-8") in data))
+print("the section sign as latin-1 0xa7: %s; as UTF-8: %s" % (b"\xa7" in data and b"\xc2\xa7" not in data,
+                                                              "§".encode("utf-8") in data))
 import psf_parser  # noqa: E402  (vendored, MIT; Python >= 3.10)
 try:
-    psf_parser.PsfFile(path)
+    p = psf_parser.PsfFile(path)
 except UnicodeDecodeError as e:
     print("psf-parser: UnicodeDecodeError: %s" % e)
 else:
-    print("psf-parser: parsed")
+    print("psf-parser: parsed; design %r" % (p.header.get("design"),))
