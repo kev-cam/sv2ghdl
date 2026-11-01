@@ -469,6 +469,7 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
 | 5 | Move iverilog/vvp/verilator bash logic into personalities; bash scripts become shims | existing iverilog/verilator regressions unchanged |
 | 6 | Cadence: ncverilog, irun, xrun (+ `-ams` via cosim backend) | EDA Playground xrun lines parse; tests-RTL parity |
 | 7 | Questa (vlib/vmap/vlog/vcom/vsim), ghdl (`-a/-e/-r` → nvc), nvc pass-through with vamos extensions | cocotb `SIM=questa`/`ghdl` smoke |
+| 7b | Vivado simulator (`xvlog`/`xvhdl`/`xelab`/`xsim`): the first three-step flow, with the per-library record `xsim.dir/<lib>/vamos.lib.json` that `vlogan`/`vhdlan` and Questa can reuse. *Built 2026-11-01 (all-Verilog or all-VHDL snapshots; mixed-language, DPI, `--generic_top` and the Tcl shell are not).* | the Hazard3 regression runs unchanged through `xvlog`/`xelab -R`; tests/vamos/test_xsim.py |
 
 *Status notes (2026-10-02):* phase 4 is superseded by docs/VAMOS_AMS_DESIGN.md: `vcs-ams` co-simulates
 nvc with VACASK by default and Xyce as an option, not "nvc+Xyce cosim"; the stat-sim MC extension is not

@@ -39,7 +39,7 @@ from typing import Callable, Dict, List, Optional
 # spectre personality (docs/VAMOS_SPECTRE_DESIGN.md §2.1).
 _SPECTRE_VERSIONED = re.compile(r"^spectre[-_.]?[0-9][0-9A-Za-z._-]*$")
 # the invoked names of the other personalities (PERSONALITIES below)
-_OTHER_NAMES = ("vcs", "vcs-ams", "simv", "nvc")
+_OTHER_NAMES = ("vcs", "vcs-ams", "simv", "nvc", "xvlog", "xvhdl", "xelab", "xsim")
 
 
 def spectre_names() -> List[str]:
@@ -161,7 +161,7 @@ if _spectre_invocation(getattr(sys, "argv", None) or []):
 from vamos import VERSION, banner, tools  # noqa: E402  (after the spectre start, above)
 from vamos.optable import (check_vamos_opts, strict_message, vamos_option_effects,  # noqa: E402
                            vamos_options_help)
-from vamos.personalities import passthrough, simv, spectre, vcs  # noqa: E402
+from vamos.personalities import passthrough, simv, spectre, vcs, xsim  # noqa: E402
 
 PERSONALITIES: Dict[str, Callable[[List[str], dict], int]] = {
     "vcs": vcs.main,
@@ -169,6 +169,10 @@ PERSONALITIES: Dict[str, Callable[[List[str], dict], int]] = {
     "simv": simv.main,
     "nvc": passthrough.make("nvc"),
     "spectre": spectre.main,
+    "xvlog": xsim.main_xvlog,
+    "xvhdl": xsim.main_xvhdl,
+    "xelab": xsim.main_xelab,
+    "xsim": xsim.main_xsim,
 }
 
 _ROLES = {
@@ -176,6 +180,10 @@ _ROLES = {
     "vcs-ams": "vcs with -ad implied: Verilog with SPICE cells (VACASK, or Xyce)",
     "simv": "the runtime the generated ./simv runs",
     "nvc": "hands its command line to the real nvc unchanged",
+    "xvlog": "Vivado simulator flow: analyse Verilog/SV into a library under xsim.dir/",
+    "xvhdl": "Vivado simulator flow: analyse VHDL into a library under xsim.dir/",
+    "xelab": "Vivado simulator flow: elaborate [lib.]tops into xsim.dir/<snapshot>/ (-R runs)",
+    "xsim": "Vivado simulator flow: run a snapshot (-R, or -t batch file; --testplusarg)",
     "spectre": "the Spectre command line: spectre [options] [netlist], run on VACASK (or Xyce)",
 }
 
@@ -292,7 +300,7 @@ def main(argv: List[str]) -> int:
     tools.invoked = invoked
     if personality == "spectre" and launched:
         _process_name(invoked)
-    if personality not in ("vcs", "vcs-ams", "spectre"):  # these report the options themselves
+    if personality not in ("vcs", "vcs-ams", "spectre", "xvlog", "xvhdl", "xelab", "xsim"):  # these report the options themselves
         effects = vamos_option_effects(opts, personality)
         for opt, why in effects:
             print("vamos: warning: %s has no effect: %s" % (opt, why), file=sys.stderr)

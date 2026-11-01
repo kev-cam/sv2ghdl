@@ -12,7 +12,8 @@ Contents: [1 What vamos is](#1-what-vamos-is) · [2 Set up](#2-set-up) ·
 [7 vamos options and environment variables](#7-vamos-options-and-environment-variables) ·
 [8 Banners, provenance and licences](#8-banners-provenance-and-licences) · [9 Troubleshooting](#9-troubleshooting) ·
 [10 Limitations](#10-limitations) · [11 Other documents](#11-other-documents) ·
-[12 The spectre personality](#12-the-spectre-personality)
+[12 The spectre personality](#12-the-spectre-personality) ·
+[13 The Vivado simulator personalities](#13-the-vivado-simulator-personalities)
 
 ## 1. What vamos is
 
@@ -2635,3 +2636,40 @@ V1 in 0 DC 1.0 PULSE(0.0 1.0 -5.000000000000005e-07 5e-07 5e-07 2e-06 2e+30)
 
 To see what vamos runs, add `--vamos-verbose`; `--vamos-keep` keeps the run directory, with the decks the
 engine ran.
+
+## 13. The Vivado simulator personalities
+
+Vivado's simulator is four programs: `xvlog` and `xvhdl` analyse sources into libraries under
+`xsim.dir/`, `xelab` elaborates one or more tops into a snapshot, `xsim` runs the snapshot. vamos
+provides all four (shims `xvlog`, `xvhdl`, `xelab`, `xsim`), on the same sv2ghdl + nvc stack as `vcs`.
+Both spellings of every option are accepted, `--sv` and `-sv`, as the Vivado tools do, and `-f FILE`
+option files and `--prj` project files (`<verilog|sv|vhdl|vhdl2008> <lib> <files...>` lines) work.
+
+```
+$ xvlog --sv -d WIDTH=4 -i rtl/include tb.sv rtl/counter.v       # -> xsim.dir/work/vamos.lib.json
+VAMOS analysis (xvlog personality), vamos 0.1.0
+INFO: [vamos] analysing SystemVerilog file "tb.sv" into library work
+...
+$ xelab --timescale 1ns/1ps -debug typical -s snap work.tb         # -> xsim.dir/snap/ (sv2ghdl + nvc)
+$ xsim snap -R --testplusarg CYCLES=9                               # run to completion
+$ xsim snap -t run.tcl                                              # `run 200 ns` / `run all` / `quit`
+```
+
+What the steps do here: `xvlog`/`xvhdl` only record the files, their defines, include directories and
+language per library (nothing is compiled yet, so they are quick and never fail on a translation);
+`xelab` collects the sources of `work` and every `-L` library in analysis order, compiles them the way
+`vcs` does into `xsim.dir/<snapshot>/` (the snapshot name defaults to `<lib>.<top>`; the default
+timescale for modules without one is 1ns/1ps, as in xelab), and `-R` runs straight away; `xsim` runs
+the snapshot through the `simv` runtime, so `--testplusarg N=V` is the plusarg `+N=V`, `--sv_seed` the
+random seed, `--log` the run log (default `xsim.log`, `--nolog` for none). A `-t` batch file is read
+for `run all`, `run N <unit>` (summed; a bare number is ns) and `quit`; wave and scripting commands
+are noted and skipped. `--vlog`/`--svlog`/`--vhdl` files given to `xelab` directly are compiled too.
+The logs are `xvlog.log`, `xelab.log`, `xsim.log` in the current directory, as Vivado writes them.
+
+Not provided, and said so when used: the interactive Tcl shell (`xsim` needs `-R` or `-t`), `--gui`
+and `--wdb` waveform databases (`$dumpvars` in the design writes a VCD), `--generic_top` overrides,
+DPI (`--sv_lib`, `--sv_root`), coverage, SDF and timing options, and Vivado's own simulation
+libraries (`-L unisims_ver`, `secureip`, `xpm`, ... are noted and skipped; `glbl` as a top is dropped).
+A snapshot is all Verilog/SystemVerilog (through sv2ghdl) or all VHDL (nvc directly); mixing the two
+in one snapshot is not supported yet. The tests are `tests/vamos/test_xsim.py`.
+

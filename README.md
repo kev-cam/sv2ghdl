@@ -8,13 +8,16 @@ sv2ghdl translates SystemVerilog RTL into VHDL for use with GHDL and NVC simulat
 
 vamos is a drop-in replacement for a simulator's command line: your `vcs ...` compile and `./simv ...` run
 lines compile and simulate the design through sv2ghdl and nvc, with no vendor tool or licence. `vcs-ams`
-adds HSPICE-dialect SPICE cells, simulated on VACASK (the default) or Xyce and co-simulated by nvc.
+adds HSPICE-dialect SPICE cells, simulated on VACASK (the default) or Xyce and co-simulated by nvc. The
+Vivado simulator's `xvlog`/`xvhdl`/`xelab`/`xsim` command lines run on the same stack (VAMOS_GUIDE.md §13).
 
 ```sh
 export SV2GHDL=/usr/local/src/sv2ghdl               # your sv2ghdl checkout
-export PATH=$SV2GHDL/shims:$PATH                    # vcs, vcs-ams, nvc (vamos personalities)
+export PATH=$SV2GHDL/shims:$PATH                    # vcs, vcs-ams, nvc, xvlog, xelab, xsim (vamos personalities)
 vcs -sverilog tb.sv rtl/counter.v -R                # compile and run
 ./simv +CYCLES=9                                    # run again, with plusargs
+xvlog --sv tb.sv rtl/counter.v && xelab -s snap tb  # the Vivado simulator's flow, same stack
+xsim snap -R --testplusarg CYCLES=9
 ```
 
 Start with **[docs/VAMOS_GUIDE.md](docs/VAMOS_GUIDE.md)**: setup, digital and AMS quick starts, options,

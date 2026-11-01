@@ -1,0 +1,10 @@
+{
+  "_comment": "Default banner profile of the Vivado-simulator personalities (xvlog, xvhdl, xelab, xsim), branded vamos. Same layering and placeholders as vcs.json: copy to banners/<name>.json in a later configuration layer to change it, select with --vamos-banner or $VAMOS_BANNER. {personality} is the program invoked (xvlog, xvhdl, xelab or xsim); {exe} is the snapshot directory.",
+  "brand": "vamos",
+  "analyse_start": "{BRAND} analysis ({personality} personality), {brand} {version}",
+  "compile_start": "\n{BRAND} elaboration ({personality} personality), {brand} {version}\n",
+  "compile_tops": "Top Level Modules:\n{tops_lines}",
+  "compile_done": "{Brand}: snapshot {exe} is up to date\nCPU time: {cpu_compile:.3f} seconds to compile + {cpu_elab:.3f} seconds to elab",
+  "compile_failed": "{Brand}: elaboration failed",
+  "run_footer": "           {BRAND_SPACED}   S i m u l a t i o n   R e p o r t \nTime: {simtime}\nCPU Time: {cpu:10.3f} seconds;"
+}

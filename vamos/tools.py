@@ -68,7 +68,7 @@ def is_vamos(path: str) -> bool:
 # PATH, and every stat there crosses the slow Windows file bridge.
 SHIM_NAMES = ("vcs", "vlogan", "vhdlan", "vcs-ams", "xrun", "irun", "ncverilog",
               "vlog", "vcom", "vsim", "vlib", "vmap", "nvc", "ghdl", "iverilog",
-              "vvp", "verilator", "spectre")
+              "vvp", "verilator", "spectre", "xvlog", "xvhdl", "xelab", "xsim")
 # Alias links of the spectre personality (VAMOS_SPECTRE_NAMES, spectre231, ...) are not
 # probed: put them in a directory that also holds a listed name, or list the directory in
 # VAMOS_REDIRECT (docs/VAMOS_SPECTRE_DESIGN.md §10).
