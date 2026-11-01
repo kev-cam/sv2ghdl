@@ -181,9 +181,18 @@ class NvcBackend:
         would be misread)."""
         return "work:" + os.path.abspath(os.path.join(self.workdir, "work"))
 
+    @staticmethod
+    def heap_args() -> List[str]:
+        """nvc's heap limits.  Its defaults (16 MB heap) stop a core-sized design at init
+        ("out of memory attempting to allocate ... increase with the -H option"); the AMS flow
+        already runs with -M 2g -H 1g, and the digital compile and run get the same, which
+        VAMOS_NVC_HEAP (the -H value) and VAMOS_NVC_UNIT_HEAP (the -M value) override."""
+        return ["-M", os.environ.get("VAMOS_NVC_UNIT_HEAP", "2g"),
+                "-H", os.environ.get("VAMOS_NVC_HEAP", "1g")]
+
     def elaborate(self, top: str) -> None:
         std = self._metadata().get("NVC_STD", "2040")
-        rc = self._call([self.nvc, "--std=" + std, "--work=" + self.work_spec(),
+        rc = self._call([self.nvc] + self.heap_args() + ["--std=" + std, "--work=" + self.work_spec(),
                          "-L", self.libdir, "-e", top], cwd=self.workdir)
         if rc != 0:
             raise BackendError("elaboration failed (exit %d)" % rc)
@@ -197,7 +206,7 @@ class NvcBackend:
         NVC_REPORT_END_TIME makes nvc end a run with the time it ended at
         (OutputFilter.end_time: the footer's time, end_time)."""
         std = self._metadata().get("NVC_STD", "2040")
-        cmd = [self.nvc, "--std=" + std, "--work=" + self.work_spec(), "-L", self.libdir]
+        cmd = [self.nvc] + self.heap_args() + ["--std=" + std, "--work=" + self.work_spec(), "-L", self.libdir]
         extra = {}
         plugins = self.plugins()
         if plugins:
