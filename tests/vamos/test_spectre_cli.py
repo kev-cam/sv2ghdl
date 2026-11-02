@@ -42,7 +42,7 @@ from vamos.notes import ERROR, NOTE, WARNING, Note  # noqa: E402
 from vamos.optable import Opt, Table  # noqa: E402
 from vamos.personalities import spectre, vcs  # noqa: E402
 
-CONTEXTS = ("any", "ams", "run", "simv", "spectre")
+CONTEXTS = ("any", "compile", "ams", "run", "simv", "spectre")
 
 # The keys §10 gives banners/spectre.json, plus brand and _comment.
 BANNER_KEYS = ("version", "subversion", "run_start", "inventory", "analysis_banner", "analysis_done",
@@ -236,6 +236,9 @@ VCS_OPTIONS_HELP = """\
   --vamos-strict                   unsupported, unknown and ineffective options are errors; so
                                    is every warning (an approximation vamos had to make)
   --vamos-verbose                  print each command vamos runs
+  --vamos-engine=nvc|verilator     the simulation engine: nvc (sv2ghdl + nvc, the default; also
+                                   VAMOS_ENGINE) or verilator (Verilog/SystemVerilog only, one
+                                   top, no run-time stop time) [vcs or xelab compile]
   --vamos-licenses                 print the tools vamos may run and their licences, and exit
   --vamos-version                  print the vamos version and exit
   --vamos-analog=vacask|xyce       the analog engine (default vacask; also VAMOS_ANALOG) [AMS

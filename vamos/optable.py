@@ -181,6 +181,7 @@ class VamosOpt(NamedTuple):
 # Every --vamos-* key the code reads (cli, the personalities, ams/flow.py, ams/deck.py,
 # backends/cosim.py).  where:
 #   any      every personality
+#   compile  a digital compile: vcs, or xelab (recorded with the compile; ./simv and xsim read it)
 #   ams      an AMS compile: vcs-ams, or vcs with -ad/+ad
 #   run      a run: ./simv, or a compile with -R (the AMS run directory)
 #   simv     ./simv only
@@ -191,7 +192,7 @@ VAMOS_OPTIONS: Tuple[VamosOpt, ...] = (
     VamosOpt("strict", None, "any", "unsupported, unknown and ineffective options are errors; so is "
              "every warning (an approximation vamos had to make)"),
     VamosOpt("verbose", None, "any", "print each command vamos runs"),
-    VamosOpt("engine", "nvc|verilator", "any", "the simulation engine: nvc (sv2ghdl + nvc, the default; also "
+    VamosOpt("engine", "nvc|verilator", "compile", "the simulation engine: nvc (sv2ghdl + nvc, the default; also "
              "VAMOS_ENGINE) or verilator (Verilog/SystemVerilog only, one top, no run-time stop time)",
              ("nvc", "verilator")),
     VamosOpt("licenses", None, "any", "print the tools vamos may run and their licences, and exit"),
@@ -217,8 +218,8 @@ VAMOS_KEYS: Dict[str, VamosOpt] = {o.key: o for o in VAMOS_OPTIONS}
 PLANNED_KEYS = frozenset(("selfcheck", "env", "config", "site", "sites", "shell", "mc", "corner",
                           "wave"))
 
-_WHERE_TEXT = {"ams": "AMS compile", "run": "./simv, or a compile with -R", "simv": "./simv",
-               "spectre": "spectre"}
+_WHERE_TEXT = {"compile": "vcs or xelab compile", "ams": "AMS compile",
+               "run": "./simv, or a compile with -R", "simv": "./simv", "spectre": "spectre"}
 
 
 def vamos_option_text(key: str, val) -> str:
@@ -283,10 +284,12 @@ def vamos_option_effects(opts: Dict[str, object], personality: str, ams: bool = 
                 pass
             elif spec.where == "ams":
                 why = "an AMS compile option: vcs-ams or vcs -ad"
+            elif spec.where == "compile":
+                why = "a vcs/xelab compile option"
             else:                                       # run, simv
                 why = "a ./simv option"
         elif personality == "simv":
-            if spec.where == "ams":
+            if spec.where in ("ams", "compile"):
                 why = ("a compile-time option (./simv runs the design as it was compiled; compile "
                        "again to change it)")
             elif spec.where == "spectre":
