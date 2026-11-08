@@ -1,6 +1,7 @@
 # vamos: a drop-in simulator command line
 
-**Status:** phase 0 implemented (2026-09-27); see §10. Manual links: `docs/vamos-manuals.html`.
+**Status:** phase 0 implemented (2026-09-27); see §10. The `spectre` personality is built (phases 0-2f,
+2026-11-08); see the note below. Manual links: `docs/vamos-manuals.html`.
 
 > **Superseded in part (2026-10-02).** This plan is kept as written; where it is out of date, a note like
 > this one says so and points to the current document.
@@ -8,8 +9,13 @@
 >   **docs/VAMOS_AMS_DESIGN.md**. `choose xa|finesim|primesim|hsim|nanosim` maps to the default engine,
 >   **VACASK**; **Xyce is an option** (`--vamos-analog=xyce`, `VAMOS_ANALOG=xyce` or `choose xyce`). nvc
 >   co-simulates either one.
-> - **spectre**: the planned `spectre` personality is designed in **docs/VAMOS_SPECTRE_DESIGN.md** (not
->   built).
+> - **spectre**: the `spectre` personality is built (2026-11-08), as specified in
+>   **docs/VAMOS_SPECTRE_DESIGN.md**: a Spectre netlist runs on **VACASK** (the default) or on **Xyce**
+>   (`--vamos-analog=xyce`), with Spectre's command line, log, exit status and PSF outputs. Commits: phase 0
+>   1f5a4b0, phase 1 1ca4273, phase 2 5537f6c, phases 2b-2c 18af05f and 5d2291f, phase 2e (guide trial and
+>   fix rounds) 50aee56 and a6af3d6; phase 2f is this status update. Verilog-A on Xyce needs PyMS 1.1.7 or
+>   later (xyce ce4fba81). Gate at a6af3d6: the whole `tests/vamos` suite, 3417 tests, clean in WSL and on
+>   Cygwin; `regress` hazard3/vamos 3/3. The guide's §12 says how to use it.
 > - **How to use vamos today**: **docs/VAMOS_GUIDE.md**.
 
 `vamos` is one Python driver that accepts the command lines of commercial and open
@@ -473,8 +479,8 @@ Real Makefiles rely on some tokenizer behaviour, so it must be exact:
 
 *Status notes (2026-10-02):* phase 4 is superseded by docs/VAMOS_AMS_DESIGN.md: `vcs-ams` co-simulates
 nvc with VACASK by default and Xyce as an option, not "nvc+Xyce cosim"; the stat-sim MC extension is not
-built. The `spectre` personality, not in this table, is designed in docs/VAMOS_SPECTRE_DESIGN.md (not
-built). How to use what exists: docs/VAMOS_GUIDE.md.
+built. The `spectre` personality, not in this table, is built as designed in docs/VAMOS_SPECTRE_DESIGN.md
+(status note at the top, 2026-11-08). How to use what exists: docs/VAMOS_GUIDE.md.
 
 Phase 0+1 is the VCS MVP. UVM (via Python on the nvc cocotb bridge, §5d) and DPI run as their own tracks in parallel,
 because they decide how much of the real world phase 1 can take on.

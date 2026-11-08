@@ -4971,7 +4971,7 @@ cache off, so no `.cache` file is written beside a fixture; without them the rep
 `TestCheckExpect`'s two tests.
 
 **Review:** an adversarial review of the whole diff before commit, as for vcs-ams, then fix rounds, a
-verifier and a guide trial (§12, phases 2b-2f; 2b and 2c are done, §12's records).
+verifier and a guide trial (§12, phases 2b-2f; all done by 2026-11-08, §12's records).
 
 ## 12. Work breakdown
 
@@ -5226,7 +5226,9 @@ reference.
   (`regress/`), because phase 0 moved code out of `backends/nvc.py` and `backends/cosim.py`, which every simv
   run uses;
 - 2e, guide trial: a fresh agent follows the guide's spectre section literally, and what it finds is fixed;
-- 2f, commit, when the user approves it, and the `VAMOS_PLAN.md` status update.
+- 2f, commit, when the user approves it, and the `VAMOS_PLAN.md` status update. *Done 2026-11-08: phase 2e
+  was committed as 50aee56 (rounds 1-6) and a6af3d6 (round 7', PyMS 1.1.7), and `VAMOS_PLAN.md` says the
+  personality is built.*
 - carried from phase 2, for 2b's review and 2c's fix rounds (its reports' open issues; the questions they
   left are §14 q.58-q.69, and phase-2 readings were appended to q.3, q.11, q.18, q.20, q.22, q.26, q.28, q.31,
   q.47, q.48, q.50 and q.54); after 2c each item says closed, with the findings that closed it (§16's last
