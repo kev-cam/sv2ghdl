@@ -88,7 +88,7 @@
    }
   },
   {
-   "name": "letter_device_diode_singular",
+   "name": "letter_device_diode_gmin_root",
    "tool": "xyce",
    "deck": "x7.cir",
    "gates": [
@@ -97,18 +97,44 @@
    "status": 0,
    "output": {
     "contains": [
-     "Numerically singular matrix found by Amesos, returning zero",
      "DIODE_SIMPLE (diode_simple)"
+    ],
+    "absent": [
+     "Numerically singular matrix"
     ]
    },
    "checks": [
     {
      "raw": "x7.raw",
      "col": "V(A)",
-     "value": 1010000000.0,
-     "rel": 0.05
+     "value": 1000000000.0,
+     "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): the reversed toy diode (I(a, ci) <+ Is*(limexp(V(ci, a)/26m) - 1)) has two roots of the gmin-augmented KCL; Newton from 0 takes V(A) = 1 mA / gmin = 1e9 V, with no singular matrix since PyMS 1.1.0 (BUGS.md C8: not a PyMS defect); x7n.cir pins the other root with a nodeset"
+  },
+  {
+   "name": "letter_device_diode_nodeset",
+   "tool": "xyce",
+   "deck": "x7n.cir",
+   "gates": [
+    "needs_pyms"
+   ],
+   "status": 0,
+   "output": {
+    "contains": [
+     "DIODE_SIMPLE (diode_simple)"
+    ]
+   },
+   "checks": [
+    {
+     "raw": "x7n.raw",
+     "col": "V(A)",
+     "value": -0.6485395,
+     "rel": 1e-06
+    }
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): the root the toy means, V(A) = 0.01 - 26m*ln(1e11 + 1) = -0.648539 V, reached from .nodeset v(a)=-0.6 (VACASK with is=1e-14 rs=10: -0.6485393699; BUGS.md C8)"
   },
   {
    "name": "plain_module_default",
@@ -128,7 +154,7 @@
    ]
   },
   {
-   "name": "plain_module_card_param_ignored",
+   "name": "plain_module_card_param_applied",
    "tool": "xyce",
    "deck": "y2.cir",
    "gates": [
@@ -146,10 +172,11 @@
     {
      "raw": "y2.raw",
      "col": "V(B)",
-     "value": 0.333333,
-     "rel": 1e-05
+     "value": 0.25,
+     "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): .model rc vres r=3000 reaches the module, V(B) = 0.25 (before 1.1.0 it was ignored: 0.3333)"
   },
   {
    "name": "plain_module_y_line_param_refused",

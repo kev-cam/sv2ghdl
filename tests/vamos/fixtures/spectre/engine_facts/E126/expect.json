@@ -3,9 +3,9 @@
  "experiment": "Xyce on constructs of the T2 decks (e2e 11 and 15, phase 2): a .STEP and a .DC of the .param that a linear E source's gain {g} reads, the list starting at the nominal (0.5), with the nominal at 0.3, and with a VALUE= E source; a single-terminal Verilog-A source, E66's nan.va (which reads $abstime) and a plain V(a) <+ 1.0; a diode line with a positional area and a parameter after it; a level-3 MOSFET card with WD",
  "result": "a .STEP or .DC of a .param that a linear E source's gain reads gives gain 0 at the point whose value equals the .param's nominal (.param g=0.5, .STEP g LIST 0.5 0.75 2: V(OUT) = 0 where -1 is right; -1.5 and -4 after it); a nominal of 0.3, or a VALUE= E source, are right; E66's nan.va leaves its node at 0 V under PyMS, rc 0 (its $abstime does not build, E125), while a single-terminal V(a) <+ 1.0 drives its node to 1.001 V into 1 kohm; a diode line with a positional area followed by any parameter is \"Unrecognized fields for device D1\", rc 1 (`D1 a 0 dm 4e-07` and `D1 a 0 dm area=4e-07 m=1` run); MOSFET3 has no WD (\"No model parameter WD found for model NM of type NMOS, parameter ignored.\", rc 0, which the parameter scan makes status 2)",
  "rules": [
-  "R-tests-1 / §4.5: on Xyce a swept .param must not reach a linear E (vcvs) gain directly (the VALUE= form is right); this row tells when the workaround can go",
-  "§4.5: xyce.render prints a diode's area by name (area=), never positionally before other parameters",
-  "§7.2 [E43]: xyce.output_problems makes \"No model parameter ... found\" status 2, naming the parameter"
+  "R-tests-1 / \u00a74.5: on Xyce a swept .param must not reach a linear E (vcvs) gain directly (the VALUE= form is right); this row tells when the workaround can go",
+  "\u00a74.5: xyce.render prints a diode's area by name (area=), never positionally before other parameters",
+  "\u00a77.2 [E43]: xyce.output_problems makes \"No model parameter ... found\" status 2, naming the parameter"
  ],
  "runs": [
   {
@@ -89,7 +89,7 @@
    ]
   },
   {
-   "name": "single_terminal_nan_va_leaves_its_node_at_0",
+   "name": "single_terminal_nan_va_drives_its_node",
    "tool": "xyce",
    "deck": "nan.cir",
    "gates": [
@@ -103,10 +103,11 @@
     {
      "raw": "nan.raw",
      "col": "V(A)",
-     "value": 0.0,
+     "value": 1.0,
      "abs": 1e-12
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): V(A) = 1.0, nan.va's value at t = 0 (PyMS 1.1.3 failed to build its $abstime and left the node at 0)"
   },
   {
    "name": "single_terminal_plain_source_drives_its_node",
@@ -123,11 +124,11 @@
     {
      "raw": "vone.raw",
      "col": "V(A)",
-     "value": 1.001001001002003,
-     "rel": 1e-06
+     "value": 1.0,
+     "rel": 1e-09
     }
    ],
-   "note": "measured 2026-10-17: the row's 0 V is nan.va's (its $abstime), not every single-terminal source's"
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): V(A) = 1.0 exactly (1.001001001 before 1.1.0, measured 2026-10-17)"
   },
   {
    "name": "diode_positional_area_then_a_parameter",

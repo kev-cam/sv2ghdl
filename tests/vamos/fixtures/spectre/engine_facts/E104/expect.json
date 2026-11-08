@@ -7,7 +7,7 @@
  ],
  "runs": [
   {
-   "name": "two_absolute_paths_lose_parameters",
+   "name": "two_absolute_paths_keep_parameters",
    "tool": "xyce",
    "deck": "abs2.cir",
    "subst": [
@@ -19,20 +19,37 @@
    "gates": [
     "needs_pyms"
    ],
-   "status": 1,
+   "status": 0,
    "output": {
     "contains": [
      "compiled and registered vares from",
-     "compiled and registered vres from",
-     "Unrecognized parameter R for device RX1",
-     "Unrecognized parameter A for device YVRES!X2"
+     "compiled and registered vres from"
+    ],
+    "absent": [
+     "Unrecognized parameter"
     ]
    },
-   "files": {
-    "absent": [
-     "abs2.raw"
-    ]
-   }
+   "checks": [
+    {
+     "raw": "abs2.raw",
+     "col": "V(B)",
+     "value": 0.25,
+     "rel": 1e-06
+    },
+    {
+     "raw": "abs2.raw",
+     "col": "V(C)",
+     "value": 0.333333333,
+     "rel": 1e-06
+    },
+    {
+     "raw": "abs2.raw",
+     "col": "V(D)",
+     "value": 0.25,
+     "rel": 1e-09
+    }
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): both modules keep their parameters (the row's loss was PyMS before 1.1.0); vamos still names the sources by base name (place_va)"
   },
   {
    "name": "one_absolute_path_works",

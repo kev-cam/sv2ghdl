@@ -20,21 +20,19 @@
     "PYMS_CACHE": "{tmp}/pyms_cache",
     "PYMS_VAE_CACHE": "{tmp}/vae"
    },
-   "status": 0,
+   "status": 1,
    "output": {
     "contains": [
-     "preprocess: warning: 'ires_defs.include' not found (skipped)"
+     "preprocess: warning: 'ires_defs.include' not found (skipped)",
+     "`RDEF is not defined"
     ]
    },
-   "checks": [
-    {
-     "raw": "noinc.raw",
-     "col": "I(V1)",
-     "value": -1e-12,
-     "rel": 1e-06
-    }
-   ],
-   "note": "its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run"
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): the module uses a macro its missing header defines, which PyMS 1.1.7 refuses (an undefined macro is its error); before 1.1.0 it ran as a dead device, I(V1) = -1e-12. its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run",
+   "files": {
+    "absent": [
+     "noinc.raw"
+    ]
+   }
   },
   {
    "name": "symbolic_link_carries_no_include",
@@ -50,21 +48,19 @@
     "PYMS_CACHE": "{tmp}/pyms_cache",
     "PYMS_VAE_CACHE": "{tmp}/vae"
    },
-   "status": 0,
+   "status": 1,
    "output": {
     "contains": [
-     "preprocess: warning: 'ires_defs.include' not found (skipped)"
+     "preprocess: warning: 'ires_defs.include' not found (skipped)",
+     "`RDEF is not defined"
     ]
    },
-   "checks": [
-    {
-     "raw": "symlink.raw",
-     "col": "I(V1)",
-     "value": -1e-12,
-     "rel": 1e-06
-    }
-   ],
-   "note": "its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run"
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): the module uses a macro its missing header defines, which PyMS 1.1.7 refuses (an undefined macro is its error); before 1.1.0 it ran as a dead device, I(V1) = -1e-12. its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run",
+   "files": {
+    "absent": [
+     "symlink.raw"
+    ]
+   }
   },
   {
    "name": "va_with_its_include",
@@ -129,7 +125,7 @@
    ]
   },
   {
-   "name": "two_modules_in_one_directory_lose_parameters",
+   "name": "two_modules_in_one_directory_keep_parameters",
    "tool": "xyce",
    "deck": "reldirs.cir",
    "gates": [
@@ -138,24 +134,34 @@
    "env": {
     "PYMS_CACHE": "{tmp}/pyms_cache"
    },
-   "status": 1,
+   "status": 0,
    "output": {
     "contains": [
      "compiled and registered vares from mods/vares.va",
-     "compiled and registered vres from mods/vres.va",
-     "Unrecognized parameter R for device RX1",
-     "Unrecognized parameter A for device YVRES!X2"
-    ]
-   },
-   "files": {
+     "compiled and registered vres from mods/vres.va"
+    ],
     "absent": [
-     "reldirs.raw"
+     "Unrecognized parameter"
     ]
    },
-   "note": "measured 2026-10-17 with a fresh PYMS_CACHE: the row's \"relative .hdl paths that hold a directory keep their parameters\" holds for one directory per module only"
+   "checks": [
+    {
+     "raw": "reldirs.raw",
+     "col": "V(B)",
+     "value": 0.25,
+     "rel": 1e-06
+    },
+    {
+     "raw": "reldirs.raw",
+     "col": "V(C)",
+     "value": 0.333333333,
+     "rel": 1e-06
+    }
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): two modules of one directory keep their parameters (the sibling-attribute fallback that lost them, measured 2026-10-17, was fixed in PyMS 1.1.1); vamos still gives each module a directory of its own (place_va)"
   },
   {
-   "name": "no_abstime",
+   "name": "abstime_builds",
    "tool": "xyce",
    "deck": "abstime.cir",
    "gates": [
@@ -168,19 +174,21 @@
    "status": 0,
    "output": {
     "contains": [
-     "BuildError:",
-     "was not declared in this scope"
+     "compiled and registered nanv from nan.va"
     ],
-    "regex": [
-     "\\$abstime\\W{0,3} was not declared in this scope"
+    "absent": [
+     "BuildError:"
     ]
    },
-   "files": {
-    "present": [
-     "abstime.raw"
-    ]
-   },
-   "note": "its own PYMS_VAE_CACHE: PyMS prints the preprocessor's and the build's messages only when it builds the evaluator library, which the shared /tmp/pyms_vae_cache holds after a first run"
+   "checks": [
+    {
+     "raw": "abstime.raw",
+     "col": "V(A)",
+     "value": 1.0,
+     "abs": 1e-12
+    }
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): $abstime builds since PyMS 1.1.4 (before: BuildError, `$abstime' was not declared in this scope); at the operating point t = 0, so nan.va gives its 1.0"
   },
   {
    "name": "evaluator_library_in_pyms_vae_cache",

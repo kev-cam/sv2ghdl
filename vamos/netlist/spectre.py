@@ -1599,7 +1599,11 @@ class _Parser:
             break
         return "spice"
 
-    def read_text(self, path: str, origin: str) -> Optional[str]:
+    def read_text(self, path: str, origin: str, file_origin: Optional[str] = None) -> Optional[str]:
+        """The file's text, read as UTF-8.  origin: where a failure to read the file is reported (an include statement's
+        position); file_origin: the file's own origin, as the parser's other messages about its lines give it (FIX2E7,
+        S-2E6: the non-UTF-8 warning for a byte of an included file stood at the include statement's position plus the
+        included file's line, `l.scs:5:3', where the file's other messages say `sub.scs:3'); the origin when None."""
         try:
             with open(path, "rb") as fh:
                 data = fh.read()
@@ -1613,7 +1617,7 @@ class _Parser:
             # replacement character, which a title or a name that holds it carries into the results files (round 4 wrote
             # `?' there with a warning, round 5 U+FFFD with none): one warning per file, at the first such byte
             lineno = data.count(b"\n", 0, exc.start) + 1
-            self.warn("%s:%d" % (origin, lineno), "the byte 0x%02x is not UTF-8: the file is read as UTF-8, so the byte "
+            self.warn("%s:%d" % (file_origin or origin, lineno), "the byte 0x%02x is not UTF-8: the file is read as UTF-8, so the byte "
                       "is read as U+FFFD (the replacement character), which a title or a name that holds it carries into "
                       "the results files (§14 q.62); write the file in UTF-8" % data[exc.start])
             text = data.decode("utf-8", errors="replace")
@@ -1867,7 +1871,7 @@ class _Parser:
                       % (path, " section %s" % section if section else "", self.expanded[key]))
             return []
         self.expanded[key] = st.origin
-        text = self.read_text(path, st.origin)
+        text = self.read_text(path, st.origin, path)       # FIX2E7: the file's own origin for its bytes (read_units')
         if text is None:
             return []
         lang = self.language_of(path, text, False)
@@ -1982,7 +1986,7 @@ class _Parser:
                       % (path, " section %s" % ref.section if ref.section else "", self.expanded[key]))
             return self.splice(before + after, base, depth + 1)
         self.expanded[key] = ref.origin
-        text = self.read_text(path, ref.origin)
+        text = self.read_text(path, ref.origin, path)      # FIX2E7: the file's own origin for its bytes
         if text is None:
             return self.splice(before + after, base, depth + 1)
         if self.language_of(path, text, False) == "spectre":

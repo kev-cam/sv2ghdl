@@ -1,21 +1,17 @@
 """The fixes of phase 2e's sixth round (FIX2E6: the round-5 skeptic S-2E5's regression, silent values and loud failure,
 and the guide trial TRIAL2EI's findings).  Standard library only, Python 3.9; the engine runs on WSL.
 
-TestAnnotationPositions   on Xyce an undefined `name(...), PyMS's annotation form (BSIM-CMG's `attr), is accepted where
-                          PyMS's parser drops it (the end of a module header or of a parameter statement, a statement of
-                          its own, a port direction or variable declaration) and refused with what PyMS does elsewhere
-                          (S-2E5's regression: round 4's undefined-macro rule refused `parameter real r = 1k
-                          `attr(info="resistance")', which 5d2291f ran right; inside an analog block before a statement
-                          PyMS swallows the statement: out = 0 with exit 0, measured)
-TestPymsDefaultForms      on Xyce every parameter default PyMS's evaluation cannot read is refused: a function call, the
-                          ternary, a digit separator, the power operator, !, &&, a two-character comparison, a based
-                          literal, a system function, a name that is not a parameter (S-2E5's three silent values:
-                          pow(10, 3), (1 > 0) ? 1000.0 : 2000.0 and 1_000 gave out = 0 with exit 0); what PyMS reads
-                          right keeps running (2 * rr, 1000 * 1, `M_PI * 1000.0 / `M_PI, (1000.0), - 1000.0, ...)
+TestAnnotationPositions   an undefined `name(...), PyMS's annotation form (BSIM-CMG's `attr), was accepted on Xyce
+                          where an older PyMS dropped it and refused elsewhere (round 6); PyMS 1.1.7 refuses it in
+                          every position with its own file:line error, as VACASK does, and the CMC trees' `define
+                          runs (FIX2E7P)
+TestPymsDefaultForms      the parameter defaults an older PyMS evaluated as 0 or as Python does (S-2E5's silent
+                          values: pow(10, 3), (1 > 0) ? 1000.0 : 2000.0 and 1_000 gave out = 0 with exit 0; refused
+                          by round 6) give VACASK's value on PyMS 1.1.7, or the refusal both engines make (FIX2E7P)
 TestCurrentReadInAnExpression
-                          on Xyce a module that reads a current I(...) in an expression is refused before PyMS's compile:
-                          PyMS assigns currents from voltages only (TRIAL2EI-1: `V(p, n) <+ r * I(p, n)' failed its C++
-                          compile; a named branch's `V(br) <+ r * I(br)' gave out = 1 where VACASK gives 0.5, exit 0)
+                          a module that reads a current I(...) in an expression (TRIAL2EI-1: `V(br) <+ r * I(br)'
+                          gave out = 1 on an older PyMS where VACASK gives 0.5; refused by round 6) gives VACASK's
+                          value on PyMS 1.1.7 (FIX2E7P)
 TestIcOnAnAllProbedNode   on Xyce the probe of a two-terminal element on an ic or nodeset node sits in series with the
                           element's other terminal, reversed, so the node keeps the element and the .IC applies
                           (S-2E5 3a: two zero-gain vcvs probes on the ic node made Xyce's matrix singular, exit 1); an
@@ -63,80 +59,51 @@ DROPPED = {
                        body='analog begin\n    v = V(p, n);\n    I(p, n) <+ v / r;\n  end'),
 }
 REFUSED = {
-    "analog_block_before_a_statement": (module(body='analog begin\n    `attr(info="x")\n    I(p, n) <+ V(p, n) / r;\n  end'),
-                                        "reads it and the statement after it (I ( p , n ) ...) as one statement and drops both"),
-    "in_a_contribution": (module(body='analog I(p, n) <+ V(p, n) / r `attr(info="x");'),
-                          "leaves it in the statement as an operand, and the C++ compile of the module's evaluator fails"),
-    "before_the_name": (module('parameter real `attr(info="x") r = 1k;'), "reads it where it expects the parameter's name"),
-    "before_the_range": (module('parameter real r = 1k `attr(info="x") from (0:inf);'),
-                         "after the annotation it expects the ';' and finds `from'"),
-    "electrical": (module(ports='  inout p, n;\n  electrical p, n `attr(info="x");\n'),
-                   "reads `attr as an internal node of the module"),
+    "analog_block_before_a_statement": module(body='analog begin\n    `attr(info="x")\n    I(p, n) <+ V(p, n) / r;\n  end'),
+    "in_a_contribution": module(body='analog I(p, n) <+ V(p, n) / r `attr(info="x");'),
+    "before_the_name": module('parameter real `attr(info="x") r = 1k;'),
+    "before_the_range": module('parameter real r = 1k `attr(info="x") from (0:inf);'),
+    "electrical": module(ports='  inout p, n;\n  electrical p, n `attr(info="x");\n'),
+    "plain": module("parameter real r = 1k `attr;"),
 }
 
 
-def scan(test, name, va):
-    from vamos.spectre import run_xyce as RX
-    src = test.write("%s/a1.va" % name, va)
-    return RX.pyms_scans([src])
-
-
 class TestAnnotationPositions(TempDir):
+    """FIX2E7P: PyMS 1.1.7 refuses an undefined `attr(...) in every position with its own file:line error, as VACASK's
+    openvaf-r refuses every undefined macro, so round 6's scan of the positions where an older PyMS dropped it (and
+    swallowed the statement after it) is gone; the CMC trees' `define attr(txt) (*txt*) runs (measured)."""
 
-    def test_the_scan_accepts_what_pyms_drops(self):
-        from vamos.spectre import run_xyce as RX
-        for k, va in DROPPED.items():
+    def run_all(self, engine):
+        for k, va in list(DROPPED.items()) + list(REFUSED.items()):
             with self.subTest(case=k):
-                scans = scan(self, k, va)
-                self.assertEqual(RX.macro_problems([scans[0].src], scans=scans), [])
-                self.assertEqual(RX.pyms_default_problems([scans[0].src], scans=scans), [])
-
-    def test_the_scan_refuses_the_other_positions_with_what_pyms_does(self):
-        from vamos.spectre import run_xyce as RX
-        for k, (va, what) in REFUSED.items():
-            with self.subTest(case=k):
-                scans = scan(self, k, va)
-                got = RX.macro_problems([scans[0].src], scans=scans)
-                self.assertEqual([(m, len(got)) for _s, _f, _l, m, _w in got][:1], [("attr", 1)], got)
-                why = got[0][4]
-                self.assertIn("is not defined, and Xyce's PyMS leaves an undefined macro as it stands: it drops `attr(...) as "
-                              "an annotation at the end of a module header or of a parameter statement (BSIM-CMG's `attr) "
-                              "and as a statement of its own, but here it ", why)
-                self.assertIn(what, why)
-                self.assertIn("not supported on Xyce in v1: `define attr, or move or drop the annotation (VACASK's "
-                              "openvaf-r refuses an undefined macro: macro '`attr' has not been declared)", why)
-        # a plain undefined macro, no '(' after it: round 4's message (PyMS leaves it in the default, which it reads as 0)
-        scans = scan(self, "plain", module("parameter real r = 1k `attr;"))
-        got = RX.macro_problems([scans[0].src], scans=scans)
-        self.assertEqual(len(got), 1)
-        self.assertIn("is not defined: no `define attr in the Verilog-A source", got[0][4])
-
-    def test_the_defined_macro_is_as_before(self):
-        from vamos.spectre import run_xyce as RX
-        scans = scan(self, "defined", module('parameter real r = 1k `attr(info="x");', pre="`define attr(txt) (*txt*)\n"))
-        self.assertEqual(RX.macro_problems([scans[0].src], scans=scans), [])
+                d, r = eh.spectre(self, k, A1_DECK, engine, files={"a1.va": va},
+                                  env={"PYMS_CACHE": os.path.join(self.tmp, k, "hdl"),
+                                       "PYMS_VAE_CACHE": os.path.join(self.tmp, k, "vae")})
+                self.assertEqual(r.returncode, 2, r.stdout[-3000:])
+                self.assertNotIn("not supported on Xyce", r.stdout)
+                name = "info" if k == "another_name" else "attr"
+                if engine == "xyce":
+                    self.assertIn("`%s is not defined: no `define %s precedes this use in the file or the files it "
+                                  "includes (an undefined macro is an error in Verilog-A)" % (name, name), r.stdout)
+                else:
+                    self.assertIn("macro '`%s' has not been declared" % name, r.stdout)
+                self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
 
     @needs_xyce
-    def test_xyce_runs_the_annotated_module_and_refuses_the_swallowing_position(self):
-        for k in ("parameter_end", "module_header"):
-            with self.subTest(case=k):
-                d, r = eh.spectre(self, k, A1_DECK, "xyce", files={"a1.va": DROPPED[k]})
-                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-                self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 6)
-        d, r = eh.spectre(self, "swallow", A1_DECK, "xyce", files={"a1.va": REFUSED["analog_block_before_a_statement"][0]})
-        self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-        self.assertIn("Error from spectre during AHDL read-in.", r.stdout)
-        self.assertIn("a1.va:8: `attr is not defined, and Xyce's PyMS leaves an undefined macro as it stands", r.stdout)
-        self.assertIn("reads it and the statement after it (I ( p , n ) ...) as one statement and drops both (measured: a "
-                      "contribution after `attr(...) in an analog block gave a device that conducted nothing, with exit "
-                      "status 0)", r.stdout)
-        self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
+    def test_xyce_refuses_every_position(self):
+        self.run_all("xyce")
 
     @needs_vacask
-    def test_vacask_refuses_the_undefined_macro_as_before(self):
-        d, r = eh.spectre(self, "va", A1_DECK, "vacask", files={"a1.va": DROPPED["parameter_end"]})
-        self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-        self.assertIn("openvaf-r failed", r.stdout)
+    def test_vacask_refuses_every_position(self):
+        self.run_all("vacask")
+
+    @needs_xyce
+    def test_xyce_runs_the_defined_macro(self):
+        for k in ("parameter_end", "module_header"):
+            with self.subTest(case=k):
+                d, r = eh.spectre(self, k, A1_DECK, "xyce", files={"a1.va": "`define attr(txt) (*txt*)\n" + DROPPED[k]})
+                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
+                self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 6)
 
 
 # -- 2: the parameter defaults PyMS's evaluation cannot read ----------------------------------------------------------------
@@ -193,124 +160,69 @@ RIGHT_DEFAULTS = ["parameter real r = 1e3;", "parameter real rr = 500.0;\n  para
 
 
 class TestPymsDefaultForms(TempDir):
+    """FIX2E7P: PyMS 1.1.7 evaluates a parameter default as Verilog-A does (vae/va_const.py), so round 6's refusal of the
+    forms an older PyMS evaluated as 0 or as Python does is gone.  Each form below, measured with the scan off on both
+    engines (out = 1000 / (r + 1000), or V(p, n) * g for g): the value both engines give, or what each refuses."""
 
-    def test_the_scan(self):
-        from vamos.spectre import run_xyce as RX
-        for k, (decl, form) in WRONG_DEFAULTS.items():
-            with self.subTest(case=k):
-                pre = "`define RV pow(10, 3)\n" if k == "macro_of_a_function_call" else ""
-                va = module(decl, pre=pre)
-                scans = scan(self, k, va)
-                got = RX.pyms_default_problems([scans[0].src], scans=scans)
-                line = next(i for i, ln in enumerate(va.split("\n"), 1) if "parameter real r " in ln)
-                self.assertEqual([(ln, name) for _s, _f, ln, name, _w in got], [(line, "r")], got)
-                why = got[0][4]
-                self.assertIn("parameter r of module a1: its default ", why)
-                self.assertIn(" holds %s, which Xyce's PyMS evaluates as 0 (it reads a default as a number, as the name of "
-                              "another parameter, or as arithmetic of numbers and parameter names (+, -, *, /, %%, parentheses "
-                              "and a comparison, read as Python reads them)), so the module would run wrong (measured: a "
-                              "default pow(10, 3) gave a device that conducted nothing, with exit status 0); not supported on "
-                              "Xyce in v1: write the default as a number, or as such arithmetic, or run it on VACASK" % form,
-                              why)
-        for k, decl in enumerate(RIGHT_DEFAULTS):
-            with self.subTest(case=decl):
-                scans = scan(self, "right%d" % k, module(decl))
-                self.assertEqual(RX.pyms_default_problems([scans[0].src], scans=scans), [])
+    # name -> (the declaration, the body (None: the resistor), Xyce's out or ERROR, VACASK's out or ERROR)
+    ERROR = "error"
+    CASES = {
+        "function_call": (WRONG_DEFAULTS["function_call"][0], None, 0.5, 0.5),
+        "ternary": (WRONG_DEFAULTS["ternary"][0], None, 0.5, 0.5),
+        "ternary_of_a_parameter": (WRONG_DEFAULTS["ternary_of_a_parameter"][0], None, 0.5, 0.5),
+        "digit_separator": (WRONG_DEFAULTS["digit_separator"][0], None, 0.5, ERROR),         # openvaf-r: not Verilog-A
+        "sqrt": (WRONG_DEFAULTS["sqrt"][0], None, 0.5, 0.5),
+        "function_in_a_sum": (WRONG_DEFAULTS["function_in_a_sum"][0], None, 0.5, 0.5),
+        "power_operator": (WRONG_DEFAULTS["power_operator"][0], None, 1000.0 / 2024.0, 1000.0 / 2024.0),
+        "not": (WRONG_DEFAULTS["not"][0], None, 0.5, 0.5),
+        "two_character_comparison": (WRONG_DEFAULTS["two_character_comparison"][0], None, 0.5, 0.5),
+        "logical_and": (WRONG_DEFAULTS["logical_and"][0], None, 0.5, 0.5),
+        "based_literal": (WRONG_DEFAULTS["based_literal"][0], None, 0.5, ERROR),
+        "unknown_name": (WRONG_DEFAULTS["unknown_name"][0], None, ERROR, ERROR),
+        "bitwise_or_of_a_real": (WRONG_DEFAULTS["bitwise_or_of_a_parameter"][0], None, ERROR, ERROR),
+        "capitals_arithmetic": (CAPITALS["arithmetic"], "analog I(p, n) <+ V(p, n) / R;", 0.5, 0.5),
+        "capitals_parentheses": (CAPITALS["parentheses"], "analog I(p, n) <+ V(p, n) / R;", 0.5, 0.5),
+        "capitals_name_of_a_name": (CAPITALS["name_of_a_name"], "analog I(p, n) <+ V(p, n) / R;", 0.5, 0.5),
+        "integer_division": (VERILOG["integer_division"][0], "analog I(p, n) <+ V(p, n) * g;", 0.0, 0.0),
+        "negative_modulus": (VERILOG["negative_modulus"][0], None, 1000.0 / 999.0, 1000.0 / 999.0),
+        "modulus_of_a_parameter": (VERILOG["modulus_of_a_parameter"][0], None, 1000.0 / 1001.0, 1000.0 / 1001.0),
+        "real_division": (VERILOG_RIGHT[2], None, 1000.0 / 1000.001, 1000.0 / 1000.001),
+        "scaled_fraction": ("parameter real r = .5k;", None, 1000.0 / 1500.0, ERROR),
+    }
 
-    def test_a_name_in_capitals(self):
-        from vamos.spectre import run_xyce as RX
-        for k, decl in CAPITALS.items():
+    def runs(self, engine):
+        for k, (decl, body, xv, vv) in self.CASES.items():
+            want = xv if engine == "xyce" else vv
             with self.subTest(case=k):
-                scans = scan(self, k, module(decl, body="analog I(p, n) <+ V(p, n) / R;"))
-                got = RX.pyms_default_problems([scans[0].src], scans=scans)
-                self.assertEqual([name for _s, _f, _l, name, _w in got], ["R"] if k != "name_of_an_arithmetic_default" else ["RR", "R"], got)
-                why = got[-1][4]
-                self.assertIn("parameter R of module a1: its default %s is not a number, and the parameter's name R is written "
-                              "in capitals: Xyce's PyMS registers such a default as 0 on Xyce's side (it reads a default there "
-                              "as a number, or as the name of a parameter whose default is a number), and its evaluator takes "
-                              "the device's value, that 0, for a parameter named in capitals (measured: `parameter real R = 2 * "
-                              "RR' and `R = (1000.0)' gave a device that conducted nothing, with exit status 0, where `r = 2 * "
-                              "rr' runs right); not supported on Xyce in v1: write the default as a number, or name the "
-                              "parameter with a lower-case letter, or run it on VACASK" % decl.split(" = ")[-1].rstrip(";"), why)
-        for k, decl in enumerate(CAPITALS_RIGHT):
-            with self.subTest(case=decl):
-                name = decl.split("\n")[-1].split()[2]
-                scans = scan(self, "capright%d" % k, module(decl, body="analog I(p, n) <+ V(p, n) / %s;" % name))
-                self.assertEqual(RX.pyms_default_problems([scans[0].src], scans=scans), [])
-
-    def test_python_s_arithmetic_against_verilog_a_s(self):
-        from vamos.spectre import run_xyce as RX
-        for k, (decl, form) in VERILOG.items():
-            with self.subTest(case=k):
-                scans = scan(self, k, module(decl))
-                got = RX.pyms_default_problems([scans[0].src], scans=scans)
-                self.assertEqual(len(got), 1, got)
-                self.assertIn(" holds " + form, got[0][4])
-                if "division" in k:
-                    self.assertIn("which Verilog-A truncates to an integer and Xyce's PyMS evaluates as Python does, to a real "
-                                  "(measured: `parameter real g = 1 / 1000' gave out = 0.5 on Xyce where VACASK gives 0, with "
-                                  "exit status 0); not supported on Xyce in v1: divide reals (1.0 / 1000), or write the value as "
-                                  "a number, or run it on VACASK", got[0][4])
-        for k, decl in enumerate(VERILOG_RIGHT):
-            with self.subTest(case=decl):
-                scans = scan(self, "vright%d" % k, module(decl))
-                self.assertEqual(RX.pyms_default_problems([scans[0].src], scans=scans), [])
+                d, r = eh.spectre(self, k, A1_DECK, engine, files={"a1.va": module(decl, body=body)},
+                                  env={"PYMS_CACHE": os.path.join(self.tmp, k, "hdl"),
+                                       "PYMS_VAE_CACHE": os.path.join(self.tmp, k, "vae")})
+                self.assertNotIn("not supported on Xyce", r.stdout)
+                if want == self.ERROR:
+                    self.assertEqual(r.returncode, 2, r.stdout[-3000:])
+                    self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
+                    continue
+                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
+                self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), want, delta=1e-8)
 
     @needs_xyce
-    def test_xyce_refuses_a_name_in_capitals_and_an_integer_division(self):
-        d, r = eh.spectre(self, "caps", A1_DECK, "xyce",
-                          files={"a1.va": module(CAPITALS["arithmetic"], body="analog I(p, n) <+ V(p, n) / R;")})
-        self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-        self.assertIn("a1.va:7: parameter R of module a1: its default 2 * RR is not a number, and the parameter's name R is "
-                      "written in capitals", r.stdout)
-        d, r = eh.spectre(self, "intdiv", A1_DECK, "xyce",
-                          files={"a1.va": module("parameter real g = 1 / 1000;", body="analog I(p, n) <+ V(p, n) * g;")})
-        self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-        self.assertIn("a1.va:6: parameter g of module a1: its default 1 / 1000 holds the integer division 1 / 1000", r.stdout)
-        d, r = eh.spectre(self, "capsright", A1_DECK, "xyce",
-                          files={"a1.va": module(CAPITALS_RIGHT[1], body="analog I(p, n) <+ V(p, n) / R;")})
-        self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-        self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 6)
+    def test_xyce(self):
+        self.runs("xyce")
 
     @needs_vacask
-    def test_vacask_runs_a_name_in_capitals_and_truncates_the_integer_division(self):
-        d, r = eh.spectre(self, "caps", A1_DECK, "vacask",
-                          files={"a1.va": module(CAPITALS["arithmetic"], body="analog I(p, n) <+ V(p, n) / R;")})
-        self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-        self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 9)
-        d, r = eh.spectre(self, "intdiv", A1_DECK, "vacask",
-                          files={"a1.va": module("parameter real g = 1 / 1000;", body="analog I(p, n) <+ V(p, n) * g;")})
-        self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-        self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.0, 9)     # 1 / 1000 is 0: g = 0
+    def test_vacask(self):
+        self.runs("vacask")
 
     @needs_xyce
-    def test_xyce_refuses_them_and_runs_the_right_forms(self):
-        for k in ("function_call", "ternary", "digit_separator"):
+    def test_pyms_names_what_it_refuses(self):
+        for k, text in (("unknown_name", "a1.va:6: parameter r of module a1: its default rx * 1000.0: the name rx is not "
+                                         "a parameter"),
+                        ("bitwise_or_of_a_real", "a1.va:7: parameter r of module a1: its default rr | 0: the operator | "
+                                                 "needs integer operands, not the real 1000.0")):
             with self.subTest(case=k):
-                d, r = eh.spectre(self, k, A1_DECK, "xyce", files={"a1.va": module(WRONG_DEFAULTS[k][0])})
+                d, r = eh.spectre(self, k, A1_DECK, "xyce", files={"a1.va": module(self.CASES[k][0])})
                 self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-                self.assertIn("Error from spectre during AHDL read-in.", r.stdout)
-                self.assertIn("a1.va:6: parameter r of module a1: its default %s holds %s, which Xyce's PyMS evaluates as 0"
-                              % (WRONG_DEFAULTS[k][0][len("parameter real r = "):-1], WRONG_DEFAULTS[k][1]), r.stdout)
-                self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
-        for k, decl in enumerate(["parameter real rr = 500.0;\n  parameter real r = 2 * rr;", "parameter real r = (1000.0);",
-                                  "parameter real r = - 1000.0;", "parameter real r = 1000 % 1001;"]):
-            with self.subTest(case=decl):
-                d, r = eh.spectre(self, "right%d" % k, A1_DECK, "xyce", files={"a1.va": module(decl)})
-                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-                out = eh.value(os.path.join(d, "n.raw", "op1.dc"), "out")
-                if "- 1000.0" in decl:
-                    self.assertAlmostEqual(out / -1e9, 1.0, 3)   # r = -1k against R2 = 1k: Xyce's gmin bounds the divider
-                else:
-                    self.assertAlmostEqual(out, 0.5, 6)
-
-    @needs_vacask
-    def test_vacask_runs_them(self):
-        for k in ("function_call", "ternary"):
-            with self.subTest(case=k):
-                d, r = eh.spectre(self, k, A1_DECK, "vacask", files={"a1.va": module(WRONG_DEFAULTS[k][0])})
-                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-                self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 9)
+                self.assertIn(text, r.stdout)
 
 
 # -- TRIAL2EI-1: a current read in an expression ---------------------------------------------------------------------------
@@ -332,47 +244,26 @@ BUILDS = [module(), module(extra="  branch (p, n) br;\n", body="analog I(br) <+ 
 
 
 class TestCurrentReadInAnExpression(TempDir):
+    """FIX2E7P: PyMS 1.1.7 reads a branch current as an unknown of its own (`I(br)', `I(p, n)'), so round 6's refusal
+    of a module that reads a current in an expression is gone: each module below gives VACASK's value on Xyce
+    (measured with the scan off; TRIAL2EI-1: `V(br) <+ r * I(br)' gave out = 1 on an older PyMS, VACASK 0.5)."""
 
-    def test_the_scan(self):
-        from vamos.spectre import run_xyce as RX
-        for k, (va, probe, what) in READS.items():
+    def runs(self, engine):
+        for k, va in list((k, v[0]) for k, v in READS.items()) + [("builds%d" % i, va) for i, va in enumerate(BUILDS)]:
             with self.subTest(case=k):
-                scans = scan(self, k, va)
-                got = RX.pyms_probe_problems([scans[0].src], scans=scans)
-                self.assertEqual([p for _s, _f, _l, p, _w in got], [probe], got)
-                self.assertIn("module a1 reads the current %s in an expression: Xyce's PyMS builds a contribution that "
-                              "assigns a current from voltages (I(a, b) <+ f(V(...))) and reads no current: " % probe, got[0][4])
-                self.assertIn(what, got[0][4])
-                self.assertIn("not supported on Xyce in v1: write the contribution the other way round (I(p, n) <+ V(p, n) / "
-                              "r), or run it on VACASK", got[0][4])
-        for k, va in enumerate(BUILDS):
-            with self.subTest(case=k):
-                scans = scan(self, "builds%d" % k, va)
-                self.assertEqual(RX.pyms_probe_problems([scans[0].src], scans=scans), [])
+                d, r = eh.spectre(self, k, A1_DECK, engine, files={"a1.va": va},
+                                  env={"PYMS_CACHE": os.path.join(self.tmp, k, "hdl"),
+                                       "PYMS_VAE_CACHE": os.path.join(self.tmp, k, "vae")})
+                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
+                self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, delta=1e-8)
 
     @needs_xyce
-    def test_xyce_refuses_it_before_pyms(self):
-        for k in ("node_pair", "named_branch"):
-            with self.subTest(case=k):
-                d, r = eh.spectre(self, k, A1_DECK, "xyce", files={"a1.va": READS[k][0]})
-                self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-                self.assertIn("Error from spectre during AHDL read-in.", r.stdout)
-                self.assertIn("module a1 reads the current %s in an expression" % READS[k][1], r.stdout)
-                # the runner's own report of a PyMS build that failed (after the compile) is not reached
-                self.assertNotIn("which Xyce would run as a device that contributes nothing", r.stdout)
-                self.assertNotIn("Xyce, the deck of analysis", r.stdout)
-                self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
-        d, r = eh.spectre(self, "builds", A1_DECK, "xyce", files={"a1.va": BUILDS[1]})
-        self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-        self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 6)
+    def test_xyce(self):
+        self.runs("xyce")
 
     @needs_vacask
-    def test_vacask_runs_it(self):
-        for k in ("node_pair", "named_branch"):
-            with self.subTest(case=k):
-                d, r = eh.spectre(self, k, A1_DECK, "vacask", files={"a1.va": READS[k][0]})
-                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-                self.assertAlmostEqual(eh.value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 9)
+    def test_vacask(self):
+        self.runs("vacask")
 
 
 # -- 3: an ic on a node whose every element is probed --------------------------------------------------------------------

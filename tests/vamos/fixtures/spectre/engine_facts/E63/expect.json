@@ -9,7 +9,7 @@
  ],
  "runs": [
   {
-   "name": "card_param_ignored_on_y",
+   "name": "card_param_applied_on_y",
    "tool": "xyce",
    "deck": "a.cir",
    "gates": [
@@ -31,10 +31,11 @@
      "prn": "a.cir.prn",
      "col": "I(V1)",
      "row": 0,
-     "value": -0.001,
+     "value": -0.0005,
      "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): the card's R=2k reaches the module, I(V1) = -0.5 mA (before 1.1.0 PyMS ignored a card parameter, -1 mA, the module default); vamos still refuses Verilog-A card parameters on Xyce (\u00a70)"
   },
   {
    "name": "module_in_included_file",
@@ -60,10 +61,11 @@
      "prn": "b.cir.prn",
      "col": "I(V1)",
      "row": 0,
-     "value": -0.001,
+     "value": -0.0005,
      "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): the card's R=2k reaches the module, I(V1) = -0.5 mA (before 1.1.0 PyMS ignored a card parameter, -1 mA, the module default); vamos still refuses Verilog-A card parameters on Xyce (\u00a70)"
   },
   {
    "name": "level_card_binds_module",
@@ -90,10 +92,11 @@
      "prn": "c.cir.prn",
      "col": "I(V1)",
      "row": 0,
-     "value": -0.001,
+     "value": -0.0005,
      "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): the card's R=2k reaches the module, I(V1) = -0.5 mA (before 1.1.0 PyMS ignored a card parameter, -1 mA, the module default); vamos still refuses Verilog-A card parameters on Xyce (\u00a70)"
   },
   {
    "name": "level_card_norun_summary",

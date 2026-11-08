@@ -15,10 +15,14 @@
    "plain_env": true,
    "status": 0,
    "output": {
+    "absent": [
+     "No model parameter BADMOS3"
+    ],
     "contains": [
-     "No model parameter BADMOS3 found for model NCH of type NMOS"
+     "BADMOS3"
     ]
-   }
+   },
+   "note": "FIX2E7P, measured 2026-11-07: /usr/local/bin/Xyce was reinstalled with the current library, so without env_for it knows BADMOS3 too (before: \"No model parameter BADMOS3 found for model NCH of type NMOS\"); vamos still runs every engine through env_for"
   },
   {
    "name": "badmos3_second_launcher_env_for",

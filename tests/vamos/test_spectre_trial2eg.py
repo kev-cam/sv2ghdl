@@ -11,7 +11,8 @@ TestWrittenNames     two names the results files could not hold (S-2E D4, TRIAL2
                      (round 4: `?', with a warning)
 TestPathSplits       a path is split by the netlist, backtracking over the instance names it can hold (S-2E K1-K6:
                      instances X and X\\.1, and one named ..k)
-TestUndefinedMacro   a Verilog-A macro nothing defines is refused on Xyce, whose PyMS compiles it silently (S-2E H5)
+TestUndefinedMacro   a Verilog-A macro nothing defines is refused on Xyce: by PyMS 1.1.7 itself, with a file:line
+                     error (S-2E H5: an older PyMS compiled it silently; FIX2E7P)
 TestAnalysisNames    an analysis's and a sweep's name is the name its escapes spell (TRIAL2EG-F05); a / in one is
                      escaped in its file's name
 TestBannerErrors     a bad VAMOS_BANNER is the error a bad --vamos-banner is (TRIAL2EG-F03), and a profile that is not
@@ -472,22 +473,6 @@ module vres3(p, n);
   analog I(p, n) <+ V(p, n) / r;
 endmodule
 """
-VRES4 = """`include "disciplines.vams"
-`include "rdefs.vams"
-// a comment that names `NOSUCH
-module vres4(p, n);
-  inout p, n;
-  electrical p, n;
-  parameter real r = `RV;
-  analog begin
-`ifdef FAST
-    I(p, n) <+ V(p, n) / (r * `NOTDEF);
-`endif
-    I(p, n) <+ V(p, n) / r;
-    $strobe("`NOTAMACRO");
-  end
-endmodule
-"""
 VA_DECK = """// a Verilog-A resistor
 simulator lang=spectre
 ahdl_include "%s"
@@ -498,25 +483,15 @@ op1 dc
 
 
 class TestUndefinedMacro(TempDir):
-
-    def test_the_scan(self):
-        from vamos.spectre import run_xyce as RX
-        v3 = self.write("v3/vres3.va", VRES3)
-        self.assertEqual(RX.undefined_macros([v3]), [(v3, v3, 5, "RV")])
-        v4 = self.write("v4/vres4.va", VRES4)
-        self.write("v4/rdefs.vams", "`define RV 2000.0\n")
-        self.assertEqual(RX.undefined_macros([v4]), [])          # comments, strings and `ifdef branches aside
-        os.remove(os.path.join(self.tmp, "v4", "rdefs.vams"))
-        self.assertEqual(RX.undefined_macros([v4]), [])          # a missing include: the include checks judge it
-        v5 = self.write("v5/vres5.va", VRES3.replace("`RV", "1k * `M_PI / `M_PI * (1 + 0 * `P_K)").replace(
-            '`include "disciplines.vams"', '`include "discipline.h"\n`include "constants.h"'))
-        self.assertEqual(RX.undefined_macros([v5]), [])          # the standard headers' macros, which PyMS knows
+    """FIX2E7P: PyMS 1.1.7 refuses an undefined macro itself, with a file:line error (round 4's scan, which refused it
+    before PyMS ran, is gone); a defined one runs."""
 
     @needs_xyce
-    def test_xyce_refuses_it(self):
+    def test_pyms_refuses_it(self):
         d, r = spectre(self, "x", VA_DECK % ("vres3.va", "vres3"), "xyce", files={"vres3.va": VRES3})
         self.assertEqual(r.returncode, 2, r.stdout[-2000:])
-        self.assertIn("vres3.va:5: `RV is not defined: no `define RV in the Verilog-A source", r.stdout)
+        self.assertIn("vres3.va:5: `RV is not defined: no `define RV precedes this use in the file or the files it "
+                      "includes (an undefined macro is an error in Verilog-A)", r.stdout)
         self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
         d, r = spectre(self, "y", VA_DECK % ("vres3.va", "vres3"), "xyce",
                        files={"vres3.va": VRES3.replace("module", "`define RV 2000.0\nmodule", 1)})

@@ -2041,7 +2041,10 @@ class _Deck:
                 raise T.TableError("the alter of %s %s of %s sets %r, not a number, where the deck prints the "
                                    "parameter through a switchable hook; not supported in v1" % (kind, param, name, value))
             self.flag_on[hook.flag] = True
-            lines.append("  var %s=1 %s=%s" % (hook.flag, hook.value, self.setting_text(value, o, param)))
+            # FIX2E7 (TRIAL2EJ-2): a hooked source field's var carries the engines' value (plan._alter, swept_value: a freq
+            # of 0 of the sine it makes Spectre's constant is CONSTANT_SINE_FREQ, a pulse's rise or fall of 0 transres)
+            hv = act.args.get("hook_value", value)
+            lines.append("  var %s=1 %s=%s" % (hook.flag, hook.value, self.setting_text(hv, o, param)))
             if not (kind == "instance" and "source" in act.args):
                 return lines
         if kind == "instance":

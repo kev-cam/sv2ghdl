@@ -2123,9 +2123,19 @@ def _alter(ctx: _Ctx, a: Analysis, in_sweep: bool) -> None:
         ctx.trise_now[r.inst.path] = value                 # R-plan-6: the device temperature from here on
     ctx.plan.actions.append(Action("alter", act, None, a.origin))
     hook_changed = False
-    if hooked and ctx.base.hook(r.target) != (1.0, value):
+    hv = value
+    if hooked and r.source_field and isinstance(value, float):
+        # FIX2E7 (TRIAL2EJ-2): the hook carries the engines' value of the field, as a sweep point does (swept_value): a
+        # freq of 0 that makes the sine Spectre's constant is CONSTANT_SINE_FREQ, the frequency the control block's
+        # statement prints (with the raw 0 the printed field's bound differed from the hook, so `freq=fr' altered to 0
+        # was refused on VACASK as lost, where Xyce ran it; VACASK itself stops at a sine of freq 0), a rise or fall
+        # of 0 of a pulse the default edge, transres (§3.8.1)
+        hv = swept_value(param, act.get("source"), value, _transres(ctx))     # type: ignore[arg-type]
+        if hv != value:
+            act["hook_value"] = hv                   # vacask.alter_lines prints it in the hook's var statement
+    if hooked and ctx.base.hook(r.target) != (1.0, hv):
         ctx.base = ctx.base.copy()                   # R1 (phase 2c5): the hook's var statement sets its flag and value
-        ctx.base.hooks[r.target] = (1.0, float(value))   # type: ignore[arg-type]
+        ctx.base.hooks[r.target] = (1.0, float(hv))      # type: ignore[arg-type]
         hook_changed = True
     if ctx.base.key() != before:
         ctx.history.append((ctx.base, what))         # F1 (phase 2c2): an analysis after it names it (_zero_cause)

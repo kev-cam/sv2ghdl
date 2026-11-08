@@ -376,7 +376,7 @@ save out
 
 VRAMP_VA = """`include "disciplines.vams"
 // test_spectre_run_xyce: a voltage ramp through $abstime, V = 1000 * t (1 V at 1 ms): VACASK runs it, PyMS
-// cannot build it (R-run-3)
+// before 1.1.4 could not build it (R-run-3)
 module vramp(p, n);
   inout p, n; electrical p, n;
   analog V(p, n) <+ 1000.0 * $abstime;
@@ -1859,27 +1859,29 @@ op1 dc
         self.assertIn("sweep `swp' sets a parameter Xyce does not know", log)
 
     @needs_pyms
-    def test_a_module_pyms_cannot_build_is_status_2(self):
-        """R-run-3 on the real Xyce: PyMS's evaluator has no $abstime, so both builds fail; the -norun
-        check's output names it and no analysis runs (the module ran as a device that contributes
-        nothing: out = 0 at 1 ms where VACASK gives 1 V, exit 0, three warnings, even under
-        --vamos-strict)."""
+    def test_a_module_with_abstime_runs(self):
+        """R-run-3 on the real Xyce: PyMS's evaluator had no $abstime before 1.1.4, so both builds failed and the -norun
+        check's output named it (and before R-run-3 the module ran as a device that contributes nothing: out = 0 at
+        1 ms where VACASK gives 1 V, exit 0).  PyMS 1.1.7 builds it: the ramp gives VACASK's 1 V at 1 ms (FIX2E7P);
+        the report of a build that fails for good stays (pyms_failures, the fake runs)."""
         write_deck(self.tmp, "vramp.va", VRAMP_VA)
         ch = Chain(write_deck(self.tmp, "deck.scs", RAMP_DECK))
         er, log, run_dir = run_chain(self, ch)
-        self.assertEqual((er.rc, er.status), (2, {}), log + "\n".join(er.log))
-        self.assertIn("Error from spectre during initial setup.", log)
-        self.assertIn("PyMS could not build Verilog-A module vramp", log)
-        self.assertIn(os.path.join(self.tmp, "vramp.va"), log)
-        self.assertIn("$abstime", log)
-        self.assertTrue(os.path.isfile(os.path.join(run_dir, "vamos_a1.norun.log")))
-        self.assertFalse(os.path.exists(os.path.join(run_dir, "vamos_a1.log")))      # no deck ran
+        self.assertEqual(er.rc, 0, log + "\n".join(er.log))
+        self.assertNotIn("PyMS could not build", log)
+        tr = rawfile.read(er.files["vamos_a2"])
+        last = tr.points[-1]
+        self.assertAlmostEqual(last[tr.exact("TIME")], 1e-3, delta=1e-12)
+        self.assertAlmostEqual(last[tr.exact("V(OUT)")], 1.0, delta=1e-6)
 
     @needs_pyms
     def test_a_missing_include_is_refused_on_a_cold_and_a_warm_cache(self):
         """R-run-3 on the real Xyce: PyMS built vinc.va without its missing header (b = 0 V, exit 0, no
         warning), and once its evaluator library is cached it prints nothing about the header at
-        all; vamos refuses the module before Xyce starts, whatever the cache holds."""
+        all; vamos refuses the module before Xyce starts, whatever the cache holds.  PyMS 1.1.7
+        refuses this module itself (the header defines the macro it uses: an undefined macro is
+        its file:line error, FIX2E7P), while a header whose loss leaves no undefined name would
+        still be skipped silently, so the refusal stays."""
         cache = os.path.join(self.tmp, "vae")
         os.environ["PYMS_VAE_CACHE"] = cache
         write_deck(self.tmp, "vinc.va", VINC_VA)
@@ -1895,9 +1897,9 @@ op1 dc
         p = subprocess.run([RX.xyce_exe(), decks[0].file], cwd=warm, env=RX.engines_env(),
                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            universal_newlines=True, errors="replace", timeout=900)
-        self.assertEqual(p.returncode, 0, p.stdout[-3000:])
+        self.assertNotEqual(p.returncode, 0, p.stdout[-3000:])
         self.assertIn("'rdefs.vams' not found (skipped)", p.stdout)
-        self.assertTrue(glob.glob(os.path.join(cache, "vae_vinc_*.so")), os.listdir(cache))
+        self.assertIn("`RDEF is not defined", p.stdout.replace("\n ", " "))
         er, log, run_dir = run_chain(self, ch, "warm_run")
         self.assertEqual((er.rc, er.status), (2, {}), log)
         self.assertIn("`include \"rdefs.vams\"", log)

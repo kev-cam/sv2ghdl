@@ -28,10 +28,11 @@
     {
      "raw": "hdl.raw",
      "col": "I(V1)",
-     "value": -0.001000000001,
+     "value": -0.000500000001,
      "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): I(V1) = -0.5 mA: the card parameter reaches the module (-1 mA before 1.1.0)"
   },
   {
    "name": "main_env_for",
@@ -53,10 +54,11 @@
     {
      "raw": "hdl.raw",
      "col": "I(V1)",
-     "value": -0.001000000001,
+     "value": -0.000500000001,
      "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): I(V1) = -0.5 mA: the card parameter reaches the module (-1 mA before 1.1.0)"
   },
   {
    "name": "second_plain_env",
@@ -80,10 +82,11 @@
     {
      "raw": "hdl.raw",
      "col": "I(V1)",
-     "value": -0.001000000001,
+     "value": -0.000500000001,
      "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): I(V1) = -0.5 mA: the card parameter reaches the module (-1 mA before 1.1.0)"
   },
   {
    "name": "second_env_for",
@@ -106,10 +109,11 @@
     {
      "raw": "hdl.raw",
      "col": "I(V1)",
-     "value": -0.001000000001,
+     "value": -0.000500000001,
      "rel": 1e-06
     }
-   ]
+   ],
+   "note": "PyMS 1.1.7 (FIX2E7P, measured 2026-11-07): I(V1) = -0.5 mA: the card parameter reaches the module (-1 mA before 1.1.0)"
   }
  ]
 }

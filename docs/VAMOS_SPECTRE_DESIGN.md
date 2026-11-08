@@ -135,8 +135,9 @@ none prints none (phase 2c, D2; §5.4, §8.7, §14 q.71).
 - on Xyce (phase 2c; VACASK runs all three): a `noise` analysis of a circuit that holds a Verilog-A instance,
   since PyMS devices carry no noise sources (no `DNO`, and `ONOISE` would leave the module's noise out
   [E125]); a resistor whose `isnoisy` reads a parameter that a sweep of the same analysis changes, the
-  noise-free `G` form being fixed per deck (§4.5 item 7); and a Verilog-A module PyMS cannot build (one that
-  uses `$abstime`), which Xyce would run as a device that contributes nothing [E125, E138] (§4.5 item 13);
+  noise-free `G` form being fixed per deck (§4.5 item 7); a Verilog-A module PyMS cannot build, which Xyce
+  would run as a device that contributes nothing [E125, E138] (§4.5 item 13; one that uses `$abstime` builds
+  since PyMS 1.1.4); and a netlist with Verilog-A when Xyce's PyMS is older than 1.1.7 (§4.5 item 13);
 - the primitives `bsource port nport tline mtline switch relay transformer core winding delay a2d d2a
   fourier intcap nodcap quantity node`, the polynomial and s-/z-domain controlled sources (`pvcvs svcvs
   zvcvs …`), nonlinear `coeffs=` on R/C, a series `r=` on an inductor, a resistor's third terminal and a
@@ -2070,6 +2071,18 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
       `.va` and the compiler's first error, with a hint for `$abstime` and for a `PYMS_VAE_CACHE` path that
       holds a space; so is PyMS's `preprocess: warning: '<x>' not found (skipped)` for a non-standard
       header, which catches an include inside an `` `ifdef`` on a cold cache only (phase 2c, R-run-3).
+    - Before Xyce runs, a netlist with Verilog-A is an error in `AHDL read-in` (status 2) when the PyMS that
+      Xyce runs is older than 1.1.7 or states no version (`run_xyce.pyms_version_problem`, round 7'): the
+      PyMS found as `N_DEV_PyMS.C`'s `find_device_gen` finds it (`$PYMS_DIR`, `$XYCE_PREFIX/share/xyce/PyMS`
+      with `/usr/local` by default, then the source trees), its version from `vae/__init__.py`'s
+      `__version__`, else its `VERSION` file. PyMS 1.1.7 compiles right, or refuses with a file:line error
+      of its own, every form an older PyMS got silently wrong and vamos refused itself in phase 2e rounds
+      4-6 by a model of PyMS's preprocessor and parser (`PymsScan`): a macro not defined where it is used
+      or expanded with a later definition, a parameter default evaluated as 0 or as Python reads it, a
+      current read in an expression, an undefined `` `attr(...) `` annotation or a `(* ... *)` attribute
+      that swallowed the statement after it; measured with the scan off, each gave VACASK's value or the
+      refusal VACASK makes too, so the scan is gone (FIX2E7P). A PyMS that is not found is left to Xyce's
+      own error.
     - A `noise` analysis of a circuit that holds a Verilog-A instance (any module but `vamos_gcond`) is
       refused at render, status 2 before any engine runs, naming the analysis, the instance path and the
       module: PyMS devices carry no noise sources [E125] (phase 2c, R-emit-8).

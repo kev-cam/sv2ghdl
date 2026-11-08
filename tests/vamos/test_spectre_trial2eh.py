@@ -14,13 +14,12 @@ TestIcBesideASource     on Xyce an ic or readic entry on a node that the netlist
                         an iprobe, a floating source) touches is refused unless voltage sources tie the node to the
                         ground (found in this round beside S-2E4-N3: `Vm (out mid) vsource dc=0' with `ic out=0.5'
                         gave out(0) = 0 with exit 0 on Xyce, where VACASK gives 0.5)
-TestMacroConditionals   the Verilog-A macro check on Xyce follows the preprocessor: a `define in an `ifdef branch that
-                        is not taken, a `define then an `undef, and PyMS's expansion at the end of a file (S-2E4-N2:
-                        V1:p = -1e-12 with exit 0, where VACASK refuses); PyMS reads `define RV (2000.0) as a macro
-                        with an argument (found in this round: V1:p = -1e-12, exit 0)
-TestPymsDefaults        on Xyce a Verilog-A parameter default PyMS would evaluate as 0 is refused: a scaled number
-                        inside an expression (TRIAL2EH-F1: `1k * 1', the device contributed nothing, exit 0), a scale
-                        factor PyMS does not read (`1a'), and two parameters in one statement (found in this round)
+TestMacroConditionals   a Verilog-A macro on Xyce: a `define in an `ifdef branch that is not taken, a `define then
+                        an `undef, a use before an `undef or a new `define (S-2E4-N2: V1:p = -1e-12 with exit 0 on
+                        an older PyMS, refused by round 5's scan); PyMS 1.1.7 follows the conditions and expands a
+                        macro at its point of use, giving VACASK's value or VACASK's refusal (FIX2E7P)
+TestPymsDefaults        a Verilog-A parameter default an older PyMS evaluated as 0 (TRIAL2EH-F1: `1k * 1', refused
+                        by round 5's scan) runs on PyMS 1.1.7 with VACASK's value (FIX2E7P)
 TestVamosTokenInDefaults a --vamos-* token in the defaults variable has no effect, and its warning says so, not that it
                         is `not supported yet' (TRIAL2EH-F7)
 TestSecondSignal        the second signal's stop names the analysis it came in (TRIAL2EH-F11a: `during initial
@@ -461,56 +460,53 @@ MACRO_CASES = {
 }
 
 
+# the outcome on PyMS 1.1.7 and on VACASK, measured (FIX2E7P): V1:p = -1 / r, or the line of the use both refuse as
+# undefined there (PyMS: "`RV is not defined: no `define RV precedes this use ..."; openvaf-r: "macro '`RV' has not been
+# declared"); PyMS expands a macro at its point of use with the definition in force there, as Verilog-A does
+MACRO_OUTCOME = {
+    "false_ifdef": ("undefined", 8), "undef": ("undefined", 7), "elsif_not_taken": ("undefined", 10),
+    "use_before_define": ("undefined", 6),
+    "use_then_undef": ("value", -5e-4), "redefined_after_use": ("value", -2.5e-4), "nested_body_undef": ("value", -5e-4),
+    "parenthesized_body": ("value", -5e-4), "ifdef_else": ("value", -5e-4), "defined_again_after_undef": ("value", -5e-4),
+    "pyms_predefines_insideADMS": ("value", -5e-4), "with_an_argument": ("value", -5e-4),
+}
+# PyMS defines insideADMS itself, openvaf-r does not: the `define in the `ifdef insideADMS branch is not taken there
+VACASK_OUTCOME = {"pyms_predefines_insideADMS": ("undefined", 8)}
+
+
 class TestMacroConditionals(TempDir):
+    """FIX2E7P: round 5's scan of the preprocessor (PymsScan) is gone: PyMS 1.1.7 evaluates the conditions and expands a
+    macro at its point of use, and refuses one undefined there itself, as VACASK does."""
 
-    def test_the_scan(self):
-        from vamos.spectre import run_xyce as RX
-        for k, (pre, use, post, flagged) in MACRO_CASES.items():
+    def outcomes(self, engine):
+        for k, (what, want) in MACRO_OUTCOME.items():
+            if engine == "vacask":
+                what, want = VACASK_OUTCOME.get(k, (what, want))
             with self.subTest(case=k):
-                src = self.write("%s/vres3.va" % k, VR % (pre, use, post))
-                self.assertEqual([(line, name) for _s, _f, line, name in RX.undefined_macros([src])], flagged)
-
-    def test_an_include_that_undefines_the_macro(self):
-        from vamos.spectre import run_xyce as RX
-        src = self.write("inc/vres3.va", VR % ('`define RV 2000.0\n`include "u.vams"', "`RV", ""))
-        self.write("inc/u.vams", "`undef RV\n")
-        self.assertEqual([(line, name) for _s, _f, line, name in RX.undefined_macros([src])], [(7, "RV")])
-        self.write("inc/u.vams", "`define RX 1\n")
-        self.assertEqual(RX.undefined_macros([src]), [])
-
-    def test_the_messages_say_why(self):
-        from vamos.spectre import run_xyce as RX
-        why = {}
-        for k in ("false_ifdef", "undef", "use_then_undef", "redefined_after_use", "use_before_define",
-                  "parenthesized_body"):
-            pre, use, post, _f = MACRO_CASES[k]
-            src = self.write("%s/vres3.va" % k, VR % (pre, use, post))
-            why[k] = [w for _s, _f2, _l, _n, w in RX.macro_problems([src])]
-        self.assertIn("`ifdef or `ifndef branch that is not taken", why["false_ifdef"][0])
-        self.assertIn("`undef RV at", why["undef"][0])
-        self.assertIn("PyMS expands the macros of a file at its end, where RV is no longer defined",
-                      why["use_then_undef"][0])
-        self.assertIn("PyMS expands every use with the last definition", why["redefined_after_use"][0])
-        self.assertIn("is used before its `define", why["use_before_define"][0])
-        self.assertIn("which Xyce's PyMS reads as a macro with the argument 2000.0 and no body",
-                      why["parenthesized_body"][0])
+                pre, use, post, _flagged = MACRO_CASES[k]
+                d, r = spectre(self, k, VA_DECK, engine, files={"vres3.va": VR % (pre, use, post)},
+                               env={"PYMS_CACHE": os.path.join(self.tmp, k, "hdl"),
+                                    "PYMS_VAE_CACHE": os.path.join(self.tmp, k, "vae")})
+                if what == "value":
+                    self.assertEqual(r.returncode, 0, r.stdout[-3000:])
+                    self.assertAlmostEqual(value(os.path.join(d, "n.raw", "op1.dc"), "V1:p"), want, 9)
+                    continue
+                self.assertEqual(r.returncode, 2, r.stdout[-3000:])
+                self.assertNotIn("not supported on Xyce", r.stdout)
+                if engine == "xyce":
+                    self.assertIn("vres3.va:%d: `RV is not defined: no `define RV precedes this use" % want, r.stdout)
+                else:
+                    self.assertIn("macro '`RV' has not been declared", r.stdout)
+                    self.assertIn("vres3.va:%d:" % want, r.stdout)
+                self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
 
     @needs_xyce
-    def test_xyce_refuses_the_two_variants(self):
-        for k in ("false_ifdef", "undef", "use_then_undef", "redefined_after_use", "parenthesized_body"):
-            with self.subTest(case=k):
-                pre, use, post, flagged = MACRO_CASES[k]
-                d, r = spectre(self, k, VA_DECK, "xyce", files={"vres3.va": VR % (pre, use, post)})
-                self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-                self.assertIn("Error from spectre during AHDL read-in.", r.stdout)
-                self.assertIn("vres3.va:%d: `%s " % flagged[0], r.stdout)
-                self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
-        for k in ("ifdef_else", "defined_again_after_undef", "pyms_predefines_insideADMS"):
-            with self.subTest(case=k):
-                pre, use, post, _f = MACRO_CASES[k]
-                d, r = spectre(self, k, VA_DECK, "xyce", files={"vres3.va": VR % (pre, use, post)})
-                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-                self.assertAlmostEqual(value(os.path.join(d, "n.raw", "op1.dc"), "V1:p"), -5e-4, 9)
+    def test_xyce(self):
+        self.outcomes("xyce")
+
+    @needs_vacask
+    def test_vacask(self):
+        self.outcomes("vacask")
 
 
 # -- F1: parameter defaults PyMS evaluates as 0 ----------------------------------------------------------------------
@@ -533,7 +529,8 @@ X1 (in out) a1
 R2 (out 0) resistor r=1k
 op1 dc
 """
-# (a define before the module, the declarations) -> refused on Xyce; measured on Xyce: each gave out = 0, exit 0
+# (a define before the module, the declarations): each gave out = 0 with exit 0 on Xyce's PyMS before 1.1.0, and
+# round 5 refused them on Xyce; PyMS 1.1.7 runs them right (FIX2E7P)
 BAD_DEFAULTS = {
     "scaled_in_an_expression": ("", "parameter real r = 1k * 1;"),
     "scaled_times_two": ("", "parameter real r = 2 * 0.5k;"),
@@ -546,7 +543,7 @@ BAD_DEFAULTS = {
     "after_an_attribute": ("", '(* desc="r" *) parameter real r = 1k * 1;'),
     "two_in_one_statement": ("", "parameter real r = 1000.0, g = 1.0;"),
 }
-# measured right on Xyce (out = 0.5)
+# measured right on Xyce before 1.1.0 too (out = 0.5)
 GOOD_DEFAULTS = {
     "scaled_alone": ("", "parameter real r = 1k;"),
     "capital_k_alone": ("", "parameter real r = 1K;"),
@@ -561,42 +558,25 @@ GOOD_DEFAULTS = {
 
 
 class TestPymsDefaults(TempDir):
+    """FIX2E7P: PyMS 1.1.7 evaluates a parameter default as Verilog-A does (vae/va_const.py), so round 5's refusal of the
+    defaults an older PyMS took as 0 is gone: each runs on both engines with out = 0.5 (measured)."""
 
-    def test_the_scan(self):
-        from vamos.spectre import run_xyce as RX
+    def runs(self, engine):
         for k, (pre, decl) in list(BAD_DEFAULTS.items()) + list(GOOD_DEFAULTS.items()):
             with self.subTest(case=k):
-                src = self.write("%s/a1.va" % k, A1 % (pre, decl))
-                got = RX.pyms_default_problems([src])
-                if k in BAD_DEFAULTS:
-                    self.assertEqual([(line, name) for _s, _f, line, name, _w in got], [(7, "r")])
-                else:
-                    self.assertEqual(got, [])
-        src = self.write("bad/a1.va", A1 % ("", BAD_DEFAULTS["scaled_in_an_expression"][1]))
-        why = RX.pyms_default_problems([src])[0][4]
-        self.assertIn("the scaled number 1k inside an expression", why)
-        src = self.write("two/a1.va", A1 % ("", BAD_DEFAULTS["two_in_one_statement"][1]))
-        self.assertIn("one statement declares r and g", RX.pyms_default_problems([src])[0][4])
+                d, r = spectre(self, k, A1_DECK, engine, files={"a1.va": A1 % (pre, decl)},
+                               env={"PYMS_CACHE": os.path.join(self.tmp, k, "hdl"),
+                                    "PYMS_VAE_CACHE": os.path.join(self.tmp, k, "vae")})
+                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
+                self.assertAlmostEqual(value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 8)
 
     @needs_xyce
-    def test_xyce_refuses_it(self):
-        d, r = spectre(self, "bad", A1_DECK, "xyce", files={"a1.va": A1 % ("", "parameter real r = 1k * 1;")})
-        self.assertEqual(r.returncode, 2, r.stdout[-3000:])
-        self.assertIn("Error from spectre during AHDL read-in.", r.stdout)
-        self.assertIn("a1.va:7: parameter r of module a1: its default 1k * 1 holds the scaled number 1k inside an "
-                      "expression", r.stdout)
-        self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
-        for k in ("scaled_alone", "unscaled_expression"):
-            with self.subTest(case=k):
-                d, r = spectre(self, k, A1_DECK, "xyce", files={"a1.va": A1 % GOOD_DEFAULTS[k]})
-                self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-                self.assertAlmostEqual(value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 6)
+    def test_xyce(self):
+        self.runs("xyce")
 
     @needs_vacask
-    def test_vacask_runs_it(self):
-        d, r = spectre(self, "bad", A1_DECK, "vacask", files={"a1.va": A1 % ("", "parameter real r = 1k * 1;")})
-        self.assertEqual(r.returncode, 0, r.stdout[-3000:])
-        self.assertAlmostEqual(value(os.path.join(d, "n.raw", "op1.dc"), "out"), 0.5, 9)
+    def test_vacask(self):
+        self.runs("vacask")
 
 
 # -- F7: a --vamos-* token in the defaults variable ------------------------------------------------------------------
