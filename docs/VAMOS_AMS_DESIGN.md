@@ -123,8 +123,10 @@ keys vamos ignores are each a warning, or a note where ignoring them leaves the 
 - PARHIER=GLOBAL name collisions between top-level and subckt parameters (escape: `--vamos-parhier=local`);
 - PWL `R=` repeat;
 - Xyce only: a binned MOS instance with `nf≠1` whose geometry is not a number on its instance path (e.g. it
-  depends on `temper`); a level-3 (geometric) diode; a Verilog-A instance with parameter overrides or a
-  multiplier; an R card with `DW≠DLR`, an R or C card with a model `L`, or a `RES`/`CAP` default (§4.3.6);
+  depends on `temper`); a level-3 (geometric) diode; a Verilog-A instance with a multiplier, or with
+  parameters of a module whose declarations vamos could not read (since FIX2E8 the others run: model
+  parameters on a card of the instance, `(* type="instance" *)` ones on the Y line); an R card with
+  `DW≠DLR`, an R or C card with a model `L`, or a `RES`/`CAP` default (§4.3.6);
 - VACASK only: a subckt defined inside another that reads a parameter of the enclosing subckt (§4.4).
 
 ## 1. Compile-time flow
@@ -1297,8 +1299,9 @@ strictly increasing), so VACASK and Xyce see the same waveform.
 - Verilog-A: `nl.hdl` (plus any `.va` path in `osdi`; an `.osdi` path is an error, and deck.py passes
   nothing) become `.hdl "f.va"` lines, a `.model <card> <module>` and `Y<module> <name> <nodes> <card>`
   instances; Xyce compiles them (PyMS) at parse time, so the smoke check and every run pay that compile. A
-  Verilog-A instance with parameters is refused (PyMS ignores VA parameter overrides), and so is one that
-  needs a multiplier. The gated conductance is the B source `bg_<n> <n>_d <n> I={V(<n>_e)*(V(<n>_d)-V(<n>))/rr}`
+  Verilog-A instance's parameters split by kind (FIX2E8, PyMS >= 1.1.0): the module's `(* type="instance" *)`
+  ones on the Y line, the others on a card of the instance (`.model <name>__va <module> ...`); refused when
+  vamos could not read the module's declarations, and an instance that needs a multiplier is refused. The gated conductance is the B source `bg_<n> <n>_d <n> I={V(<n>_e)*(V(<n>_d)-V(<n>))/rr}`
   (§4.7).
 - A code source prints as `<inst> <p> <n> PWL FILE "<code_uri>"`.
 - Output: `.print tran format=raw file=vamos_tran.raw <probes>` (`v(*)` when there are none) – a

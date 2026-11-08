@@ -363,7 +363,8 @@ def va_resistor(dialect="spectre", params=None, attrs=True, m=None, name="y1"):
     nl = Netlist(title="verilog-a letter device", dialect=dialect)
     nl.hdl = [path]
     mod = VaModule("resistor", path, ["R"],
-                   {"xyceModelGroup": "Resistor", "xyceSpiceDeviceName": "R", "xyceLevelNumber": "6"} if attrs else {})
+                   {"xyceModelGroup": "Resistor", "xyceSpiceDeviceName": "R", "xyceLevelNumber": "6"} if attrs else {},
+                   ["r"])                                     # R is (* type="instance" *)
     nl.va_modules = {"resistor": mod}
     p = dict(params or {})
     if m is not None:
@@ -1600,11 +1601,12 @@ class TestXyceSpectre(unittest.TestCase):
         text = xyce.render(nl)
         self.assertIn(".model bsim6__vamos_pmos pmos level=77\nm1 d g 0 0 bsim6__vamos_pmos l=1e-07\n"
                       ".model bsim6__vamos nmos level=77\nm2 d g 0 0 bsim6__vamos\nm3 d g 0 0 bsim6__vamos\n", text)
-        # an unattributed module keeps the Y form and its refusals; a multiplier is refused on both routes
+        # an unattributed module keeps the Y form, its instance parameter on the Y line (FIX2E8: refused before,
+        # PyMS >= 1.1.0 applies it); a multiplier is refused on both routes
         text = xyce.render(va_resistor(attrs=False))
         self.assertIn(".model resistor__vamos resistor\nyresistor y1 a b resistor__vamos\n", text)
-        with self.assertRaisesRegex(NoteError, "PyMS ignores"):
-            xyce.render(va_resistor(attrs=False, params={"R": Num(3e3)}))
+        text = xyce.render(va_resistor(attrs=False, params={"R": Num(3e3)}))
+        self.assertIn(".model resistor__vamos resistor\nyresistor y1 a b resistor__vamos R=3000.0\n", text)
         with self.assertRaisesRegex(NoteError, "takes no multiplier"):
             xyce.render(va_resistor(params={"R": Num(3e3)}, m=2))
         # the HSPICE route (vcs-ams) prints the letter device too (§4, §11 HSPICE-route regressions)
@@ -2083,9 +2085,9 @@ class TestHspiceRouteRegressions(unittest.TestCase):
         self.assertIn(".model resistor__vamos r level=6\n", text)
         bad = "***** Device Count Summary ...\n       R level 6 (Thermal Resistor) 1\n       Total Devices 2\n"
         self.assertEqual([n.severity for n in xyce.device_summary_problems(bad, nl)], [ERROR])
-        # a Verilog-A module without attributes keeps vcs-ams's Y form and refusal
-        with self.assertRaisesRegex(NoteError, "PyMS ignores"):
-            xyce.render(va_resistor(dialect="hspice", attrs=False, params={"R": Num(3e3)}))
+        # a Verilog-A module without attributes keeps vcs-ams's Y form, its instance parameter on the line (FIX2E8)
+        text = xyce.render(va_resistor(dialect="hspice", attrs=False, params={"R": Num(3e3)}))
+        self.assertIn("yresistor y1 a b resistor__vamos R=3000.0\n", text)
 
     def test_hspice_decks_do_not_take_the_spectre_source_or_quote_rules(self):
         nl = Netlist(title="hspice")

@@ -31,7 +31,7 @@ from vamos_testlib import (TempDir, fixture, needs_vacask, needs_xyce, openvaf_b
 from vamos.netlist import expr as X  # noqa: E402
 from vamos.netlist import rawfile, tables as T, vacask, xyce  # noqa: E402
 from vamos.netlist.expr_ast import Name, Num, Str  # noqa: E402
-from vamos.netlist.ir import Analysis, Instance, Model, Netlist, Param, Source, Subckt  # noqa: E402
+from vamos.netlist.ir import Analysis, Instance, Model, Netlist, Param, Source, Subckt, VaModule  # noqa: E402
 from vamos.notes import ERROR, NOTE, WARNING, NoteError, strict  # noqa: E402
 
 P = X.parse
@@ -1110,8 +1110,32 @@ class TestXyceText(unittest.TestCase):
             xyce.render(nl)
         got = {n.origin: n.message for n in cm.exception.notes}
         self.assertIn("geometric diode", got["lib:2"])
-        self.assertIn("PyMS ignores", got["deck:3"])
+        # FIX2E8: parameters of a module vamos has not read (no instance/model kinds) stay refused
+        self.assertIn("vamos cannot tell module myres's instance parameters from its model parameters (the module "
+                      "was not read)", got["deck:3"])
         self.assertIn("deck:2", got)
+
+    def test_verilog_a_parameters_split_by_kind(self):
+        """FIX2E8: a Y instance's model parameters on a card of its own, its (* type="instance" *) ones on the Y line
+        (PyMS >= 1.1.0: a model parameter on the line is "Unrecognized parameter", an instance one on the card is
+        ignored with a warning); a module without given parameters shares <module>__vamos; a swept one reads a hook."""
+        mod = VaModule("a2", "/a2.va", ["r", "g", "k", "sel"], {}, ["g"])
+        nl = Netlist(title="va params", hdl=["/a2.va"], va_modules={"a2": mod})
+        nl.body = [V("v1", "a", "0", 1.0),
+                   I("x1", "y", ["a", "b"], master="a2", params={"r": Num(2e3), "G": Num(1e-3), "k": Num(2.0)}),
+                   I("x2", "y", ["a", "c"], master="a2", params={}),
+                   I("x3", "y", ["a", "d"], master="a2", params={"g": Num(1e-3)}),
+                   R("r2", "b", "0", 1000.0)]
+        nl.analyses = tran(1e-9, 1e-8)
+        text = xyce.render(nl)
+        self.assertIn(".model x1__va a2 r=2000.0 k=2.0\nya2 x1 a b x1__va G=0.001\n", text)
+        self.assertIn(".model a2__vamos a2\nya2 x2 a c a2__vamos\nya2 x3 a d a2__vamos g=0.001\n", text)
+        self.assertNotIn("PyMS ignores", text)
+        # kinds unknown (the declarations were not read): refused
+        mod.instance_params = None
+        with self.assertRaisesRegex(NoteError, r"x1: Verilog-A parameters \(r, G, k\) on Xyce: vamos cannot tell "
+                                               r"module a2's instance parameters .*its declarations were not read"):
+            xyce.render(nl)
 
     def test_names_and_case(self):
         nl = Netlist(title="names")

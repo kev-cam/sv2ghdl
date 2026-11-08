@@ -1329,6 +1329,9 @@ class TestVerilogAChecks(FakeCase):
         self.assertIn(os.path.join(self.tmp, "vramp.va"), log)
         self.assertIn("'$abstime' was not declared in this scope", log)
         self.assertIn("contributes nothing", log)
+        # FIX2E8: no "PyMS has no $abstime" hint (PyMS >= 1.1.4 has it, and vamos requires 1.1.7): the compiler's
+        # own error is the reason
+        self.assertNotIn("PyMS has no $abstime", log)
 
     def test_a_timeout_or_another_exception_of_the_build_is_a_failed_build_too(self):
         for name, out, who in (("timeout", PYMS_TIMEOUT, "Verilog-A module vramp"),

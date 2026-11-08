@@ -426,19 +426,19 @@ class TestE2E09HdlVacask(SharedRun):
 
 
 @needs_ams
-class TestE2E09HdlXyceRefuses(SharedRun):
-    """e2e 9 on Xyce: PyMS ignores Verilog-A parameter overrides, so the compile refuses
-    the design with the instance and its origin (§4.5) instead of simulating 2k resistors."""
+class TestE2E09HdlXyce(TestE2E09HdlVacask):
+    """e2e 9 on Xyce (FIX2E8): PyMS >= 1.1.0 applies Verilog-A parameters, so the design runs with VACASK's
+    levels and crossings (it was refused: "PyMS ignores parameter overrides"); r is a model parameter, so
+    each instance's value goes on a card of its own (PyMS takes a model parameter on the card only)."""
     ENGINE = "xyce"
-    FILES = FILES9
-    RUN = False
 
-    def test_refused_with_origin(self):
-        out = self.comp.stdout
-        self.assertNotEqual(self.comp.returncode, 0, out)
-        self.assertRegex(out, r"analog/cell\.sp:7: xr1: Verilog-A parameters \(r\) on Xyce")
-        self.assertRegex(out, r"analog/cell\.sp:11: xr2: Verilog-A parameters \(r\) on Xyce")
-        self.assertFalse(os.path.exists(os.path.join(self.wd, "simv.msv", "interface_element.rpt")))
+    def test_va_compiled_and_loaded(self):
+        rec = self.record()
+        self.assertEqual(rec["engine"], "xyce")
+        deck = self.deck()
+        self.assertRegex(deck, r"(?m)^\.model \S*xr1__va vres r=1000(\.0*)?$")
+        self.assertRegex(deck, r"(?m)^\.model \S*xr2__va vres r=3000(\.0*)?$")
+        self.assertNotIn("Verilog-A parameters", self.comp.stdout)
 
 
 # =============================================================================

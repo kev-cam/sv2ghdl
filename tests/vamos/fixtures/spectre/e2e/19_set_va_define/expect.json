@@ -5,7 +5,8 @@
   "VAMOS_HALF"
  ],
  "engines": [
-  "vacask"
+  "vacask",
+  "xyce"
  ],
  "status": 0,
  "files": [
@@ -40,16 +41,5 @@
  "cross_engine": {
   "rel": 1e-06
  },
- "messages": [],
- "xyce": {
-  "status": 2,
-  "files": [],
-  "values": [],
-  "messages": [
-   [
-    "error",
-    "va,define VAMOS_HALF: not supported on Xyce in v1"
-   ]
-  ]
- }
+ "messages": []
 }

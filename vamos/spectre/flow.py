@@ -677,35 +677,18 @@ class _Run:
             return "", str(e)
 
     def engine_notes(self, nl) -> List[Note]:
-        """§2.3: for a netlist with Verilog-A a -va,define is an error on Xyce, whose PyMS takes no macro (the guide
-        trial of phase 2e, TRIAL2EF-02: it was a note while the module compiled its `else branch), and noted there for
-        a netlist without; on VACASK a -va,define with a value
-        is an error: openvaf-r 20260616 takes `-D NAME=VALUE' but leaves NAME undefined (an `ifdef NAME took its
-        else branch with exit 0, and `NAME failed to compile: the guide trial of phase 2e, TRIAL2E1-01); §2.8, for a
+        """§2.3: on VACASK a -va,define with a value is an error: openvaf-r 20260616 takes `-D NAME=VALUE' but leaves
+        NAME undefined (an `ifdef NAME took its else branch with exit 0, and `NAME failed to compile: the guide trial
+        of phase 2e, TRIAL2E1-01); on Xyce every -va,define reaches PyMS (>= 1.1.0) as PYMS_DEFINES, NAME and
+        NAME=VALUE alike (run_xyce, FIX2E8; before, it was refused there: PyMS 1.0 took no macro); §2.8, for a
         netlist with Verilog-A: CDS_VLOGA_INCLUDE is noted on Xyce (its .hdl compile gets no include directories),
         and a CDS_AHDL_* setting that changes results is a warning when it is not Spectre's documented default.
         For a netlist with Verilog-A, -ahdllibdir is noted on Xyce, which compiles no .osdi into it (the guide trial
         of phase 2e, TRIAL2E2-F10: before, it was ignored there without a word)."""
         out: List[Note] = []
         job = self.job
-        if self.engine == "xyce" and job.va_defines and not nl.hdl:
-            out.append(note("", "-va,define %s: not applied on Xyce, whose .hdl compile takes no macro "
-                                "definitions (§2.3)" % " ".join(job.va_defines)))
         if not nl.hdl:
             return out
-        if self.engine == "xyce":
-            # the guide trial of phase 2e (TRIAL2EF-02): the module compiled its `else branch with exit status 0 behind
-            # the note above.  PyMS has no -D; a prelude file (`define, then `include of the source) as the .hdl was
-            # measured to give the macro, but PyMS keys its build on the top file's text alone and reused a stale
-            # build after the source was edited, so v1 maps nothing
-            for m in dict.fromkeys(job.va_defines):     # a macro given twice is one error (FIX2E5, S-2E4: two)
-                name, eq, value = m.partition("=")
-                fix = ("`define %s in the Verilog-A source" % " ".join(x for x in (name, value) if x) if eq
-                       else "run it on VACASK, or `define %s in the Verilog-A source" % name)
-                out.append(error("", "-va,define %s: not supported on Xyce in v1: Xyce's Verilog-A compile (PyMS) "
-                                     "takes no macro definitions, so the module would compile as if %s were not "
-                                     "defined (an `ifdef %s takes its `else branch) with exit status 0; %s (§2.3)"
-                                     % (m, name, name, fix)))
         libdir = sargs.effective(job, "ahdllibdir")
         if self.engine == "xyce" and libdir:
             out.append(note("", "-ahdllibdir %s: not applied on Xyce, whose PyMS keeps the Verilog-A it compiles in its "

@@ -187,6 +187,11 @@ class VaModule:
     #                                               preprocessor (§3.1); None: unknown (passed unchecked)
     attrs: Dict[str, str] = field(default_factory=dict)   # xyceModelGroup xyceLevelNumber xyceTypeVariable
     #                                                       xycePTypeValue
+    instance_params: Optional[List[str]] = None   # the lower-cased names of the (* type="instance" *) parameters
+    #                                               (FIX2E8: Xyce takes those on the instance line, every other
+    #                                               one on the model card); None: unknown (params is None)
+    aliases: Optional[Dict[str, str]] = None      # aliasparam name -> its target's, lower-cased (FIX2E8: PyMS knows
+    #                                               the targets only, so the Xyce deck prints those)
 
 
 @dataclass

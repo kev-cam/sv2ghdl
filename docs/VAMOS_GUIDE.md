@@ -1515,7 +1515,7 @@ spectre completes with 0 errors, 0 warnings, and 3 notices
 ```
 
 VACASK is the default; `--vamos-analog=vacask|xyce` beats `VAMOS_ANALOG`. Xyce runs one deck per analysis. On
-Xyce, v1 refuses `xf`, the parameters of a Verilog-A instance or of its model card, a noise output whose second
+Xyce, v1 refuses `xf`, a noise output whose second
 node is not ground, an instance of a subckt without ports, an alter of an instance inside a subckt that two
 instance paths reach (Xyce's deck would change the definition both share), two names that differ only in case
 (`A` and `a`, which Xyce would merge), a noise analysis of a circuit that holds a Verilog-A instance (PyMS
@@ -1525,11 +1525,12 @@ tying it to the ground (Xyce applies no `.IC` to such a node, and would start fr
 a word), one for a node that only vamos's own current probes touch (the saved terminal currents of devices with
 more than two terminals: the probes would make Xyce's matrix singular), a Verilog-A `` `include `` that PyMS
 would not find beside the file that includes it (it does not search `CDS_VLOGA_INCLUDE` or `-I`), a netlist
-with Verilog-A when Xyce's Verilog-A compiler, PyMS, is older than 1.1.7, and a `-va,define` for a netlist with
-Verilog-A (vamos passes PyMS no macro): each is an error naming the construct, with exit status 2
-(Troubleshooting, below). A noise analysis on Xyce writes each instance's `total` noise only, without its
-contributions (a notice). VACASK runs all of these, except a `-va,define` that gives a value, which it refuses
-too (Troubleshooting). Verilog-A that PyMS cannot compile, such as a macro that is not defined where it is used,
+with Verilog-A when Xyce's Verilog-A compiler, PyMS, is older than 1.1.7, the parameters of a Verilog-A
+instance whose module's declarations vamos could not read, and a `mod=` sweep or alter of a Verilog-A card that
+sets no parameter: each is an error naming the construct, with exit status 2 (Troubleshooting, below). A noise
+analysis on Xyce writes each instance's `total` noise only, without its contributions (a notice). VACASK runs
+all of these but the last, which it refuses too. A `-va,define` that gives a value runs on Xyce and is refused on
+VACASK (Troubleshooting). Verilog-A that PyMS cannot compile, such as a macro that is not defined where it is used,
 is PyMS's own error, with the file and the line, as it is VACASK's (Verilog-A on Xyce, below).
 
 **Verilog-A on Xyce.** The Verilog-A rows of this section use a one-resistor module, `vres.va`, in the divider
@@ -1583,6 +1584,77 @@ undefined macro too; `` `define attr(txt) (*txt*) `` as the CMC trees do), and a
 right on both engines, `out` 0.5; left on a node of its own the port floats: VACASK's analysis fails with
 `NaN found in vector, row node 'tn'`, Xyce warns that the node has one terminal and no DC path to ground and
 runs.
+
+A Verilog-A instance's parameters, given on the instance or on its model card, run on Xyce as on VACASK. PyMS
+takes a parameter the module declares `(* type="instance" *)` on the instance line only and every other one (a
+model parameter) on the model card only, so vamos's Xyce deck prints the model parameters on a card of the
+instance, `<instance>__va`, and the instance parameters on its line (`--vamos-keep` keeps the deck):
+
+```
+$ cat vres.va va.scs
+`include "disciplines.vams"
+module vres(p, n);
+  inout p, n;
+  electrical p, n;
+  parameter real r = 1k;
+  (* type="instance" *) parameter real g = 0;
+  analog I(p, n) <+ V(p, n) * (1 / r + g);
+endmodule
+// Verilog-A parameters: a card's, an instance's
+simulator lang=spectre
+ahdl_include "vres.va"
+model rva vres r=3k
+V1 (in 0) vsource dc=1
+X1 (in out) rva g=1m
+R2 (out 0) resistor r=1k
+X2 (in out2) vres r=3k
+R3 (out2 0) resistor r=1k
+op1 dc
+$ spectre --vamos-analog=vacask va.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep -E '"out2?"' va.raw/op1.dc
+"out" "V" 5.714285714285715e-01
+"out2" "V" 2.500000000000000e-01
+$ spectre --vamos-analog=xyce --vamos-keep va.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep -E '"out2?"' va.raw/op1.dc
+"out" "V" 5.714285711836735e-01
+"out2" "V" 2.499999998125000e-01
+$ grep -E '^(\.model|y)' va.run.*/vamos_a1.cir
+.model X1__va vres r=3000.0
+yvres X1 in out X1__va g=0.001
+.model X2__va vres r=3000.0
+yvres X2 in out2 X2__va
+```
+
+Integer and string values (`k=2`, `sel="two"`), an `aliasparam` name, several instances and modules, a subckt
+parameter, a `dev=`, `mod=` or `param=` sweep of such a parameter (also one the instance does not give) and an
+alter of the instance or of its card gave VACASK's values on Xyce. The card parameters of a module that runs as
+a Xyce letter device (an `xyceModelGroup` with an `xyceLevelNumber`, as the CMC models declare) still go on the
+device line, Xyce's netlist error (Troubleshooting). A `-va,define` reaches Xyce's PyMS too, with or without a
+value (PyMS keys its compiled modules on the macros, so runs with other macros never share a build); openvaf-r
+leaves a macro given a value undefined, so VACASK refuses that form:
+
+```
+$ head -n 4 vres.va
+`include "disciplines.vams"
+`ifdef BIGR
+`define RV 4k
+`endif
+$ spectre --vamos-analog=xyce -va,define BIGR va.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep '"out"' va.raw/op1.dc
+"out" "V" 1.999999998400000e-01
+$ spectre --vamos-analog=xyce -va,define RV=3k va.scs | tail -n 1
+spectre completes with 0 errors, 0 warnings, and 0 notices
+$ grep '"out"' va.raw/op1.dc
+"out" "V" 2.499999998125000e-01
+$ spectre --vamos-analog=vacask -va,define RV=3k va.scs | grep -A1 'Error from'
+Error from spectre during initial setup.
+    -va,define RV=3k: openvaf-r leaves a macro that is given a value undefined (-D RV=3k: an `ifdef RV takes its else branch, and `RV is not declared); not supported on VACASK in v1: give -va,define RV alone, or `define the value in the Verilog-A source (§2.3)
+```
+
+(VACASK gives `out` 0.2 for `-va,define BIGR` too.)
 
 The other way round, some sweeps and alters are refused on VACASK and run on Xyce. VACASK evaluates a parameter
 that the netlist binds to an expression again at each analysis after a change of a netlist parameter, temp or
@@ -1988,8 +2060,8 @@ The sweep is one Xyce deck: `vamos_a3.cir` holds `.STEP rval LIST 1000.0 2000.0`
 With Verilog-A, a Xyce run directory also holds the modules' files, at the paths that the decks' `.hdl` lines
 give: a module named by a base name sits beside the decks (`.hdl "vres.va"`), and one named with a directory
 keeps that path, with the files it includes. PyMS gives a module without Xyce's attributes those of another
-`.va` file in the directory of its `.hdl` path, so no directory below the run directory holds two modules'
-files: a module that would share one with another module gets a directory of its own, `vamos_va<k>/`, with its
+`.va` file in the directory of its `.hdl` path whose name extends its own or the other way round (`res2.va` beside
+`res.va`; PyMS 1.1.7), so no directory below the run directory holds two modules' files: a module that would share one with another module gets a directory of its own, `vamos_va<k>/`, with its
 include tree. Two modules of one `lib/` that include `../inc/rdefs.vams` run as `.hdl "lib/vares.va"` and
 `.hdl "vamos_va1/lib/vres.va"`.
 
@@ -2411,7 +2483,7 @@ netlist's and setup's warnings (`tr2 readic: 1 current entries of /work/spectre/
 | `+paramdefault <f>`, `=paramdefault <f>`, `-paramdefault` | defaults for analysis and `options` parameters the netlist does not set (lines `primitive parameter value`; of two lines for one parameter the later wins); the same `+`/`=`/`-` rules |
 | `+errpreset=<p>`, `+aps=<p>`, `++aps=<p>` | the errpreset of every `tran` that sets none; `+aps=`/`++aps=` override every `tran`'s |
 | `-mts` | multi-technology mode off: `options` statements inside subckts are global (a note). Without it such a statement is an error (Troubleshooting), as v1 does not model the multi-technology mode |
-| `-ahdllibdir <dir>`, `-va,define <m>` | `-ahdllibdir`: where VACASK keeps the Verilog-A it compiles; on Xyce, for a netlist with Verilog-A, a note (`-ahdllibdir lib: not applied on Xyce, whose PyMS keeps the Verilog-A it compiles in its own cache (PYMS_VAE_CACHE, by default /tmp/pyms_vae_cache; §2.5)`), and no directory is made. `-va,define`: a macro the Verilog-A compiler defines, for `` `ifdef `` (VACASK). A value, `-va,define <m>=<v>`, is an error on VACASK for a netlist with Verilog-A: openvaf-r would leave the macro undefined (Troubleshooting). `` `define `` the value in the Verilog-A source instead. On Xyce, whose Verilog-A compile takes no macro, every `-va,define` is an error for a netlist with Verilog-A (Troubleshooting) and a note for one without |
+| `-ahdllibdir <dir>`, `-va,define <m>` | `-ahdllibdir`: where VACASK keeps the Verilog-A it compiles; on Xyce, for a netlist with Verilog-A, a note (`-ahdllibdir lib: not applied on Xyce, whose PyMS keeps the Verilog-A it compiles in its own cache (PYMS_VAE_CACHE, by default /tmp/pyms_vae_cache; §2.5)`), and no directory is made. `-va,define`: a macro the Verilog-A compiler defines, for `` `ifdef `` (VACASK). A value, `-va,define <m>=<v>`, is an error on VACASK for a netlist with Verilog-A: openvaf-r would leave the macro undefined (Troubleshooting). `` `define `` the value in the Verilog-A source instead. On Xyce every `-va,define`, with or without a value, reaches the Verilog-A compile (PyMS's `PYMS_DEFINES`, after any the environment gives) |
 | `+escchars` | a backslash before each character of a PSF signal name that is not a letter, a digit, `_`, `!`, `.` or `:` (an ADE option): `a<0>` is `a\<0\>`, `a b` is `a\ b`. `.` and `:` stay as they are, the separators of a path and of a terminal, so a node `b\.c` is `b.c` there too. The title, the descriptions and the `logFile`'s names of analyses and files are written as they are; `psfcheck.py --escchars` reads the files |
 | `+top <subckt>`, `+interactive[=type]`/`+inter` | errors (exit 2) |
 | `-uwifmt <x>`, `-uwilib <x>`, `+recover[=f]`/`+rec`, `+mpssession=`, `+mpshost=`, `-slave <x>`, `-slvhost <h>`, `+mdlcontrol`, `+mdlcontrole`, `=mdlcontrol`/`=mdl <f>`, `=mdlcontrole`/`=mdle <f>` | unsupported: a warning that gives the reason (`-slave x is not supported yet (no slave session, a Spectre run that another tool controls: vamos runs the netlist, then exits)`): no UWI output, no recovery, no MPS or slave session, no MDL measurements |
@@ -2546,8 +2618,8 @@ file and line. A construct that v1 does not run is an error that names it, with 
 | `<file>:<line>: o2 options inside subckt s1: Spectre's multi-technology mode scopes temp, tnom, scale and scalem given there to the subckt, which v1 does not model (an error in v1; -mts makes them global, §3.6)` (exit 2) | an `options` statement inside a subckt, whatever it sets (`reltol` too): v1 does not model Spectre's multi-technology mode, which scopes the statement's temp, tnom, scale and scalem to the subckt. Give `-mts`, which makes them global with the notice `o2 options inside subckt s1: global under -mts (§3.6)`, or move the statement to the top level |
 | `xf xf1: xf is not available on Xyce (§3.11); use --vamos-analog=vacask` (exit 2) | `xf` runs on VACASK only |
 | `` -va,define BIGR=1: openvaf-r leaves a macro that is given a value undefined (-D BIGR=1: an `ifdef BIGR takes its else branch, and `BIGR is not declared); not supported on VACASK in v1: give -va,define BIGR alone, or `define the value in the Verilog-A source (§2.3) `` (exit 2) | a `-va,define` with a value, on the command line or in the defaults variable, for a netlist with Verilog-A on VACASK: openvaf-r takes `-D NAME=VALUE` but leaves `NAME` undefined, so the module would compile its `` `else `` branch with exit status 0. Give the name alone (`-va,define BIGR` selects the `` `ifdef BIGR `` branch), or `` `define `` the value in the `.va` file. On Xyce see the next row |
-| `` -va,define BIGR: not supported on Xyce in v1: Xyce's Verilog-A compile (PyMS) takes no macro definitions, so the module would compile as if BIGR were not defined (an `ifdef BIGR takes its `else branch) with exit status 0; run it on VACASK, or `define BIGR in the Verilog-A source (§2.3) `` (exit 2), and for a value `` ...; `define BIGR 1 in the Verilog-A source (§2.3) `` | any `-va,define`, on the command line or in the defaults variable, on Xyce for a netlist with Verilog-A. PyMS takes no macro: a file that defines the macro and includes the module's source was tried, and PyMS reused its first build after the source was edited, so v1 gives none. Run it on VACASK, where `-va,define BIGR` selects the `` `ifdef BIGR `` branch, or `` `define `` the macro in the `.va` file. For a netlist without Verilog-A it is the note `-va,define BIGR: not applied on Xyce, whose .hdl compile takes no macro definitions (§2.3)` |
-| `X1: Verilog-A parameters (r) on Xyce: PyMS ignores parameter overrides, so they are not supported (VACASK honours them)` (exit 2) | a Verilog-A instance with parameters on Xyce, given on the instance (`X1 (a b) vres r=500`) or by its model card (`model rva vres r=500`): Xyce's Verilog-A route (PyMS) ignores them. Use VACASK |
+| `X1: Verilog-A parameters (r) on Xyce: vamos cannot tell module vres's instance parameters from its model parameters (an undefined macro at a parameter declaration (...)), and Xyce takes an instance parameter on the instance line only (on the model card it is ignored) and a model parameter on the card only; not supported (VACASK honours them)` (exit 2) | a Verilog-A instance with parameters on Xyce whose module's parameter declarations vamos's own reading of the source could not finish (the reason in brackets: an undefined macro at a declaration, an unbalanced `` `ifdef ``, an include it did not find), so it cannot print each parameter where PyMS takes it. Fix what the message names, or use VACASK. (The parameters of every other Verilog-A instance and card run on Xyce: Verilog-A on Xyce, above) |
+| `` sweep sw1: the instances of Verilog-A card c1 cannot be told apart from those of another card of its module (it sets no parameter; §3.9 merges a card into its instances): a mod= target on it is not supported in v1 (target the instances with dev=) `` (exit 2; for an alter `` alter of Verilog-A card c1: its instances cannot be told apart ...: not supported in v1 (alter the instances with dev=) ``) | a `mod=` sweep or alter of a Verilog-A card that sets no parameter, on Xyce: vamos finds a card's instances by the parameter values the card gave them. VACASK refuses it too. Give the card a parameter, or sweep or alter the instances with `dev=` |
 | `nodes A and a differ only in case; Xyce would merge them` (exit 2), and the same for elements (`elements load and Load differ only in case; Xyce would merge them`) | Spectre names are case-sensitive and Xyce's are not. Rename one of them, or use VACASK. Two elements whose names differ in more than case never share a Xyce name (Names in the engines' decks): `load` beside `Rload` runs |
 | `node b.c at the top level and node c of b have one hierarchical name, b.c: a name that holds a '.' must not repeat another path; not supported in v1 (§3.2)` (exit 2), and the same for two instances | an escaped name with a dot (`b\.c`) spells the path of another (the node `c` of the instance `b`), and one signal could not carry both (Quick start, after Names in the engines' decks). Rename one of them |
 | `` analysis `nz1': noise nz1: the output across two nodes (a, b) is not supported on Xyce in v1 (Xyce aborts on .NOISE V(a,b)); VACASK runs it `` (exit 2) | a noise output whose second node is not ground, on Xyce. Use VACASK |
@@ -2558,7 +2630,7 @@ file and line. A construct that v1 does not run is an error that names it, with 
 | `` <file>: `include "rdefs.vams" is not found beside the file that includes it, where Xyce's PyMS looks for it [E75], ... `` (exit 2) | a Verilog-A header that Xyce's PyMS would not find, so it would build the module without it: it looks beside the file that includes it (and in `PYMS_INCLUDE_PATH`), not in `CDS_VLOGA_INCLUDE` or `-I` (the message names the directory that holds the header). Put the header beside the `.va` file, or use VACASK |
 | `` Xyce's Verilog-A compiler, PyMS in /usr/local/share/xyce/PyMS, is version 1.1.6: vamos runs Verilog-A on Xyce with PyMS 1.1.7 or later, which compiles right or refuses the forms an older PyMS gets silently wrong (§4.5 item 13); update Xyce's PyMS (or point PYMS_DIR at a newer one), or run on VACASK `` (exit 2; `is older than 1.1.0 (it states no version)` for a PyMS without a version) | a netlist with Verilog-A on Xyce whose PyMS (found as Xyce finds it: `PYMS_DIR`, then `$XYCE_PREFIX/share/xyce/PyMS`, `/usr/local` by default, then the source trees) is older than 1.1.7, which compiled some Verilog-A silently wrong (an undefined macro, a parameter default it took as 0, a current read in an expression). Update Xyce's PyMS, or run on VACASK |
 | `` Xyce, the deck of analysis `op1' (vamos_a1.cir): Netlist error: .HDL: PyMS compilation failed for vres.va xyce_device_gen: error: vres.va:5: `RV is not defined: no `define RV precedes this use in the file or the files it includes (an undefined macro is an error in Verilog-A) `` (exit 2) | Verilog-A that PyMS refuses, on Xyce, with its file and line: here a macro that is not defined where it is used (nothing in the module's include tree `` `define ``s it, its `` `define `` sits in an `` `ifdef `` branch that is not taken, an `` `undef `` came before the use, or the `` `define `` comes after it), also an undefined `` `attr(...) `` annotation (the CMC trees `` `define attr(txt) (*txt*) ``). VACASK refuses these too (`` macro '`RV' has not been declared ``). `` `define `` the macro before its use; the macros of the standard headers (`` `M_PI ``, `` `P_K ``) need no `` `define ``, but the module must `` `include "constants.vams" `` on both engines (`` `M_PI is not defined `` on Xyce, `` macro '`M_PI' has not been declared `` on VACASK) |
-| `` Xyce, the deck of analysis `op1' (vamos_a1.cir): PyMS could not build Verilog-A module <module> (<file>), which Xyce would run as a device that contributes nothing, so the run stops (§4.5 item 13): ... `` (exit 2) | a Verilog-A module whose PyMS build failed for good (its retry failed too, a step timed out, or the build raised), for example any module when `PYMS_VAE_CACHE` holds a space (the message says so). Use VACASK, or a cache path without a space. (A module that uses `$abstime` builds since PyMS 1.1.4) |
+| `` Xyce, the deck of analysis `op1' (vamos_a1.cir): PyMS could not build Verilog-A module <module> (<file>), which Xyce would run as a device that contributes nothing, so the run stops (§4.5 item 13): ... `` (exit 2) | a Verilog-A module whose PyMS build failed for good (its retry failed too, a step timed out, or the build raised), for example any module when `PYMS_VAE_CACHE` holds a space (the message says so). Use VACASK, or a cache path without a space |
 | `dc dc1 at rv=0: resistor R1 on path top level: r=rv evaluates to 0, and vamos prints a short only for the constant r=0: ...`, `dc op2 (after alter a1): resistor R1 on path top level: its r, set by a sweep or alter, is 0, ...` (exit 2) | a resistance that a sweep or an alter drives to 0 where an analysis runs: a sweep of a parameter that its `r` reads (`r=rv` and `dc1 dc param=rv start=0 stop=2k step=1k`), or a `dev=` sweep or an alter of the `r` itself. Spectre would make it a short, while VACASK's resistor fails with NaN at r=0 and Xyce's turns into an open circuit, so v1 refuses it on both engines. Start the sweep above 0 (`start=1k`), or alter to a value above 0. For a short, give the resistor the constant `r=0`, or a constant expression equal to 0 (`r=1k-1k`): both engines run it as one (VACASK as a 0 V source, with the notice `R1: r=0 printed as a 0 V vamos_vsource (VACASK's resistor masters cannot take r=0)`). `r=0*rv` reads a parameter, so it is this error |
 | `dc dc1: R1 prints as a short (its r is the constant 0, §3.8, §4.5 item 10: a 0 V source on VACASK, R=0 on Xyce); a sweep of its r is not supported in v1`, `alter a1: R1 prints as a short (...); an alter of its r is not supported in v1 on VACASK (Xyce runs it)` (exit 2) | a sweep of a parameter of a resistor printed as a short (its `r` is the constant 0), on both engines, or an alter of one on VACASK, whose 0 V source has none of the resistor's parameters. Xyce runs the alter (`r` altered to 1k: `out` goes from 1 to 0.5). To sweep the resistor, give it a value other than 0 in the netlist: with `r=1k`, `dc dev=R1 param=r start=1k stop=3k step=1k` runs on both engines. Run the alter with `--vamos-analog=xyce`, or each value as a netlist of its own |
 | `sweep sw1: a sweep of the isnoisy of R1 is not supported in v1: the switch chooses the resistor's form (VACASK's noisy, Xyce's noise-free G form, §4.5 item 7) per deck, not per point; alter it between analyses instead`, `alter a1: isnoisy=maybe of R1 is not yes, no, true, false or a number (§4.5 item 7)` (exit 2) | a sweep of a resistor's noise switch (`dev=R1 param=isnoisy`), on both engines, or an alter of it to a word it does not take. Alter it between analyses instead: with `a1 alter dev=R1 param=isnoisy value=no` between two noise analyses the run goes through on both engines, and the second analysis lists `R2` alone, with the noise of a netlist that gives `R1` `isnoisy=no` |
@@ -2576,7 +2648,7 @@ file and line. A construct that v1 does not run is an error that names it, with 
 | `sweep sw1: the delay of the exp source V1 is folded into its td1 and td2 (§3.8.1), so a sweep of it would set VACASK's absolute td1 and nothing in Xyce's deck: not supported in v1 (write delay=<a netlist parameter> and sweep that with param=)` (exit 2) | a `dev=` sweep of an exp source's `delay`, on both engines. Write the delay as a parameter and sweep that: `parameters dl=0.5u`, `delay=dl` and `sw1 sweep param=dl values=[0.5u 1u]` run on both engines |
 | `option reltol=0.0001 is not mapped on Xyce: ...` (also `vabstol`, `iabstol`), `tran tr: Xyce takes the method (traponly) only; ...`, `` nz1: noise analysis `nz1' on Xyce: the per-instance STRUCTs carry only `total' (DNO), no contributions `` (notices) | information: Xyce's differences, the first two for the settings the run makes (Quick start, Choosing the engine) |
 | `<dir>/code/bsimcmg.va: openvaf-r failed (exit status 65):` followed by openvaf-r's errors, the first `error: unexpected token '(*'; expected ';'` at `` module bsimcmg(d, g, s, e) `attr(...) `` (exit 2) | a CMC Verilog-A model (the benchmark decks under xyce's `utils/ADMS/examples`, run as `spectre -I../code gummel_n.sp` in the `bsimcmg_107.0.0` tree, whose card names its module `bsimcmg`; the 108 and 110 trees stop at the model-card row below first) on VACASK: openvaf-r does not compile these trees yet (the design's phase 3 runs them on VACASK once it does) |
-| `` Xyce, the deck of analysis `srcSweep' (vamos_a1.cir): Netlist error in file vamos_a1.cir at or near line 9 Unrecognized parameter BULKMOD for device MX1 `` and `` ... Unrecognized fields for device MX1 `` (exit 2) | the same CMC model on Xyce, the 107 tree: PyMS compiles the module, and its model card's parameters, which vamos merges onto the device line (v1 does not run Verilog-A model-card parameters on Xyce, docs/VAMOS_SPECTRE_DESIGN.md §0), are Xyce's netlist error |
+| `` Xyce, the deck of analysis `srcSweep' (vamos_a1.cir): Netlist error in file vamos_a1.cir at or near line 9 Unrecognized parameter BULKMOD for device MX1 `` and `` ... Unrecognized fields for device MX1 `` (exit 2) | the same CMC model on Xyce, the 107 tree: PyMS compiles the module, and its model card's parameters, which vamos merges onto the device line (v1 does not run the model-card parameters of a module that runs as a Xyce letter device, an `xyceModelGroup` such as the CMC models declare, docs/VAMOS_SPECTRE_DESIGN.md §0), are Xyce's netlist error |
 | `model nmos1 is left out: model type BSIMCMG is not supported; the .hdl files declare bsimcmg_108; using it is an error` (a notice at the card), then `X1: model nmos1 is left out: ...` (exit 2) | the BSIM-CMG 108 and 110 benchmark cards name `bsimcmg`, while their `.hdl` files declare `bsimcmg_108` and `bsimcmg_110`, and v1 has no built-in `bsimcmg` (§0): these two trees stop here, on both engines, before the two rows above, until the card is renamed (`bsimcmg_108`) |
 | `.alter is not supported (one simulation per run)` (exit 2) | SPICE mode: `.alter` is not in v1. Run each variant as a netlist of its own, or use the Spectre language's `alter` |
 | `.print ids=par'-i(vdrain)': an output expression is not written (§0)` (warning); `.hdl is read as ahdl_include`, `.option post ignored (output and listing control)`, `a SPICE-mode netlist saves allpub (...)` (notices) | a SPICE-mode netlist's output requests: the saved signals are written, output expressions are not |

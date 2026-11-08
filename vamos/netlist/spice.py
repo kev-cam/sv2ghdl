@@ -3892,14 +3892,33 @@ def _split_args(text: str, lparen: int) -> Tuple[List[str], int]:
     return args, -1
 
 
-def _va_params(body: str, spectre: bool = False) -> Tuple[List[str], Optional[str]]:
+def _va_attr_mark(m: "re.Match[str]") -> str:
+    """_va_params: a (* ... *) block as a blank, or as _VA_KIND_MARK[kind] when it says type="instance" or
+    type="model" (its last type= wins)."""
+    kind = None
+    for k, v in _VA_ATTR.findall(m.group(0)[2:-2]):
+        if k == "type":
+            kind = v.strip('"')
+    return " %s " % _VA_KIND_MARK[kind] if kind in _VA_KIND_MARK else " "
+
+
+_VA_KIND_MARK = {"instance": "\x01I", "model": "\x01M"}
+
+
+def _va_params(body: str, spectre: bool = False) -> Tuple[List[str], Optional[str], Set[str], Dict[str, str]]:
     """The names declared by `parameter` and `aliasparam` in an expanded module body (not localparam),
-    the (* ... *) attributes before them skipped; (names, the first unexpanded macro at a declaration head).
-    spectre (the Spectre dialects, phase 2): the analog block is `analog` not followed by `function`, so
-    the analog functions a CMC model declares before its parameters (BSIM6.1.1.va:656) do not end the
-    declarations; the HSPICE route keeps its reading."""
+    the (* ... *) attributes before them skipped; (names, the first unexpanded macro at a declaration head,
+    the lower-cased names of the instance parameters, each aliasparam's lower-cased name -> its target's).  An instance parameter is one whose declaration
+    statement carries a (* type="instance" *) attribute, before `parameter` or before its `;` (the last
+    type= of the statement wins), as PyMS reads them (utils/PyMS/vae/parser.py): Xyce takes such a
+    parameter on the instance line only, and every other one on the model card only (FIX2E8); an
+    aliasparam is of its target's kind.  spectre (the Spectre dialects, phase 2): the analog block is
+    `analog` not followed by `function`, so the analog functions a CMC model declares before its
+    parameters (BSIM6.1.1.va:656) do not end the declarations; the HSPICE route keeps its reading."""
     names: List[str] = []
-    text = _VA_ATTR_BLOCK.sub(" ", body)
+    inst: Set[str] = set()
+    aliases: Dict[str, str] = {}
+    text = _VA_ATTR_BLOCK.sub(_va_attr_mark, body)
     m_analog = re.search(_VA_ANALOG_BLOCK if spectre else r"\banalog\b", text)
     decl_end = m_analog.start() if m_analog else len(text)   # declarations precede the analog block
     pos = 0
@@ -3911,8 +3930,10 @@ def _va_params(body: str, spectre: bool = False) -> Tuple[List[str], Optional[st
         lead = len(stmt) - len(stmt.lstrip())
         if at + lead >= decl_end:
             break                                           # the analog block holds no declarations
+        marks = re.findall("\x01([IM])", s)
+        s = re.sub("\x01[IM]", " ", s).strip()
         if s.startswith("`"):
-            return names, s.split()[0]
+            return names, s.split()[0], inst, aliases
         m = _VA_PARAM.search(s)
         if m is None:
             continue
@@ -3920,17 +3941,24 @@ def _va_params(body: str, spectre: bool = False) -> Tuple[List[str], Optional[st
             break
         head = s[:m.start()].strip()
         if "`" in head:
-            return names, head
+            return names, head, inst, aliases
         kind = m.group(1)
         if kind == "localparam":
             continue
         decl = s[m.end():].strip()
         decl = re.sub(r"^(real|integer|string)\b", "", decl).strip()
         for piece in _split_decls(decl):
-            mm = re.match(r"([A-Za-z_][A-Za-z0-9_$]*)", piece.strip())
+            mm = re.match(r"\s*([A-Za-z_][A-Za-z0-9_$]*)", piece)
             if mm:
                 names.append(mm.group(1))
-    return names, None
+                if kind == "aliasparam":
+                    target = re.match(r"\s*=\s*([A-Za-z_][A-Za-z0-9_$]*)", piece[mm.end():])
+                    if target:
+                        aliases[mm.group(1).lower()] = target.group(1).lower()
+                elif marks and marks[-1] == "I":
+                    inst.add(mm.group(1).lower())
+    inst.update(a for a, t in aliases.items() if t in inst)
+    return names, None, inst, aliases
 
 
 def _split_decls(decl: str) -> List[str]:
@@ -3974,7 +4002,7 @@ def _va_modules(path: str, search: Sequence[str], defines: Sequence[str], spectr
     (CDS_VLOGA_INCLUDE and -I; the *.vams standard headers are skipped), and the declaration
     preprocessor runs with `defines` (-va,define's NAME or NAME=value) defined.  Each VaModule holds
     the names its `parameter` and `aliasparam` declarations give (not localparam; the (* ... *)
-    attributes skipped) and the module header's attributes.  When the preprocessor cannot finish
+    attributes skipped), the module header's attributes and the instance parameters (_va_params).  When the preprocessor cannot finish
     (an undefined macro at a declaration, an unbalanced `ifdef, an include not found), params is
     None and attrs["vamos_unknown_params"] names the reason: the caller notes it, and the engines
     still fail loudly on a wrong parameter name.  spice.d_hdl uses it too, and both parses store
@@ -4003,7 +4031,7 @@ def _va_modules(path: str, search: Sequence[str], defines: Sequence[str], spectr
             if post is not None:
                 for k, v in _VA_ATTR.findall(post.group("attrs")):
                     attrs.setdefault(k, v.strip('"'))
-        params, bad = _va_params(body, spectre)
+        params, bad, inst, aliases = _va_params(body, spectre)
         reason = None
         if bad is not None:
             reason = "an undefined macro at a parameter declaration (%s)" % bad.strip()[:40]
@@ -4012,5 +4040,7 @@ def _va_modules(path: str, search: Sequence[str], defines: Sequence[str], spectr
         if reason is not None:
             attrs["vamos_unknown_params"] = reason
             params = None
-        out.setdefault(name.lower(), VaModule(name, os.path.abspath(path), params, attrs))
+        out.setdefault(name.lower(), VaModule(name, os.path.abspath(path), params, attrs,
+                                              sorted(inst) if params is not None else None,
+                                              aliases if params is not None else None))
     return out, list(pre.files)

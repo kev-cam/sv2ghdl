@@ -1,7 +1,7 @@
 * vamos: a Verilog-A device through .hdl (docs/VAMOS_AMS_DESIGN.md §4.2, §4.4, §4.5, e2e 9).
 * y1 instantiates the module directly with its default r=2000; y2 names a .model card of the
 * module (r=500) and adds m=2; y3 overrides the card's r on the X line.  VACASK honours all
-* three; Xyce (PyMS) ignores Verilog-A parameter overrides, so vamos refuses y2 and y3 there.
+* three; Xyce takes no multiplier on a Verilog-A device, so vamos refuses y2 there (y3 runs, FIX2E8).
 .hdl "emit_vres.va"
 .model rcard vres r=500
 v1 s1 0 1

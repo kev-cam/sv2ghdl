@@ -174,8 +174,10 @@ STANDARD_HEADERS = ("disciplines.vams", "constants.vams", "discipline.h", "disci
 PYMS_VAE_DIRS = ("/usr/local/share/xyce/PyMS/vae", "/usr/local/src/xyce/utils/PyMS/vae")
 # Xyce's messages that say nothing about the run: PyMS registering a module, its preprocessor
 # skipping a standard header it does without (§4.5 item 13); they stay in the deck's log
+# (FIX2E8: and PyMS's report of a math library it built for a .STEP/.DC point's parameter values, PyMS >= 1.1.5 [A14],
+# which a sweep of a Verilog-A parameter prints once per value: progress, not a warning)
 _QUIET = re.compile(r"\.HDL: compiled and registered |^preprocess: warning: '(?:[^']*/)?(?:disciplines\.vams|"
-                    r"constants\.vams|disciplines?\.h|constants\.h)' not found")
+                    r"constants\.vams|disciplines?\.h|constants\.h)' not found|^build_vae_so: built \S+\.so")
 # the signals that, sent to Xyce by someone other than vamos, make status 3 (§2.7's table)
 OUTSIDE_STOPS: Tuple[int, ...] = tuple(getattr(signal, n) for n in ("SIGKILL", "SIGTERM", "SIGINT", "SIGHUP")
                                        if hasattr(signal, n))
@@ -187,8 +189,8 @@ _DIAG_HEAD = re.compile(r"^(?:(?:Netlist|Simulation|User|Device|Analysis)\s+)?(?
                         r"|^Simulation aborted|^\*\*\* Xyce Abort|^Time step too small"
                         r"|^function \S+::\S+:|^preprocess: |^Failed DC sweep steps"
                         # PyMS compiling a module: a failed build it retries without the zero-valued
-                        # parameters; when the retry fails too (an undeclared `$abstime', measured
-                        # 2026-10-17) the module has no evaluator at all, which pyms_failures reports
+                        # parameters; when the retry fails too (measured 2026-10-17 with `$abstime', which
+                        # PyMS 1.0 lacked) the module has no evaluator at all, which pyms_failures reports
                         r"|^build_vae_so: |^BuildError: |^\S+\.(?:cpp|hpp|h):\d+:\d+: error: ", re.I)
 _DIAG_ERROR = re.compile(r"error|abort|fatal|too small|maximum number of failures|failed dc sweep|exiting|singular",
                          re.I)
@@ -325,13 +327,45 @@ def apply_alter(nl: ir.Netlist, act: "Action", dependents: Optional[Set[str]] = 
         else:
             inst.params[key] = ir_value(value)
     elif kind == "model":
+        vas = {k.lower() for k in nl.va_modules}
         for m in nl.models().values():
             if m.name == name or m.base == name:
-                m.params[ir_param(m.prim, "card", param)] = ir_value(value)
+                key, new = ir_param(m.prim, "card", param), ir_value(value)
+                if m.prim and m.prim.lower() in vas:
+                    _alter_va_card(nl, m, key, new, act.origin)
+                m.params[key] = new
     elif kind == "option":
         setattr(nl, name, float(value))
     elif kind == "variable":
         _set_variable(nl, name, float(value), dependents)
+
+
+def _alter_va_card(nl: ir.Netlist, m: ir.Model, key: str, new: ir.Expr, origin: str) -> None:
+    """FIX2E8: an alter of a Verilog-A card's parameter reaches its instances: spectre.parse merged the card's
+    parameters into each of them, the same Expr objects (§3.9), and the Xyce deck prints the instances' (a card per
+    instance, xyce.i_y), so the card alone changed nothing (measured: op1 0.5 where VACASK gives 1/3).  An instance
+    of the card (one of its values is the card's) takes the new value unless it gives the parameter itself; it shares
+    the new object, so a later alter finds it again.  A card that sets no parameter cannot be told from another of its
+    module's: an error, as on VACASK (va_card_cards)."""
+    if not m.params:
+        raise NoteError([error(origin, "alter of Verilog-A card %s: its instances cannot be told apart from those of "
+                                       "another card of its module (it sets no parameter; §3.9 merges a card into its "
+                                       "instances): not supported in v1 (alter the instances with dev=)" % m.name)])
+    want, mine = key.lower(), list(m.params.values())
+    old = next((v for k, v in m.params.items() if k.lower() == want), None)
+    bodies: List[Sequence[object]] = [nl.body] + [s.body for s in _subckts(nl).values()]
+    for body in bodies:
+        for it in ir.flat_items(body):
+            if not isinstance(it, ir.Instance) or it.kind != "y" or (it.master or "").lower() != m.prim.lower():
+                continue
+            if not any(v is c for v in it.params.values() for c in mine):
+                continue                                              # an instance of another card
+            ks = [k for k in it.params if k.lower() == want]
+            if ks and it.params[ks[-1]] is not old:
+                continue                                              # its own value of the parameter
+            for k in ks:
+                del it.params[k]
+            it.params[key] = new
 
 
 def find_instance(nl: ir.Netlist, path: str) -> ir.Instance:
@@ -754,7 +788,9 @@ def place_va(hdl: Sequence[str], run_dir: str) -> List[str]:
     name has no directory to look in, so run_dir holds any number of modules [E104]; a module that needs a
     directory (an include that climbs out of its own, or a base name another file holds) sits in one no
     other module's file shares, run_dir/<its layout> when that is free, else its own vamos_va<k>/ with its
-    include tree (a vamos_va<k>/ holds one module)."""
+    include tree (a vamos_va<k>/ holds one module).  FIX2E8 re-measured PyMS 1.1.7: the fallback now lends attributes
+    only between variant file names (one stem extends the other: lib/res2.va beside lib/res.va ran as res's R letter
+    device, "Unrecognized parameter", rc 1; lib/cond.va beside lib/zres.va ran as itself), so the rule stays."""
     names: List[str] = []
     placed: Dict[str, str] = {}
     users: Dict[str, Set[str]] = {}         # a directory of run_dir ("" itself) -> the module names with files there
@@ -1188,7 +1224,7 @@ class _Runner:
                     fh.write(d.text)
         except OSError as exc:
             return self.fail("cannot write the Xyce decks: %s" % exc, PHASE_SETUP)
-        self.env = engines_env()
+        self.env = pyms_defines_env(engines_env(), self.job.va_defines if self.job is not None else ())
         with Signals() as intr:
             self.intr = intr
             try:
@@ -1424,8 +1460,6 @@ class _Runner:
                 files = sorted(set(m.path for m in modules.values()))
                 who = "a Verilog-A module" + (" of %s" % ", ".join(files) if files else "")
             why = ("the C++ compile of its evaluator failed: %s" % f.detail) if f.compiler else f.detail
-            if "$abstime" in f.detail:
-                why += "; PyMS has no $abstime [E125], VACASK runs the module"
             cache = self.env.get("PYMS_VAE_CACHE", "")
             if any(c.isspace() for c in cache):
                 why += "; PYMS_VAE_CACHE=%s holds a space, which PyMS's build cannot take" % cache
@@ -1591,6 +1625,21 @@ def xyce_exe() -> str:
     when it is executable), else tools.find_real("Xyce"); "" when there is none."""
     from vamos.ams import engines
     return engines.xyce_bin() or tools.find_real("Xyce") or ""
+
+
+def pyms_defines_env(env: Dict[str, str], defines: Sequence[str]) -> Dict[str, str]:
+    """env with the -va,define macros (NAME or NAME=VALUE) added to PYMS_DEFINES, each a shell word (PyMS >= 1.1.0
+    reads the variable with shlex.split, utils/PyMS/vae/xyce_device_gen.py, as a `define ahead of the top file, as
+    openvaf-r's -D), after any the environment already gives.  PyMS keys both
+    of its caches on the variable (the vae .so on its --define options, N_DEV_PyMS.C's shell slot on the variable's
+    text), so runs with other macros never share a build (FIX2E8, measured on 1.1.7).  env unchanged without any."""
+    if not defines:
+        return env
+    out = dict(env)
+    words = [out["PYMS_DEFINES"]] if out.get("PYMS_DEFINES", "").strip() else []
+    words.extend(shlex.quote(m) for m in dict.fromkeys(defines))
+    out["PYMS_DEFINES"] = " ".join(words)
+    return out
 
 
 def engines_env() -> Dict[str, str]:

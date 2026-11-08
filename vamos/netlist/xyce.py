@@ -86,10 +86,17 @@ rawfile reader finds i(<IR name>) in the I(B<name>) column):
             warns about an instance-typed one there), so every parameter goes on
             the device line, where a model-typed one is Xyce's "Unrecognized
             parameter" error and the output scan fails loudly [S3, 2026-10-10].
-            Any other module: Y<module> <name> <nodes> <card>, with .model <card>
-            <module>.  A Y instance with parameters is refused (PyMS ignores VA
-            parameter overrides), and so is a Verilog-A instance that needs a
-            multiplier (Y and letter lines alike take no m=)
+            Any other module: Y<module> <name> <nodes> <card> <instance parameters>,
+            with .model <card> <module> <model parameters>: the instance's parameters
+            (a Spectre card's merged in) split by kind, those the module declares
+            with (* type="instance" *) on the Y line, every other one on a card of
+            the instance (<name>__va), as PyMS >= 1.1.0 takes them (FIX2E8: on the
+            wrong side a model parameter is "Unrecognized parameter", an instance
+            one is ignored with a warning); a module without parameters shares
+            .model <module>__vamos <module>.  A swept Verilog-A parameter reads a
+            hook.  Parameters of a module whose declarations vamos could not read
+            are refused, and so is a Verilog-A instance that needs a multiplier (Y
+            and letter lines alike take no m=)
 Names are case-insensitive in Xyce: IR names (set_sim_case sensitive) that
 differ only in case are an error, as are names Xyce cannot parse.
 
@@ -349,6 +356,7 @@ class _Deck:
         self.checked: Set[int] = set()          # subckts whose names were checked
         self.iparams: Dict[int, Dict[str, Expr]] = {}     # instance id -> parameters after the Spectre rules
         self.hooks: Dict[Tuple[str, str], Tuple[str, Expr]] = {}   # (IR path, Spectre param) -> (.param, nominal)
+        self.card_hooks: Dict[Tuple[str, str], str] = {}  # (Verilog-A card, param) a mod= sweep sets -> its hook
         self.noise_input = step.noise_input if step is not None and step.kind == "noise" else None
         self.once_seen: Set[Tuple[str, str]] = set()
         self.quiet_paths: Set[str] = set()      # IR paths of the resistors printed in the noise-free G form
@@ -358,6 +366,16 @@ class _Deck:
         levels = (list(step.context) + ([step.own] if step.own is not None else [])) if step is not None else []
         if step is not None:
             self._hooks(step)
+        # FIX2E8 (a PyMS 1.1.7 bug, measured): under a .DC or .STEP of a .param, a Verilog-A parameter that reads it
+        # takes the module's declaration default at the first point when that point equals the .param's nominal
+        # (`.param rr=2k', r={rr}, `.DC rr LIST 2k 4k': 0.5 0.2 for 1/3 0.2; an off-grid nominal, a later point and
+        # a built-in device are right).  The nominal is never a result (every point sets the .param), so a deck with
+        # Verilog-A prints a swept variable's and a Verilog-A hook's nominal off the grid (off_grid)
+        self.swept_vars: Dict[str, List[float]] = {}
+        if nl.hdl:
+            for lv in levels:
+                if lv.target[0] == "variable":
+                    self.swept_vars[lv.target[1]] = _grid_points(lv.spec)
         # the deck sweeps a .param (a variable, or a hook): E126's trigger for a linear E/G gain that reads one
         self.param_sweep = bool(self.hooks) or any(lv.target[0] == "variable" for lv in levels)
         self.elaborate()
@@ -393,6 +411,9 @@ class _Deck:
         levels = list(step.context) + ([step.own] if step.own is not None else [])
         for lv in levels:
             kind, name, param = lv.target
+            if kind == "model":
+                self.va_card_hook(lv)
+                continue
             if kind != "instance":
                 continue
             inst = self.at(name)                       # L1 (phase 2c7): the taken branch's instance
@@ -437,6 +458,12 @@ class _Deck:
                 self.hooks[(name, param)] = (hook, inst.value)
             elif self.spectre and inst.kind == "j" and param == "area":
                 self.hooks[(name, param)] = (hook, inst.value if inst.value is not None else Num(1.0))
+            elif inst.kind == "y" and param != "m" and inst.master and inst.master.lower() in self.va \
+                    and T.va_letter(self.va[inst.master.lower()]) is None:
+                # FIX2E8: a Verilog-A (Y) parameter prints on the instance's card or line reading the hook (i_y)
+                # a nominal off the sweep's grid (every point sets the hook): the PyMS first-point bug (__init__)
+                pts = _grid_points(lv.spec)
+                self.hooks[(name, param)] = (hook, Num(off_grid(pts)) if pts else Num(0.0))
             elif inst.kind in ("v", "i"):
                 src = inst.source or Source()
                 where = _SOURCE_FIELD.get(param)
@@ -472,6 +499,36 @@ class _Deck:
                           "%s: on Xyce %s lies in subckt %s, which %d instance paths reach (%s): changing the "
                           "shared definition would change every path; not supported in v1 (§5.3)"
                           % (what, name, sub, len(paths), ", ".join(paths)))
+
+    def va_card_hook(self, lv) -> None:
+        """FIX2E8: a mod= sweep of a Verilog-A card's parameter.  The card is never printed (spectre.parse merged its
+        parameters into its instances, the same Expr objects, §3.9; i_y prints a card per instance), so every
+        instance of it on the paths the run takes whose value of the parameter is the card's reads one hook (as
+        VACASK's va_card_cards targets their cards).  A card that sets no parameter cannot be told from another of
+        its module's: an error, as on VACASK."""
+        _kind, name, param = lv.target
+        m = self.nl.models().get(name)
+        if m is None or not m.prim or m.prim.lower() not in self.va or T.va_letter(self.va[m.prim.lower()]):
+            return
+        if not m.params:
+            self.err(m.origin, "sweep %s: the instances of Verilog-A card %s cannot be told apart from those of another "
+                     "card of its module (it sets no parameter; §3.9 merges a card into its instances): a mod= target "
+                     "on it is not supported in v1 (target the instances with dev=)" % (lv.id, m.name))
+            return
+        want, mine = param.lower(), list(m.params.values())
+        old = next((v for k, v in m.params.items() if k.lower() == want), None)
+        hook = HOOK_PREFIX + "%s_%s" % (self.ename(name), param)
+        pts = _grid_points(lv.spec)
+        for path, it in (self.taken_map() or {}).items():
+            if it.kind != "y" or (it.master or "").lower() != m.prim.lower():
+                continue
+            if not any(v is c for v in it.params.values() for c in mine):
+                continue                                              # an instance of another card
+            own = [v for k, v in it.params.items() if k.lower() == want]
+            if own and own[-1] is not old:
+                continue                                              # its own value of param
+            self.hooks[(path, param)] = (hook, Num(off_grid(pts)) if pts else Num(0.0))
+        self.card_hooks[(name, param)] = hook
 
     def hook_name(self, path: str, param: str) -> Optional[str]:
         h = self.hooks.get((path, param))
@@ -960,8 +1017,10 @@ class _Deck:
                 self.err(p.origin, "parameter %s is reserved by vamos" % MF)
                 continue
             try:
+                pts = self.swept_vars.get(p.name)
+                value = Num(off_grid(pts)) if pts else p.expr        # FIX2E8: the PyMS first-point bug (__init__)
                 self.body.append(".param %s=%s" % (self.pname(p.name),
-                                                   self.xv(p.expr, p.origin, "parameter " + p.name)))
+                                                   self.xv(value, p.origin, "parameter " + p.name)))
             except _Skip:
                 pass
 
@@ -1448,21 +1507,66 @@ class _Deck:
                 fields.append("%s=%s" % (k, self.xv(v, inst.origin, "%s parameter %s" % (inst.name, k))))
             self.line(inst, fields)
             return
-        extra = [k for k in inst.params if k != "m"]
-        if extra:
-            self.err(inst.origin, "%s: Verilog-A parameters (%s) on Xyce: PyMS ignores parameter "
-                     "overrides, so they are not supported (VACASK honours them)"
-                     % (inst.name, ", ".join(extra)))
-            return
         if multiplied:
             self.err(inst.origin, "%s: a Verilog-A (Y) device takes no multiplier on Xyce (m= on it or on "
                      "an enclosing X instance); VACASK honours it" % inst.name)
             return
-        card = "%s__vamos" % module
-        if card not in self.cards:
-            self.cards.add(card)
-            self.body.append(".model %s %s" % (card, module))
-        self.body.append(" ".join(["y%s" % module, self.ename(inst.name)] + self.nodes(inst.nodes) + [card]))
+        # FIX2E8 (PyMS >= 1.1.0 applies them; measured on 1.1.7): a model parameter (no type="instance") is taken
+        # on the model card only (on the Y line: "Unrecognized parameter", rc 1), an instance parameter on the Y
+        # line only (on the card: "No model parameter G found ..., parameter ignored", a warning, the default
+        # used).  So the instance's parameters (a Spectre card's merged in, §3.9) are split by kind: the model
+        # ones on a card of this instance (VACASK prints one card per instance too), the instance ones on the line
+        params = {k: v for k, v in self.params_of(inst, scope).items() if k != "m"}
+        path = self.path_of(inst, scope) if self.hooks else None
+        for (ipath, p), (hook, _nominal) in self.hooks.items():
+            if path is not None and ipath == path and p != "m":
+                for k in [k for k in params if k.lower() == p.lower()]:
+                    del params[k]
+                params[p] = Name(hook)               # a sweep of it reads the hook (_hooks)
+        aliases = (va.aliases or {}) if va is not None else {}
+        if aliases:
+            # PyMS 1.1.7 knows no aliasparam name ("Unrecognized parameter GAL" on the line, "No model parameter RAL
+            # found ..., parameter ignored" on the card, measured): the target's name, as openvaf-r maps it
+            params = {aliases.get(k.lower(), k): v for k, v in params.items()}
+        kinds = va.instance_params if va is not None else None
+        if params and kinds is None:
+            why = ("the module was not read" if va is None else
+                   va.attrs.get("vamos_unknown_params") or "its declarations were not read")
+            self.err(inst.origin, "%s: Verilog-A parameters (%s) on Xyce: vamos cannot tell module %s's instance "
+                     "parameters from its model parameters (%s), and Xyce takes an instance parameter on the "
+                     "instance line only (on the model card it is ignored) and a model parameter on the card only; "
+                     "not supported (VACASK honours them)" % (inst.name, ", ".join(params), module, why))
+            return
+
+        def text(k: str, v: Expr) -> str:
+            if isinstance(v, Str) and '"' not in v.text:
+                return '%s="%s"' % (k, v.text)      # a string parameter as a literal: {"two"} is "Unrecognized character"
+            return "%s=%s" % (k, self.xv(v, inst.origin, "%s parameter %s" % (inst.name, k)))
+        on_line = [text(k, v) for k, v in params.items() if k.lower() in kinds]
+        on_card = [text(k, v) for k, v in params.items() if k.lower() not in kinds]
+        if on_card:
+            card = self.va_card_name(inst)
+            self.body.append(" ".join([".model", card, module] + on_card))
+        else:
+            card = "%s__vamos" % module
+            if card not in self.cards:
+                self.cards.add(card)
+                self.body.append(".model %s %s" % (card, module))
+        self.body.append(" ".join(["y%s" % module, self.ename(inst.name)] + self.nodes(inst.nodes) + [card]
+                                  + on_line))
+
+    def va_card_name(self, inst: Instance) -> str:
+        """FIX2E8: a fresh name for the model card of one Verilog-A (Y) instance, <instance>__va[<k>], no other card's
+        (Xyce's names are case-insensitive)."""
+        if not hasattr(self, "_card_names"):
+            self._card_names = {m.name.lower() for m in _models(self.nl)}
+        base = "%s__va" % self.ename(inst.name)
+        card, k = base, 1
+        while card.lower() in self._card_names or card in self.cards:
+            card, k = "%s%d" % (base, k), k + 1
+        self._card_names.add(card.lower())
+        self.cards.add(card)
+        return card
 
     def gcond(self, inst: Instance, scope: T.Scope) -> None:
         """i(nd -> n) = v(ne)*(v(nd)-v(n))/rr as a B source from nd to n (vamos_ie.va's law)."""
@@ -1752,6 +1856,8 @@ class _Deck:
                 raise T.TableError("sweep %s: no instance %s" % (lv.id, name))
             return "%s:%s" % (self.element_text(name), self.instance_param(inst, param).upper())
         if kind == "model":
+            if (name, param) in self.card_hooks:
+                return self.card_hooks[(name, param)]          # a Verilog-A card (va_card_hook)
             m = self.nl.models().get(name)
             if m is None:
                 raise T.TableError("sweep %s: a model group (%s) cannot be swept on Xyce in v1" % (lv.id, name))
@@ -1868,7 +1974,11 @@ class _Deck:
             # the tran's "Xyce takes the method ... only" note is plan.build's, under the same D2 rule
         if step.kind == "noise":
             self.no_va_noise(step)
+        printed_hooks: Set[str] = set()
         for (path, param), (hook, nominal) in self.hooks.items():
+            if hook in printed_hooks:
+                continue                                       # one hook of a Verilog-A card's instances (va_card_hook)
+            printed_hooks.add(hook)
             lines.append(".param %s=%s" % (hook, self.xv(nominal, o, "hook of %s %s" % (path, param))))
         ics = ""
         if step.kind == "tran" and step.args.get("ic", "all") in ("all", "node"):
@@ -2038,6 +2148,17 @@ def _literal_switch(v: Expr) -> bool:
         return True
     except ValueError:
         return False
+
+
+def off_grid(pts: Sequence[float]) -> float:
+    """FIX2E8: a nominal for a swept .param that no point of the grid equals (PyMS 1.1.7 gives a Verilog-A parameter
+    that reads the .param its declaration default at a first point equal to the nominal): halfway from the first
+    point to the next different one (inside any interval a module's range declares that holds both), else the
+    first point nudged by one part in a million."""
+    first = pts[0]
+    other = next((x for x in pts if x != first), None)
+    cand = (first + other) / 2.0 if other is not None else (first * (1.0 + 1e-6) if first else 1e-12)
+    return cand if cand not in pts else first * (1.0 - 1e-6) - 1e-30
 
 
 def _grid_points(spec) -> List[float]:

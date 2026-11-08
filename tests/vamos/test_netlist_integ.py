@@ -193,8 +193,13 @@ m1 a a 0 0 m9 w=1u l=1u
         self.assertIn("model x3__va vres r=250.0\nx3 (s3 0) x3__va\n", text)
         with self.assertRaises(NoteError) as cm:
             xyce.render(hdl)
-        self.assertEqual(sorted(n.origin.rsplit(":", 1)[-1] for n in cm.exception.notes), ["10", "12"])
-        self.assertTrue(all("PyMS ignores" in n.message for n in cm.exception.notes))
+        # FIX2E8: x3's card parameter runs on Xyce (PyMS >= 1.1.0 applies it); x2's m= stays refused
+        self.assertEqual(sorted(n.origin.rsplit(":", 1)[-1] for n in cm.exception.notes), ["10"])
+        self.assertTrue(all("takes no multiplier" in n.message for n in cm.exception.notes))
+        hdl.body = [it for it in hdl.body if getattr(it, "name", "") not in ("x2", "v2")]
+        text = xyce.render(hdl)
+        self.assertIn(".model x3__va vres r=250.0\nyvres x3 s3 0 x3__va\n", text)
+        self.assertIn("yvres x1 s1 0 vres__vamos\n", text)
 
     def test_no_bin_is_an_error_on_both_engines(self):
         nl = deck("integ_bins.sp", "vd9 d9 0 1\nm9 d9 g 0 0 nch w=0.5u l=20u")

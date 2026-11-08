@@ -754,14 +754,18 @@ class TestVaDefineMessages(flowlib.FlowCase):
     def test_a_repeated_define_is_refused_once_and_an_empty_value_has_one_blank(self):
         self.write("vres.va", VRES)
         self.deck(VRES_DECK, "va.scs")
-        self.use(flowlib.never_called, engine="xyce")
+        # FIX2E8: on Xyce the macros reach PyMS (PYMS_DEFINES; they were refused there), a repeated one once
+        import shlex
+        from vamos.spectre import run_xyce
+        seen: list = []
+        self.use(flowlib.defines_seen(seen), engine="xyce")
         rc, out, _ = self.spectre(["-va,define", "BIGR", "-va,define", "BIGR", "va.scs"], {"analog": "xyce"})
-        self.assertEqual(rc, 2, out)
-        self.assertEqual(out.count("-va,define BIGR: not supported on Xyce in v1"), 1, out)
+        self.assertEqual(seen, [["BIGR", "BIGR"]], out)
+        self.assertNotIn("-va,define", out)
+        self.assertEqual(shlex.split(run_xyce.pyms_defines_env({}, seen[0])["PYMS_DEFINES"]), ["BIGR"])
         rc, out, _ = self.spectre(["-va,define", "M=", "va.scs"], {"analog": "xyce"})
-        self.assertEqual(rc, 2, out)
-        self.assertIn("; `define M in the Verilog-A source (§2.3)", out)
-        self.assertNotIn("`define M  in", out)
+        self.assertEqual(seen[-1], ["M="], out)
+        self.assertEqual(shlex.split(run_xyce.pyms_defines_env({}, seen[-1])["PYMS_DEFINES"]), ["M="])
         self.use(flowlib.never_called)
         rc, out, _ = self.spectre(["-va,define", "M=1", "-va,define", "M=1", "va.scs"])
         self.assertEqual(rc, 2, out)

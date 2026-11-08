@@ -48,7 +48,7 @@ IR_FIELDS = {
                "inline"],
     "Analysis": ["kind", "args", "origin",
                  "name", "sweep", "nodes", "children", "spice"],
-    "VaModule": ["name", "path", "params", "attrs"],
+    "VaModule": ["name", "path", "params", "attrs", "instance_params", "aliases"],          # FIX2E8: the last two
     "SweepSpec": ["target", "name", "param", "mode", "start", "stop", "step", "count", "values", "origin"],
     "SaveSpec": ["items", "depth", "sigtype", "devtype", "subckt", "exclude", "probelvl", "time_window",
                  "ports", "filter", "origin"],

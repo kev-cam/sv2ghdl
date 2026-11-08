@@ -333,6 +333,14 @@ def never_called(*a, **k):
     raise AssertionError("the engine runner must not be called")
 
 
+def defines_seen(store: list, rc: int = 2):
+    """A runner that records the -va,define list of the job it is given (run's fifth argument), then exits rc."""
+    def run(*a, **k):
+        store.append(list(a[4].va_defines))
+        return EngineResult(rc=rc)
+    return run
+
+
 class FlowCase(TempDir):
     """A scratch directory that is also the cwd, a clean environment, tools.invoked = spectre."""
 
@@ -1253,14 +1261,15 @@ class TestInput(FlowCase):
                                '  parameter real r = 1k;\n  analog I(p, n) <+ V(p, n) / r;\nendmodule\n')
         self.deck(TWO.replace("op1 dc\n", "ahdl_include \"myres.va\"\nR9 (out 0) myres r=2k\nop1 dc\n"))
         self.use(synth_runner())
-        self.use(lambda *a: EngineResult(rc=2), engine="xyce")
+        seen: list = []
+        self.use(defines_seen(seen), engine="xyce")
         os.environ["CDS_AHDL_FINISH_MODE"] = "1"
         os.environ["CDS_AHDL_IDT_SCALE"] = "1.0"                         # the documented default: silent
         os.environ["CDS_VLOGA_INCLUDE"] = "inc1:inc2"
         rc, out, _ = self.spectre(["rc.scs", "-va,define", "HALF"], {"analog": "xyce"})
-        # the guide trial of phase 2e (TRIAL2EF-02): with Verilog-A in the netlist an error, no longer a note
-        self.assertEqual(rc, 2, out)
-        self.assertIn("Error from spectre during initial setup.\n    -va,define HALF: not supported on Xyce in v1: ", out)
+        # FIX2E8: the macro reaches the Xyce runner (PYMS_DEFINES, PyMS >= 1.1.0); it was refused (TRIAL2EF-02)
+        self.assertEqual(seen, [["HALF"]], out)
+        self.assertNotIn("-va,define HALF", out)
         self.assertIn("    CDS_VLOGA_INCLUDE=inc1:inc2: not applied on Xyce", out)
         self.assertIn("Warning from spectre during initial setup.\n    CDS_AHDL_FINISH_MODE=1: not applied", out)
         self.assertNotIn("CDS_AHDL_IDT_SCALE", out)
@@ -2634,12 +2643,12 @@ class TestGuideTrial2e(FlowCase):
         rc, out, _ = self.spectre(["-va,define", "BIGR", "va.scs"])
         self.assertEqual(rc, 0, out)
         self.assertNotIn("-va,define", out)
-        self.use(lambda *a: EngineResult(rc=2), engine="xyce")
+        seen: list = []
+        self.use(defines_seen(seen), engine="xyce")
         rc, out, _ = self.spectre(["-va,define", "BIGR=1", "va.scs"], {"analog": "xyce"})
-        # the guide trial of phase 2e (TRIAL2EF-02): with Verilog-A in the netlist an error on Xyce, no longer a note
-        self.assertEqual(rc, 2, out)
-        self.assertIn("    -va,define BIGR=1: not supported on Xyce in v1: ", out)
-        self.assertNotIn("not supported on VACASK", out)
+        # FIX2E8: a value define runs on Xyce (PYMS_DEFINES); TRIAL2EF-02 had made it an error there
+        self.assertEqual(seen, [["BIGR=1"]], out)
+        self.assertNotIn("-va,define", out)
         self.deck(TWO)                                     # no Verilog-A on VACASK: nothing to compile or refuse
         rc, out, _ = self.spectre(["-va,define", "BIGR=1", "rc.scs"])
         self.assertEqual(rc, 0, out)
@@ -2864,40 +2873,45 @@ class TestGuideTrial2e3(FlowCase):
         rc, out, err = self.early("vamos.personalities", "SIGINT,SIGINT")
         self.assertEqual((rc, out, err), (3, "", ""))
 
-    def test_ef02_a_va_define_is_an_error_on_xyce_for_a_netlist_with_verilog_a(self):
-        # TRIAL2EF-02: Xyce's Verilog-A compile (PyMS) takes no macro definitions, so `-va,define BIGR` was a note while
-        # the module compiled its `else branch, exit 0.  Now each one is an error there, before anything runs (a prelude
-        # file that defines the macro and includes the source was measured: PyMS keys its build on the top file alone,
-        # and reused the stale build after the source was edited)
+    def test_ef02_a_va_define_reaches_pyms_on_xyce(self):
+        # TRIAL2EF-02: PyMS 1.0 took no macro definitions, so `-va,define BIGR` was a note while the module compiled
+        # its `else branch, exit 0, and then an error.  FIX2E8: PyMS >= 1.1.0 reads PYMS_DEFINES (and keys its caches
+        # on it), so every -va,define reaches the Xyce runner, NAME and NAME=VALUE alike, the defaults layer's too
         self.write("vres.va", VRES_2E)
         self.deck(VA_2E, "va.scs")
-        self.use(never_called, engine="xyce")
-        for define, fix in (("BIGR", "run it on VACASK, or `define BIGR in the Verilog-A source"),
-                            ("BIGR=1", "`define BIGR 1 in the Verilog-A source")):
+        seen: list = []
+        self.use(defines_seen(seen), engine="xyce")
+        for define in ("BIGR", "BIGR=1"):
             with self.subTest(define=define):
                 rc, out, err = self.spectre(["-va,define", define, "va.scs"], {"analog": "xyce"})
-                self.assertEqual((rc, err), (2, ""), out)
-                self.assertIn("Error from spectre during initial setup.\n    -va,define %s: not supported on Xyce in v1: "
-                              "Xyce's Verilog-A compile (PyMS) takes no macro definitions, so the module would compile "
-                              "as if BIGR were not defined (an `ifdef BIGR takes its `else branch) with exit status 0; "
-                              "%s (§2.3)\n" % (define, fix), out)
-                self.assertNotIn("not applied on Xyce", out)
-                self.assertFatal(out)
+                self.assertEqual(seen[-1:], [[define]], out)
+                self.assertNotIn("-va,define", out)
+                self.assertNotIn("not supported on Xyce", out)
         os.environ["SPECTRE_DEFAULTS"] = "-va,define BIGR"                             # the defaults layer too
         self.addCleanup(os.environ.pop, "SPECTRE_DEFAULTS", None)
         rc, out, _ = self.spectre(["va.scs"], {"analog": "xyce"})
-        self.assertEqual(rc, 2, out)
-        self.assertIn("    -va,define BIGR: not supported on Xyce in v1: ", out)
+        self.assertEqual(seen[-1], ["BIGR"], out)
         del os.environ["SPECTRE_DEFAULTS"]
-        # a netlist without Verilog-A: nothing compiles the macro, a note as before; VACASK runs a name alone
+        # a netlist without Verilog-A: nothing compiles the macro, and nothing is said (as on VACASK)
         self.deck(TWO)
-        self.use(lambda *a: EngineResult(rc=2), engine="xyce")
         rc, out, _ = self.spectre(["-va,define", "BIGR", "rc.scs"], {"analog": "xyce"})
-        self.assertIn("Notice from spectre during initial setup.\n    -va,define BIGR: not applied on Xyce, whose .hdl "
-                      "compile takes no macro definitions (§2.3)\n", out)
+        self.assertNotIn("-va,define", out)
         self.use(synth_runner())
         rc, out, _ = self.spectre(["-va,define", "BIGR", "va.scs"])
         self.assertEqual(rc, 0, out)
+
+    def test_ef02_pyms_defines_env(self):
+        # FIX2E8: run_xyce passes the macros as PYMS_DEFINES shell words (PyMS reads it with shlex.split), after any
+        # the environment gives; a macro given twice once; no -va,define leaves the environment as it is
+        import shlex
+        from vamos.spectre import run_xyce
+        env = {"PATH": "/bin"}
+        self.assertIs(run_xyce.pyms_defines_env(env, []), env)
+        got = run_xyce.pyms_defines_env(env, ["BIGR", "RV=2 * 1k", "BIGR", "S='x'"])
+        self.assertEqual(shlex.split(got["PYMS_DEFINES"]), ["BIGR", "RV=2 * 1k", "S='x'"])
+        self.assertNotIn("PYMS_DEFINES", env)
+        got = run_xyce.pyms_defines_env({"PYMS_DEFINES": "A=1"}, ["B"])
+        self.assertEqual(shlex.split(got["PYMS_DEFINES"]), ["A=1", "B"])
 
     @needs_vacask
     @needs_xyce

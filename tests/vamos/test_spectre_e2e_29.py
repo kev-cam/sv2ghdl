@@ -21,8 +21,10 @@ oscillation (289 rising crossings of v(1) through 0.6 V; the period within 5e-5,
 3.452497e-9 s native, 3.452479e-9 s vamos; the crossing times within 1e-10 s, measured 3.3e-11) and
 the mean supply current over 0.5-1 us (within 2e-4, measured 4e-5).  The waveforms are not compared
 point by point: the runs take different time steps (vamos's tran settings, §5.4: tran_lteimplicit=0,
-relref sigglobal, lteratio 3.5), and a 33 ps shift of an edge is 0.19 V there.  On Xyce the run is the
-v1 refusal of a Verilog-A module's card parameters (§3.9, §4.5 item 13): exit status 2.
+relref sigglobal, lteratio 3.5), and a 33 ps shift of an edge is 0.19 V there.  On Xyce (FIX2E8: it was
+the refusal of a Verilog-A module's card parameters, exit status 2) the cards' parameters run on PyMS's
+PSP103: 290 crossings, the period 3.4410e-9 s, 0.33 % from VACASK's, the mean supply current 0.08 % from
+VACASK's (held to 1 %), the run about 135 s.
 
 The expectation in expect.json's keys is EXPECT below, checked by spectre_testlib's check_case on a
 temporary deck directory holding the generated deck (there is no fixture directory: the deck exists
@@ -54,7 +56,7 @@ LEVEL, STOP = 0.6, 1e-6                                   # vdd/2 and the tran's
 
 EXPECT = {
     "argv": ["deck.scs"],
-    "engines": ["vacask"],
+    "engines": ["vacask", "xyce"],
     "status": 0,
     "files": ["tran1.tran.tran", "logFile"],
     "values": [
@@ -64,8 +66,6 @@ EXPECT = {
     ],
     "cross_engine": {"rel": 1e-3},
     "messages": [],
-    "xyce": {"status": 2, "files": None, "values": [],
-             "messages": [["error", "Verilog-A parameters"], ["error", "on Xyce"]]},
     "gates": ["needs_vacask_src"],
 }
 
@@ -190,25 +190,35 @@ class TestDeck(unittest.TestCase):
         self.assertEqual(len(insts), 2)                                          # m in nmos and in pmos
 
     @needs_vacask_src
-    def test_xyce_refuses_the_card_parameters(self):
-        """§3.9: on Xyce a module's card parameters are refused (PyMS ignores them, §4.5 item 13)."""
+    def test_xyce_splits_the_card_parameters(self):
+        """§3.9, FIX2E8: on Xyce the card's (model) parameters go on a card of each instance and the instance ones
+        (w l ad as pd ps, declared type="instance") on the Y line, as PyMS >= 1.1.0 takes them (they were refused:
+        "PyMS ignores parameter overrides")."""
         import tempfile
         from vamos.netlist import plan as PL, signals as SG, spectre, xyce
         from vamos.spectre.job import Settings
         d = tempfile.mkdtemp(prefix="vamos-e2e29-")
         try:
             path = write_deck(d)
-            with self.assertRaises(NoteError) as cm:
-                nl = spectre.parse(path, d, spectre.SpectreParseOpts())
-                pl = PL.build(nl, "xyce", Settings())
-                nl2, sm, _notes = SG.resolve(nl, pl)
-                for a in pl.actions:
-                    if a.op == "analysis" and a.step is not None:
-                        xyce.render(nl2, step=a.step, sigmap=sm, names={})
+            nl = spectre.parse(path, d, spectre.SpectreParseOpts())
+            kinds = set(nl.va_modules["psp103va"].instance_params or [])
+            self.assertLessEqual({"w", "l", "ad", "as", "pd", "ps"}, kinds)
+            self.assertNotIn("type", kinds)
+            pl = PL.build(nl, "xyce", Settings())
+            nl2, sm, _notes = SG.resolve(nl, pl)
+            texts = [xyce.render(nl2, step=a.step, sigmap=sm, names={}) for a in pl.actions
+                     if a.op == "analysis" and a.step is not None]
         finally:
             shutil.rmtree(d, ignore_errors=True)
-        msgs = [n.message for n in cm.exception.notes if n.severity == "error"]
-        self.assertTrue(any("Verilog-A parameters" in m and "on Xyce" in m and "type" in m for m in msgs), msgs)
+        lines = texts[0].splitlines()
+        cards = [ln for ln in lines if ln.startswith(".model m__va")]
+        self.assertEqual(len(cards), 2, cards)                                   # m in nmos and in pmos
+        self.assertIn(" type=1.0 ", cards[0])
+        self.assertIn(" type=-1.0 ", cards[1])
+        ys = [ln for ln in lines if ln.lower().startswith("ypsp103va ")]
+        self.assertEqual(ys, ["yPSP103VA m d g s b m__va w={w} l={l} ad={w*ld} as={w*ls} pd={2.0*(w+ld)} ps={2.0*(w+ls)}",
+                              "yPSP103VA m d g s b m__va1 w={w} l={l} ad={w*ld} as={w*ls} pd={2.0*(w+ld)} "
+                              "ps={2.0*(w+ls)}"])
 
 
 class TestE2e29(SpectreCase):
@@ -243,6 +253,16 @@ class TestE2e29(SpectreCase):
         i_nat = mean(tn, [p[kn] for p in nat.points], 0.5e-6, 1e-6)
         i_vam = mean(tv, pf.column("vdd:p"), 0.5e-6, 1e-6)
         self.assertLess(abs(i_vam / i_nat - 1.0), 2e-4, "mean supply current %r, native %r" % (i_vam, i_nat))
+        if "xyce" in runs:
+            # FIX2E8: the card parameters run on Xyce (PyMS's PSP103): the period 0.33 % and the mean supply current
+            # 0.08 % from VACASK's (measured), within the 1 % the engines are held to
+            px = psfcheck.check(os.path.join(runs["xyce"].loc.results, "tran1.tran.tran"))
+            tx = px.sweep_values()
+            _cx, perx = oscillation(tx, px.column("1"))
+            _cv, perv = oscillation(tv, pf.column("1"))
+            self.assertLess(abs(perx / perv - 1.0), 1e-2, "Xyce period %r, VACASK %r" % (perx, perv))
+            i_x = mean(tx, px.column("vdd:p"), 0.5e-6, 1e-6)
+            self.assertLess(abs(i_x / i_vam - 1.0), 1e-2, "Xyce mean supply current %r, VACASK %r" % (i_x, i_vam))
 
 
 if __name__ == "__main__":

@@ -145,8 +145,15 @@ none prints none (phase 2c, D2; §5.4, §8.7, §14 q.71).
 - device models with no faithful target: `bsimcmg psp psp103 hisim bsimsoi b3soipd btasoi ekv vbic bjt50x
   hbt mos9xx mos11xxx juncap tom2 tom3 hvmos gaas misnan …` (later through Verilog-A/OSDI); a diode `level`
   other than 1;
-- on Xyce, the parameters of a Verilog-A model card, which covers the CMC Verilog-A models (§4.5 item 13):
-  PyMS ignores them on a Y device and gave a wrong value on a letter device [E63, E64];
+- on Xyce, the model-card parameters of a Verilog-A module that runs as a letter device (an `xyceModelGroup`
+  with an `xyceLevelNumber`, which covers the CMC Verilog-A models, §4.5 item 13): they are merged onto the
+  device line, Xyce's "Unrecognized parameter" [E108] (FIX2E8: PyMS's simple R/C/L stamp of those groups
+  ignores a card parameter besides the value one, and VACASK cannot compile the CMC trees to compare with);
+  the parameters of a Y-device module whose declarations vamos could not read (it cannot tell its instance
+  parameters from its model parameters); a `mod=` sweep or alter of a Verilog-A card that sets no parameter
+  (its instances cannot be told from another card's, as on VACASK). The parameters of every other Verilog-A
+  instance and card run on Xyce since FIX2E8 (PyMS 1.1.0 applies them; they were refused, "PyMS ignores
+  parameter overrides" [E63]);
 - source features `pwlperiod twidth ampl2 freq2 sinephase2`, AM/FM modulation, `tc1`/`tc2` ≠ 0;
   `noisefile`/`noisevec` while a `noise` analysis runs; `xfmag` ≠ 1 while an `xf` runs;
 - a source waveform that breaks a §3.8.1 rule in a state an engine uses it in, a `tran` or an analysis whose
@@ -447,7 +454,7 @@ run directory is created. `SpectreJob.unmapped` holds only optable's five dispos
 | `+lqtimeout` (`+lqt`), `+lqsleep` (`+lqs`), `+lmode`, `+lorder`, `-alias` | next | ignored (licensing) |
 | `+lqmmtoken`, `+lsuspend` (`+lsusp`), `+liclog` | flag | ignored |
 | `-ahdllibdir` | next | mapped: where compiled Verilog-A (`.osdi`) is kept (§2.5) |
-| `-va,define` | next | mapped on VACASK (`openvaf-r -D MACRO[=VALUE]` [E75]); noted on Xyce |
+| `-va,define` | next | mapped on VACASK (`openvaf-r -D MACRO[=VALUE]` [E75]; a value refused, §2.3) and on Xyce (`PYMS_DEFINES`, FIX2E8) |
 | `-ahdlcom` (`-ac`), `-ahdllint_log`, `-rf_ahdl_functionality` | next | ignored |
 | `-ahdllint`, `-ahdllint_maxwarn`, `-ahdllint_summary_maxentries` | flag, eq | ignored |
 | `-ahdllint_warn_id`, `-ahdlshipdbdir`, `-ahdlshipdbmode` | eq | ignored |
@@ -663,7 +670,7 @@ run directory is created. `SpectreJob.unmapped` holds only optable's five dispos
 - `CDS_AHDL_FINISH_MODE`, `CDS_AHDL_DDT_SCALE`, `CDS_AHDL_IDT_SCALE`, `CDS_AHDL_IGNORE_HIDDEN_STATE`,
   `CDS_AHDL_IGNORE_OPPOINT`, `CDS_AHDL_AUTOGDEV_SUPPORT`, `CDS_AHDL_LRM_COMPATIBILITY` set to a non-default
   value: a warning, not applied (they change results [M ref19 pp.550-551]). The flow gives these warnings,
-  and the Xyce notes of `-va,define` (§2.3) and `CDS_VLOGA_INCLUDE`, at step 7, the `CDS_*` ones only for a
+  and the Xyce note of `CDS_VLOGA_INCLUDE`, at step 7, the `CDS_*` ones only for a
   netlist with Verilog-A. The defaults are ref19 pp.550-551's: `FINISH_MODE` 0, `DDT_SCALE` 1e-17,
   `IDT_SCALE` 1, `LRM_COMPATIBILITY` 2.3; `IGNORE_HIDDEN_STATE` warns on `YES` and `AUTOGDEV_SUPPORT` on
   `NO`; `IGNORE_OPPOINT`, whose default depends on the model, warns on any value.
@@ -2040,9 +2047,32 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
       merged onto the device line, are "Unrecognized parameter LLONG for device MX1", rc 1, which
       `output_problems` reports [E108] (§11.3 (c)). Xyce wraps a long registration line
       (`… registered bsim6 from`, then the path), which the registration fallback reads [E128].
-    - Any other module keeps today's Y form and its refusal of card and instance parameters, because PyMS
-      ignores a card parameter on a Y device silently (`I(V1)` = −1.000e-3 A, the module default, with no
-      message [E63]).
+    - Any other module keeps the Y form. Its parameters, refused until FIX2E8 because PyMS before 1.1.0
+      ignored a card parameter on a Y device silently (`I(V1)` = −1.000e-3 A, the module default, with no
+      message [E63]), run since PyMS 1.1.0 (re-measured on 1.1.7, FIX2E8): a parameter the module declares
+      `(* type="instance" *)` (before `parameter` or before its `;`, as PyMS's parser reads it) is taken on
+      the Y line only (on the card: "No model parameter G found for model C1 of type A2, parameter ignored",
+      a warning, and the default), every other one on the model card only (on the line: "Unrecognized
+      parameter R for device YA2!Y1", rc 1). `spice._va_params` records the instance parameters
+      (`VaModule.instance_params`) and `xyce.i_y` splits the instance's parameters (a Spectre card's merged
+      in, §3.9): the model ones on a card of the instance, `.model <name>__va <module> <params>` (VACASK's
+      deck prints a card per instance too), the instance ones on the Y line; a module given no parameter
+      shares `.model <module>__vamos <module>`. A string prints as a literal (`sel="two"`; `{"two"}` is
+      "Unrecognized character"), an aliasparam name as its target's (PyMS knows no alias: "Unrecognized
+      parameter GAL"). A swept parameter reads a hook (`_hooks`); a `mod=` sweep of a card hooks every
+      instance whose value is the card's (the same Expr objects, as VACASK's `va_card_cards`), and an alter
+      of a card reaches them in the state replay (`run_xyce._alter_va_card`: before, the card alone changed
+      nothing, op 0.5 where VACASK gives 1/3, silently). PyMS 1.1.7 gives a Verilog-A parameter that reads a
+      swept `.param` the module's declaration default at a first `.DC`/`.STEP` point equal to the `.param`'s
+      nominal (`.param rr=2k`, `r={rr}`, `.DC rr LIST 2k 4k`: 0.5, 0.2 for 1/3, 0.2; an off-grid nominal, a
+      later point, no sweep and a built-in device are right), so a deck with Verilog-A prints a swept
+      variable's and a Verilog-A hook's nominal off the grid (`xyce.off_grid`; the nominal is never a
+      result). Measured on both engines, each giving VACASK's value: model and instance parameters on the
+      card and on the instance, both, an instance value over the card's, integer and string values, several
+      instances and two modules, an expression of netlist parameters, a subckt parameter on two paths,
+      `dev=` sweeps of a given and of an unset parameter, a `param=` sweep, `mod=` sweeps and alters, a
+      sweep of a tran (FIX2E8 `logs/m_cases_p_*.txt`). Parameters of a module whose declarations vamos could
+      not read (`vamos_unknown_params`) stay an error naming the instance.
     - The `.hdl` lines name the Verilog-A sources by base name, the files copied into the run directory:
       with two modules named by absolute paths PyMS loses their parameters [E104]. `run_xyce.place_va` does
       the copy (phase 2), each source with the files it `` `include``s relative to itself: a copy without them
@@ -2058,7 +2088,10 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
       directory and none of its own files lands in another module's; otherwise it gets its own `vamos_va<k>/`
       with its include tree (`.hdl "vamos_va1/lib/vres.va"`), each `vamos_va<k>/` holding one module, an
       identical copy counting as the same module. Base names stay beside the deck [E104].
-      `place_va` also copies a header PyMS finds beside the top file (phase 2c).
+      `place_va` also copies a header PyMS finds beside the top file (phase 2c). FIX2E8 re-measured the
+      fallback on PyMS 1.1.7: it lends attributes only between variant file names now (one stem extends the
+      other: `lib/res2.va` beside an attributed `lib/res.va` ran as its R letter device, "Unrecognized
+      parameter IN", rc 1; `lib/cond.va` beside `lib/zres.va` ran as itself), so the rule stays.
     - Before Xyce runs, an `` `include`` outside `` `ifdef`` blocks that PyMS would not find is an error in
       `AHDL read-in` (status 2), naming the including file and the include, and the directory when only
       `CDS_VLOGA_INCLUDE` or `-I` holds it (§2.8): PyMS looks beside the including file, then beside the top
@@ -2068,8 +2101,8 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
       `disciplines.h`, `constants.h`) are exempt: PyMS does without them [E138]. In every Xyce output (the
       `-norun` check and each deck), a PyMS build that failed for good (its retry failed too, a step timed
       out, or the build raised: a traceback through `build_vae_so.py`) is status 2, naming the module, its
-      `.va` and the compiler's first error, with a hint for `$abstime` and for a `PYMS_VAE_CACHE` path that
-      holds a space; so is PyMS's `preprocess: warning: '<x>' not found (skipped)` for a non-standard
+      `.va` and the compiler's first error, with a hint for a `PYMS_VAE_CACHE` path that holds a space (the
+      `$abstime` hint went with PyMS 1.1.4, FIX2E8); so is PyMS's `preprocess: warning: '<x>' not found (skipped)` for a non-standard
       header, which catches an include inside an `` `ifdef`` on a cold cache only (phase 2c, R-run-3).
     - Before Xyce runs, a netlist with Verilog-A is an error in `AHDL read-in` (status 2) when the PyMS that
       Xyce runs is older than 1.1.7 or states no version (`run_xyce.pyms_version_problem`, round 7'): the
@@ -4839,7 +4872,7 @@ Values asserted in the PSF, `logFile` contents and exit status.
     `ic=` (`deck_devic.scs`) and the state files (`deck_state.scs`) are CLI-level decks, `ic=all` with a device
     `ic` the plan's refusal (`deck_devic_all.scs`); the nodeset sits on the linear RC, since one on a bistable
     circuit differs between the engines [E127] (§14 q.66).
-19. `set reltol=` between analyses; `-va,define` (VACASK; Xyce's override expects the note, §2.3).
+19. `set reltol=` between analyses; `-va,define` (VACASK; on Xyce PyMS takes it as `PYMS_DEFINES`, FIX2E8, §2.3).
 20. `alter mod=` on Xyce (state replay changes the later deck), and an alter of a parameter Xyce does not know
     (status 2, naming the alter).
 21. Resistors: `r` = 0 (a short on both engines), an instance `scale` (w and l only), `isnoisy=no` (no noise
