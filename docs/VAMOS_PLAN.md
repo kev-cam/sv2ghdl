@@ -13,8 +13,8 @@
 >   **docs/VAMOS_SPECTRE_DESIGN.md**: a Spectre netlist runs on **VACASK** (the default) or on **Xyce**
 >   (`--vamos-analog=xyce`), with Spectre's command line, log, exit status and PSF outputs. Commits: phase 0
 >   1f5a4b0, phase 1 1ca4273, phase 2 5537f6c, phases 2b-2c 18af05f and 5d2291f, phase 2e (guide trial and
->   fix rounds) 50aee56 and a6af3d6; phase 2f is this status update. Verilog-A on Xyce needs PyMS 1.1.8 or
->   later (xyce 3263aa47). Gate at a6af3d6: the whole `tests/vamos` suite, 3417 tests, clean in WSL and on
+>   fix rounds) 50aee56 and a6af3d6; phase 2f is this status update. Verilog-A on Xyce needs PyMS 1.1.9 or
+>   later (xyce fc6046a8). Gate at a6af3d6: the whole `tests/vamos` suite, 3417 tests, clean in WSL and on
 >   Cygwin; `regress` hazard3/vamos 3/3. The guide's §12 says how to use it.
 > - **How to use vamos today**: **docs/VAMOS_GUIDE.md**.
 

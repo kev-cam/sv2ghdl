@@ -1,9 +1,9 @@
 {
  "row": "E108",
  "experiment": "Verilog-A parameters on Xyce's letter-device route (phase 1; the E63/E64 modules): mydio's model-typed r on the device line; toy_resistor's instance-typed R on the .model card",
- "result": "a model-typed parameter on the device line: \"Unrecognized parameter R for device D1\", rc 1; an instance-typed parameter on the .model card: only \"No model parameter R found for model RMOD of type R, parameter ignored.\", rc 0",
+ "result": "a model-typed parameter on the device line: \"Unrecognized parameter R for device D1\", rc 1; an instance-typed parameter on the .model card: applied as its instances' default since PyMS 1.1.9 (V(B) = 0.25, rc 0; before, only \"No model parameter R found for model RMOD of type R, parameter ignored.\")",
  "rules": [
-  "\u00a74.5 item 13: every merged Verilog-A parameter goes on the device line, where a model-typed one fails loudly (output_problems), while on the card an instance-typed one would only be warned about and ignored: the refusal of Verilog-A card parameters on Xyce holds by construction"
+  "\u00a74.5 item 13: every merged Verilog-A parameter goes on the device line, where a model-typed one fails loudly (output_problems), while on the card an instance-typed one was only warned about and ignored before PyMS 1.1.9 (A25): the refusal of Verilog-A card parameters on Xyce holds by construction"
  ],
  "runs": [
   {
@@ -31,14 +31,23 @@
    "status": 0,
    "output": {
     "contains": [
-     "compiled and registered resistor from toy_resistor.va",
-     "No model parameter R found for model RMOD of type R, parameter ignored."
+     "compiled and registered resistor from toy_resistor.va"
     ],
     "absent": [
      "Unrecognized",
+     "No model parameter",
      "Netlist error"
     ]
-   }
+   },
+   "checks": [
+    {
+     "raw": "r_card.raw",
+     "col": "V(B)",
+     "value": 0.25,
+     "rel": 1e-06
+    }
+   ],
+   "note": "PyMS 1.1.9 (BUGS.md A25, measured 2026-11-09): the card's instance-typed R=3k is the default of the module's instances, V(B) = 0.25 (as openvaf-r/VACASK); PyMS 1.1.8 and older warned \"No model parameter R found for model RMOD of type R, parameter ignored.\" and used the declaration default, V(B) = 0.999. vamos still prints a merged instance parameter on the device line"
   }
  ],
  "provenance": [

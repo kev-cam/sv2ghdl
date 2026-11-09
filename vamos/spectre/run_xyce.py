@@ -105,8 +105,8 @@ missing_includes(hdl) -> List[(source, including file, name)]
     outside `ifdef blocks, whose conditions vamos does not evaluate.
 pyms_version_problem(env) -> Optional[str]
     Why the PyMS the Xyce run uses (pyms_dir: found as Xyce finds it) is too old: vamos runs
-    Verilog-A on Xyce with PyMS PYMS_MIN_VERSION (1.1.8) or later (FIX2E7P, 1.1.7; 1.1.8 for
-    BUGS.md A24, a swept .param's first point).  That PyMS compiles
+    Verilog-A on Xyce with PyMS PYMS_MIN_VERSION (1.1.9) or later (FIX2E7P, 1.1.7; 1.1.8 for
+    BUGS.md A24, a swept .param's first point; 1.1.9 for B27, the R/C/L group stamp).  That PyMS compiles
     right, or refuses with a file:line error of its own, every form vamos's own scan of the
     Verilog-A source (PymsScan, rounds 4-6: macros, parameter defaults, current probes,
     annotations) refused on its behalf before, so the scan is gone.
@@ -589,8 +589,11 @@ def pyms_search_dirs(env: Optional[Dict[str, str]] = None) -> List[str]:
 # static term, a chained comparison); an older PyMS gets them silently wrong, so vamos refuses to run it.  1.1.8 (xyce
 # 3263aa47) gives a Verilog-A parameter that reads a swept .param its value at a first .DC/.STEP point equal to the
 # .param's nominal (BUGS.md A24: 1.1.7 gave the module's declaration default, which round 8 dodged by printing the
-# nominal off the grid, xyce.off_grid, now gone)
-PYMS_MIN_VERSION = (1, 1, 8)
+# nominal off the grid, xyce.off_grid, now gone).  1.1.9 runs a Resistor/Capacitor/Inductor-group module through its
+# full evaluation unless its analog code is exactly the simple stamp's form (BUGS.md B27: 1.1.8 stamped V/R from the
+# value parameter alone, dropping $temperature, other parameters and factors silently), and applies an instance
+# parameter given on a .model card (A25: E108)
+PYMS_MIN_VERSION = (1, 1, 9)
 _PYMS_VERSION = re.compile(r"""^__version__\s*=\s*['"]([0-9][0-9A-Za-z.+-]*)['"]""", re.M)
 
 

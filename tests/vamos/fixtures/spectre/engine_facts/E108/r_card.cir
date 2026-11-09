@@ -5,5 +5,5 @@ V1 a 0 1
 R1 a b rmod
 R2 b 0 1k
 .op
-.print dc v(b)
+.print dc format=raw file=r_card.raw v(b)
 .end
