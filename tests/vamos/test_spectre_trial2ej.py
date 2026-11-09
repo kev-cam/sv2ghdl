@@ -1,7 +1,7 @@
 """The fixes of phase 2e's round 7' (FIX2E7P: PyMS 1.1.7, the guide trial TRIAL2EJ's findings and the round-6 skeptic's
 leftovers).  Standard library only, Python 3.9; the engine runs on WSL.
 
-TestPymsVersion           on Xyce, Verilog-A runs with PyMS 1.1.7 or later only: an older PyMS, or one that states no
+TestPymsVersion           on Xyce, Verilog-A runs with PyMS 1.1.8 or later only: an older PyMS, or one that states no
                           version (before 1.1.0), is refused before Xyce runs, naming the directory and the version;
                           the PyMS found as Xyce finds it ($PYMS_DIR, $XYCE_PREFIX/share/xyce/PyMS, the source trees)
 TestPymsRunsWhatTheScanRefused
@@ -57,7 +57,7 @@ class TestPymsVersion(TempDir):
 
     def test_the_version_and_the_minimum(self):
         from vamos.spectre import run_xyce as RX
-        self.assertEqual(RX.PYMS_MIN_VERSION, (1, 1, 7))
+        self.assertEqual(RX.PYMS_MIN_VERSION, (1, 1, 8))
         self.assertEqual(RX.pyms_version(self.pyms("a", '"""PyMS"""\n\n__version__ = \'1.1.7\'\n')), (1, 1, 7))
         self.assertEqual(RX.pyms_version(self.pyms("b", "__version__ = \"1.2\"\n")), (1, 2))
         self.assertEqual(RX.pyms_version(self.pyms("c", "# no marker\n", "1.1.6\n")), (1, 1, 6))
@@ -77,12 +77,15 @@ class TestPymsVersion(TempDir):
 
     def test_an_older_pyms_is_refused_and_a_newer_one_is_not(self):
         from vamos.spectre import run_xyce as RX
-        self.assertIsNone(RX.pyms_version_problem({"PYMS_DIR": self.pyms("new", "__version__ = '1.1.7'\n")}))
+        self.assertIsNone(RX.pyms_version_problem({"PYMS_DIR": self.pyms("new", "__version__ = '1.1.8'\n")}))
         self.assertIsNone(RX.pyms_version_problem({"PYMS_DIR": self.pyms("newer", "__version__ = '1.10.0'\n")}))
+        # 1.1.7 gives a swept .param's first point the module default (BUGS.md A24), which vamos no longer dodges
+        self.assertIn("is version 1.1.7: vamos runs Verilog-A on Xyce with PyMS 1.1.8 or later",
+                      RX.pyms_version_problem({"PYMS_DIR": self.pyms("prev", "__version__ = '1.1.7'\n")}))
         old = self.pyms("old", "__version__ = '1.1.6'\n")
         self.assertEqual(RX.pyms_version_problem({"PYMS_DIR": old}),
                          "Xyce's Verilog-A compiler, PyMS in %s, is version 1.1.6: vamos runs Verilog-A on Xyce with "
-                         "PyMS 1.1.7 or later, which compiles right or refuses the forms an older PyMS gets silently "
+                         "PyMS 1.1.8 or later, which compiles right or refuses the forms an older PyMS gets silently "
                          "wrong (§4.5 item 13); update Xyce's PyMS (or point PYMS_DIR at a newer one), or run on VACASK"
                          % old)
         none = self.pyms("none")
@@ -95,7 +98,7 @@ class TestPymsVersion(TempDir):
         d, r = eh.spectre(self, "x", A1_DECK, "xyce", env={"PYMS_DIR": old}, files={"a1.va": module()})
         self.assertEqual(r.returncode, 2, r.stdout[-3000:])
         self.assertIn("Error from spectre during AHDL read-in.", r.stdout)
-        self.assertIn("PyMS in %s, is version 1.1.6: vamos runs Verilog-A on Xyce with PyMS 1.1.7 or later" % old,
+        self.assertIn("PyMS in %s, is version 1.1.6: vamos runs Verilog-A on Xyce with PyMS 1.1.8 or later" % old,
                       r.stdout)
         self.assertFalse(os.path.exists(os.path.join(d, "n.raw", "op1.dc")))
 

@@ -105,7 +105,8 @@ missing_includes(hdl) -> List[(source, including file, name)]
     outside `ifdef blocks, whose conditions vamos does not evaluate.
 pyms_version_problem(env) -> Optional[str]
     Why the PyMS the Xyce run uses (pyms_dir: found as Xyce finds it) is too old: vamos runs
-    Verilog-A on Xyce with PyMS PYMS_MIN_VERSION (1.1.7) or later (FIX2E7P).  That PyMS compiles
+    Verilog-A on Xyce with PyMS PYMS_MIN_VERSION (1.1.8) or later (FIX2E7P, 1.1.7; 1.1.8 for
+    BUGS.md A24, a swept .param's first point).  That PyMS compiles
     right, or refuses with a file:line error of its own, every form vamos's own scan of the
     Verilog-A source (PymsScan, rounds 4-6: macros, parameter defaults, current probes,
     annotations) refused on its behalf before, so the scan is gone.
@@ -585,8 +586,11 @@ def pyms_search_dirs(env: Optional[Dict[str, str]] = None) -> List[str]:
 # behalf: an undefined or misplaced macro, a macro expanded with the wrong definition, a parameter default it read as 0
 # or as Python reads it, a current read in an expression, an annotation (measured with the scan off, FIX2E7P,
 # 2026-11-07; so are the refusals round 7 had planned: a (* ... *) attribute before a statement, a ddt() beside a
-# static term, a chained comparison); an older PyMS gets them silently wrong, so vamos refuses to run it
-PYMS_MIN_VERSION = (1, 1, 7)
+# static term, a chained comparison); an older PyMS gets them silently wrong, so vamos refuses to run it.  1.1.8 (xyce
+# 3263aa47) gives a Verilog-A parameter that reads a swept .param its value at a first .DC/.STEP point equal to the
+# .param's nominal (BUGS.md A24: 1.1.7 gave the module's declaration default, which round 8 dodged by printing the
+# nominal off the grid, xyce.off_grid, now gone)
+PYMS_MIN_VERSION = (1, 1, 8)
 _PYMS_VERSION = re.compile(r"""^__version__\s*=\s*['"]([0-9][0-9A-Za-z.+-]*)['"]""", re.M)
 
 

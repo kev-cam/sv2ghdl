@@ -137,7 +137,7 @@ none prints none (phase 2c, D2; §5.4, §8.7, §14 q.71).
   [E125]); a resistor whose `isnoisy` reads a parameter that a sweep of the same analysis changes, the
   noise-free `G` form being fixed per deck (§4.5 item 7); a Verilog-A module PyMS cannot build, which Xyce
   would run as a device that contributes nothing [E125, E138] (§4.5 item 13; one that uses `$abstime` builds
-  since PyMS 1.1.4); and a netlist with Verilog-A when Xyce's PyMS is older than 1.1.7 (§4.5 item 13);
+  since PyMS 1.1.4); and a netlist with Verilog-A when Xyce's PyMS is older than 1.1.8 (§4.5 item 13);
 - the primitives `bsource port nport tline mtline switch relay transformer core winding delay a2d d2a
   fourier intcap nodcap quantity node`, the polynomial and s-/z-domain controlled sources (`pvcvs svcvs
   zvcvs …`), nonlinear `coeffs=` on R/C, a series `r=` on an inductor, a resistor's third terminal and a
@@ -2067,7 +2067,10 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
       nominal (`.param rr=2k`, `r={rr}`, `.DC rr LIST 2k 4k`: 0.5, 0.2 for 1/3, 0.2; an off-grid nominal, a
       later point, no sweep and a built-in device are right), so a deck with Verilog-A prints a swept
       variable's and a Verilog-A hook's nominal off the grid (`xyce.off_grid`; the nominal is never a
-      result). Measured on both engines, each giving VACASK's value: model and instance parameters on the
+      result). PyMS 1.1.8 (xyce 3263aa47, BUGS.md A24) takes the `.param`'s value there, so vamos requires
+      it (`run_xyce.PYMS_MIN_VERSION`) and prints the nominal as given, a hook's at the sweep's first point
+      (`off_grid` is gone; FIX2E8's `sw1` and a `param=` sweep `sw4` start at the nominal, and 1.1.7 fails
+      them). Measured on both engines, each giving VACASK's value: model and instance parameters on the
       card and on the instance, both, an instance value over the card's, integer and string values, several
       instances and two modules, an expression of netlist parameters, a subckt parameter on two paths,
       `dev=` sweeps of a given and of an unset parameter, a `param=` sweep, `mod=` sweeps and alters, a
@@ -2105,7 +2108,8 @@ bodies with `ir.flat_items`, so a net or an internal node used only inside an `i
       `$abstime` hint went with PyMS 1.1.4, FIX2E8); so is PyMS's `preprocess: warning: '<x>' not found (skipped)` for a non-standard
       header, which catches an include inside an `` `ifdef`` on a cold cache only (phase 2c, R-run-3).
     - Before Xyce runs, a netlist with Verilog-A is an error in `AHDL read-in` (status 2) when the PyMS that
-      Xyce runs is older than 1.1.7 or states no version (`run_xyce.pyms_version_problem`, round 7'): the
+      Xyce runs is older than 1.1.8 (1.1.7 until FIX2E8's A24 follow-up) or states no version
+      (`run_xyce.pyms_version_problem`, round 7'): the
       PyMS found as `N_DEV_PyMS.C`'s `find_device_gen` finds it (`$PYMS_DIR`, `$XYCE_PREFIX/share/xyce/PyMS`
       with `/usr/local` by default, then the source trees), its version from `vae/__init__.py`'s
       `__version__`, else its `VERSION` file. PyMS 1.1.7 compiles right, or refuses with a file:line error

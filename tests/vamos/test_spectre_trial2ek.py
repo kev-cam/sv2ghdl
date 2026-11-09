@@ -1,4 +1,5 @@
-"""The fixes of phase 2e's round 8 (FIX2E8: the follow-ups round 7' left, on PyMS 1.1.7).  Standard library only,
+"""The fixes of phase 2e's round 8 (FIX2E8: the follow-ups round 7' left, on PyMS 1.1.7; the sweeps' nominals on the grid
+since PyMS 1.1.8).  Standard library only,
 Python 3.9; the engine runs on WSL.
 
 TestVaParamKinds          vamos's Verilog-A scan records which parameters a module declares (* type="instance" *)
@@ -113,17 +114,20 @@ ends s1""")
 # no parameter (0.5); a subckt parameter (0.2)
 PARAMS_OUT = {"o1": 1 / 3.0, "o2": 0.6, "o3": 1 / 1.4, "o4": 0.2, "o5": 0.5, "o6": 0.2}
 
-# X1's r swept from its own value (PyMS 1.1.7 gave the declaration default at a first point equal to the hook's
-# nominal: off_grid), g that X1 does not give, card c1's r (X2 follows it, X3 gives its own), then alters of X1's r and
-# of c1's r (X2 follows the card; the card alone changed nothing on Xyce before: 0.5)
-SWEEPS = deck("model c1 a2 r=1k\nX1 (in out) a2 r=2k\nR1 (out 0) resistor r=1k\nX2 (in o2) c1\n"
-              "R2 (o2 0) resistor r=1k\nX3 (in o3) c1 r=4k\nR3 (o3 0) resistor r=1k",
+# X1's r swept from its own value, g that X1 does not give, card c1's r (X2 follows it, X3 gives its own), netlist
+# parameter rr that X4's r reads, swept from its own value, then alters of X1's r and of c1's r (X2 follows the card;
+# the card alone changed nothing on Xyce before: 0.5).  Each hook's nominal is the sweep's first point: PyMS 1.1.7 gave
+# the declaration default there (BUGS.md A24, which round 8 dodged with an off-grid nominal), PyMS 1.1.8 its value
+SWEEPS = deck("parameters rr=2k\nmodel c1 a2 r=1k\nX1 (in out) a2 r=2k\nR1 (out 0) resistor r=1k\nX2 (in o2) c1\n"
+              "R2 (o2 0) resistor r=1k\nX3 (in o3) c1 r=4k\nR3 (o3 0) resistor r=1k\n"
+              "X4 (in o4) a2 r=rr\nR4 (o4 0) resistor r=1k",
               "sw1 dc dev=X1 param=r values=[2k 4k]\nsw2 dc dev=X1 param=g values=[0 1m 3m]\n"
-              "sw3 dc mod=c1 param=r values=[1k 2k 4k]\n"
+              "sw3 dc mod=c1 param=r values=[1k 2k 4k]\nsw4 dc param=rr values=[2k 4k]\n"
               "a1 alter dev=X1 param=r value=4k\na2 alter mod=c1 param=r value=2k\nop2 dc")
 SWEEPS_OUT = {"sw1.dc": [("out", 2e3, 1 / 3.0), ("out", 4e3, 0.2)],
               "sw2.dc": [("out", 0.0, 1 / 3.0), ("out", 1e-3, 0.6), ("out", 3e-3, 1 / 1.285714285714286)],
               "sw3.dc": [("o2", 1e3, 0.5), ("o2", 2e3, 1 / 3.0), ("o2", 4e3, 0.2), ("o3", 1e3, 0.2), ("o3", 4e3, 0.2)],
+              "sw4.dc": [("o4", 2e3, 1 / 3.0), ("o4", 4e3, 0.2)],
               "op2.dc": [("out", None, 0.2), ("o2", None, 1 / 3.0), ("o3", None, 0.2)]}
 
 
@@ -174,15 +178,11 @@ class TestVaParamsOnXyce(TempDir):
                                        msg="%s %s %s at %s" % (engine, res, node, x))
 
     def test_the_sweep_decks(self):
-        """The hooks: X1's r and g on its card and line, c1's r on X2's card only, each nominal off the grid; the
-        alter deck's X2 card follows c1."""
+        """The hooks: X1's r and g on its card and line, c1's r on X2's card only, each nominal the sweep's first
+        point, as is rr's; the alter deck's X2 card follows c1."""
         from vamos.netlist import plan as PL, signals as SG, spectre
-        from vamos.netlist.xyce import off_grid
         from vamos.spectre import run_xyce as RX
         from vamos.spectre.job import Settings
-        self.assertEqual(off_grid([2e3, 4e3]), 3e3)
-        self.assertEqual(off_grid([0.0, 1e-3, 3e-3]), 5e-4)
-        self.assertNotIn(off_grid([2e3]), [2e3])
         for fn, body in FILES.items():
             self.write(fn, body)
         path = self.write("s.scs", SWEEPS)
@@ -192,11 +192,13 @@ class TestVaParamsOnXyce(TempDir):
         decks, _names = RX.render_decks(nl2, pl, sm)
         text = {d.step.name: d.text for d in decks}
         self.assertIn(".model X1__va a2 r={vamos_x_X1_r}\n", text["sw1"])
-        self.assertIn(".param vamos_x_X1_r=3000.0\n.DC vamos_x_X1_r LIST 2000.0 4000.0\n", text["sw1"])
+        self.assertIn(".param vamos_x_X1_r=2000.0\n.DC vamos_x_X1_r LIST 2000.0 4000.0\n", text["sw1"])
         self.assertIn("ya2 X1 in out X1__va g={vamos_x_X1_g}\n", text["sw2"])
         self.assertIn(".model X2__va a2 r={vamos_x_c1_r}\n", text["sw3"])
         self.assertIn(".model X3__va a2 r=4000.0\n", text["sw3"])
-        self.assertIn(".param vamos_x_c1_r=1500.0\n.DC vamos_x_c1_r LIST 1000.0 2000.0 4000.0\n", text["sw3"])
+        self.assertIn(".param vamos_x_c1_r=1000.0\n.DC vamos_x_c1_r LIST 1000.0 2000.0 4000.0\n", text["sw3"])
+        self.assertIn(".param rr=2000.0\n", text["sw4"])
+        self.assertIn(".DC rr LIST 2000.0 4000.0\n", text["sw4"])
         self.assertIn(".model X1__va a2 r=4000.0\n", text["op2"])
         self.assertIn(".model X2__va a2 r=2000.0\n", text["op2"])
         self.assertIn(".model X3__va a2 r=4000.0\n", text["op2"])

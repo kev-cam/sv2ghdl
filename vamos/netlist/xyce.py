@@ -366,16 +366,6 @@ class _Deck:
         levels = (list(step.context) + ([step.own] if step.own is not None else [])) if step is not None else []
         if step is not None:
             self._hooks(step)
-        # FIX2E8 (a PyMS 1.1.7 bug, measured): under a .DC or .STEP of a .param, a Verilog-A parameter that reads it
-        # takes the module's declaration default at the first point when that point equals the .param's nominal
-        # (`.param rr=2k', r={rr}, `.DC rr LIST 2k 4k': 0.5 0.2 for 1/3 0.2; an off-grid nominal, a later point and
-        # a built-in device are right).  The nominal is never a result (every point sets the .param), so a deck with
-        # Verilog-A prints a swept variable's and a Verilog-A hook's nominal off the grid (off_grid)
-        self.swept_vars: Dict[str, List[float]] = {}
-        if nl.hdl:
-            for lv in levels:
-                if lv.target[0] == "variable":
-                    self.swept_vars[lv.target[1]] = _grid_points(lv.spec)
         # the deck sweeps a .param (a variable, or a hook): E126's trigger for a linear E/G gain that reads one
         self.param_sweep = bool(self.hooks) or any(lv.target[0] == "variable" for lv in levels)
         self.elaborate()
@@ -460,10 +450,11 @@ class _Deck:
                 self.hooks[(name, param)] = (hook, inst.value if inst.value is not None else Num(1.0))
             elif inst.kind == "y" and param != "m" and inst.master and inst.master.lower() in self.va \
                     and T.va_letter(self.va[inst.master.lower()]) is None:
-                # FIX2E8: a Verilog-A (Y) parameter prints on the instance's card or line reading the hook (i_y)
-                # a nominal off the sweep's grid (every point sets the hook): the PyMS first-point bug (__init__)
+                # FIX2E8: a Verilog-A (Y) parameter prints on the instance's card or line reading the hook (i_y),
+                # its nominal the sweep's first point (every point sets the hook; PyMS >= 1.1.8 takes a first point
+                # equal to the nominal, where 1.1.7 gave the declaration default: BUGS.md A24)
                 pts = _grid_points(lv.spec)
-                self.hooks[(name, param)] = (hook, Num(off_grid(pts)) if pts else Num(0.0))
+                self.hooks[(name, param)] = (hook, Num(pts[0]) if pts else Num(0.0))
             elif inst.kind in ("v", "i"):
                 src = inst.source or Source()
                 where = _SOURCE_FIELD.get(param)
@@ -527,7 +518,7 @@ class _Deck:
             own = [v for k, v in it.params.items() if k.lower() == want]
             if own and own[-1] is not old:
                 continue                                              # its own value of param
-            self.hooks[(path, param)] = (hook, Num(off_grid(pts)) if pts else Num(0.0))
+            self.hooks[(path, param)] = (hook, Num(pts[0]) if pts else Num(0.0))
         self.card_hooks[(name, param)] = hook
 
     def hook_name(self, path: str, param: str) -> Optional[str]:
@@ -1017,10 +1008,8 @@ class _Deck:
                 self.err(p.origin, "parameter %s is reserved by vamos" % MF)
                 continue
             try:
-                pts = self.swept_vars.get(p.name)
-                value = Num(off_grid(pts)) if pts else p.expr        # FIX2E8: the PyMS first-point bug (__init__)
                 self.body.append(".param %s=%s" % (self.pname(p.name),
-                                                   self.xv(value, p.origin, "parameter " + p.name)))
+                                                   self.xv(p.expr, p.origin, "parameter " + p.name)))
             except _Skip:
                 pass
 
@@ -2148,17 +2137,6 @@ def _literal_switch(v: Expr) -> bool:
         return True
     except ValueError:
         return False
-
-
-def off_grid(pts: Sequence[float]) -> float:
-    """FIX2E8: a nominal for a swept .param that no point of the grid equals (PyMS 1.1.7 gives a Verilog-A parameter
-    that reads the .param its declaration default at a first point equal to the nominal): halfway from the first
-    point to the next different one (inside any interval a module's range declares that holds both), else the
-    first point nudged by one part in a million."""
-    first = pts[0]
-    other = next((x for x in pts if x != first), None)
-    cand = (first + other) / 2.0 if other is not None else (first * (1.0 + 1e-6) if first else 1e-12)
-    return cand if cand not in pts else first * (1.0 - 1e-6) - 1e-30
 
 
 def _grid_points(spec) -> List[float]:
