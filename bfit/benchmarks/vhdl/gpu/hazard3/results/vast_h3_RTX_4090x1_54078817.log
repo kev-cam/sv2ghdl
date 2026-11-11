@@ -1,5 +1,5 @@
 16:40:17 status=running ssh2.vast.ai:39474
-{'success': True, 'msg': 'SSH key added to instance.', 'key': '{"id": 1485315, "user_id": null, "default": null, "public_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCwh+bCFVq6crBIa/z6fPYM3ykBVpbDQkcNfCf+A2L8WqLRfxH42DFQ1WKlYjmewJZ9yEtlA3b6Kq0CjWKmq6iYfNCi1OIvWYN3g5j5uvK6BlGAmAwpRwFABabteP5whyJg4eBJbr++M2vX8oUK9XuuNTYwG2qs7AzadfXnnrRFuXTjYfuIiUQwddamLir6RjHGJ12+mpY426CpsYBEy6dWy6w6hoUuZ3qWFOEJ88kZ78iuVY/7OqSd+v4gxnaES6mxBnixDhfm0Sxw0MjO0890Do2S03afitl/ctBhgbxc2DyCJvJfGReAkm9wShBdJlQE4TrZNoc9OIyn5Bj+en6vSbBYVti6OLwvvTF/isYGvrOS8555SC5qeiV3d95sddTsflXMHsW5cHudt5j1QGttdt1q1622fYvT38Hejp/CZUYQIJFpiCyKX1jrgP4KmC0lZ4GAWPgewaOzsXxBTDOZMa+X6WtQntdYACOvqqhJbAeu5MU/xEIbT8stYyYEc50= Claude@DESKTOP-3SRS8MD", "private_key": null, "created_at": 1791070819.1107578, "deleted_at": null}'}
+{'success': True, 'msg': 'SSH key added to instance.', 'key': '{"id": 1485315, "user_id": null, "default": null, "public_key": "ssh-rsa <public key redacted>", "private_key": null, "created_at": 1791070819.1107578, "deleted_at": null}'}
 Warning: Permanently added '[ssh2.vast.ai]:39474' (ED25519) to the list of known hosts.
 Welcome to vast.ai. If authentication fails, try again after a few seconds, and double check your ssh key.
 Have fun!

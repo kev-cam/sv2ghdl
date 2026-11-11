@@ -107,7 +107,7 @@ vamos takes its personality from the name it was run as. You can put the shipped
 PATH:
 
 ```sh
-export PATH=$SV2GHDL/shims:$PATH             # vcs, vcs-ams, nvc, spectre
+export PATH=$SV2GHDL/shims:$PATH             # vcs, vcs-ams, nvc, spectre, xvlog, xvhdl, xelab, xsim (§13)
 vcs -h                                       # usage of the vcs personality (vcs-ams -h has its own)
 ```
 

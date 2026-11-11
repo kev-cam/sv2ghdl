@@ -26,33 +26,41 @@ Run `make all` to synthesize all RTL files to gate-level netlists:
 make all
 ```
 
-This will create `work/*_syn.v` files containing gate-level implementations.
+This will create `work/*_syn.v` files containing gate-level implementations
+(`yo-fix.pl` post-processes yosys's output on the way).
 
 ### ATPG Flow
 
-After synthesis, the gate-level netlists can be used with the ATPG workflow:
+After synthesis, the gate-level netlists can be used with the ATPG workflow.
+The Makefile has the first two steps as targets:
 
 ```bash
-# Convert gate netlist to BENCH format (if verilog2bench.pl available)
-verilog2bench.pl work/counter4_syn.v work/counter4.bench
+make bench      # work/*_syn.bench  (gate netlist -> BENCH, ../tests-atpg/verilog2bench.pl)
+make atpg       # work/*_syn.test   (Atalanta test vectors)
+```
+
+or by hand:
+
+```bash
+# Convert gate netlist to BENCH format
+../tests-atpg/verilog2bench.pl work/counter4_syn.v work/counter4.bench
 
 # Run ATPG to generate test vectors
 cd work
 atalanta counter4.bench
 
 # Create VHDL testbench from test vectors
-test2vhdl.pl counter4.test
+../../tests-atpg/test2vhdl.pl counter4.test
 
-# Simulate original RTL with generated testbench
-ghdl -a counter4.vhd counter4_tb.vhd
-ghdl -r counter4_tb
+# Simulate original RTL with generated testbench (nvc from the stack, or ghdl)
+nvc -a counter4.vhd counter4_tb.vhd && nvc -e counter4_tb && nvc -r counter4_tb
 ```
 
 ## Requirements
 
 - **yosys** - For RTL to gate-level synthesis
 - **atalanta** - For ATPG test generation (optional)
-- **ghdl** - For VHDL simulation (optional)
+- **nvc** or **ghdl** - For VHDL simulation (optional)
 
 ## Yosys Synthesis Options
 

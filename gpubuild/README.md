@@ -8,6 +8,7 @@ Full documentation: open [`index.html`](index.html) in a browser.
 
 ```
 ./gpu-cc.sh -O2 -arch=sm_75 -o hello hello.cu     # nvcc in a pinned container
+./make_device_model.sh general.c                   # gsm model -> general_dev.c (__device__-qualified)
 ./build_farm.sh model.c harness.cu farm            # gsm model -> fat binary
 ./ship_run.sh user@host 'cd ~ && ./farm ...' farm  # run on any ssh GPU host
 VAST_API_KEY=... ./vast_run.sh <id> 'cmd' farm     # binary-only vast.ai session

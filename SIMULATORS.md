@@ -1,6 +1,6 @@
 # Simulator Replacement Status
 
-Simulators displaced or targeted for displacement by the Cameron EDA / ltz / cameron-grid federated stack. Effort estimates are for production-quality displacement including validation; proof-of-concept effort is typically 30–50% of the figures shown.
+Status as of 2026-11-11 (the previous revision was 2026-07-03). Simulators displaced or targeted for displacement by the Cameron EDA / ltz / cameron-grid federated stack. Effort estimates are for production-quality displacement including validation; proof-of-concept effort is typically 30–50% of the figures shown.
 
 License cost estimates are per-seat annual figures sourced from published pricing, industry surveys, and vendor quotes where available. Actual costs vary significantly by tier, bundle, and negotiation.
 
@@ -13,8 +13,9 @@ License cost estimates are per-seat annual figures sourced from published pricin
 | **LTspice** | Analog Devices | ltz (Xyce + libxycespice.so) | ✅ Done | — | Free | Quality / performance uplift; Xyce converges on stiff circuits LTspice fails |
 | **QSpice** | Qorvo | ltz (Xyce + libxycespice.so) | ✅ Done | — | Free | Quality / performance uplift; open vs. closed ecosystem |
 | **SIMetrix / SIMPLIS** | Mentor/SIMETRIX | ltz (Xyce + NVC behavioral) | 🔧 Polishing | — | $8K–$15K | $8K–$15K/seat; SIMPLIS switching model coverage via Xyce W-element |
-| **HSPICE** | Synopsys | ltz (Xyce + libxycespice.so) | 🔵 Planned | Medium | $50K–$150K | Primary IC sign-off SPICE; `.sp` netlist compatibility via Xyce Hspice mode |
-| **Spectre** | Cadence | ltz (Xyce + spectre translator) | 🔵 Planned | Medium | $80K–$200K | Translator pattern already established in Xyce upstream; `.scs` parser reuse |
+| **HSPICE** | Synopsys | vamos `vcs-ams` (HSPICE-dialect cells on VACASK or Xyce, nvc cosim); ltz (Xyce) | 🔧 Active dev | Medium | $50K–$150K | HSPICE-dialect SPICE cells run inside the VCS-AMS flow today (docs/VAMOS_AMS_DESIGN.md); a standalone `hspice` command line is not yet a personality |
+| **Spectre** | Cadence | vamos `spectre` personality (VACASK default, Xyce with `--vamos-analog=xyce`) | ✅ Done (phases 0–2f; phase 3 deferred) | — | $80K–$200K | Drop-in `spectre` command line: Spectre and SPICE modes, ADE conventions, PSF outputs, Verilog-A (docs/VAMOS_SPECTRE_DESIGN.md, VAMOS_GUIDE.md §12) |
+| **VACASK** | Open source (AGPL) | engine, federated: the default analog engine of `vcs-ams` and `spectre` | ✅ Integrating | Low | Free | OpenVAF-native (openvaf-r); kev-cam fork carries the cosim patches; also a bfit driver and league-table engine |
 | **Eldo / PowerSpice** | Siemens EDA | ltz (Xyce) | 🟡 Scoped | High | $50K–$120K | Lower priority; `.cir` netlist largely SPICE-compatible |
 | **Spectre APS / XPS** | Cadence | ltz (Xyce + parallel smak) | 🟡 Scoped | High | $200K–$500K | Parallel Xyce via Wandering Threads / smak is the displacement path |
 
@@ -24,7 +25,8 @@ License cost estimates are per-seat annual figures sourced from published pricin
 
 | Simulator | Vendor | Replacement | Status | Effort | Est. License Cost/Seat/Yr | Customer Savings Note |
 |---|---|---|---|---|---|---|
-| **VCS** | Synopsys | NVC (forked, LLVM-based) | 🔧 Active dev | High | $100K–$500K | Core Cameron EDA thesis; 100× performance target; correct X-propagation semantics |
+| **VCS** | Synopsys | vamos `vcs`/`./simv` on NVC (forked, LLVM-based) or Verilator | ✅ Done (drop-in shipped; limitations in VAMOS_GUIDE.md §10) | High | $100K–$500K | Core Cameron EDA thesis; `vcs`/`simv` command lines run unchanged; `--accel` and Verilator parity are the performance work |
+| **Vivado simulator (xsim)** | AMD / Xilinx | vamos `xvlog`/`xvhdl`/`xelab`/`xsim` on NVC or Verilator | ✅ Done | — | bundled with Vivado | Same stack behind the Vivado command lines (VAMOS_GUIDE.md §13) |
 | **Xcelium** | Cadence | NVC | 🔵 Planned | High | $100K–$400K | Shared displacement with VCS; NVC IEEE-2019 compliance is the wedge |
 | **ModelSim / Questa** | Siemens EDA | NVC | 🔵 Planned | Medium | $20K–$80K | Large installed base in FPGAs / academia; NVC already passes most VHDL-2008 suites |
 | **Riviera-PRO** | Aldec | NVC | 🟡 Scoped | Medium | $15K–$60K | Niche; VHDL-AMS support is differentiator |

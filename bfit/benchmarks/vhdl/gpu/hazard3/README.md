@@ -11,12 +11,12 @@ thread runs one complete CPU instance (`h3farm.cu`, a sibling of `../farm.cu`). 
 | `split` (split render) | renders ONE TILE of upstream's own workload (1024x1024, MAX_ITERS 256, same pixel formula, same colours), chosen by its instance id | N = NT = 2^(20-m) tiles of 2^m pixels: m = 0, 2, 4 gives 1,048,576 / 262,144 / 65,536 | 223 .. 11,866 (m = 0) |
 
 **Status 2026-10-03: built and certified on CPU here, and independently rebuilt and re-certified
-in review; GPU binaries built here. The same source has run on a real GPU: on this box's T1000
-(an sm_75 build of the same `h3farm.cu` and models) `sweep_h3.sh` + `check_h3.py` certified
-`thr` and the WHOLE image at m = 0, 2 and 4, `local_gpu_h3.sh` certified every m = 0 tile
-against the CPU table, and the measured rate is the anchor of the projection. Nothing has run
-on a rented card** (no rental in this workflow): every rented-card number below is a PROJECTION
-and is labelled as one. `vast_h3.sh` takes the actual measurement.
+in review; certified on this box's T1000; then MEASURED on rented cards.** Five vast.ai sessions
+on that date (RTX 4090 ×1, RTX 3090 ×1, L40S ×1, H100 SXM ×1, RTX 4090 ×8; `results/vast_h3_*.log`)
+ran `sweep_h3.sh` end to end, and `check_h3.py` certifies all 119 FARM lines of those logs
+against the CPU tables and the native goldens (0 failing). The measurements are in "Measured on
+rented cards" below. The projection section that follows it was written before the rentals and
+is kept for the record: the cards came in 3 to 4 times faster than it projected.
 
 ## Licence boundary
 
@@ -171,7 +171,49 @@ build, sm_90 within a few bytes, and 254 registers for the `split` MINB=1 kernel
 At MINB=1 the frame IS `state_t` and nothing spills, at 8 warps per SM; MINB=3/4 trade spills
 for 12/16 warps (slower on the T1000; the sweep measures it on each rented card).
 
-## Projection (NOT a measurement; `project_h3.py`, `results/projection.txt`)
+## Measured on rented cards (vast.ai, 2026-10-03; `results/vast_h3_*.log`, `check_h3.py`)
+
+Every row below is a `check_h3.py` MATCH: `thr` CHK0/DONE0 per point with AGG/CAGG recomputed on
+the host, `split` AGG against the native goldens and CAGG against the cycle-exact CPU run, and
+the image md5 printed on the rented host. `python3 check_h3.py` re-derives the whole table from
+the logs alone (119 rows, 0 failing; AGG consistent across GPU counts and cards). The sweep ran
+`thr` at N = 1 … 1,048,576 (8,388,608 on the 8-card node) and the whole 1024×1024 image at
+m = 0, 2 and 4, each twice (blocks of 32 and 128).
+
+| card | `thr` plateau inst-cyc/s (N = 1M, MINB 1) | MINB 3 / MINB 4 at N = 262,144 | `thr` images/s | whole image m = 0 / 2 / 4, kernel s |
+| :-- | --: | --: | --: | --: |
+| RTX 4090 ×1 | 5.36e9 | 3.06e9 / 9.7e8 | 56,400 | 1.14 / 1.18 / 1.56 |
+| L40S ×1 | 6.06e9 | 3.59e9 / 6.9e8 | 63,800 | 1.06 / 1.12 / 1.58 |
+| H100 SXM ×1 | 3.60e9 | 2.45e9 / 1.85e9 | 37,900 | 1.88 / 1.93 / 2.45 |
+| RTX 3090 ×1 | 1.74e9 | 9.6e8 / 5.6e8 | 18,300 | 3.34 / 3.41 / 3.87 |
+| RTX 4090 ×8 | 4.29e10 (N = 8M; one card of the eight: 5.37e9) | | 451,000 | 0.240 / 0.300 / 0.630 |
+
+MINB 1 (no spills, 8 warps per SM) wins on every card, as on the T1000; the spilling variants lose
+by 1.5× to 9×. The T1000-to-4090 ratio is 52× in `thr` throughput (1.04e8 → 5.36e9) and 52× on the
+whole image (59.2 s → 1.14 s).
+
+**Against Verilator and Verijit's claim (measured).** Upstream's run takes Verilator 1,240 to
+1,274 s on one core here. One RTX 4090 renders the same image in 1.14 s, about 1,100× Verilator;
+one L40S in 1.06 s; eight 4090s in 0.240 s, about 5,200× Verilator. Verijit's claimed 766.8
+MCycles/s would be 6.05 s for the single run (it cannot be run: no binary or source is published),
+so one 4090 is about 5× that claim and eight are about 25×. In throughput one 4090 sustains 5.36e9
+instance-cycles/s, about 1,750× one Verilator thread on the same generated SoC (3.06e6); the L40S
+about 1,980×, the H100 about 1,180×, the 3090 about 570×. Rule 4 still holds: one GPU thread runs
+about 1.5e5 cycles/s alone and 5e3 to 6e3 at saturation (5.36e9 over 1,048,576 instances),
+hundreds of times SLOWER than one CPU core on the same model (2.5e6); the farm wins only by
+breadth, never on a single run.
+
+The committed logs have the vast.ai SSH public-key response redacted (the key string and its host
+comment); the unredacted originals are kept locally in `results/unredacted/`, which is git-ignored.
+
+## Projection (made BEFORE the rentals and kept for the record; `project_h3.py`, `results/projection.txt`)
+
+Measured against projected (central values): the 4090 plateau came in at 3.8× the projection
+(5.36e9 vs 1.41e9), the L40S at 3.9×, the H100 at 3.2×, the 3090 at 2.9×; the 4090's whole-image
+time at 3.9× faster (1.14 s vs 4.40 s) and the 8-card node at 3.1× faster (0.240 s vs 0.75 s). The
+T1000 anchor and the processor-sharing model were right about the shape of the sweep (MINB 1 wins,
+m = 4 slowest, eight cards near-linear in `thr`) and wrong about the per-SM-per-clock factor for
+Ada, Hopper and Ampere relative to Turing. The original text follows unchanged.
 
 **Anchored on the T1000 measurement** (the second half of `projection.txt`): 4090 = T1000 x
 (128 SMs x 2.75 GHz) / (14 SMs x 1.86 GHz) x 0.90 / 1.00 / 1.20 per SM per clock (Ada and Turing
@@ -217,7 +259,7 @@ as the T1000 shows (Hazard3 reaches 0.32-0.53 of the ITC cell-eval rate); its sp
 (9.4e8, 6.46 s, 1.28 s) does bracket the anchored values. Its constant-rate list schedule is 1.7x
 too pessimistic for tail-heavy launches (lone warps run ~3x faster).
 
-## Rental plan (`vast_h3.sh`, not run here; budget $20)
+## Rental plan (`vast_h3.sh`; executed on 2026-10-03 as the five sessions above; budget $20)
 
 | # | node | `MAXDPH` cap | gpu_farm.md paid $/h | projected session (sweep + 4 min create/ship/destroy) | projected $ | worst case at the cap |
 | --: | :-- | --: | --: | --: | --: | --: |
@@ -302,4 +344,4 @@ python3 project_h3.py --tiles $W/split/gsm_m0.txt,$W/split/gsm_m2.txt,$W/split/g
 | `local_gpu_h3.sh` | the same harness on a local GPU within a display watchdog: real-GPU certification and the projection's anchor |
 | `sweep_h3.sh`, `vast_h3.sh`, `check_h3.py` | on-instance sweep (also logs the SM clock); rental driver (destroys and verifies; `--reap`); host-side certification from logs |
 | `project_h3.py` | the projection above (T1000-anchored + processor sharing; rules 1-3 alone for comparison) |
-| `expect/`, `results/`, `bin/` | expected values; local logs, ptxas reports, projection; binaries + SHA256SUMS (binaries are git-ignored, `results/vast_h3_*.log` are not) |
+| `expect/`, `results/`, `bin/` | expected values; local logs, ptxas reports, projection, the five certified rental logs `results/vast_h3_*.log` (SSH public key redacted; originals in the git-ignored `results/unredacted/`); binaries + SHA256SUMS (binaries are git-ignored) |

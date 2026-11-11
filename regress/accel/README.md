@@ -1,4 +1,4 @@
-# test/accel/bench -- a measurable `--accel` benchmark suite
+# regress/accel -- a measurable `--accel` benchmark suite
 
 Purpose: give `nvc --accel` designs that are **big enough to measure**, **correct**,
 **scalable**, and **runnable on Verilator with the identical workload**, so the
@@ -12,15 +12,19 @@ every case in every mode and prints a table.
 ./run.sh              # verify all cases in all modes
 ./run.sh -t           # ...and collect `perf stat -e instructions`
 ./run.sh wide_n8w1024 # one case
-./materialise.sh      # write the canonical size of each shape into designs/
+./translated.sh       # the same check on iverilog-TRANSLATED designs (dynamic sensitivity)
+./opt_asserts.sh      # the ck52..ck65 guards: constructs that once produced wrong-but-parseable models
 ```
+
+`../accel-gate.sh` runs these as the correctness gate for the `--accel` path
+(`../COORD-GATE.md`).
 
 ## What each run compares
 
 | mode | how |
 |---|---|
 | `interp` | `nvc -r` (no accel) -- the gold reference |
-| `accel` | `NVC_ACCEL=1 NVC_ACCEL_JIT=1 NVC_ACCEL_FROM_VHDL=1`, **default admission gate** |
+| `accel` | `NVC_ACCEL=1 NVC_ACCEL_FROM_VHDL=1`, **default admission gate** (`run.sh` also exports `NVC_ACCEL_JIT=1`, which nvc no longer reads) |
 | `perinst` | as above plus `NVC_ACCEL_PER_INSTANCE=1 NVC_ACCEL_MIN_MODULES=1` |
 | `vltr` | Verilator `--binary` on the matched `.sv` |
 
@@ -36,7 +40,7 @@ it is the first three columns of the table lining up with the fourth.
 ## Admission: no `NVC_ACCEL_MIN_MODULES` knob is used
 
 `--accel` has two counting gates that key on nothing about the amount of work in a
-design (`src/rt/model.c:5177` and `:5233`, both default 8): the subtree needs
+design (the two `NVC_ACCEL_MIN_MODULES` checks in `src/rt/model.c`, both default 8): the subtree needs
 **>= 8 `SCOPE_INSTANCE` nodes** *and* **>= 8 distinct `(entity, generics)`
 variants**. Every design here is shaped to clear both naturally, by instantiating
 one generic leaf N >= 8 times with **distinct generics** -- so `run.sh` never sets
@@ -45,7 +49,7 @@ only, because per-instance chunks are single leaves by definition.)
 
 Two consequences worth knowing before editing anything here:
 
-* **`for ... generate` is declined by the translator.** `vhdl2vlog.c:1843` only
+* **`for ... generate` is declined by the translator.** `vhdl2vlog.c`'s block translation only
   accepts an elaborated `T_BLOCK` whose `T_HIER` ref is a `T_ARCH`; a generate
   scope is not, so it emits `/*?block k=60*/` and the whole subtree declines.
   That is why the structural repetition is emitted by `gen.py` rather than written
@@ -86,7 +90,8 @@ Breaking any one of these makes the chunk decline (often silently):
 
 ## Known bugs found while building this (all reproduced, none fixed here)
 
-1. **`BUG_portmap_xor_sigsegv.vhd` -- interpreter SIGSEGV, not an accel bug.**
+1. **Interpreter SIGSEGV on an expression in a port map, not an accel bug** (the
+   standalone repro, `BUG_portmap_xor_sigsegv.vhd`, was never committed).
    A port-map actual that is an expression (`port map (ra => rav xor x"1")`)
    builds an `<inst>.RA_actual` conversion function. After ~2000-5000 evaluations
    the run dies in `ieee_xor_vector_sse41` writing to a null pointer. Measured
@@ -110,6 +115,12 @@ load / dlopen differenced out by measuring each engine at 2000 and 22000 cycles
 and taking the slope.  Both sides at -O3: nvc's bridge uses its own default
 (`gcc -g -O3`) and Verilator is built `-CFLAGS -O3`.  Instruction counts, not
 wall clock — wall clock on these boxes swings with load and cache state.
+
+This table is a snapshot at that nvc commit (2026-07-30). The accel work since
+(the `opt_asserts.sh` guards ck52..ck65 of September and October 2026, the
+gen_statemachine memory-sizing change, the merged-chunk mode) has not been
+re-measured here; re-run `./perf.sh` before quoting these numbers against a
+current build.
 
 ```
 CASE            interp/cyc  accel/cyc   vltr/cyc    acc:int acc:vltr
@@ -166,13 +177,18 @@ still lost to the interpreter (0.60x, 0.80x) above 1.0.  `deep` is unchanged at
 ~6.2x, which is the control: it was never `worbits`-bound.
 
 **Caveat that matters more than the table.**  These are SYNTHETIC shapes.  On the
-real VeeR-EH2 core, full `--accel` is **70x SLOWER than the interpreter** (2,604s
-warm vs 37s) and diverges — because 1,366 chunks get installed, over a thousand
+real VeeR-EH2 core, full `--accel` was, when this was measured in July 2026, **70x
+SLOWER than the interpreter** (2,604s warm vs 37s) and diverged — because 1,366
+chunks got installed, over a thousand
 of them individual flip-flop primitives, each paying a bridge crossing per cycle.
 Nothing in this table predicts that, because none of these designs is fragmented
 enough to expose it.  See `many_k24` at 30.0x, the worst row here, whose profile
 is entirely nvc scheduler with no generated code in the top 12 — that is the same
-mechanism, two orders of magnitude smaller.
+mechanism, two orders of magnitude smaller.  That VeeR result is what led to the
+merged-chunk mode (`NVC_ACCEL_MERGE=1`): by 2026-08-07 the fused VeeR-EH2 hello ran
+with 14 merged chunks, byte-exact against the interpreter, suite 12/12
+(`../docs/accel-veer-status.md`); its speed is the pending parity measurement and
+is not in this table.
 3. **Accel does a fixed amount of work per cycle regardless of activity, and
    that is still true.** `act_lo` and `act_hi` are the *same netlist* (`mode` is
    an input port, not a generic, precisely so yosys cannot specialise them).
@@ -211,10 +227,18 @@ Raw logs: `RESULTS_percycle.txt` (differenced) and `RESULTS_verify_and_time.txt`
 ## Files
 
 ```
-gen.py            generator: gen.py <shape> <outdir> [K=V ...]
-run.sh            build + verify every case in every mode, print the table (-t adds counts)
-perf.sh           per-cycle instruction cost, startup differenced out
-materialise.sh    write the canonical size of each shape into designs/
-designs/          one materialised size per shape (readable copies)
-BUG_portmap_xor_sigsegv.vhd   standalone repro for bug 1
+gen.py               generator: gen.py <shape> <outdir> [K=V ...]
+run.sh               build + verify every case in every mode, print the table (-t adds counts)
+perf.sh              per-cycle instruction cost, startup differenced out
+translated.sh        the same correctness check on iverilog-translated designs, whose
+                     processes have dynamic sensitivity (the native VHDL here cannot catch
+                     those defects)
+translated_glue2b.v  the glue2b fixture translated.sh uses: an admitted registered chunk
+                     whose boundary input arrives from the interpreted side at a deep delta
+opt_asserts.sh       guards ck52..ck65, one per construct that once produced a wrong but
+                     parseable model (wide multiply with a concat operand, narrowing signed
+                     resize, dynamic non-zero-base index, memory initializers, ...)
 ```
+
+The generated designs live in each run's work directory; there is no committed
+`designs/` copy and no committed repro for bug 1.

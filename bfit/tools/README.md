@@ -55,10 +55,20 @@ Atalanta  ──.tst──▶  tests-atpg/test2spice.pl  ──▶  SPICE patter
 Simulate the transistor cell on those patterns, then fit the macromodel params so
 its levels/delays match. Done once per cell → a portable bfit cell-model library.
 
+### Where this stands (2026-11)
+
+- `bfit front` recognizes inverters and 1- and 2-input gates itself
+  (`recognize_inverter`, `recognize_gates`, `library/cmos_inv`, `library/cmos_gates`);
+  the models this tool generates are not yet consumed by `front()`, so a
+  stdcell2bfit library is used by hand.
+- `library/th22` (a Muller C-element with its keeper) is the first state-holding
+  cell in the library, tuned through the Xyce template path rather than
+  generated here.
+
 ### Next
 
 - Wire the generated models into `front()` so bfit substitutes recognized cell
-  instances automatically (today `recognize_inverter` handles the inverter case).
+  instances automatically, beyond the inverter and gate cases it has.
 - Fit `ron/gmin/cin` per cell from the ATPG-pattern simulation.
 - Sequential-cell handling: detect the cross-coupled feedback pair and emit a
   latch/FF behavioral primitive instead of the pull-net model.
