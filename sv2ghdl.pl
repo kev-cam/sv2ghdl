@@ -13,12 +13,20 @@ use File::Basename;
 
 our $VERSION = "0.1.0";
 
-# Translation mode
+# Translation mode. `lib` names the logic library the output uses:
+#   ieee     ieee.std_logic_1164 / numeric_std                        (standard)
+#   enh      work.enh_logic_1164 from packages/enhlogic, a rename of
+#            std_logic_1164; analyse its two files into work first    (enhanced)
+#   sv2vhdl  the nvc fork's sv2vhdl.logic3d_types_pkg, the 3-state
+#            logic3d types iverilog's VHDL backend emits as well      (logic3d)
 my %MODES = (
-    'standard'           => { lib => 'ieee',        temporal => 0, accel => 0, logic3d => 0 },
-    'enhanced'           => { lib => 'cameron_eda', temporal => 0, accel => 0, logic3d => 0 },
-    'logic3d'            => { lib => 'work',        temporal => 0, accel => 0, logic3d => 1 },
+    'standard'           => { lib => 'ieee',    temporal => 0, accel => 0, logic3d => 0 },
+    'enhanced'           => { lib => 'enh',     temporal => 0, accel => 0, logic3d => 0 },
+    'logic3d'            => { lib => 'sv2vhdl', temporal => 0, accel => 0, logic3d => 1 },
 );
+
+our $CFG;   # the %MODES entry of the selected mode, read by the type/literal helpers
+our @sif;   # open begin-less if/else branches of the current process (see sif_* below)
 
 # Command-line options
 my $mode = 'standard';
@@ -56,6 +64,7 @@ if ($help) {
 
 # Check mode is valid
 die "Unknown mode: $mode\n" unless exists $MODES{$mode};
+$CFG = $MODES{$mode};
 
 # Handle -find option
 my @input_files;
@@ -318,6 +327,8 @@ sub translate_file {
     # and set a flag so the line-by-line pass skips redundant port/entity generation
     # Build set of port names to avoid duplicate signal declarations
     our %port_names = ();
+    @sif = ();
+    our $async_reset_clk = undef;
     foreach my $p (@prescan_ports) { $port_names{$p->{name}} = 1; }
 
     my $entity_prescanned = 0;
@@ -338,9 +349,7 @@ sub translate_file {
             my $vhdl_dir = ($p->{dir} eq 'input') ? 'in'
                          : ($p->{dir} eq 'output') ? 'out'
                          : 'inout';
-            my $vhdl_type = (defined $p->{msb})
-                ? "std_logic_vector($p->{msb} downto $p->{lsb})"
-                : "std_logic";
+            my $vhdl_type = port_type($p->{msb}, $p->{lsb}, $MODES{$mode});
             my $sep = ($i < $#prescan_ports) ? ';' : '';
             $entity .= "    $p->{name} : $vhdl_dir $vhdl_type$sep\n";
         }
@@ -451,7 +460,7 @@ sub translate_file {
         if ($line =~ /^\s*endmodule/) {
             # Auto-close any open process before ending module
             if ($in_process) {
-                my $close = "";
+                my $close = sif_close_all();
                 $close .= "    end if;\n" if $process_has_if;
                 $close .= "    wait;\n" unless $process_has_sens;
                 push @output, "${close}  end process;\n";
@@ -460,6 +469,7 @@ sub translate_file {
                 $process_has_if = 0;
                 $process_has_sens = 0;
                 @block_stack = ();
+                $async_reset_clk = undef;
             }
             next;  # Footer will be added after loop
         }
@@ -511,7 +521,146 @@ sub translate_file {
 # Line-by-line translation
 #-----------------------------------------------------------------------------
 
+#-----------------------------------------------------------------------------
+# Begin-less if/else branches inside a process
+#
+# Verilog closes a single-statement branch at its semicolon; VHDL needs an
+# explicit `end if;`, and whether an `else` follows is only known on the next
+# line. @sif holds one frame per `if … [else if …] [else …]` chain whose
+# current branch is a single statement, innermost last:
+#   then       `if`/`elsif` emitted, its statement not seen yet
+#   then_done  that statement seen; an `else` may still follow
+#   else       `else` emitted, its statement not seen yet
+#   else_done  complete; `end if;` goes out when the next line is not an else
+# A block if whose lone `end` has been seen is parked as then_done too, so an
+# `else` on the following line attaches to it instead of landing after its
+# `end if;`. Each frame records the process depth it was opened at: a
+# statement completes the top frame only at that depth, and a frame is never
+# touched by lines inside a deeper begin/end block.
+#-----------------------------------------------------------------------------
+sub sif_push { my ($state, $depth) = @_; push @sif, { state => $state, depth => $depth }; }
+
+# The statement just emitted at $depth completes the open branch of the top frame.
+sub sif_statement_done {
+    my ($depth) = @_;
+    return unless @sif && $sif[-1]{depth} == $depth;
+    my $f = $sif[-1];
+    if    ($f->{state} eq 'then') { $f->{state} = 'then_done'; }
+    elsif ($f->{state} eq 'else') { $f->{state} = 'else_done'; }
+}
+
+# The next line at $depth is not an `else`: close every frame at this depth
+# whose branch is complete. A closed if is itself one statement of the branch
+# enclosing it.
+sub sif_flush {
+    my ($depth) = @_;
+    my $out = '';
+    while (@sif && $sif[-1]{depth} >= $depth && $sif[-1]{state} =~ /_done$/) {
+        pop @sif;
+        $out .= "    end if;\n";
+        sif_statement_done($depth);
+    }
+    return $out;
+}
+
+# An `else` form arrived at $depth: close the chains that are already
+# complete, then say whether the top frame can take it (then-branch done).
+sub sif_attach_else {
+    my ($depth) = @_;
+    my $out = '';
+    while (@sif && $sif[-1]{depth} >= $depth && $sif[-1]{state} eq 'else_done') {
+        pop @sif;
+        $out .= "    end if;\n";
+        sif_statement_done($depth);
+    }
+    my $ok = (@sif && $sif[-1]{depth} == $depth && $sif[-1]{state} eq 'then_done') ? 1 : 0;
+    return ($out, $ok);
+}
+
+# A branch opened at $depth turned out to be a begin/end block: the frame
+# waiting for its single statement is dropped; the block's own `end` closes it.
+sub sif_drop_fresh {
+    my ($depth) = @_;
+    pop @sif if @sif && $sif[-1]{depth} == $depth && $sif[-1]{state} =~ /^(?:then|else)$/;
+}
+
+# A block closed down to $depth: frames opened deeper than that are closed
+# (only malformed input leaves any).
+sub sif_close_deeper {
+    my ($depth) = @_;
+    my $out = '';
+    while (@sif && $sif[-1]{depth} > $depth) { pop @sif; $out .= "    end if;\n"; }
+    return $out;
+}
+
+# The process is ending: close whatever is still open.
+sub sif_close_all {
+    my $out = '';
+    while (@sif) { pop @sif; $out .= "    end if;\n"; }
+    return $out;
+}
+
+# The keyword for an else branch. In an `always @(posedge clk or posedge rst)`
+# process the outermost else is the clocked branch: `elsif rising_edge(clk)`.
+sub else_keyword {
+    my ($process_depth) = @_;
+    our $async_reset_clk;
+    if (defined $async_reset_clk && $process_depth <= 1 && @sif <= 1) {
+        my $kw = "    elsif rising_edge($async_reset_clk) then\n";
+        $async_reset_clk = undef;
+        return $kw;
+    }
+    return "      else\n";
+}
+
+# `if (cond) stmt;` / `else if (cond) stmt;` on one line: split at the paren
+# that closes the condition. Returns (cond, stmt), or () when the text is not
+# of that shape (a `begin`, or no statement after the condition).
+sub split_if_oneliner {
+    my ($text) = @_;
+    return () unless $text =~ /^\s*\(/;
+    my ($depth, $i) = (0, 0);
+    for ($i = 0; $i < length $text; $i++) {
+        my $c = substr($text, $i, 1);
+        if    ($c eq '(') { $depth++; }
+        elsif ($c eq ')') { $depth--; last if $depth == 0; }
+    }
+    return () if $depth != 0;
+    my $cond = substr($text, 0, $i);
+    $cond =~ s/^\s*\(//;
+    my $stmt = substr($text, $i + 1);
+    $stmt =~ s/^\s+|\s+$//g;
+    return () unless $stmt =~ /^[\w\$].*;$/ && $stmt !~ /^begin\b/;
+    return ($cond, $stmt);
+}
+
+# A line that is one statement of a process body, as opposed to a control
+# line or a declaration: it completes a begin-less branch.
+sub is_simple_statement {
+    my ($line) = @_;
+    return 0 unless $line =~ /;\s*$/;
+    return 0 if $line =~ /^\s*(?:if|else|end|begin|case|casez|casex|endcase|default|for|while|repeat|forever|always|initial|wire|reg|integer|real|time|genvar|parameter|localparam|input|output|inout|int|bit|byte|shortint|longint|string|logic|`\w+)\b/;
+    return 0 if $line =~ /^\s*[\w',]+\s*:\s*\S/;   # a case item
+    return 1;
+}
+
 sub translate_line {
+    my @args = @_;
+    my ($line, $in_process_ref, $depth_ref) = ($args[0], $args[6], $args[7]);
+    my $pre = '';
+    if ($$in_process_ref && @sif
+        && $line !~ /^\s*else\b/ && $line !~ /^\s*begin\s*$/
+        && $line !~ /^\s*$/ && $line !~ m{^\s*//}) {
+        $pre = sif_flush($$depth_ref);
+    }
+    my $was_in_process = $$in_process_ref;
+    my $out = translate_line_inner(@args);
+    sif_statement_done($$depth_ref)
+        if $was_in_process && $$in_process_ref && @sif && is_simple_statement($line);
+    return $pre . ($out // '');
+}
+
+sub translate_line_inner {
     my ($line, $line_num, $source_file, $mode, $in_entity, $in_architecture,
         $in_process_ref, $process_depth_ref, $process_pending_ref,
         $block_stack_ref, $last_keyword_ref,
@@ -621,7 +770,7 @@ sub translate_line {
         my $vhdl_type = ($sv_type =~ /^(integer|int|byte|shortint|longint)/) ? 'integer'
                       : ($sv_type eq 'real') ? 'real'
                       : ($sv_type eq 'time') ? 'time'
-                      : ($sv_type eq 'bit')  ? 'std_logic'
+                      : ($sv_type eq 'bit')  ? scalar_type()
                       : 'integer';
         # Split on commas not inside expressions (simple top-level split is fine here)
         foreach my $decl (split /\s*,\s*/, $rest) {
@@ -633,8 +782,8 @@ sub translate_line {
             our @signal_decls;
             if (defined $init) {
                 # Coerce SV literal to a VHDL literal for the bit case
-                if ($vhdl_type eq 'std_logic' && $init =~ /^[01]$/) {
-                    $init = "'$init'";
+                if ($vhdl_type eq scalar_type() && $init =~ /^[01]$/) {
+                    $init = bit_literal($init);
                 }
                 push @signal_decls, "  signal $name : $vhdl_type := $init;\n";
             } else {
@@ -698,11 +847,15 @@ sub translate_line {
             my $ctx = $$last_keyword_ref || 'block';
             push @$block_stack_ref, $ctx;
             $$last_keyword_ref = '';
+            # `if (c)` / `else` on the previous line: the branch is this block,
+            # not a single statement
+            sif_drop_fresh($$process_depth_ref - 1) if $ctx eq 'if' || $ctx eq 'else';
             return "";  # begin consumed (VHDL uses then/loop/etc. instead)
         }
         if ($line =~ /^\s*end\s*$/) {
             $$process_depth_ref--;
             my $ctx = pop @$block_stack_ref // 'block';
+            my $deeper = sif_close_deeper($$process_depth_ref);
             if ($$process_depth_ref <= 0) {
                 $$in_process_ref = 0;
                 $$process_depth_ref = 0;
@@ -711,8 +864,9 @@ sub translate_line {
                 $$process_has_if_ref = 0;
                 $$process_has_sens_ref = 0;
                 @$block_stack_ref = ();
+                our $async_reset_clk = undef;
                 # Close any open if, then close process
-                my $close = "";
+                my $close = $deeper . sif_close_all();
                 $close .= "    end if;\n" if $ctx eq 'if' || $ctx eq 'else';
                 # If process was opened with edge-triggered if, close that too
                 $close .= "    end if;\n" if $had_if;
@@ -721,10 +875,18 @@ sub translate_line {
                 return "${close}  end process;\n";
             }
             # Generate proper closing for the block context
-            if ($ctx eq 'if' || $ctx eq 'else') {
-                return "    end if;\n";
+            if ($ctx eq 'if') {
+                # An `else` may follow on the next line: park the if; its
+                # `end if;` goes out when the next line is not an else
+                sif_push('then_done', $$process_depth_ref);
+                return $deeper;
             }
-            return "";  # plain block, no VHDL close needed
+            if ($ctx eq 'else') {
+                # the whole if statement is one statement of any enclosing branch
+                sif_statement_done($$process_depth_ref);
+                return $deeper . "    end if;\n";
+            }
+            return $deeper;  # plain block, no VHDL close needed
         }
     }
 
@@ -1054,8 +1216,8 @@ sub translate_line {
             if ($expr =~ /(\w+)\s*([\+\-\*\/])\s*(.+)/) {
                 my ($left, $op, $right) = ($1, $2, $3);
                 return line_directive($line_num, $source_file) .
-                       "        $intermediate <= unsigned($left) $op $right;\n" .
-                       "        $lhs <= std_logic_vector($intermediate);\n";
+                       "        $intermediate <= " . as_unsigned($left) . " $op $right;\n" .
+                       "        $lhs <= " . from_unsigned($intermediate, $lhs) . ";\n";
             }
         }
 
@@ -1088,9 +1250,27 @@ sub translate_line {
             push @$block_stack_ref, 'if';
         } else {
             $$last_keyword_ref = 'if' if $last_keyword_ref;
+            # a single-statement branch, unless a `begin` follows on the next line
+            sif_push('then', $$process_depth_ref) if $$in_process_ref;
         }
         return line_directive($line_num, $source_file) .
                "      if $condition then\n";
+    }
+
+    # if(cond) stmt;  on one line: the branch is complete, an else may follow
+    if ($$in_process_ref && $line =~ /^\s*if\s*(\(.+;)\s*$/) {
+        my ($cond_text, $stmt) = split_if_oneliner($1);
+        if (defined $cond_text) {
+            my $condition = translate_condition($cond_text);
+            my $body = translate_line_inner("        $stmt\n", $line_num, $source_file, $mode,
+                                            $in_entity, $in_architecture, $in_process_ref,
+                                            $process_depth_ref, $process_pending_ref,
+                                            $block_stack_ref, $last_keyword_ref, $in_task_ref,
+                                            $process_has_if_ref, $process_has_sens_ref);
+            sif_push('then_done', $$process_depth_ref);
+            return line_directive($line_num, $source_file) .
+                   "      if $condition then\n" . ($body // '');
+        }
     }
 
     # Else if statements: else if(cond) or else if(cond) begin
@@ -1098,14 +1278,39 @@ sub translate_line {
         my $cond_text = $1;
         my $has_begin = ($line =~ /begin\s*$/);
         my $condition = translate_condition($cond_text);
+        my $pre = '';
+        if ($$in_process_ref) {
+            my ($closed, $ok) = sif_attach_else($$process_depth_ref);
+            $pre = $closed;
+            pop @sif if $ok;               # the chain continues in this branch
+        }
         if ($has_begin && $$in_process_ref) {
             $$process_depth_ref++;
             push @$block_stack_ref, 'if';
         } else {
             $$last_keyword_ref = 'if' if $last_keyword_ref;
+            sif_push('then', $$process_depth_ref) if $$in_process_ref;
         }
-        return line_directive($line_num, $source_file) .
+        return $pre . line_directive($line_num, $source_file) .
                "      elsif $condition then\n";
+    }
+
+    # else if(cond) stmt;  on one line
+    if ($$in_process_ref && $line =~ /^\s*else\s+if\s*(\(.+;)\s*$/) {
+        my ($cond_text, $stmt) = split_if_oneliner($1);
+        if (defined $cond_text) {
+            my $condition = translate_condition($cond_text);
+            my ($pre, $ok) = sif_attach_else($$process_depth_ref);
+            pop @sif if $ok;
+            my $body = translate_line_inner("        $stmt\n", $line_num, $source_file, $mode,
+                                            $in_entity, $in_architecture, $in_process_ref,
+                                            $process_depth_ref, $process_pending_ref,
+                                            $block_stack_ref, $last_keyword_ref, $in_task_ref,
+                                            $process_has_if_ref, $process_has_sens_ref);
+            sif_push('then_done', $$process_depth_ref);
+            return $pre . line_directive($line_num, $source_file) .
+                   "      elsif $condition then\n" . ($body // '');
+        }
     }
 
     # end else begin — close if, start else block
@@ -1113,11 +1318,11 @@ sub translate_line {
         # The end closes the previous if block
         $$process_depth_ref--;
         my $ctx = pop @$block_stack_ref // 'block';
+        my $kw = else_keyword($$process_depth_ref);
         # Start the else block
         $$process_depth_ref++;
         push @$block_stack_ref, 'else';
-        return line_directive($line_num, $source_file) .
-               "      else\n";
+        return line_directive($line_num, $source_file) . $kw;
     }
 
     # end else if(cond) begin — close if, start elsif block
@@ -1132,46 +1337,67 @@ sub translate_line {
             push @$block_stack_ref, 'if';
         } else {
             $$last_keyword_ref = 'if' if $last_keyword_ref;
+            sif_push('then', $$process_depth_ref);
         }
         return line_directive($line_num, $source_file) .
                "      elsif $condition then\n";
     }
 
-    # end else — close if, start else
+    # end else — close if, start else (a single statement unless `begin` follows)
     if ($line =~ /^\s*end\s+else\s*$/ && $$in_process_ref) {
         $$process_depth_ref--;
         my $ctx = pop @$block_stack_ref // 'block';
         $$last_keyword_ref = 'else' if $last_keyword_ref;
-        return line_directive($line_num, $source_file) .
-               "      else\n";
+        my $kw = else_keyword($$process_depth_ref);
+        sif_push('else', $$process_depth_ref);
+        return line_directive($line_num, $source_file) . $kw;
     }
 
     # Else begin
     if ($line =~ /^\s*else\s+begin\s*$/) {
+        my $pre = '';
+        my $kw = "      else\n";
         if ($$in_process_ref) {
+            my ($closed, $ok) = sif_attach_else($$process_depth_ref);
+            $pre = $closed;
+            pop @sif if $ok;               # the block's own `end` closes the if
+            $kw = else_keyword($$process_depth_ref);
             $$process_depth_ref++;
             push @$block_stack_ref, 'else';
         } else {
             $$last_keyword_ref = 'else' if $last_keyword_ref;
         }
-        return line_directive($line_num, $source_file) .
-               "      else\n";
+        return $pre . line_directive($line_num, $source_file) . $kw;
     }
 
-    # Else statements (bare)
+    # else stmt;  on one line
+    if ($$in_process_ref && $line =~ /^\s*else\s+([\w\$].*;)\s*$/ && $line !~ /^\s*else\s+if\b/) {
+        my $stmt = $1;
+        my ($pre, $ok) = sif_attach_else($$process_depth_ref);
+        my $kw = else_keyword($$process_depth_ref);
+        my $body = translate_line_inner("        $stmt\n", $line_num, $source_file, $mode,
+                                        $in_entity, $in_architecture, $in_process_ref,
+                                        $process_depth_ref, $process_pending_ref,
+                                        $block_stack_ref, $last_keyword_ref, $in_task_ref,
+                                        $process_has_if_ref, $process_has_sens_ref);
+        if ($ok) { $sif[-1]{state} = 'else_done'; } else { sif_push('else_done', $$process_depth_ref); }
+        return $pre . line_directive($line_num, $source_file) . $kw . ($body // '');
+    }
+
+    # Else statements (bare): a single statement unless `begin` follows on the
+    # next line; in an async-reset process the outermost else is the clocked
+    # branch (else_keyword)
     if ($line =~ /^\s*else\s*$/) {
-        our $async_reset_clk;
-        if (defined($async_reset_clk)) {
-            # In async reset process, else becomes elsif rising_edge
-            my $result = line_directive($line_num, $source_file) .
-                         "    elsif rising_edge($async_reset_clk) then\n";
-            $async_reset_clk = undef;  # Clear for next process
-            return $result;
-        } else {
-            $$last_keyword_ref = 'else' if $last_keyword_ref;
-            return line_directive($line_num, $source_file) .
-                   "      else\n";
+        my $pre = '';
+        my $kw = "      else\n";
+        if ($$in_process_ref) {
+            my ($closed, $ok) = sif_attach_else($$process_depth_ref);
+            $pre = $closed;
+            $kw = else_keyword($$process_depth_ref);
+            if ($ok) { $sif[-1]{state} = 'else'; } else { sif_push('else', $$process_depth_ref); }
         }
+        $$last_keyword_ref = 'else' if $last_keyword_ref;
+        return $pre . line_directive($line_num, $source_file) . $kw;
     }
 
     # Begin/end blocks (fallback — only fires when NOT inside tracked process)
@@ -1365,17 +1591,90 @@ sub glob_to_regex {
     return qr/^$glob$/;
 }
 
+#-----------------------------------------------------------------------------
+# Types, literals and conversions per translation mode ($CFG). Standard mode
+# returns exactly the IEEE forms it always did; the other modes substitute
+# their library's.
+#-----------------------------------------------------------------------------
+sub mode_l3d { return $CFG && $CFG->{logic3d}; }
+sub mode_enh { return $CFG && $CFG->{lib} eq 'enh'; }
+
+sub scalar_type { return mode_l3d() ? "logic3d" : mode_enh() ? "enh_logic" : "std_logic"; }
+
+sub vector_type {
+    my ($msb, $lsb) = @_;
+    my $t = mode_l3d() ? "logic3d_vector" : mode_enh() ? "enh_logic_vector" : "std_logic_vector";
+    return "$t($msb downto $lsb)";
+}
+
 sub port_type {
     my ($msb, $lsb, $config) = @_;
+    return (defined $msb && defined $lsb) ? vector_type($msb, $lsb) : scalar_type();
+}
 
-    if ($config->{logic3d}) {
-        # 3D logic mode - single bit only for ATPG gates
-        return "logic3d";
-    } elsif (defined $msb && defined $lsb) {
-        return "std_logic_vector($msb downto $lsb)";
-    } else {
-        return "std_logic";
+# A one-bit literal: 0 1 x z (either case)
+sub bit_literal {
+    my ($b) = @_;
+    $b = uc $b;
+    return "'$b'" unless mode_l3d();
+    return $b eq '0' ? 'L3D_0' : $b eq '1' ? 'L3D_1' : $b eq 'Z' ? 'L3D_Z' : 'L3D_X';
+}
+
+# An integer-valued VHDL expression as a vector of the mode's type
+sub int_to_vector {
+    my ($value, $width) = @_;
+    return "to_l3d($value, $width)" if mode_l3d();
+    my $slv = "std_logic_vector(to_unsigned($value, $width))";
+    return mode_enh() ? "to_enh_logic_vector($slv)" : $slv;
+}
+
+# A vector of the mode's type as std_logic_vector (the display helpers)
+sub to_slv {
+    my ($e) = @_;
+    return (mode_l3d() || mode_enh()) ? "to_std_logic_vector($e)" : "std_logic_vector($e)";
+}
+
+# A vector of the mode's type as numeric_std unsigned
+sub as_unsigned {
+    my ($e) = @_;
+    return (mode_l3d() || mode_enh()) ? "unsigned(to_std_logic_vector($e))" : "unsigned($e)";
+}
+
+# An unsigned expression back to the mode's vector type; $like is a vector of
+# the target width (logic3d's to_l3d needs the width)
+sub from_unsigned {
+    my ($e, $like) = @_;
+    return "to_l3d($e, ${like}'length)" if mode_l3d();
+    return mode_enh() ? "to_enh_logic_vector(std_logic_vector($e))" : "std_logic_vector($e)";
+}
+
+# `if (sig)` / `if (!sig)` on a one-bit signal: true for 1, respectively for
+# a certain 0 (Verilog's X is neither)
+sub cond_true  { my ($s) = @_; return mode_l3d() ? "is_one($s)" : "$s = '1'"; }
+sub cond_false { my ($s) = @_; return mode_l3d() ? "(is_zero($s) and not is_uncertain($s))" : "$s = '0'"; }
+
+# Vector arithmetic. Standard mode keeps its historical form unchanged.
+sub arith {
+    my ($left, $op, $right) = @_;
+    return "std_logic_vector(unsigned($left) $op $right)" unless mode_l3d() || mode_enh();
+    my $r = ($right =~ /^\s*\w+\s*$/ && $right !~ /^\s*\d+\s*$/) ? as_unsigned($right) : $right;
+    return from_unsigned(as_unsigned($left) . " $op $r", $left);
+}
+
+# A sized literal N'hXX / N'bXXXX as the mode's vector type
+sub sized_literal {
+    my ($width, $base, $digits) = @_;
+    unless (mode_l3d()) {
+        return $base eq 'h' ? "x\"$digits\"" : "\"" . uc($digits) . "\"";
     }
+    if ($digits !~ /[xXzZ]/) {
+        return "to_l3d(" . ($base eq 'h' ? "16#$digits#" : "2#$digits#") . ", $width)";
+    }
+    my $per = ($base eq 'h') ? 4 : 1;
+    my @bits = map { my $d = uc $_;
+                     $d =~ /[XZ]/ ? ($d) x $per : split //, sprintf("%0${per}b", hex $d) }
+               split //, $digits;
+    return "logic3d_vector'(" . join(", ", map { bit_literal($_) } @bits) . ")";
 }
 
 sub convert_integer_for_type {
@@ -1388,12 +1687,12 @@ sub convert_integer_for_type {
     if (exists $signal_types{$target_name}) {
         my $info = $signal_types{$target_name};
         if ($info->{type} eq 'scalar') {
-            # std_logic: 0 → '0', 1 → '1'
-            return "'0'" if $value == 0;
-            return "'1'" if $value == 1;
+            # one bit: 0 → '0', 1 → '1' (L3D_0 / L3D_1 in logic3d mode)
+            return bit_literal('0') if $value == 0;
+            return bit_literal('1') if $value == 1;
         } elsif ($info->{type} eq 'vector') {
-            # std_logic_vector: N → std_logic_vector(to_unsigned(N, width))
-            return "std_logic_vector(to_unsigned($value, $info->{width}))";
+            # vector: N → std_logic_vector(to_unsigned(N, width)), in the mode's type
+            return int_to_vector($value, $info->{width});
         } elsif ($info->{type} eq 'integer') {
             return $value;  # Integer targets accept integer literals
         }
@@ -1409,12 +1708,13 @@ sub translate_expression {
     $expr =~ s/\s%\s/ mod /g;
 
     # Numeric literals: 8'h00 -> x"00", 8'hzz -> x"zz", 8'd10 -> std_logic_vector(to_unsigned(10, 8))
-    $expr =~ s/(\d+)'h([0-9a-fA-FxXzZ]+)/x"$2"/g;
-    $expr =~ s/(\d+)'d(\d+)/std_logic_vector(to_unsigned($2, $1))/g;
+    # (logic3d: to_l3d(16#00#, 8) / to_l3d(10, 8); enhanced: wrapped in to_enh_logic_vector)
+    $expr =~ s/(\d+)'h([0-9a-fA-FxXzZ]+)/sized_literal($1, 'h', $2)/ge;
+    $expr =~ s/(\d+)'d(\d+)/int_to_vector($2, $1)/ge;
     # Single bit: 1'b0 -> '0', 1'bx -> 'X', 1'bz -> 'Z'
-    $expr =~ s/1'b([01xXzZ])/'\U$1\E'/g;
+    $expr =~ s/1'b([01xXzZ])/bit_literal($1)/ge;
     # Multi-bit binary: 4'b0101 -> "0101", 4'bxxxx -> "XXXX"
-    $expr =~ s/(\d+)'b([01xXzZ]+)/"\U$2\E"/g;
+    $expr =~ s/(\d+)'b([01xXzZ]+)/sized_literal($1, 'b', $2)/ge;
 
     # Bit slicing: signal[msb:lsb] -> signal(msb downto lsb)
     $expr =~ s/(\w+)\[(\d+):(\d+)\]/$1($2 downto $3)/g;
@@ -1433,7 +1733,7 @@ sub translate_expression {
         my ($left, $op, $right) = ($1, $2, $3);
         # Check if this looks like vector arithmetic (not bit operations)
         if ($op =~ /[\+\-\*\/]/) {
-            return "std_logic_vector(unsigned($left) $op $right)";
+            return arith($left, $op, $right);
         }
     }
 
@@ -1449,14 +1749,14 @@ sub translate_condition {
     # Translate expressions within the condition
     $cond = translate_expression($cond);
 
-    # If it's just a bare identifier (no operators), add = '1'
+    # If it's just a bare identifier (no operators), add = '1' (is_one in logic3d mode)
     if ($cond =~ /^(\w+)$/) {
-        return "$1 = '1'";
+        return cond_true($1);
     }
 
     # If it has negation: !signal -> signal = '0'
     if ($cond =~ /^!(\w+)$/) {
-        return "$1 = '0'";
+        return cond_false($1);
     }
 
     # Translate comparison operators
@@ -1582,11 +1882,11 @@ sub format_arg_vhdl {
     my ($expr, $code) = @_;
     $code = lc($code);
     if ($code eq 'h' || $code eq 'x') {
-        return "sv_hstr(std_logic_vector($expr))";
+        return "sv_hstr(" . to_slv($expr) . ")";
     } elsif ($code eq 'b') {
-        return "sv_bstr(std_logic_vector($expr))";
+        return "sv_bstr(" . to_slv($expr) . ")";
     } elsif ($code eq 'o') {
-        return "sv_ostr(std_logic_vector($expr))";
+        return "sv_ostr(" . to_slv($expr) . ")";
     } elsif ($code eq 's' || $code eq 'c') {
         return $expr;
     } else {
@@ -1598,7 +1898,7 @@ sub format_arg_vhdl {
             && $signal_types{$expr}{type} eq 'integer') {
             return "integer'image($expr)";
         }
-        return "integer'image(to_integer(unsigned($expr)))";
+        return "integer'image(to_integer(" . as_unsigned($expr) . "))";
     }
 }
 
@@ -1616,7 +1916,7 @@ sub translate_display {
     # No format string — just an expression (e.g. $display(x))
     unless ($first =~ /^\s*"/) {
         my $expr = translate_expression($first);
-        return "report integer'image(to_integer(unsigned($expr))) severity note;";
+        return "report integer'image(to_integer(" . as_unsigned($expr) . ")) severity note;";
     }
 
     # Extract the format string (strip outer quotes)
@@ -1716,20 +2016,21 @@ sub generate_header {
     $header .= "-- Mode: $mode\n";
     $header .= "-- sv2ghdl version $VERSION\n\n";
     
+    # Every mode needs ieee for the arithmetic conversions and the nvc fork's
+    # sv2vhdl library for the $display helpers; the mode's logic package follows.
+    $header .= "library ieee;\n";
+    $header .= "use ieee.std_logic_1164.all;\n";
+    $header .= "use ieee.numeric_std.all;\n";
+    $header .= "library sv2vhdl;\n";
+    $header .= "use sv2vhdl.sv_display_pkg.all;\n";
     if ($config->{logic3d}) {
-        $header .= "library work;\n";
-        $header .= "use work.logic3d_pkg.all;\n\n";
-    } elsif ($lib eq 'ieee') {
-        $header .= "library ieee;\n";
-        $header .= "use ieee.std_logic_1164.all;\n";
-        $header .= "use ieee.numeric_std.all;\n";
-        $header .= "library sv2vhdl;\n";
-        $header .= "use sv2vhdl.sv_display_pkg.all;\n\n";
-    } elsif ($lib eq 'cameron_eda') {
-        $header .= "library cameron_eda;\n";
-        $header .= "use cameron_eda.enhanced_logic_1164.all;\n";
-        $header .= "use cameron_eda.numeric_std_enhanced.all;\n\n";
+        # the nvc fork's 3-state logic types, the ones iverilog -tvhdl emits
+        $header .= "use sv2vhdl.logic3d_types_pkg.all;\n";
+    } elsif ($lib eq 'enh') {
+        # packages/enhlogic, analysed into work beforehand
+        $header .= "use work.enh_logic_1164.all;\n";
     }
+    $header .= "\n";
     
     return $header;
 }
@@ -1786,20 +2087,21 @@ Options:
   -h, --help            Show this help
   --version             Show version
 
-Modes:
-  standard              IEEE std_logic (baseline)
-  enhanced              cameron_eda enhanced types
-  mixed                 IEEE testbench + enhanced DUT
-  temporal_standard     Temporal optimization + IEEE
-  temporal_enhanced     Temporal + enhanced
-  temporal_accel_enh    Full optimization (requires modified GHDL)
+Modes (every output also uses sv2vhdl.sv_display_pkg from the nvc fork, so
+analyse it with nvc --std=2040 -L <nvc prefix>/lib):
+  standard              IEEE std_logic / numeric_std (default)
+  enhanced              work.enh_logic_1164 types: packages/enhlogic, a rename of
+                        std_logic_1164; analyse its two files into work first
+  logic3d               sv2vhdl.logic3d_types_pkg, the nvc fork's 3-state logic
+                        types (what iverilog -tvhdl emits)
 
 Examples:
   # Translate single file
   sv2ghdl design.v
   sv2ghdl design.v -o output.vhd
-  
+
   # Translate with mode
+  sv2ghdl --mode=logic3d design.v
   sv2ghdl --mode=enhanced design.v
   
   # Find and translate all .v files in current directory

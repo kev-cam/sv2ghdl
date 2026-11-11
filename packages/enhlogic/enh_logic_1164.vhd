@@ -4,6 +4,9 @@
 -- This package is modeled after IEEE.std_logic_1164 but uses the name
 -- enh_logic instead of std_logic throughout.
 
+library ieee;
+use ieee.std_logic_1164.all;
+
 package enh_logic_1164 is
 
     -------------------------------------------------------------------
@@ -138,5 +141,16 @@ package enh_logic_1164 is
     -------------------------------------------------------------------
     function to_string ( value : enh_logic_vector ) return string;
     function to_string ( value : enh_ulogic ) return string;
+
+    -------------------------------------------------------------------
+    -- conversions to and from the IEEE types (the two enumerations
+    -- have the same order), so that arithmetic can go through
+    -- ieee.numeric_std and the sv2vhdl display helpers can print enh
+    -- vectors; sv2ghdl.pl --mode=enhanced emits them
+    -------------------------------------------------------------------
+    function to_std_logic        ( s : enh_ulogic )       return std_ulogic;
+    function to_enh_logic        ( s : std_ulogic )       return enh_ulogic;
+    function to_std_logic_vector ( s : enh_logic_vector ) return std_logic_vector;
+    function to_enh_logic_vector ( s : std_logic_vector ) return enh_logic_vector;
 
 end package enh_logic_1164;

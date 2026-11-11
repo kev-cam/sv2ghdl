@@ -410,22 +410,23 @@ when the iverilog backend declines a module. It needs Perl 5.10+ and nothing els
 | `--version` | Show version |
 | `-h, --help` | Show help |
 
-Modes:
+Modes. Every output uses `ieee.numeric_std` for arithmetic and the nvc fork's
+`sv2vhdl.sv_display_pkg` for `$display`, so analyse it with `nvc --std=2040 -L <nvc prefix>/lib`
+like the iverilog output:
 
-- `standard` (default) emits `ieee.std_logic_1164` and `ieee.numeric_std` types, plus a
-  `use sv2vhdl.sv_display_pkg.all` clause for `$display`, so the output needs the nvc fork's
-  `sv2vhdl` library at standard 2040 like the iverilog output does.
-- `enhanced` emits `library cameron_eda; use cameron_eda.enhanced_logic_1164.all` and
-  `numeric_std_enhanced`.
-- `logic3d` emits `use work.logic3d_pkg.all`.
+- `standard` (default): `ieee.std_logic_1164` types.
+- `enhanced`: `enh_logic`/`enh_logic_vector` from `packages/enhlogic`, a rename of
+  std_logic_1164 with conversions to and from the IEEE types. Analyse its two files into `work`
+  before the translated design.
+- `logic3d`: `logic3d`/`logic3d_vector` from the nvc fork's `sv2vhdl.logic3d_types_pkg`, the
+  3-state types the iverilog backend emits. Conditions become `is_one(sig)`, sized literals
+  `to_l3d(…)`.
 
-Known gaps in `sv2ghdl.pl` as of 2026-11: an `if … elsif` chain in a process is emitted without
-its `end if`, so the counter above does not analyse through this path; no package named
-`enhanced_logic_1164`, `numeric_std_enhanced` or `logic3d_pkg` exists in this repository or the
-nvc fork (the shipped packages are `work.enh_logic_1164` in `packages/enhlogic` and `logic_3d` in
-`packages/sv_primitives`), so the `enhanced` and `logic3d` outputs do not analyse either; and
-`--help` lists `mixed` and `temporal_*` modes the mode table does not have. The iverilog backend
-is the path that is regression-tested.
+The counter above analyses and elaborates in all three modes. Single-statement `if`/`else`
+branches, `else if` chains, one-line `if (c) stmt;` forms and an `else` on the line after a
+block's `end` are all closed correctly. The translator is line-based, so a statement split over
+several lines or a `case` inside a process is still beyond it; the iverilog backend is the path
+that is regression-tested.
 
 ### Drop-in wrappers for iverilog / vvp / verilator
 
@@ -579,7 +580,6 @@ Planned or in progress:
 - The spectre personality's phase 3 (deferred; docs/VAMOS_SPECTRE_DESIGN.md).
 - The discipline/nature wire model and the federation library as designed above; today's
   co-simulation exchanges PWL boundary values between engines instead.
-- `sv2ghdl.pl`: the gaps listed under its section.
 
 ## Related Projects
 

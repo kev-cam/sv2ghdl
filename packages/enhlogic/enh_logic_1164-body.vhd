@@ -1,6 +1,9 @@
 -- Enhanced Logic Package Body (based on IEEE std_logic_1164)
 -- Implementation of enh_logic package functions
 
+library ieee;
+use ieee.std_logic_1164.all;
+
 package body enh_logic_1164 is
 
     -------------------------------------------------------------------
@@ -90,7 +93,8 @@ package body enh_logic_1164 is
             ( 'U', 'X', 'X', 'X', 'X', 'X', 'X', 'X', 'X' )   -- | - |
     );
 
-    constant not_table : array(enh_ulogic) of enh_ulogic := (
+    type enh_unary_table is array (enh_ulogic) of enh_ulogic;
+    constant not_table : enh_unary_table := (
             'U', 'X', '1', '0', 'X', 'X', '1', '0', 'X'
     );
 
@@ -373,7 +377,8 @@ package body enh_logic_1164 is
     -------------------------------------------------------------------
     -- conversion functions
     -------------------------------------------------------------------
-    constant to_bit_table : array(enh_ulogic) of bit := (
+    type enh_bit_table is array (enh_ulogic) of bit;
+    constant to_bit_table : enh_bit_table := (
             '0', '0', '0', '1', '0', '0', '0', '1', '0'
     );
 
@@ -439,7 +444,8 @@ package body enh_logic_1164 is
     -------------------------------------------------------------------
     -- strength strippers
     -------------------------------------------------------------------
-    constant to_x01_table : array(enh_ulogic) of ENH_X01 := (
+    type enh_x01_table is array (enh_ulogic) of ENH_X01;
+    constant to_x01_table : enh_x01_table := (
             'X', 'X', '0', '1', 'X', 'X', '0', '1', 'X'
     );
 
@@ -478,7 +484,8 @@ package body enh_logic_1164 is
         return To_X01(To_EnhULogic(b));
     end function To_X01;
 
-    constant to_x01z_table : array(enh_ulogic) of ENH_X01Z := (
+    type enh_x01z_table is array (enh_ulogic) of ENH_X01Z;
+    constant to_x01z_table : enh_x01z_table := (
             'X', 'X', '0', '1', 'Z', 'X', '0', '1', 'X'
     );
 
@@ -517,7 +524,8 @@ package body enh_logic_1164 is
         return To_X01Z(To_EnhULogic(b));
     end function To_X01Z;
 
-    constant to_ux01_table : array(enh_ulogic) of ENH_UX01 := (
+    type enh_ux01_table is array (enh_ulogic) of ENH_UX01;
+    constant to_ux01_table : enh_ux01_table := (
             'U', 'X', '0', '1', 'X', 'X', '0', '1', 'X'
     );
 
@@ -624,5 +632,38 @@ package body enh_logic_1164 is
         result(1) := enh_to_char(value);
         return result;
     end function to_string;
+
+    -------------------------------------------------------------------
+    -- conversions to and from the IEEE types
+    -------------------------------------------------------------------
+    function to_std_logic ( s : enh_ulogic ) return std_ulogic is
+    begin
+        return std_ulogic'val(enh_ulogic'pos(s));
+    end function to_std_logic;
+
+    function to_enh_logic ( s : std_ulogic ) return enh_ulogic is
+    begin
+        return enh_ulogic'val(std_ulogic'pos(s));
+    end function to_enh_logic;
+
+    function to_std_logic_vector ( s : enh_logic_vector ) return std_logic_vector is
+        alias    sv     : enh_logic_vector(s'length - 1 downto 0) is s;
+        variable result : std_logic_vector(s'length - 1 downto 0);
+    begin
+        for i in result'range loop
+            result(i) := to_std_logic(sv(i));
+        end loop;
+        return result;
+    end function to_std_logic_vector;
+
+    function to_enh_logic_vector ( s : std_logic_vector ) return enh_logic_vector is
+        alias    sv     : std_logic_vector(s'length - 1 downto 0) is s;
+        variable result : enh_logic_vector(s'length - 1 downto 0);
+    begin
+        for i in result'range loop
+            result(i) := to_enh_logic(sv(i));
+        end loop;
+        return result;
+    end function to_enh_logic_vector;
 
 end package body enh_logic_1164;
