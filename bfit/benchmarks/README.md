@@ -44,6 +44,7 @@ Other studies in this directory:
 | `table/`, `table/table.md` | `bfit table` (table-mode) evaluation and transient benchmarks |
 | `vhdl/`, `vhdl_perf.md`, `sv_perf.md` | cross-simulator VHDL performance (nvc, ghdl, logic3d packings) and nvc vs Verilator on SystemVerilog |
 | `vhdl/gpu/`, `gpu_farm.md` | the GPU instance farm and its scaling rules; `vhdl/gpu/hazard3/` is the Hazard3 Mandelbrot case on it |
+| `trainium/`, `trainium_rtl.md` | one 128×128 systolic array stepped two-phase in a Trainium NeuronCore's SBUF: 1.2 µs per RTL cycle, bit-exact, 23× Verilator (kernels, harness, launch scripts, logs) |
 
 ## Reproducing the league table (`perf.md`)
 

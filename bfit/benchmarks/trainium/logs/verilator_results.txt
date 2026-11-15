@@ -1,0 +1,11 @@
+2026-11-14T16:12:59-08:00 threads=1 build=4s MISMATCH m=0 c=0 got=-3875 exp=-21826
+MISMATCH m=1 c=0 got=25740 exp=-3875
+MISMATCH m=0 c=1 got=-2725 exp=-25995
+MISMATCH m=2 c=0 got=-15148 exp=25740
+MISMATCH m=1 c=1 got=14631 exp=-2725
+N=16 M=4096 cycles=4128 checked=65536 errors=65534  time=0.002 s  rate=1825880.5 cycles/s  (0.55 us/cycle, 4.67e+08 PE-cycles/s)
+2026-11-14T16:13:39-08:00 threads=1 build=4s N=16 M=4096 cycles=4128 checked=65536 errors=0  time=0.002 s  rate=1852844.3 cycles/s  (0.54 us/cycle, 4.74e+08 PE-cycles/s)
+2026-11-14T16:13:49-08:00 threads=1 build=10s N=32 M=20000 cycles=20064 checked=640000 errors=0  time=0.028 s  rate=728493.9 cycles/s  (1.37 us/cycle, 7.46e+08 PE-cycles/s)
+2026-11-14T16:14:09-08:00 threads=1 build=20s N=64 M=20000 cycles=20128 checked=1280000 errors=0  time=0.131 s  rate=154009.9 cycles/s  (6.49 us/cycle, 6.31e+08 PE-cycles/s)
+2026-11-14T16:15:10-08:00 threads=1 build=60s N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.579 s  rate=34954.4 cycles/s  (28.61 us/cycle, 5.73e+08 PE-cycles/s)
+2026-11-14T16:18:53-08:00 threads=8 build=59s N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.372 s  rate=54501.4 cycles/s  (18.35 us/cycle, 8.93e+08 PE-cycles/s)

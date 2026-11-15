@@ -1,0 +1,128 @@
+=== start 2026-11-15T20:00:19+00:00
+nki.runtime import ok
+[sa_N128_M256] trace+MLIR 0.6 s, neuronx-cc 4.9 s, NEFF 0.19 MB, compiler est latency 1208589
+sa   N=128 M=  256 cycles=   640 load+1st=  7.57s  device mean=    1.024 ms min=    1.023 max=    1.026  (   1.600 us/cycle =     624873 cycles/s,   17.9x vs Verilator 1T)  est=1208589  check=OK
+[sa2_N128_M256] trace+MLIR 0.3 s, neuronx-cc 2.3 s, NEFF 0.06 MB, compiler est latency 359636
+sa2  N=128 M=  256 cycles=   512 load+1st=  0.01s  device mean=    0.668 ms min=    0.667 max=    0.668  (   1.304 us/cycle =     766926 cycles/s,   21.9x vs Verilator 1T)  est=359636  check=OK
+[sa3_N128_M256] trace+MLIR 0.3 s, neuronx-cc 2.3 s, NEFF 0.06 MB, compiler est latency 344223
+sa3  N=128 M=  256 cycles=   512 load+1st=  0.01s  device mean=    0.654 ms min=    0.654 max=    0.654  (   1.277 us/cycle =     782948 cycles/s,   22.4x vs Verilator 1T)  est=344223  check=OK
+
+name	N	M	cycles	compiler_est	device_mean_ms	min_ms	max_ms	check
+sa	128	256	640	1208589	1.024208	1.023134	1.026354	OK
+sa2	128	256	512	359636	0.6676006	0.66732	0.668103	OK
+sa3	128	256	512	344223	0.653939	0.653675	0.654145	OK
+=== small done 2026-11-15T20:00:38+00:00
+[sa3_N128_M8192] trace+MLIR 5.1 s, neuronx-cc 18.4 s, NEFF 0.72 MB, compiler est latency 6139117
+sa3  N=128 M= 8192 cycles=  8448 load+1st=  6.07s  device mean=   10.360 ms min=   10.359 max=   10.361  (   1.226 us/cycle =     815442 cycles/s,   23.3x vs Verilator 1T)  est=6139117  check=n/a
+
+name	N	M	cycles	compiler_est	device_mean_ms	min_ms	max_ms	check
+sa3	128	8192	8448	6139117	10.360026600000001	10.359354	10.360681	n/a
+=== big done 2026-11-15T20:01:09+00:00
+=== profile pass
+--- /home/ubuntu/sa/out/sa2_N128_M256.neff 2026-11-15T20:01:09+00:00
+  Suggested command:
+    neuron-explorer capture -n /home/ubuntu/sa/out/sa2_N128_M256.neff -s /home/ubuntu/sa/out/sa2_N128_M256.ntff --ignore-exec-errors
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║  neuron-profile has been deprecated and removed.                ║
+║                                                                 ║
+║  Please use neuron-explorer instead. It provides all the same   ║
+║  functionality plus additional features.                        ║
+║                                                                 ║
+║  To migrate, replace 'neuron-profile' with 'neuron-explorer'    ║
+║  in your commands. For example:                                 ║
+║                                                                 ║
+║    neuron-profile capture -n file.neff -s profile.ntff          ║
+║    becomes:                                                     ║
+║    neuron-explorer capture -n file.neff -s profile.ntff         ║
+║                                                                 ║
+║    neuron-profile view -s profile.ntff                          ║
+║    becomes:                                                     ║
+║    neuron-explorer view -s profile.ntff                         ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  Suggested command:
+    neuron-explorer view -n /home/ubuntu/sa/out/sa2_N128_M256.neff -s /home/ubuntu/sa/out/sa2_N128_M256.ntff --output-format summary-text
+
+--- /home/ubuntu/sa/out/sa3_N128_M256.neff 2026-11-15T20:01:09+00:00
+  Suggested command:
+    neuron-explorer capture -n /home/ubuntu/sa/out/sa3_N128_M256.neff -s /home/ubuntu/sa/out/sa3_N128_M256.ntff --ignore-exec-errors
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║  neuron-profile has been deprecated and removed.                ║
+║                                                                 ║
+║  Please use neuron-explorer instead. It provides all the same   ║
+║  functionality plus additional features.                        ║
+║                                                                 ║
+║  To migrate, replace 'neuron-profile' with 'neuron-explorer'    ║
+║  in your commands. For example:                                 ║
+║                                                                 ║
+║    neuron-profile capture -n file.neff -s profile.ntff          ║
+║    becomes:                                                     ║
+║    neuron-explorer capture -n file.neff -s profile.ntff         ║
+║                                                                 ║
+║    neuron-profile view -s profile.ntff                          ║
+║    becomes:                                                     ║
+║    neuron-explorer view -s profile.ntff                         ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  Suggested command:
+    neuron-explorer view -n /home/ubuntu/sa/out/sa3_N128_M256.neff -s /home/ubuntu/sa/out/sa3_N128_M256.ntff --output-format summary-text
+
+--- /home/ubuntu/sa/out/sa3_N128_M8192.neff 2026-11-15T20:01:09+00:00
+  Suggested command:
+    neuron-explorer capture -n /home/ubuntu/sa/out/sa3_N128_M8192.neff -s /home/ubuntu/sa/out/sa3_N128_M8192.ntff --ignore-exec-errors
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║  neuron-profile has been deprecated and removed.                ║
+║                                                                 ║
+║  Please use neuron-explorer instead. It provides all the same   ║
+║  functionality plus additional features.                        ║
+║                                                                 ║
+║  To migrate, replace 'neuron-profile' with 'neuron-explorer'    ║
+║  in your commands. For example:                                 ║
+║                                                                 ║
+║    neuron-profile capture -n file.neff -s profile.ntff          ║
+║    becomes:                                                     ║
+║    neuron-explorer capture -n file.neff -s profile.ntff         ║
+║                                                                 ║
+║    neuron-profile view -s profile.ntff                          ║
+║    becomes:                                                     ║
+║    neuron-explorer view -s profile.ntff                         ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  Suggested command:
+    neuron-explorer view -n /home/ubuntu/sa/out/sa3_N128_M8192.neff -s /home/ubuntu/sa/out/sa3_N128_M8192.ntff --output-format summary-text
+
+--- /home/ubuntu/sa/out/sa_N128_M256.neff 2026-11-15T20:01:09+00:00
+  Suggested command:
+    neuron-explorer capture -n /home/ubuntu/sa/out/sa_N128_M256.neff -s /home/ubuntu/sa/out/sa_N128_M256.ntff --ignore-exec-errors
+
+
+╔══════════════════════════════════════════════════════════════════╗
+║  neuron-profile has been deprecated and removed.                ║
+║                                                                 ║
+║  Please use neuron-explorer instead. It provides all the same   ║
+║  functionality plus additional features.                        ║
+║                                                                 ║
+║  To migrate, replace 'neuron-profile' with 'neuron-explorer'    ║
+║  in your commands. For example:                                 ║
+║                                                                 ║
+║    neuron-profile capture -n file.neff -s profile.ntff          ║
+║    becomes:                                                     ║
+║    neuron-explorer capture -n file.neff -s profile.ntff         ║
+║                                                                 ║
+║    neuron-profile view -s profile.ntff                          ║
+║    becomes:                                                     ║
+║    neuron-explorer view -s profile.ntff                         ║
+╚══════════════════════════════════════════════════════════════════╝
+
+  Suggested command:
+    neuron-explorer view -n /home/ubuntu/sa/out/sa_N128_M256.neff -s /home/ubuntu/sa/out/sa_N128_M256.ntff --output-format summary-text
+
+=== profile done 2026-11-15T20:01:09+00:00
+-rw-rw-r-- 1 ubuntu ubuntu 2181142 Nov 15 20:01 /home/ubuntu/sa/hw2_artifacts.tgz
+=== remote done 2026-11-15T20:01:09+00:00
