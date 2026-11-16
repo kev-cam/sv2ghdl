@@ -3,8 +3,8 @@
 **Active again since 2026-11-15** (parked 2026-11-13 to 15). The current work is our own two-phase
 sLUT engine, programmed from yosys, running on CPU threads and on the GPU, with the 3D-Logic uncertain
 plane (section 1.6). The aim is maximum speed for **one** simulation of one design on a large card.
-As of 2026-11-16 one simulation of a CPU-core-sized design is still about 10x slower on an RTX 4090
-than on the CPU. This file records what was established, the decisions taken, and what is left to
+As of 2026-11-16 one simulation of a CPU-core-sized design on an RTX 4090 is still 1.5x to 7x slower
+than one CPU thread of the development box. This file records what was established, the decisions taken, and what is left to
 do, so that nobody has to re-derive it or repeat the mistake that started the reassessment.
 
 Scope: the GPU instance farm (`bfit/benchmarks/vhdl/gpu/`, `gpubuild/`, `bfit/benchmarks/gpu_farm.md`),
@@ -146,6 +146,12 @@ What exists:
   original ones.
 - **Asynchronous islands**: one synchronous block per SM, cycle-tagged channels in global memory, no
   card-wide barrier; survives injected delays bit-exactly.
+- **Speculate and select** (`slutgen.py --spec B`): the cone behind up to B late-arriving bits on a
+  longest path is copied for every value of those bits and finished by one indexed select. Hazard3
+  19 to 12 levels (the shifter's five select stages become 32 wirings and one select); VeeR-EH1 only
+  31 to 28, because its remaining long path carries wide late data (load, forward, add, compares).
+  The expanded programs are never more uncertain than the unexpanded ones (identical, or a few bits
+  less uncertain), and are slower on the CPU.
 
 One simulation, cycles/s, median of 7 runs. CPU rows are the development box (section 1); the 4090
 is a rented host, so those rows are cross-machine.
@@ -160,9 +166,22 @@ is a rented host, so those rows are cross-machine.
 | sLUT on an RTX 4090, original program | 2.19e4 | 6.48e3 |
 | sLUT on an RTX 4090, depth-reduced | 6.11e4 | 1.68e4 |
 | the same with the uncertain plane | 9.5e3 | 1.06e4 |
+| RTX 4090, speculate and select, one block | **8.26e4** | 1.82e4 |
+| RTX 4090, islands (Hazard3 14, VeeR-EH1 64) | 5.34e4 | **2.69e4** |
+| RTX 4090, best with the uncertain plane | 9.9e3 | 1.65e4 (islands) |
 
-- **One simulation still loses on the GPU**: on the 4090, Hazard3 is about 9x behind one sLUT CPU
-  thread and VeeR-EH1 about 10x behind 8 CPU threads or one Verilator thread.
+- **One simulation still loses on the GPU.** Best 4090 figures against the development box: Hazard3
+  6.9x behind one sLUT CPU thread; VeeR-EH1 1.5x behind one thread and 5.9x behind 8 threads or one
+  Verilator thread. On the rented host itself (slower cores) VeeR-EH1 on the card is just above one
+  CPU thread (2.69e4 against 2.47e4) and 3x behind 8 threads.
+- **The two restructurings help different designs** (third 4090 run, 2026-11-16, 66 checks passed):
+  speculation gives Hazard3 +33 % and VeeR-EH1 +9 %; islands give VeeR-EH1 +61 % and lose on
+  Hazard3; both together on VeeR-EH1 equal islands alone. On the 4090 an island fits one SM's shared
+  memory, which it did not on the T1000; free-running islands (no waits) reach 2.94e4, so the channel
+  protocol costs about 9 %.
+- Fewer levels pay less than proportionally: 19 to 12 levels gave 1.14x on the T1000. Barriers and
+  the step loop are 2.5 to 3 us of a 20 to 25 us cycle; the cost model inside one block is not
+  settled.
 - The time is now levels x (step + barrier), about **1 to 2 us per level**, against 0.1 to 0.6 us for
   a bare step inside one SM. Width is not the limit: the depth-reduced VeeR-EH1 uses about 520 of the
   card's 16,384 lanes per level.
@@ -176,7 +195,6 @@ is a rented host, so those rows are cross-machine.
   11 % **slower** than the best single-block scheme; waiting for neighbours is 1 % (Hazard3) to 11 %
   (VeeR-EH1) of the cycle, so the island's own depth is the bound. On the original VeeR-EH1 program
   they are 1.84x faster. One memory fence per round costs about 1.5 us and cannot be dropped safely.
-  Not yet run on a large card.
 - Not golden: Hazard3 with every register powered on at certain ones ends in a different checksum;
   not traced.
 
@@ -210,16 +228,19 @@ is a rented host, so those rows are cross-machine.
 
 ### 3.0 Next, in order
 
-- [ ] **Speculate and select at island boundaries**: for a narrow control value (1 to 4 bits) that
-      crosses mid-cycle, the receiving island evaluates its cone for every value on idle lanes and
-      selects when the token arrives. In progress.
-- [ ] **Speculate and select in the generator**: Shannon expansion on the late-arriving signals of
-      the critical path (carry-select generalised), trading the idle width for fewer levels.
-      Cost 2^k per expanded signal. Test cases: the divider (several one-bit decisions per step) and
-      the remaining VeeR-EH1 path.
+- [x] **Speculate and select in the generator** (section 1.6).
+- [x] Rerun on an RTX 4090 with islands and speculation (section 1.6).
+- [ ] Speculate and select at island boundaries: analysed only, not built. No mid-cycle crossing is
+      narrow (narrowest 93 bits on Hazard3, 4,948 on VeeR-EH1), and removing every wait gains at
+      most 1 % / 11 %. Worth another look only with a partition that has narrow cuts.
+- [ ] **VeeR-EH1's long path**: wide late data, where 2^k enumeration does not apply. Needs another
+      restructuring (retiming of the compare chain, or speculation on the few values a forward
+      select can take).
+- [ ] **A partitioner that cuts without duplicating logic**: today's inflates the islands 1.8x and
+      gives no usable 128-island partition.
+- [ ] A per-step timer in the kernel, to settle where the 12 us of a Hazard3 cycle go.
 - [ ] Speculation across cycles: an island ahead of its inputs computes the next cycle for both
       values of a one-bit unknown.
-- [ ] Rerun on an RTX 4090 with islands and speculation (the islands have T1000 figures only).
 - [ ] Cut the per-level cost: one-word packed records, operands gathered in advance, 32-bit lanes.
 - [ ] Skip idle blocks inside thread and island sections (the activity profile does this on one
       CPU thread only).
@@ -291,7 +312,7 @@ integration into `libgsm`.
 
 - [ ] The independent second check of the 2026-11 reports.
 - [ ] The earlier sLUT prototype on clevo-lx, measured under the rules of section 4.
-- [x] A large card: two RTX 4090 runs on 2026-11-15 (section 1.6).
+- [x] A large card: three RTX 4090 runs on 2026-11-15/16 (section 1.6).
 - [ ] Structure analysis (section 1.3) of a design with several loosely coupled blocks, and of VeeR-EH2.
 
 ### 3.6 Effort (estimates of 2026-11-13, not measurements)
@@ -321,8 +342,8 @@ the same netlist. The case for building it is 3D-Logic at scale, not beating Ver
 ## 5. References
 
 - The sLUT engine prototype of section 1.6 (development box, WSL): `/opt/gpu-reassess/slut`.
-  `STATE.md` is the step log, `REPORT.md` the full report (sections 11 to 14: power-on, threads, GPU
-  engine, depth); `gpu/pkg/` is the self-contained package (`run_all.sh`) with the reference results
+  `STATE.md` is the step log, `REPORT.md` the full report (sections 11 to 16: power-on, threads, GPU
+  engine, depth, islands, speculate and select); `gpu/pkg/` is the self-contained package (`run_all.sh`) with the reference results
   of the T1000 and RTX 4090 runs under `gpu/pkg/reference/`.
 - Local reports of 2026-11-12/13 (development box P620A, WSL): `REPORT.md` under
   `/opt/gpu-reassess/audit` (the claims audit with the list of 16 inconsistencies), `baseline`
