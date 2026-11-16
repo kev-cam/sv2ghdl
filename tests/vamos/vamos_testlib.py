@@ -121,11 +121,17 @@ def vacask_bin() -> str:
 
 
 def openvaf_bin() -> str:
+    """openvaf-r where vamos finds it (vamos/ams/engines.py openvaf()): VAMOS_OPENVAF, else the newest
+    /opt/openvaf-r-*/openvaf-r, else <VACASK home>/simulator/openvaf-r; "" when none exists.  Without the
+    last step a VACASK build that carries its own openvaf-r got SIM_OPENVAF="" from these tests."""
     env = os.environ.get("VAMOS_OPENVAF")
     if env:
         return env
     cands = sorted(glob.glob("/opt/openvaf-r-*/openvaf-r"))
-    return cands[-1] if cands else ""
+    if cands:
+        return cands[-1]
+    alt = os.path.join(vacask_home(), "simulator", "openvaf-r")
+    return alt if os.path.isfile(alt) else ""
 
 
 def have_vacask() -> bool:
