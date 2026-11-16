@@ -1,0 +1,9 @@
+* the same ladder with the pair copied onto a fresh node by a noiseless VCVS and .NOISE at that one node
+V1 in 0 DC 0 AC 1
+R1 in a 1000.0
+R2 a b 1000.0
+R3 b 0 1000.0
+E1 no 0 a b 1
+.NOISE V(NO) V1 DEC 1 1K 10K
+.PRINT NOISE FILE=pair_vcvs.prn ONOISE INOISE
+.end

@@ -1523,12 +1523,37 @@ class TestXyceSpectre(unittest.TestCase):
         self.assertIn("v1 in 0 DC 1.0 AC 1 0\n", text)
         self.assertIn("v2 o9 0 DC 1.0\n", text)
         self.assertIn("v2 o9 0 DC 1.0 AC 1.0 0.0\n", xyce.render(nl2, step=ac, sigmap=sigmap({"vamos_a1": refs})))
-        # an output across two nodes is refused on Xyce: it aborts on .NOISE V(a,b) (measured in phase 2, H)
+        # an output across two nodes prints V(<p>,<n>) with the optional last field, pts_per_summary, as 0, and
+        # the gain as VM(<p>,<n>): without that field a Xyce before c0735304 reads past the end of the line
+        # [E120] (this render was refused until 2026-11: "not supported on Xyce in v1")
         nz2 = step("vamos_a4", "noise", name="nz", options=OPTIONS, own=freq_level(), noise_input="v1",
                    args={"p": "out", "n": "I2.Mid"})
-        with self.assertRaisesRegex((T.TableError, NoteError), r"noise nz: the output across two nodes \(out, I2.Mid\) is "
-                                                               r"not supported on Xyce in v1"):
-            xyce.render(nl, step=nz2, sigmap=sigmap({"vamos_a4": nrefs}))
+        names2 = {}
+        text = xyce.render(nl, step=nz2, sigmap=sigmap({"vamos_a4": nrefs}), names=names2)
+        self.assertIn(".NOISE V(OUT,XI2:MID) V1 DEC 10 1.0 1000000.0 0\n"
+                      ".PRINT NOISE FILE=vamos_a4.prn DNO(R1) DNO(XI2:R3) ONOISE VM(OUT,XI2:MID) INOISE\n", text)
+        self.assertEqual(names2["vamos_a4"][("gain",)], "VM(OUT,XI2:MID)")
+        # the DATA= grid takes the field too, and so does a parameter sweep at a fixed frequency
+        nz3 = step("vamos_a4", "noise", name="nz", options=OPTIONS, noise_input="v1", args={"p": "out", "n": "I2.Mid"},
+                   own=level(("freq", "", ""), SweepSpec("freq", mode="values", values=[Num(10.0), Num(20.0)]), "vamos_f2"))
+        self.assertIn(".enddata\n.NOISE V(OUT,XI2:MID) V1 DATA=vamos_f_vamos_a4 0\n",
+                      xyce.render(nl, step=nz3, sigmap=sigmap({"vamos_a4": nrefs})))
+        nz4 = step("vamos_a4", "noise", name="nz", options=OPTIONS, noise_input="v1",
+                   args={"p": "out", "n": "I2.Mid", "freq": 1e3}, own=level(("instance", "r1", "r"), values_spec(1000, 2000)))
+        self.assertIn(".STEP R1:R LIST 1000.0 2000.0\n.data vamos_f_vamos_a4\n+ hertz\n+ 1000.0\n.enddata\n"
+                      ".NOISE V(OUT,XI2:MID) V1 DATA=vamos_f_vamos_a4 0\n",
+                      xyce.render(nl, step=nz4, sigmap=sigmap({"vamos_a4": nrefs})))
+        # one node given twice is refused: 0 V by construction, and a Xyce before 8d9774fd gives V(a)'s noise
+        nz6 = step("vamos_a4", "noise", name="nz", options=OPTIONS, own=freq_level(), noise_input="v1",
+                   args={"p": "I2.Mid", "n": "I2.Mid"})
+        with self.assertRaisesRegex((T.TableError, NoteError), r"noise nz: the output across one node given twice "
+                                                               r"\(I2.Mid, I2.Mid\) is not supported on Xyce in v1"):
+            xyce.render(nl, step=nz6, sigmap=sigmap({"vamos_a4": nrefs}))
+        # an output at one node keeps the line without it (a ground reference is no second node)
+        nz5 = step("vamos_a4", "noise", name="nz", options=OPTIONS, noise_input="v1", args={"p": "I2.Mid", "n": "0"},
+                   own=level(("freq", "", ""), SweepSpec("freq", mode="values", values=[Num(10.0), Num(20.0)]), "vamos_f2"))
+        self.assertIn(".NOISE V(XI2:MID) V1 DATA=vamos_f_vamos_a4\n",
+                      xyce.render(nl, step=nz5, sigmap=sigmap({"vamos_a4": nrefs})))
         self.assertEqual(names["vamos_a4"], {("noise", "r1"): "DNO(R1)", ("noise", "I2.r3"): "DNO(XI2:R3)", ("onoise",): "ONOISE",
                                              ("gain",): "VM(XI2:MID)", ("inoise",): "INOISE"})
         # .IC only in a tran deck whose ic is all or node, dropping the nodeset with a note [E18]

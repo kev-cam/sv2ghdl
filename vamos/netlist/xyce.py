@@ -146,7 +146,10 @@ Spectre netlists (Netlist.dialect == "spectre"; VAMOS_SPECTRE_DESIGN.md §4.4, �
     noise   a circuit holding a Verilog-A instance is an error in a noise deck: PyMS devices carry no
             noise sources (no DNO, and ONOISE leaves the module's noise out); with an input probe the
             .PRINT NOISE holds VM(<output>), the gain (the output's magnitude under the input's AC 1),
-            and ('gain',) maps to it: results takes in = out/gain, as on VACASK (R-emit-13)
+            and ('gain',) maps to it: results takes in = out/gain, as on VACASK (R-emit-13); an output
+            across two nodes prints .NOISE V(<p>,<n>) <src> <grid> 0 and VM(<p>,<n>), the 0 (no
+            summary) being what lets a Xyce before c0735304 parse the line [E120]; one node given
+            twice is an error, a Xyce before 8d9774fd giving V(a)'s noise for V(a,a)
     grids   a descending dec or lin grid (start > stop) prints plan.grid_points' points: a .DC/.STEP
             LIST, or the .AC/.NOISE DATA= table, a descending step one too, because Xyce's DEC with
             start > stop runs one step and .AC refuses start > stop [E116] (R-emit-3)
@@ -2019,17 +2022,22 @@ class _Deck:
                 if not (isinstance(p, str) and p and isinstance(n, str)):
                     raise T.TableError("%s: noise without an output (AnalysisStep.args['p'], ['n']: the node pair)" % o)
                 out = [p] if n == "0" else [p, n]
-                if len(out) == 2 and self.spectre:
-                    # measured (Xyce DEVELOPMENT-202610100047, phase 2, H): Xyce aborts on a .NOISE output
-                    # across two nodes, V(a,b) ("OUT OF MEMORY", rc 1; a segfault with a subckt), while
-                    # V(a) runs; §2.7: an unsupported construct is status 2, not a failed analysis
-                    raise T.TableError("noise %s: the output across two nodes (%s, %s) is not supported on Xyce in "
-                                       "v1 (Xyce aborts on .NOISE V(a,b)); VACASK runs it"
-                                       % (step.name or o, p, n))
                 if not step.noise_input:
                     raise T.TableError("%s: noise without an input source (plan.build names vamos_nin<k>)" % o)
-                lines.append(".NOISE V(%s) %s %s" % (",".join(self.node_text(n) for n in out),
-                                                      self.element_text(step.noise_input), grid))
+                if len(out) == 2 and self.node_text(p) == self.node_text(n):
+                    # one node given twice is 0 V by construction; a Xyce before 8d9774fd sets the -1 of the
+                    # second node over the +1 of the first and reports V(a)'s noise for it [E120], and the
+                    # render cannot tell which Xyce runs the deck; §2.7: an unsupported construct is status 2
+                    raise T.TableError("noise %s: the output across one node given twice (%s, %s) is not supported on "
+                                       "Xyce in v1 (Xyce's .NOISE V(a,a) gives the noise of V(a) for an output that "
+                                       "is 0 V); VACASK runs it" % (step.name or o, p, n))
+                # an output across two nodes, V(a,b), carries the optional last field, pts_per_summary, as 0
+                # (no summary, as without it): a Xyce before c0735304 counts the line's fields as V(a)'s and,
+                # without that field, reads one past the end of the line ("OUT OF MEMORY", rc 1, or a
+                # segfault); with it every Xyce measured runs the line, to the same table [E120]
+                lines.append(".NOISE V(%s) %s %s%s" % (",".join(self.node_text(n) for n in out),
+                                                        self.element_text(step.noise_input), grid,
+                                                        " 0" if len(out) == 2 else ""))
         elif step.kind == "xf":
             raise T.TableError("%s: xf runs on VACASK only (§3.11)" % o)
         elif step.kind == "tran":

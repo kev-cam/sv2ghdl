@@ -1,0 +1,7 @@
+* .NOISE across two nodes with the last field (pts_per_summary) as 0: V(OUT,0) on the flat divider
+V1 in 0 DC 0 AC 1
+R1 in out 1000.0
+R2 out 0 1000.0
+.NOISE V(OUT,0) V1 DEC 1 1K 10K 0
+.PRINT NOISE FILE=pair_flat_0.prn ONOISE INOISE
+.end

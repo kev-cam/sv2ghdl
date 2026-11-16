@@ -1,86 +1,263 @@
 {
  "row": "E120",
- "experiment": "Xyce .NOISE across two nodes (the engine-facts owner, phase 2; re-measured 2026-10-17 on both launchers): V(OUT,0) on a flat divider, V(A,B) on a flat ladder, V(OUT,0) on a deck with a subckt and on e2e 25's Xyce noise deck; V(OUT) on the subckt deck; e2e 25's deck at XI2:MID with its 0 A input (5.6's vamos_nin1) in the divider body, named by its path, by its top-level name and bare; added in phase 2c (R-emit-19): .PRINT NOISE with VM(OUT) and VP(OUT)",
- "result": "`.NOISE V(a,b)`, even `V(OUT,0)`, aborts while parsing: \"OUT OF MEMORY (error in 'new')\", rc 1, on the flat decks and (2026-10-17, both launchers) on the decks with a subckt too, writing no print file; `.NOISE V(OUT)` runs; the input source in the subckt body runs under its path (XI2:IVAMOS_NIN1) and, 2026-10-17, also under its top-level name (IVAMOS_NIN1, VAMOS_NIN1), each with the same INOISE (ONOISE over 750 ohm squared). The row's segfaults (rc 139 or -11: the subckt deck with V(a,b), and the top-level name) did not reproduce on these decks. Added in phase 2c (R-emit-19): .PRINT NOISE accepts VM(OUT) and VP(OUT) beside ONOISE and INOISE (VM(OUT) = 0.5 on the divider)",
+ "experiment": "Xyce .NOISE across two nodes (the engine-facts owner, phase 2; re-measured 2026-10-17 on both launchers; re-measured 2026-11-16 on four Xyce builds after the cause was found): V(OUT,0) on a flat divider, V(A,B) on a flat ladder, V(OUT,0) on a deck with a subckt and on e2e 25's Xyce noise deck, each with and without a last field (pts_per_summary) of 0; V(A,B) with DATA= under .STEP, across two nodes of a subckt body, with VM(A,B) printed, and through a VCVS onto one node; V(A,A), one node given twice; V(OUT) on the subckt deck; e2e 25's deck at XI2:MID with its 0 A input (5.6's vamos_nin1) in the divider body, named by its path, by its top-level name and bare; added in phase 2c (R-emit-19): .PRINT NOISE with VM(OUT) and VP(OUT)",
+ "result": "`.NOISE V(a,b) <src> <grid> 0`, the optional last field pts_per_summary given as 0 (no summary, as without it), runs on every Xyce measured (stock 2026-05, 7cd78110, fb34a1dc, c0735304; both launchers) to the same table: V(OUT,0) gives V(OUT)'s ONOISE, V(A,B) the pair's noise (4kT times the resistance between the nodes) and INOISE = ONOISE over the pair's gain squared, equal to a VCVS onto one node; DEC and DATA= grids, a .STEP, a pair inside a subckt body (V(XI2:MID,XI2:M2)) and VM(a,b) in .PRINT NOISE all work. Without the last field the line is two fields longer than V(a)'s and Xyce before c0735304 reads one field past its end: \"OUT OF MEMORY (error in 'new')\", rc 1 (2026-10-17, WSL, flat decks and decks with a subckt, no print file), a segfault (rc 139 or -11: phase 2 with a subckt; Debian 13 on the same sources), or a PTS_PER_SUMMARY conversion error (stock); kev-cam/xyce c0735304 counts the fields from the output and runs it. One node given twice, `V(a,a)`, is 0 V by construction, yet Xyce before 8d9774fd reports `V(a)`'s ONOISE for it (the adjoint right-hand side's -1 is set over its +1) and INOISE = ONOISE/1e-20; 8d9774fd sums the two and gives 0. `.NOISE V(OUT)` runs; the input source in the subckt body runs under its path (XI2:IVAMOS_NIN1) and, 2026-10-17, also under its top-level name (IVAMOS_NIN1, VAMOS_NIN1), each with the same INOISE (ONOISE over 750 ohm squared). The row's top-level-name segfault did not reproduce. Added in phase 2c (R-emit-19): .PRINT NOISE accepts VM(OUT) and VP(OUT) beside ONOISE and INOISE (VM(OUT) = 0.5 on the divider)",
  "rules": [
-  "\u00a73.11 / \u00a74.5: Xyce's render refuses a noise output across two nodes (xyce.py: an unsupported construct, status 2) and prints V(p) for (p 0)",
+  "\u00a73.11 / \u00a74.5 / \u00a77.2: Xyce's render prints a noise output across two nodes as .NOISE V(p,n) <src> <grid> 0 and its gain as VM(p,n) (xyce.py; refused, status 2, until 2026-11), and prints V(p) for (p 0); a pair of one node given twice is refused (status 2)",
   "\u00a75.6: an input placed in a subckt body is named by its path on Xyce (signals.py's integration seam; Xyce AC 1 0 in the body, .NOISE naming XI2:VAMOS_NIN1)",
   "\u00a78.4 / R-emit-13 (phase 2c): the noise deck prints the output's magnitude as VM(<out>) for the gain column"
  ],
  "runs": [
   {
-   "name": "pair_flat_out_of_memory",
+   "name": "pair_flat_with_last_field",
    "tool": "xyce",
-   "deck": "pair_flat.cir",
-   "status": 1,
-   "output": {
-    "contains": [
-     "OUT OF MEMORY (error in 'new')"
-    ]
-   },
-   "files": {
-    "absent": [
-     "pair_flat.prn"
-    ]
-   }
+   "deck": "pair_flat_0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_flat_0.prn",
+     "rows": 2,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 1e-06
+    },
+    {
+     "prn": "pair_flat_0.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 3.31515099e-17,
+     "rel": 1e-06
+    }
+   ],
+   "note": "V(OUT,0): the ONOISE of single_node_runs' V(OUT) on the same divider"
   },
   {
-   "name": "pair_flat_out_of_memory_second_launcher",
+   "name": "pair_ab_with_last_field",
+   "tool": "xyce",
+   "deck": "pair_ab_0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_ab_0.prn",
+     "rows": 2,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 1.10505033e-17,
+     "rel": 1e-06
+    },
+    {
+     "prn": "pair_ab_0.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 9.94545296e-17,
+     "rel": 1e-06
+    }
+   ],
+   "note": "V(A,B) across R2 of the 1k ladder: 4kT * (1k || 2k) at 27 C, and INOISE = ONOISE * 9 (gain 1/3)"
+  },
+  {
+   "name": "pair_ab_with_last_field_second_launcher",
    "tool": "xyce",
    "launcher": "second",
-   "deck": "pair_flat.cir",
-   "status": 1,
-   "output": {
-    "contains": [
-     "OUT OF MEMORY (error in 'new')"
-    ]
-   }
+   "deck": "pair_ab_0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_ab_0.prn",
+     "rows": 2,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 1.10505033e-17,
+     "rel": 1e-06
+    }
+   ]
   },
   {
-   "name": "pair_ab_out_of_memory",
+   "name": "pair_subckt_with_last_field",
+   "tool": "xyce",
+   "deck": "pair_sub_0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_sub_0.prn",
+     "rows": 2,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 8.28787747e-18,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "pair_e2e25_with_last_field",
+   "tool": "xyce",
+   "deck": "pair_e25_0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_e25_0.prn",
+     "rows": 3,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 1.65757549e-17,
+     "rel": 1e-06
+    },
+    {
+     "prn": "pair_e25_0.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 6.63030197e-17,
+     "rel": 1e-06
+    }
+   ]
+  },
+  {
+   "name": "pair_in_a_body_as_vamos_renders_it",
+   "tool": "xyce",
+   "deck": "pair_body_0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_body_0.prn",
+     "rows": 2,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 1.1839825e-17,
+     "rel": 1e-06
+    },
+    {
+     "prn": "pair_body_0.prn",
+     "col": "DNO(XI2:R4)",
+     "row": 0,
+     "value": 8.45701782e-18,
+     "rel": 1e-06
+    }
+   ],
+   "note": "V(XI2:MID,XI2:M2) with the 0 A input XI2:IVAMOS_NIN1 across the pair in the body: 4kT * (1k || 2.5k)"
+  },
+  {
+   "name": "pair_data_table_under_step",
+   "tool": "xyce",
+   "deck": "pair_data_0.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_data_0.prn",
+     "rows": 2,
+     "index": [
+      0,
+      0
+     ],
+     "col": "ONOISE",
+     "column": [
+      1.10505033e-17,
+      1.24318162e-17
+     ],
+     "rel": 1e-06
+    },
+    {
+     "prn": "pair_data_0.prn",
+     "col": "VM(A,B)",
+     "column": [
+      0.333333333,
+      0.25
+     ],
+     "rel": 1e-08
+    },
+    {
+     "prn": "pair_data_0.prn",
+     "col": "INOISE",
+     "column": [
+      9.94545296e-17,
+      1.98909059e-16
+     ],
+     "rel": 1e-06
+    }
+   ],
+   "note": "DATA=<table> 0 under a .STEP of R3 (1k, 2k), as vamos renders a parameter sweep at one frequency"
+  },
+  {
+   "name": "pair_print_noise_takes_vm",
+   "tool": "xyce",
+   "deck": "pair_vm.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_vm.prn",
+     "columns": [
+      "Index",
+      "FREQ",
+      "ONOISE",
+      "INOISE",
+      "VM(A,B)",
+      "VP(A,B)"
+     ]
+    },
+    {
+     "prn": "pair_vm.prn",
+     "col": "VM(A,B)",
+     "row": 0,
+     "value": 0.333333333,
+     "rel": 1e-08
+    }
+   ]
+  },
+  {
+   "name": "pair_through_a_vcvs",
+   "tool": "xyce",
+   "deck": "pair_vcvs.cir",
+   "status": 0,
+   "checks": [
+    {
+     "prn": "pair_vcvs.prn",
+     "rows": 2,
+     "col": "ONOISE",
+     "row": 0,
+     "value": 1.10505033e-17,
+     "rel": 1e-06
+    },
+    {
+     "prn": "pair_vcvs.prn",
+     "col": "INOISE",
+     "row": 0,
+     "value": 9.94545296e-17,
+     "rel": 1e-06
+    }
+   ],
+   "note": "section 14 q.58's alternative, kept as the reference: a noiseless VCVS onto a fresh node gives pair_ab_with_last_field's numbers"
+  },
+  {
+   "name": "pair_flat_without_last_field",
+   "tool": "xyce",
+   "deck": "pair_flat.cir",
+   "record_only": true,
+   "note": "without the last field the outcome follows the Xyce build: before c0735304 the parser reads one field past the end of the line (\"OUT OF MEMORY (error in 'new')\", rc 1, on WSL 2026-10-17; SIGSEGV, rc -11, on Debian 13 with the same sources; \"Cannot convert '' to integer for expression PTS_PER_SUMMARY\" in stock Xyce 2026-05), from c0735304 on it runs to the numbers of the run with the field"
+  },
+  {
+   "name": "pair_ab_without_last_field",
    "tool": "xyce",
    "deck": "pair_ab.cir",
-   "status": 1,
-   "output": {
-    "contains": [
-     "OUT OF MEMORY (error in 'new')"
-    ]
-   }
+   "record_only": true
   },
   {
-   "name": "pair_subckt_out_of_memory",
+   "name": "pair_subckt_without_last_field",
    "tool": "xyce",
    "deck": "pair_sub.cir",
-   "status": 1,
-   "output": {
-    "contains": [
-     "OUT OF MEMORY (error in 'new')"
-    ]
-   },
-   "note": "the design row records a segfault (rc 139 or -11) for a deck with a subckt; on 2026-10-17 it is this abort"
+   "record_only": true
   },
   {
-   "name": "pair_subckt_out_of_memory_second_launcher",
-   "tool": "xyce",
-   "launcher": "second",
-   "deck": "pair_sub.cir",
-   "status": 1,
-   "output": {
-    "contains": [
-     "OUT OF MEMORY (error in 'new')"
-    ]
-   }
-  },
-  {
-   "name": "pair_e2e25_out_of_memory",
+   "name": "pair_e2e25_without_last_field",
    "tool": "xyce",
    "deck": "pair_e25.cir",
-   "status": 1,
-   "output": {
-    "contains": [
-     "OUT OF MEMORY (error in 'new')"
-    ]
-   }
+   "record_only": true
+  },
+  {
+   "name": "pair_of_one_node_given_twice",
+   "tool": "xyce",
+   "deck": "pair_same.cir",
+   "record_only": true,
+   "note": "V(A,A) is 0 V by construction: before 8d9774fd Xyce sets the -1 of the second node over the +1 of the first and prints V(A)'s ONOISE, 1.10505033e-17, with INOISE = ONOISE/1e-20 (stock 2026-05 and c0735304, rc 0); from 8d9774fd on ONOISE and INOISE are 0. The outcome is the build's, so it is not asserted"
   },
   {
    "name": "single_node_runs",
@@ -183,6 +360,8 @@
  ],
  "provenance": [
   "harvested 2026-10-17 (phase 2c, owner X-tests) from the design's section 13 row; measured on WSL on /usr/local/src/xyce-build/src/Xyce and /usr/local/bin/Xyce, DEVELOPMENT-202610100047 (7cd78110), under engines.env_for",
-  "decks: vamos-authored, two after e2e 25's Xyce render (tests/vamos/fixtures/spectre/e2e/25_ade_instance/render/xyce/vamos_a2.cir)"
+  "decks: vamos-authored, two after e2e 25's Xyce render (tests/vamos/fixtures/spectre/e2e/25_ade_instance/render/xyce/vamos_a2.cir)",
+  "re-measured 2026-11-16 on Debian 13 (clevo-lx) after the cause was found in Xyce's extractNOISEData: the runs with the last field give byte-identical tables on /usr/local/src/xyce-build/src/Xyce and /usr/local/bin/Xyce at c0735304 (DEVELOPMENT-202611152315), on the fb34a1dc and 7cd78110 (DEVELOPMENT-202610101340) libraries and on stock Xyce DEVELOPMENT-202605111356; the six *_out_of_memory runs became the four record_only runs, their outcome being the build's",
+  "decks added 2026-11-16: pair_*_0.cir, pair_vm.cir, pair_vcvs.cir and pair_same.cir after the row's decks; pair_body_0.cir and pair_data_0.cir are vamos's renders (test_spectre_flow's subckt-body and swept-r3 decks)"
  ]
 }

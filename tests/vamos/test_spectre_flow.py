@@ -60,7 +60,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 from unittest import mock
 
-from vamos_testlib import LAUNCHER, ROOT, TempDir  # noqa: E402
+from vamos_testlib import LAUNCHER, ROOT, TempDir, have_vacask  # noqa: E402
 from spectre_testlib import needs_cpp, needs_vacask, needs_xyce, spectre_fixture  # noqa: E402
 
 import psfcheck  # noqa: E402
@@ -2457,7 +2457,8 @@ class TestIntegration(FlowCase):
         by its path (VACASK in="I2:vamos_nin1"; Xyce AC 1 0 in the body, .NOISE naming XI2:VAMOS_NIN1);
         before phase 2's fix VACASK aborted the analysis and Xyce segfaulted (H).  out = sqrt(4kT*R) with R the
         resistance seen at Mid, (1k + 1k||1k) || 2k, at 27 C; an output across two nodes of the body
-        (I2.Mid, I2.M2) runs on VACASK and is refused on Xyce (it aborts on .NOISE V(a,b))."""
+        (I2.Mid, I2.M2) runs on both engines, r4 beside the 2.5k around it (Xyce refused it until 2026-11:
+        its .NOISE V(a,b) needs the last field vamos now prints [E120])."""
         deck = ("// noise inside a subckt\nsimulator lang=spectre\nv1 (in 0) vsource dc=1 mag=1\n"
                 "r1 (in out) resistor r=1k\nr2 (out 0) resistor r=1k\nsubckt cell (a)\n  r3 (a Mid) resistor r=1k\n"
                 "  r4 (Mid M2) resistor r=1k\n  r5 (M2 0) resistor r=1k\nends cell\nI2 (out) cell\n"
@@ -2475,12 +2476,17 @@ class TestIntegration(FlowCase):
                 self.assertNotIn("in", nz.names())
                 shutil.rmtree(d)
         self.deck(deck.replace("nz (I2.Mid 0)", "nz (I2.Mid I2.M2)"))
-        r = self.vamos(["rc.scs", "--vamos-analog=xyce"])
-        self.assertEqual(r.returncode, 2, r.stdout)
-        self.assertIn("the output across two nodes (I2.Mid, I2.M2) is not supported on Xyce in v1", r.stdout)
-        r = self.vamos(["rc.scs"])
-        self.assertEqual(r.returncode, 0, r.stdout)
-        shutil.rmtree(os.path.join(self.tmp, "rc.raw"))
+        want = math.sqrt(4 * 1.380649e-23 * 300.15 * (1000.0 * 2500.0 / 3500.0))
+        for engine in ("vacask", "xyce"):
+            with self.subTest(engine=engine, output="I2.Mid I2.M2"):
+                r = self.vamos(["rc.scs", "--vamos-analog=" + engine])
+                self.assertEqual(r.returncode, 0, r.stdout)
+                d = os.path.join(self.tmp, "rc.raw")
+                self.check_results(d)
+                nz = psfcheck.check(os.path.join(d, "nz.noise"))
+                self.assertAlmostEqual(nz.column("out")[0] / want, 1.0, delta=1e-3)
+                self.assertNotIn("in", nz.names())
+                shutil.rmtree(d)
         # a given hierarchical iprobe= (§5.6: "a given iprobe= inside a subckt (X1.V2)"), which the parser
         # now reads as an instance path: vb in series between Mid and M2, so gain = V(Mid)/vb = 0.6 and the
         # output noise is that of 1.5k || 1k (vb is a short for noise)
@@ -2498,6 +2504,63 @@ class TestIntegration(FlowCase):
                 self.assertAlmostEqual(nz.column("gain")[0], 0.6, delta=1e-6)
                 self.assertAlmostEqual(nz.column("in")[0] / (want / 0.6), 1.0, delta=1e-3)
                 shutil.rmtree(d)
+
+    @needs_xyce
+    def test_noise_across_two_nodes(self):
+        """§7.2: a noise output across two nodes on the ladder in - 1k - a - 1k - b - 1k - ground, which Xyce
+        takes as `.NOISE V(A,B) <src> <grid> 0` [E120]: out = sqrt(4kT * (1k || 2k)) at 27 C, gain 1/3 from
+        v1 and in = out/gain, the same from oprobe= and on a values= grid (Xyce's DATA= table); with r3 swept
+        at one frequency (a .STEP on Xyce) r3 = 2k gives 750 ohm and gain 1/4.  One node given twice, (a a),
+        is refused on Xyce and is 0 on VACASK.  On Xyce wherever it is installed, and on VACASK beside it
+        where that is too."""
+        ladder = ("// noise across two nodes\nsimulator lang=spectre\nv1 (in 0) vsource dc=1 mag=1\n"
+                  "r1 (in a) resistor r=1k\nr2 (a b) resistor r=1k\nr3 (b 0) resistor r=1k\n")
+
+        def out(ohms):
+            return math.sqrt(4 * 1.380649e-23 * 300.15 * ohms)
+
+        cases = (("p n", "nz (a b) noise iprobe=v1 start=1k stop=10k dec=1\n", 2),
+                 ("oprobe", "nz noise oprobe=r2 iprobe=v1 start=1k stop=10k dec=1\n", 2),
+                 ("values", "nz (a b) noise iprobe=v1 values=[1k 3k 10k]\n", 3))
+        for engine in ("xyce",) + (("vacask",) if have_vacask() else ()):
+            for label, line, points in cases:
+                with self.subTest(engine=engine, output=label):
+                    self.deck(ladder + line)
+                    r = self.vamos(["rc.scs", "--vamos-analog=" + engine])
+                    self.assertEqual(r.returncode, 0, r.stdout)
+                    d = os.path.join(self.tmp, "rc.raw")
+                    self.check_results(d)
+                    nz = psfcheck.check(os.path.join(d, "nz.noise"))
+                    self.assertEqual(len(nz.sweep_values()), points)
+                    for k in range(points):
+                        self.assertAlmostEqual(nz.column("out")[k] / out(2000.0 / 3), 1.0, delta=1e-3)
+                        self.assertAlmostEqual(nz.column("gain")[k], 1.0 / 3, delta=1e-6)
+                        self.assertAlmostEqual(nz.column("in")[k] / (3 * out(2000.0 / 3)), 1.0, delta=1e-3)
+                    shutil.rmtree(d)
+            with self.subTest(engine=engine, output="p n, r3 swept at 1 kHz"):
+                self.deck(ladder + "nz (a b) noise iprobe=v1 freq=1k dev=r3 param=r values=[1k 2k]\n")
+                r = self.vamos(["rc.scs", "--vamos-analog=" + engine])
+                self.assertEqual(r.returncode, 0, r.stdout)
+                d = os.path.join(self.tmp, "rc.raw")
+                self.check_results(d)
+                nz = psfcheck.check(os.path.join(d, "nz.noise"))
+                self.assertEqual([float(v) for v in nz.sweep_values()], [1000.0, 2000.0])
+                for k, (ohms, gain) in enumerate(((2000.0 / 3, 1.0 / 3), (750.0, 0.25))):
+                    self.assertAlmostEqual(nz.column("out")[k] / out(ohms), 1.0, delta=1e-3)
+                    self.assertAlmostEqual(nz.column("gain")[k], gain, delta=1e-6)
+                    self.assertAlmostEqual(nz.column("in")[k] / (out(ohms) / gain), 1.0, delta=1e-3)
+                shutil.rmtree(d)
+        # one node given twice is 0 V: refused on Xyce, where a build before 8d9774fd gives V(a)'s noise for it
+        self.deck(ladder + "nz (a a) noise start=1k stop=10k dec=1\n")
+        r = self.vamos(["rc.scs", "--vamos-analog=xyce"])
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("the output across one node given twice (a, a) is not supported on Xyce in v1", r.stdout)
+        if have_vacask():
+            r = self.vamos(["rc.scs", "--vamos-analog=vacask"])
+            self.assertEqual(r.returncode, 0, r.stdout)
+            d = os.path.join(self.tmp, "rc.raw")
+            self.assertEqual(psfcheck.check(os.path.join(d, "nz.noise")).column("out"), [0.0, 0.0])
+            shutil.rmtree(d)
 
     @needs_vacask
     @needs_xyce

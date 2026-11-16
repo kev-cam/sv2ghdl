@@ -1,0 +1,8 @@
+* .NOISE across one node given twice, V(A,A): the output is 0 V whatever the circuit does
+V1 in 0 DC 0 AC 1
+R1 in a 1000.0
+R2 a b 1000.0
+R3 b 0 1000.0
+.NOISE V(A,A) V1 DEC 1 1K 10K 0
+.PRINT NOISE FILE=pair_same.prn ONOISE INOISE VM(A,A)
+.end

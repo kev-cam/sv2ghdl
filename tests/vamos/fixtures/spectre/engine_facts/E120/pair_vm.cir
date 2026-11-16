@@ -1,0 +1,8 @@
+* .PRINT NOISE with VM(A,B) and VP(A,B) beside ONOISE and INOISE, the output across two nodes
+V1 in 0 DC 0 AC 1
+R1 in a 1000.0
+R2 a b 1000.0
+R3 b 0 1000.0
+.NOISE V(A,B) V1 DEC 1 1K 10K 0
+.PRINT NOISE FILE=pair_vm.prn ONOISE INOISE VM(A,B) VP(A,B)
+.end

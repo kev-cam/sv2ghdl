@@ -1021,8 +1021,7 @@ To see what vamos runs, add `--vamos-verbose`. To see what it understood from th
   no VHDL sources, no `xrun`/Questa yet (docs/VAMOS_PLAN.md §8). `spectre` refuses, with an error naming
   it, what docs/VAMOS_SPECTRE_DESIGN.md §0 lists as not in v1: among them Monte Carlo, the periodic and RF
   analyses, device models with no faithful target (until they come through Verilog-A) and, on Xyce, `xf`,
-  a noise output across two nodes, an instance of a subckt without ports and the parameters of a
-  Verilog-A model card (§12).
+  an instance of a subckt without ports and the parameters of a Verilog-A model card (§12).
 - Accepted and reported, but not done yet: debug and other wave formats (`-debug_access`, VPD/FSDB, `-kdb`;
   `$dumpvars` writes a VCD, §3), coverage (`-cm`), UCLI (`-ucli`, `-do`), VPI/PLI/DPI (`-P`, `-load`, C
   sources), UVM and SystemVerilog classes (`-ntb_opts uvm`; the route is docs/TODO-uvm-translator.md; a
@@ -1515,8 +1514,8 @@ spectre completes with 0 errors, 0 warnings, and 3 notices
 ```
 
 VACASK is the default; `--vamos-analog=vacask|xyce` beats `VAMOS_ANALOG`. Xyce runs one deck per analysis. On
-Xyce, v1 refuses `xf`, a noise output whose second
-node is not ground, an instance of a subckt without ports, an alter of an instance inside a subckt that two
+Xyce, v1 refuses `xf`, a noise output across one node given twice (`(a a)`), an instance of a subckt
+without ports, an alter of an instance inside a subckt that two
 instance paths reach (Xyce's deck would change the definition both share), two names that differ only in case
 (`A` and `a`, which Xyce would merge), a noise analysis of a circuit that holds a Verilog-A instance (PyMS
 devices have no noise sources), a resistor's `isnoisy` that reads a parameter a sweep of the noise analysis
@@ -2622,7 +2621,7 @@ file and line. A construct that v1 does not run is an error that names it, with 
 | `` sweep sw1: the instances of Verilog-A card c1 cannot be told apart from those of another card of its module (it sets no parameter; §3.9 merges a card into its instances): a mod= target on it is not supported in v1 (target the instances with dev=) `` (exit 2; for an alter `` alter of Verilog-A card c1: its instances cannot be told apart ...: not supported in v1 (alter the instances with dev=) ``) | a `mod=` sweep or alter of a Verilog-A card that sets no parameter, on Xyce: vamos finds a card's instances by the parameter values the card gave them. VACASK refuses it too. Give the card a parameter, or sweep or alter the instances with `dev=` |
 | `nodes A and a differ only in case; Xyce would merge them` (exit 2), and the same for elements (`elements load and Load differ only in case; Xyce would merge them`) | Spectre names are case-sensitive and Xyce's are not. Rename one of them, or use VACASK. Two elements whose names differ in more than case never share a Xyce name (Names in the engines' decks): `load` beside `Rload` runs |
 | `node b.c at the top level and node c of b have one hierarchical name, b.c: a name that holds a '.' must not repeat another path; not supported in v1 (§3.2)` (exit 2), and the same for two instances | an escaped name with a dot (`b\.c`) spells the path of another (the node `c` of the instance `b`), and one signal could not carry both (Quick start, after Names in the engines' decks). Rename one of them |
-| `` analysis `nz1': noise nz1: the output across two nodes (a, b) is not supported on Xyce in v1 (Xyce aborts on .NOISE V(a,b)); VACASK runs it `` (exit 2) | a noise output whose second node is not ground, on Xyce. Use VACASK |
+| `` analysis `nz1': noise nz1: the output across one node given twice (a, a) is not supported on Xyce in v1 (Xyce's .NOISE V(a,a) gives the noise of V(a) for an output that is 0 V); VACASK runs it `` (exit 2) | a noise output whose two nodes are one net, on Xyce: the output is 0 V, and Xyce before 8d9774fd answers it with the noise of the node. Name the two nodes meant, or use VACASK (which prints the 0). An output across two different nodes runs on both engines |
 | `X1: subckt bias has no ports: on Xyce the instances of a portless subckt share its internal nodes; not supported in v1 on Xyce (VACASK runs it)` (exit 2) | an instance of a subckt without ports, on Xyce. Use VACASK |
 | `alter a1: on Xyce X1.R1 lies in subckt half, which 2 instance paths reach (X1, X2): changing the shared definition would change every path; not supported in v1 (§5.3)` (exit 2) | an alter, on Xyce, of an instance inside a subckt that two or more instance paths reach (`X1` and `X2` are both `half`): Xyce's deck carries the alter into the subckt's definition, which would change `X2.R1` too. VACASK runs it (`R1` altered to 3k in a divider: `out` 0.25, `out2` stays 0.5). Give `X1` a subckt of its own, or use VACASK |
 | `` analysis `nz1': noise nz1: the Verilog-A instance X1 (module vres) carries no noise sources on Xyce (PyMS devices define no DNO, and ONOISE would leave the module's noise out); not supported in v1 (VACASK runs it) `` (exit 2) | a noise analysis of a circuit that holds a Verilog-A instance, on Xyce. Use VACASK |
