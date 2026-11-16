@@ -1,8 +1,11 @@
 # GPU simulation: status and to-do
 
-**Parked on 2026-11-13.** Work resumes when the machine that holds the sLUT prototype (clevo-lx) is
-back. This file records what was established before parking, the decisions taken, and what is left
-to do, so that nobody has to re-derive it or repeat the mistake that started the reassessment.
+**Active again since 2026-11-15** (parked 2026-11-13 to 15). The current work is our own two-phase
+sLUT engine, programmed from yosys, running on CPU threads and on the GPU, with the 3D-Logic uncertain
+plane (section 1.6). The aim is maximum speed for **one** simulation of one design on a large card.
+As of 2026-11-16 one simulation of a CPU-core-sized design is still about 10x slower on an RTX 4090
+than on the CPU. This file records what was established, the decisions taken, and what is left to
+do, so that nobody has to re-derive it or repeat the mistake that started the reassessment.
 
 Scope: the GPU instance farm (`bfit/benchmarks/vhdl/gpu/`, `gpubuild/`, `bfit/benchmarks/gpu_farm.md`),
 nvc `--accel` (`Accel.md`), and the planned design-as-data ("sLUT") evaluator with 3D-Logic.
@@ -119,6 +122,64 @@ to 65,385 cycles/s on an RTX 3090 / A100 for designs of 0.35 to 1.8 million gate
   replays a recorded VCD, so no test bench in the loop; bit level only.
 - Not done: the depth-oriented netlist, VeeR-EH1 / EH2, any large card.
 
+### 1.6 Our own sLUT engine (2026-11-15/16)
+
+A prototype, **not yet in any repository** (section 5). The design is data: `slutgen.py` turns the
+yosys JSON netlist into a program of typed word-level operations plus a name map; the engine settles
+the combinational levels and then latches (two phases, double-buffered registers). Every step
+executes one operation type. Hazard3 `thr` reproduces the Verilator reference in every configuration
+below; VeeR-EH1 (an idle core, no real workload yet) is checked GPU against CPU engine bit for bit.
+
+What exists:
+
+- **Uncertain plane** beside the value plane (about 2x the work). Power-on options: the declared
+  default, all certain zero, all certain ones, per name prefix; **report-and-clear**: list what is
+  still uncertain at a given cycle, then make it certain.
+- **Stop and start**: state copies between the CPU engine and the GPU engine by name, both planes.
+- **CPU threads** (`slutpar.py`: partitions with duplicated cones, one barrier per stage).
+- **GPU engine** (CUDA, persistent kernel; code and values in shared memory where they fit).
+- **Depth pass** (`slutgen.py --depth K`): the 137 (Hazard3) and 164 (VeeR-EH1) levels first measured
+  were artefacts of the generator: the unrolled divider as a chain, wiring counted as levels,
+  unbalanced AND / OR / multiplexer chains. With K-input table operations, a selector operation and
+  fused divider steps: **19 levels** (Hazard3; 39 when every internal name is kept) and **31**
+  (VeeR-EH1). The depth-reduced programs are slower on the CPU (1.4x to 5.5x); the CPU keeps the
+  original ones.
+- **Asynchronous islands**: one synchronous block per SM, cycle-tagged channels in global memory, no
+  card-wide barrier; survives injected delays bit-exactly.
+
+One simulation, cycles/s, median of 7 runs. CPU rows are the development box (section 1); the 4090
+is a rented host, so those rows are cross-machine.
+
+| | Hazard3 `thr` | VeeR-EH1 (idle) |
+| :-- | --: | --: |
+| Verilator, one thread | 3.3e6 to 4.5e6 | about 1.6e5 |
+| sLUT on the CPU, one thread | 5.7e5 (7.6e5 with an activity profile) | 4.0e4 |
+| sLUT on the CPU, 8 threads | 1.1x the one-thread figure | 1.59e5 |
+| sLUT on the T1000, original program | 1.22e4 | 3.87e3 |
+| sLUT on the T1000, depth-reduced | 4.2e4 | 1.38e4 |
+| sLUT on an RTX 4090, original program | 2.19e4 | 6.48e3 |
+| sLUT on an RTX 4090, depth-reduced | 6.11e4 | 1.68e4 |
+| the same with the uncertain plane | 9.5e3 | 1.06e4 |
+
+- **One simulation still loses on the GPU**: on the 4090, Hazard3 is about 9x behind one sLUT CPU
+  thread and VeeR-EH1 about 10x behind 8 CPU threads or one Verilator thread.
+- The time is now levels x (step + barrier), about **1 to 2 us per level**, against 0.1 to 0.6 us for
+  a bare step inside one SM. Width is not the limit: the depth-reduced VeeR-EH1 uses about 520 of the
+  card's 16,384 lanes per level.
+- The card wins on size. Many VeeR-EH1 cores as one program: peak 1.06e10 operations/s at 30.7 million
+  operations, about 9 sLUT threads of the development box; the crossover is at 1 to 2 million
+  operations.
+- Many copies of Hazard3 on the 4090: plateau 4.34e7 instance-cycles/s, below all-core Verilator on
+  the development box (5.9e7 to 7.4e7). The interpreting engine is far slower per copy than the
+  compiled farm kernel of section 1.2.
+- Asynchronous islands, T1000 only, first measurement: on the depth-reduced programs they are 8 to
+  11 % **slower** than the best single-block scheme; waiting for neighbours is 1 % (Hazard3) to 11 %
+  (VeeR-EH1) of the cycle, so the island's own depth is the bound. On the original VeeR-EH1 program
+  they are 1.84x faster. One memory fence per round costs about 1.5 us and cannot be dropped safely.
+  Not yet run on a large card.
+- Not golden: Hazard3 with every register powered on at certain ones ends in a different checksum;
+  not traced.
+
 ## 2. Decisions
 
 - 2026-10-03: the default type for logic simulation is the 3D family (`logic3d`), 2-state on request.
@@ -129,8 +190,46 @@ to 65,385 cycles/s on an RTX 3090 / A100 for designs of 0.35 to 1.8 million gate
 - 2026-11-13: GEM is not used directly and the yardstick runs are abandoned. The evaluator is to be
   our own, through `--accel` / yosys, so that it does 3D-Logic.
 - 2026-11-13: parked until clevo-lx is back.
+- 2026-11-15: restarted. GEM is not run; we take what its code teaches. The engine is two-phase
+  evaluation of RTL as sLUT operations programmed from yosys, staying inside the resource limits of
+  the chip, and it must run on SMP as well. sLUT shapes are tuned per target (64-bit operations on a
+  CPU, shorter on a GPU, extra wide on an FPGA). It is a run-time acceleration option that can be
+  stopped and restarted: a mapping between the regular simulation's data and the accelerator's lets
+  state be copied back on demand for debug, with no cost while running.
+- 2026-11-15: uncertainty at start-up is an option. It varies by type and the default comes from the
+  type declaration; all-zero and certain is the common no-uncertainty case; report-and-clear is the
+  safer route. Not to be optimised away unless speed falls far behind: the uncertain plane is what
+  this stack offers over Verilator / VCS.
+- 2026-11-16: the goal on the GPU is maximum speed of a single design, on the largest cards.
+- 2026-11-16: blocks stay synchronous inside one SM and talk to each other asynchronously (the RTL
+  to asynchronous conversion of the mylex notes, used at block level).
+- 2026-11-16: with cores to spare, compute the array of possible results and select one, instead of
+  evaluating conditionally (speculate and select).
 
 ## 3. To do
+
+### 3.0 Next, in order
+
+- [ ] **Speculate and select at island boundaries**: for a narrow control value (1 to 4 bits) that
+      crosses mid-cycle, the receiving island evaluates its cone for every value on idle lanes and
+      selects when the token arrives. In progress.
+- [ ] **Speculate and select in the generator**: Shannon expansion on the late-arriving signals of
+      the critical path (carry-select generalised), trading the idle width for fewer levels.
+      Cost 2^k per expanded signal. Test cases: the divider (several one-bit decisions per step) and
+      the remaining VeeR-EH1 path.
+- [ ] Speculation across cycles: an island ahead of its inputs computes the next cycle for both
+      values of a one-bit unknown.
+- [ ] Rerun on an RTX 4090 with islands and speculation (the islands have T1000 figures only).
+- [ ] Cut the per-level cost: one-word packed records, operands gathered in advance, 32-bit lanes.
+- [ ] Skip idle blocks inside thread and island sections (the activity profile does this on one
+      CPU thread only).
+- [ ] `slutgen.py`: shifts wider than 64 bits and `$demux` (these block VeeR-EH2).
+- [ ] A real workload and an external reference for VeeR-EH1.
+- [ ] Trace the non-golden all-ones power-on run of Hazard3.
+- [ ] Review the 17 provisional uncertain-plane rules (arithmetic, uncertain select, memories).
+- [ ] Open questions: where the activity profile comes from in a real flow; several clocks in the
+      program format; per-type declared defaults from the front end.
+- [ ] Bring the prototype into a repository and connect it to nvc (`--accel`, `gen_statemachine`).
 
 ### 3.1 Correct the existing documents (independent of everything else)
 
@@ -164,6 +263,10 @@ a chunk input, and with `NVC_ACCEL_XDEMOTE=1` hands the chunk back to the interp
 
 ### 3.3 Stage 2: GPU evaluator, design as data
 
+Superseded in part by the prototype of section 1.6, which is word-level, not an and-inverter graph,
+and already has both planes, the CPU cross-check and a free-running mode. The list is kept for the
+integration into `libgsm`.
+
 - [ ] Decide: start from GEM's code (Apache-2.0) or write it inside `libgsm`.
 - [ ] And-inverter graph from yosys with a depth-oriented script (section 1.4), registers with initial
       values, RAM blocks.
@@ -187,8 +290,8 @@ a chunk input, and with `NVC_ACCEL_XDEMOTE=1` hands the chunk back to the interp
 ### 3.5 Measurements still missing
 
 - [ ] The independent second check of the 2026-11 reports.
-- [ ] The sLUT prototype on clevo-lx, measured under the rules of section 4.
-- [ ] A large card: nothing was rented in November.
+- [ ] The earlier sLUT prototype on clevo-lx, measured under the rules of section 4.
+- [x] A large card: two RTX 4090 runs on 2026-11-15 (section 1.6).
 - [ ] Structure analysis (section 1.3) of a design with several loosely coupled blocks, and of VeeR-EH2.
 
 ### 3.6 Effort (estimates of 2026-11-13, not measurements)
@@ -217,6 +320,10 @@ the same netlist. The case for building it is 3D-Logic at scale, not beating Ver
 
 ## 5. References
 
+- The sLUT engine prototype of section 1.6 (development box, WSL): `/opt/gpu-reassess/slut`.
+  `STATE.md` is the step log, `REPORT.md` the full report (sections 11 to 14: power-on, threads, GPU
+  engine, depth); `gpu/pkg/` is the self-contained package (`run_all.sh`) with the reference results
+  of the T1000 and RTX 4090 runs under `gpu/pkg/reference/`.
 - Local reports of 2026-11-12/13 (development box P620A, WSL): `REPORT.md` under
   `/opt/gpu-reassess/audit` (the claims audit with the list of 16 inconsistencies), `baseline`
   (section 1.2), `sizes` (1.4), `msg` and `loops` (1.3); GEM build and notes in
