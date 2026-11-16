@@ -881,7 +881,15 @@ class TestAbiCheck(TempDir):
         self.assertEqual(self.check(), ([], None))
 
     def test_missing_library(self):
-        notes, err = self.check(xyce=None)
+        # A libxycecinterface.so in a system library directory (an installed Xyce) rightly satisfies
+        # the search (nvc's dlopen finds it there), so such directories are left out of it here.
+        search = cosim._search_dirs
+        cosim._search_dirs = lambda ld: [d for d in search(ld) if not os.path.isfile(
+            os.path.join(d, "libxycecinterface.so"))]
+        try:
+            notes, err = self.check(xyce=None)
+        finally:
+            cosim._search_dirs = search
         self.assertRegex(err, r"^libxycecinterface\.so not found \(searched .*%s.*\): set "
                               r"VAMOS_XYCE_LIBS to the directories holding libxycecinterface\.so "
                               r"and libxyce\.so$" % re.escape(self.xyce))

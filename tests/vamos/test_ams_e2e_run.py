@@ -43,6 +43,8 @@ from typing import List, Optional
 
 from ams_e2e_lib import AmsCase, needs_ams
 
+from vamos.backends import cosim  # noqa: E402  (ams_e2e_lib puts the checkout on sys.path)
+
 TITLE = "* vcs-ams e2e (test-1 cell): RC low-pass with a buffer, 1.8 V supply\n"
 SUPPLY = "vsup vdd 0 1.8\nrload vdd 0 1meg\n"
 RC_CELL = """\
@@ -397,6 +399,9 @@ class TestE2EFinishAndAbi(RunCase):
         with self.subTest(abi="a library directory that does not exist"):
             var = "VAMOS_VACASK_HOME" if engine == "vacask" else "VAMOS_XYCE_LIBS"
             lib = "libvacaskcinterface.so" if engine == "vacask" else "libxycecinterface.so"
+            held = [s for s in cosim._search_dirs("") if os.path.isfile(os.path.join(s, lib))]
+            if held:        # an installed engine: nvc's dlopen finds the library there, so the run works
+                self.skipTest("%s in a system library directory (%s) satisfies the search" % (lib, held[0]))
             self.clean(d)
             # (an inherited LD_LIBRARY_PATH that holds the library would rightly satisfy it)
             r = self.run_cmd(["./simv"], d, {var: "/nonexistent/vamos-test", "LD_LIBRARY_PATH": ""})
