@@ -97,11 +97,18 @@ sub run {
 
         # 2. run via PyMS (.hdl JIT-compiles the Verilog-A at runtime). rc==0 is
         #    a clean run: device registered, instantiated, and simulated.
+        #    A deck that never ends is a failure, not a block that never ends
+        #    (2026-11-17: BSIMCMG110 idvdnmos spun for three hours on a model
+        #    library it should not have loaded); the slowest deck takes minutes.
+        my $limit = $block->{params}{timeout} || 1800;
         my ($xrc) = run_capture([$xyce, "$name.cir"],
-                                dir => $td, env => $env, log => $opt{log});
+                                dir => $td, env => $env, log => $opt{log},
+                                timeout => $limit);
         push @r, { test_name => $rel,
                    status  => ($xrc == 0) ? 'pass' : 'fail',
-                   message => ($xrc == 0) ? 'PyMS .HDL ran clean' : "Xyce rc=$xrc",
+                   message => ($xrc == 0)   ? 'PyMS .HDL ran clean'
+                            : ($xrc == 124) ? "Xyce timed out after ${limit}s"
+                            :                 "Xyce rc=$xrc",
                    log_path => $opt{log} };
     }
 

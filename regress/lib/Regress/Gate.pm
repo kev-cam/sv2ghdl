@@ -192,8 +192,22 @@ sub candidate {
     my @cmd = ($o{regress_bin}, 'run', @$blocks, '--seq', '--db', $o{db}, '--notes', $notes);
     push @cmd, ('--filter', $o{filter}) if defined $o{filter} && length $o{filter};
     push @cmd, ('--jobs', $o{jobs}) if $o{jobs};
-    my ($rc, $out) = run_capture(\@cmd, log => "$o{workdir}/regress.log",
-                                 env => { SV2GHDL_SRC_ROOT => $root });
+    my %env = (SV2GHDL_SRC_ROOT => $root);
+    my $scratch;
+    if ($repo eq 'xyce') {
+        # Xyce compiles a PyMS device at run time against XYCE_SRC/XYCE_BUILD
+        # (by default the real trees) and keeps it in /tmp/pyms_*_cache under a
+        # key that does not know which Xyce it was built for.  A candidate gets
+        # its own headers and, for each run, caches of its own: it must neither
+        # load what another Xyce built nor leave its own for the installed one.
+        $scratch = "$o{workdir}/pyms-$$";
+        %env = (%env, XYCE_SRC => "$src/src", XYCE_BUILD => $build,
+                PYMS_CACHE => "$scratch/hdl", PYMS_VAE_CACHE => "$scratch/vae");
+        require File::Path;
+        File::Path::make_path("$scratch/hdl", "$scratch/vae");
+    }
+    my ($rc, $out) = run_capture(\@cmd, log => "$o{workdir}/regress.log", env => \%env);
+    File::Path::remove_tree($scratch) if defined $scratch;
     my ($run_id) = ($out // '') =~ /Run #(\d+)/;
     if (!defined $run_id || $rc != 0) {
         my ($why) = ($out // '') =~ /^(regress run: .*)$/m;
