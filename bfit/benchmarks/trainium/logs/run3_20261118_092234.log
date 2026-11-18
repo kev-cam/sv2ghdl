@@ -1,0 +1,38 @@
+venv /opt/aws_neuronx_venv_jax_0_10
+=== start 2026-11-18T17:23:29+00:00
+neuronx-cc                 2.28.7631.0+8f7b0cf5
+nki                        0.7.0+37713544100.gfede04bb
+nrtpy                      2.35.33+d2725ccb
+nki.runtime import ok
+instance-type: trn1.2xlarge
+instance-id: i-04d48d3be2eeb5312
++--------+--------+----------+--------+--------------+----------+------+
+| NEURON | NEURON |  NEURON  | NEURON |     PCI      |   CPU    | NUMA |
+| DEVICE | CORES  | CORE IDS | MEMORY |     BDF      | AFFINITY | NODE |
++--------+--------+----------+--------+--------------+----------+------+
+| 0      | 2      | 0-1      | 32 GB  | 0000:00:1e.0 | 0-7      | -1   |
++--------+--------+----------+--------+--------------+----------+------+
+=== run 2026-11-18T17:24:07+00:00
+[sa3] trace 3.1 s, neuronx-cc 66.6 s, NEFF 0.06 MB, est 344223
+sa3       cycles=   512 load+1st=  7.02s device mean=    0.654 ms min=    0.653 max=    0.654 (   1.277 us/cycle) check=OK  2-state reference (4 instr/cycle)
+[sa3u] trace 0.6 s, neuronx-cc 3.7 s, NEFF 0.11 MB, est 648853
+sa3u      cycles=   512 load+1st=  0.01s device mean=    0.943 ms min=    0.943 max=    0.943 (   1.842 us/cycle) check=OK  value + uncertain plane (8 instr/cycle)
+[deep4] trace 0.7 s, neuronx-cc 10.2 s, NEFF 0.16 MB, est 1305751
+deep4     cycles=  1024 load+1st=  0.01s device mean=    2.100 ms min=    2.100 max=    2.100 (   2.051 us/cycle) check=OK  4 dependent levels per cycle
+[deep19] trace 1.5 s, neuronx-cc 59.1 s, NEFF 0.24 MB, est 3090131
+deep19    cycles=   512 load+1st=  0.02s device mean=    4.792 ms min=    4.792 max=    4.792 (   9.359 us/cycle) check=OK  19 dependent levels per cycle
+[deep137] trace 2.5 s, neuronx-cc 2.9 s, NEFF 0.33 MB, est 5564544
+deep137   cycles=   128 load+1st=  0.04s device mean=    8.545 ms min=    8.545 max=    8.545 (  66.761 us/cycle) check=OK  137 dependent levels per cycle
+[sa3u8k] trace 10.2 s, neuronx-cc 47.2 s, NEFF 1.48 MB, est 10832338
+sa3u8k    cycles=  8448 load+1st=  0.15s device mean=   17.106 ms min=   17.105 max=   17.108 (   2.025 us/cycle) check=OK  value + uncertain plane (8 instr/cycle)
+
+case	cycles	device_mean_ms	min_ms	max_ms	us_per_cycle	vs_verilator_1T	vs_8T	check	note
+sa3	512	0.6536958	0.653469	0.654167	1.277	23.5x	12.0x	OK	2-state reference (4 instr/cycle)
+sa3u	512	0.9428766	0.942694	0.943052	1.842	16.3x	8.3x	OK	value + uncertain plane (8 instr/cycle)
+deep4	1024	2.0999782	2.099818	2.100112	2.051			OK	4 dependent levels per cycle
+deep19	512	4.7919516	4.791813	4.792271	9.359			OK	19 dependent levels per cycle
+deep137	128	8.5453736	8.545275	8.545457	66.761			OK	137 dependent levels per cycle
+sa3u8k	8448	17.1062422	17.105178	17.108187	2.025	14.8x	7.6x	OK	value + uncertain plane (8 instr/cycle)
+=== run done 2026-11-18T17:27:49+00:00
+-rw-rw-r-- 1 ubuntu ubuntu 5355505 Nov 18 17:27 /home/ubuntu/sa/hw3_artifacts.tgz
+=== remote done 2026-11-18T17:27:50+00:00
