@@ -50,6 +50,7 @@ my %D = (
     compare  => \&cmd_compare,
     backfill => \&cmd_backfill,
     gate     => \&cmd_gate,
+    candidate=> \&cmd_candidate,
     baseline => \&cmd_baseline,
     serve    => \&cmd_serve,
     help     => \&cmd_help,
@@ -651,6 +652,50 @@ sub cmd_gate {
     exit($res->{clean} ? 0 : 2);
 }
 
+# A repo's gate blocks, run on a candidate that is checked out and built
+# somewhere else (Regress::Gate::candidate).  Says what fails; the caller
+# decides what that means.  Exit 0: the blocks ran; 1: they could not.
+sub cmd_candidate {
+    my @argv = @_;
+    my ($db, $repo, $src, $build, $failures, $filter, $jobs, $notes, $blocks);
+    GetOptionsFromArray(\@argv,
+        'db=s' => \$db, 'repo=s' => \$repo, 'src=s' => \$src, 'build=s' => \$build,
+        'failures=s' => \$failures, 'filter=s' => \$filter, 'jobs=i' => \$jobs,
+        'notes=s' => \$notes, 'blocks=s' => \$blocks,
+    ) or die "regress candidate: bad options\n";
+    $repo && $src or die "regress candidate: --repo R --src DIR [--build DIR] required\n";
+    -d $src or die "regress candidate: no source tree $src\n";
+    require Regress::Gate;
+    require Digest::MD5;
+
+    # one work dir per candidate tree; its own results DB unless told otherwise,
+    # so candidates do not enter the history of the main one
+    my $tag = substr(Digest::MD5::md5_hex(abs_path($src) // $src), 0, 8);
+    my $workdir = "$REGRESS_DIR/out/candidate-$repo-$tag";
+    make_path($workdir);
+    $db //= "$workdir/results.db";
+
+    my $res = Regress::Gate::candidate(
+        db => $db, repo => $repo, src => $src, build => $build, filter => $filter,
+        jobs => $jobs, notes => $notes, workdir => $workdir, regress_bin => $SELF,
+        blocks => [ grep { length } split /[,\s]+/, ($blocks // '') ]);
+    if ($res->{error}) { print "candidate $repo: FAILED: $res->{error}\n"; exit 1 }
+
+    my $list = join('', map { "$_\n" } @{ $res->{failures} });
+    if (defined $failures) {
+        open(my $fh, '>', $failures) or die "regress candidate: cannot write $failures: $!\n";
+        print $fh $list;
+        close $fh or die "regress candidate: cannot write $failures: $!\n";
+    } else {
+        print $list;
+    }
+    printf "candidate %s%s: run #%s (%s): %d of %d tests fail in %s%s\n",
+        $repo, ($res->{sha} ? '@' . substr($res->{sha}, 0, 12) : ''), $res->{run_id}, $db,
+        scalar @{ $res->{failures} }, $res->{total}, join(' ', @{ $res->{blocks} }),
+        (defined $failures ? "; listed in $failures" : '');
+    exit 0;
+}
+
 sub cmd_serve {
     my @argv = @_;
     my ($db, $port, $host);
@@ -677,6 +722,8 @@ regress - multi-simulator regression harness (SQLite-tracked)
   regress compare <blockA> <blockB> [--run N]       # A/B two engines in one run
   regress backfill                                  # rebuild per-test history from all runs
   regress gate --repo R [--ref REF] [--push]        # CI gate: build+test a candidate, FF main if clean
+  regress candidate --repo R --src DIR [--build DIR] [--failures FILE] [--blocks B,..] [--filter STR]
+                                                    # R's gate blocks on a tree built elsewhere; lists what fails
   regress baseline --repo R [--run N] | --list      # set/show the main baseline a gate compares to
   regress serve [--port N] [--host H] [--db PATH]   # live web dashboard
 
@@ -693,6 +740,17 @@ out/run-<id>-<tag>/ (printed as "workdir:"; logs/dispatch-<tool>.log holds the
 dispatcher's output); an ivtest block runs in a private work area there,
 ivtest-<block>/, linked to the ivtest tree, which it only reads
 (REGRESS_IVTEST_SHARED=1: in the tree itself, as before).
+
+`candidate` runs the blocks `gate` would run for repo R (nvc, iverilog, xyce),
+but against a candidate that is already checked out in --src and built in
+--build (nvc and xyce; iverilog is built in its tree), leaving the real
+checkout and build area alone: it runs with SV2GHDL_SRC_ROOT pointing at a
+directory of links (out/candidate-R-<tag>/root) where R and its build area are
+the candidate's.  It prints, or writes to --failures, one "block:test" line
+per test that is neither pass nor xfail, and exits 0 when the blocks ran.
+Results go to out/candidate-R-<tag>/results.db unless --db names another.
+diaspora uses it as the full-regression gate of an import: no test may fail
+that did not fail before the import.
 USAGE
 }
 

@@ -20,7 +20,11 @@ use Regress::DB;
 our %REPO_BLOCKS = (
     iverilog => [qw(ivtest/iverilog sv-tests/iverilog ivtest/nvc-vhdl ivtest/iverilog-nvc)],
     nvc      => [qw(nvc/regr nvc/unit ivtest/nvc-vhdl ivtest/iverilog-nvc)],
+    xyce     => [qw(xyce/regr xyce/ihp-pdk xyce/pyms)],
 );
+
+# the directory beside a repo that holds its build (none: built in the tree)
+our %BUILD_AREA = (nvc => 'nvc-build', xyce => 'xyce-build');
 
 sub repo_dir { src_root() . '/' . $_[0] }
 
@@ -121,6 +125,99 @@ sub run {
                      finished_at => _now(), message => $summary);
     return { gate_id => $gid, run_id => $run_id, clean => $clean,
              pushed => $pushed, sha => $sha, message => $summary };
+}
+
+# ---- candidate: a repo's gate blocks on a tree built elsewhere -------------
+#
+# `gate` checks the candidate out in the real checkout and builds it in the
+# real build area.  `candidate` leaves both alone: the caller (diaspora, a
+# worktree of your own) has the candidate checked out in $src and built in
+# $build, and the blocks run against that.  The result is what fails, for the
+# caller to compare with what failed before; nothing is judged or pushed here.
+
+# A directory like src_root() in which $repo and its build area are the
+# candidate's and every other entry is the real one.  The harness finds all
+# tools through src_root(), so a run with SV2GHDL_SRC_ROOT set to it tests the
+# candidate.
+sub shadow_root {
+    my ($dir, $repo, $src, $build) = @_;
+    my $real = src_root();
+    require File::Path;
+    File::Path::make_path($dir);
+    opendir(my $dh, $real) or die "candidate: cannot read $real: $!\n";
+    my %want = map { $_ => "$real/$_" } grep { !/^\.\.?$/ } readdir $dh;
+    closedir $dh;
+    $want{$repo} = $src;
+    $want{ $BUILD_AREA{$repo} } = $build if $BUILD_AREA{$repo};
+    opendir($dh, $dir) or die "candidate: cannot read $dir: $!\n";
+    for my $e (grep { !/^\.\.?$/ } readdir $dh) {
+        unlink "$dir/$e" if -l "$dir/$e" && !exists $want{$e};
+    }
+    closedir $dh;
+    for my $e (sort keys %want) {
+        my $link = "$dir/$e";
+        next if -l $link && readlink($link) eq $want{$e};
+        unlink $link if -l $link;
+        symlink $want{$e}, $link or die "candidate: cannot link $link: $!\n";
+    }
+    return $dir;
+}
+
+# opts: repo, src, build, db, workdir, regress_bin, blocks (arrayref), filter,
+# jobs, notes.  Returns { error } or { run_id, sha, total, failures => [..] }
+# with one "block:test" per test that is neither pass nor xfail.
+sub candidate {
+    my (%o) = @_;
+    my $repo = $o{repo} or return { error => "no repo" };
+    my $blocks = ($o{blocks} && @{ $o{blocks} }) ? $o{blocks} : $REPO_BLOCKS{$repo}
+        or return { error => "no blocks known for repo $repo" };
+    require Cwd;
+    my $src = defined $o{src} ? Cwd::abs_path($o{src}) : undef;
+    return { error => "no source tree " . ($o{src} // '(--src)') }
+        unless defined $src && -d $src;
+    my $build;
+    if ($BUILD_AREA{$repo}) {
+        $build = defined $o{build} ? Cwd::abs_path($o{build}) : undef;
+        return { error => "$repo needs --build (its $BUILD_AREA{$repo})" }
+            unless defined $build && -d $build;
+    }
+    my $root = shadow_root("$o{workdir}/root", $repo, $src, $build);
+    my $sha = '';
+    if (open(my $git, '-|', 'git', '-C', $src, 'rev-parse', '--quiet', '--verify', 'HEAD')) {
+        $sha = <$git> // '';
+        close $git;
+        chomp $sha;
+    }
+    my $notes = $o{notes} // ("candidate $repo\@" . (substr($sha, 0, 12) || $src));
+    my @cmd = ($o{regress_bin}, 'run', @$blocks, '--seq', '--db', $o{db}, '--notes', $notes);
+    push @cmd, ('--filter', $o{filter}) if defined $o{filter} && length $o{filter};
+    push @cmd, ('--jobs', $o{jobs}) if $o{jobs};
+    my ($rc, $out) = run_capture(\@cmd, log => "$o{workdir}/regress.log",
+                                 env => { SV2GHDL_SRC_ROOT => $root });
+    my ($run_id) = ($out // '') =~ /Run #(\d+)/;
+    if (!defined $run_id || $rc != 0) {
+        my ($why) = ($out // '') =~ /^(regress run: .*)$/m;
+        return { error => $why // "regress run failed (rc $rc), see $o{workdir}/regress.log" };
+    }
+    my $db = Regress::DB->new(path => $o{db});
+    my (@fail, %ran);
+    my $total = 0;
+    for my $b (@{ $db->block_summaries($run_id) }) {
+        $ran{ $b->{block} } = 1;
+        return { error => "block $b->{block} produced no results (exit "
+                          . ($b->{exit_code} // '?') . "), run #$run_id" }
+            if !$b->{total} || ($b->{exit_code} // 0) == 99;
+        my $m = $db->block_results_map($run_id, $b->{block});
+        $total += keys %$m;
+        push @fail, map { "$b->{block}:$_" }
+                    grep { $m->{$_} ne 'pass' && $m->{$_} ne 'xfail' } sort keys %$m;
+    }
+    for my $name (@$blocks) {
+        return { error => "block $name did not run (not ready here?), run #$run_id" }
+            unless $ran{$name};
+    }
+    return { run_id => $run_id, sha => $sha, total => $total, failures => \@fail,
+             blocks => $blocks, root => $root };
 }
 
 # ---- per-repo build recipes (build-area; mirror the manual recipes) -------
