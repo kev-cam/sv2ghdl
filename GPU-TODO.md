@@ -198,6 +198,122 @@ is a rented host, so those rows are cross-machine.
 - Not golden: Hazard3 with every register powered on at certain ones ends in a different checksum;
   not traced.
 
+### 1.7 Phase 2 per engine form, and the FPGA's case (2026-11-16)
+
+Two-phase evaluation keeps the next state apart from the current one until every operation of the
+cycle has read it. Two ways avoid a copy: hold the program in two versions, one per register-bank
+parity, each reading one bank and latching into the other; or keep one program and select the bank
+by address (a pointer, or a parity bit XORed into the address). Where the prototype stands, from the
+code in `/opt/gpu-reassess/slut`:
+
+| engine form | phase 2 today |
+| :-- | :-- |
+| single-thread `slut.c` | memcpy of the d slots onto the q slots (gather and scatter when not contiguous) |
+| SMP sections (`slutpar.py`) | two versions of every section, one per parity (`S STAGE THREAD PARITY N`); the latch is `cpne` into the other bank; `par` flips, no copy |
+| GPU `k_stream` (farm, one-thread baseline) | per-parity streams for the main, async-reset and phase-2 code; `par` flips each cycle |
+| GPU `k_step` (warp programs) | parity-indexed segments, plus an S2B pass copying bank 1 back to bank 0 for every register, with its own grid barrier |
+| GPU islands | the latch operation writes q inside the island's shared memory and publishes the token into the ring; the ring, indexed by cycle tag, is the multi-bank |
+
+- The two-version form is the right one for a table engine: a bank pointer there is an XOR or a
+  lookup on every register operand (the engine's slot resolver does exactly that, for the mapping
+  and memory-write paths only). Compiled x86 code gets a pointer for free through base-plus-
+  displacement addressing, so the distinction only bites in the interpreted engine.
+- What is left to convert costs little: Hazard3 has 61 register slots, so the single-thread copy is
+  488 bytes per plane per cycle, a few percent of a 1.2 us cycle (VeeR-EH1: 1,491 slots, 12 KB per
+  plane); `k_step`'s four barriers together are under 1 us of a 119 us Hazard3 cycle, and dropping
+  S2B removes one of them. The island kernel needs no change.
+- On the FPGA the pointer wins. Code memory is what caps the core count of the ldx mailbox array
+  (about 96 cores by URAM, about 128 by LUTs), and a second code image per core halves it. The
+  array already has the pointer in hardware: the `addr_mode=1` banked region XORs the cycle parity
+  into the address, zero data movement, measured 1.5x (6,158 to 4,115 core cycles per simulated
+  cycle). RV32 has only base-plus-12-bit-immediate addressing, so a software pointer would cost an
+  add per register access once a core's state passes 4 KB; the address XOR avoids that too. The
+  shared-memory experiment in the sLUT report (slots and code in shared memory, 13 to 20 %) ran
+  with one code version, which suggests the second version is what did not fit there either.
+
+**Where the FPGA wins: the wiring.** Operations that slice, concatenate, replicate or extend bits
+cost a shift and a mask per 64-bit word on a CPU and nothing but wires on an FPGA, at any width;
+reductions are a LUT tree. Their share of the programs (operation histograms in `PREFIX.stat`):
+
+| design | operations | slicing (`ext`, `cat*`, `rep`, `sext`) | plus `muxb`, shifts, `copy` | reductions (`anyn`, `rbool`, `rand`, `rxor`, `nonen`) |
+| :-- | --: | --: | --: | --: |
+| Hazard3 (`blk16`) | 1,244 | 388 (31 %) | 434 (35 %) | 73 (6 %) |
+| VeeR-EH1 (`g`) | 29,951 | 5,920 (20 %) | 6,208 (21 %) | 541 (2 %) |
+
+Counts are not time. The profile below ranks the handlers by measured time.
+
+#### The x86 profile (2026-11-16)
+
+Method: a program-counter sampler preloaded into the engine (`pcsamp.c`: a CLOCK_MONOTONIC timer
+raises SIGPROF every 100 us, the handler counts the interrupted PC), samples attributed to the
+operation handlers through the debug line table of a `gcc -O2 -g -no-pie -march=native -DSLUT_GOTO`
+build. One thread pinned to core 8 of the Threadripper PRO 5955WX, gcc 15.2, WSL2; 68k to 76k
+samples per Hazard3 configuration (`--reps`), 27k per VeeR-EH1 (`--const 100000`); sampling slows the
+run by about 5 %. Every sampled Hazard3 run is golden (CHK0 47E5C3CA649F77AD, DONE0 95038). The
+engine's own per-run TSC timer (`-DSLUT_OPTIME`, `--optime`) was run as the cross-check: on EH1 it
+agrees with the sampler within 2 to 3 points per type, on Hazard3 it cannot resolve anything,
+because a run averages 3 operations (384 runs per 1.8 us cycle, 19 TSC of work per run) and the two
+timestamps cost 54 TSC per run. Files: `bench/optime_20261116/` (histograms, logs, `pcs_ranking.md`,
+`ranking.md` for the TSC method, scripts).
+
+Share of the cycle by class (the slicing, bit-select and reduction rows are the FPGA's wiring):
+
+| class | Hazard3 all2 | same, uncertain plane | Hazard3 hot (guard blocks) | same, uncertain | VeeR-EH1 | same, uncertain |
+| :-- | --: | --: | --: | --: | --: | --: |
+| slicing (`ext`, `cat*`, `rep`, `sext`) | 36.6 % | 21.7 % | 31.1 % | 17.8 % | 27.6 % | 23.0 % |
+| bit select / shifts (`muxb`, `bmux`, `shl`, `shr`) | 4.7 % | 3.1 % | 1.6 % | 1.3 % | 1.8 % | 1.8 % |
+| reductions (`anyn`, `rbool`, `rand`, `rxor`, `nonen`) | 11.7 % | 10.1 % | 10.5 % | 9.1 % | 2.4 % | 2.7 % |
+| bitwise (`and`, `or`, `xor`, `not`) | 1.6 % | 1.2 % | 1.7 % | 1.2 % | 44.3 % | 50.0 % |
+| compare (`eq`, `ne`, `ult`, `ule`, `sle`) | 10.7 % | 6.7 % | 10.6 % | 8.4 % | 5.3 % | 5.1 % |
+| boolean (`land`, `lor`, `lnot`) | 11.7 % | 12.2 % | 11.0 % | 10.2 % | 0.8 % | 0.6 % |
+| select (`mux`, `pmux`, `muxf`) | 16.7 % | 12.8 % | 17.4 % | 12.6 % | 13.1 % | 12.8 % |
+| arithmetic (`add`, `sub`, `mul`, `neg`) | 3.2 % | 1.9 % | 1.2 % | 0.7 % | 1.2 % | 0.9 % |
+| memory read | 1.1 % | 0.7 % | 1.3 % | 0.8 % | 0.8 % | 0.7 % |
+| guard-block check (`chk`) | 0.0 % | 0.0 % | 7.0 % | 4.9 % | 0.0 % | 0.0 % |
+| phase 2 (latch, memory writes, resets) | 0.9 % | 28.3 % | 5.1 % | 32.1 % | 1.0 % | 0.8 % |
+| harness, loader, libc, other | 1.1 % | 1.3 % | 1.5 % | 0.9 % | 1.5 % | 1.6 % |
+
+The twelve most expensive handlers, value plane (share of the cycle; ns per operation from the
+share, the plain build's cycle time and the operation count per cycle):
+
+| rank | Hazard3 all2 | share | ops/cycle | ns/op | VeeR-EH1 | share | ops/cycle | ns/op |
+| --: | :-- | --: | --: | --: | :-- | --: | --: | --: |
+| 1 | `cat` | 15.2 % | 70 | 3.9 | `and` | 25.8 % | 10,092 | 0.64 |
+| 2 | `mux` | 10.6 % | 194 | 0.98 | `or` | 13.8 % | 4,710 | 0.74 |
+| 3 | `anyn` | 8.2 % | 43 | 3.4 | `mux` | 12.4 % | 3,874 | 0.81 |
+| 4 | `cat2` | 7.3 % | 100 | 1.3 | `ext` | 8.7 % | 3,367 | 0.65 |
+| 5 | `eq` | 6.6 % | 198 | 0.60 | `cat` | 7.2 % | 323 | 5.6 |
+| 6 | `ext` | 6.6 % | 138 | 0.86 | `eq` | 5.1 % | 1,983 | 0.65 |
+| 7 | `land` | 5.0 % | 84 | 1.1 | `catf` | 4.9 % | 343 | 3.6 |
+| 8 | `lor` | 3.9 % | 58 | 1.2 | `rep` | 3.8 % | 1,298 | 0.74 |
+| 9 | `muxb` | 3.7 % | 43 | 1.5 | `not` | 2.6 % | 1,081 | 0.61 |
+| 10 | `pmux` | 3.3 % | 17 | 3.5 | `xor` | 2.1 % | 874 | 0.60 |
+| 11 | `lnot` | 2.9 % | 78 | 0.67 | `cat2` | 1.6 % | 283 | 1.4 |
+| 12 | `add` | 2.8 % | 42 | 1.2 | `cat2f` | 1.2 % | 299 | 1.0 |
+
+What it says:
+
+- **The wiring is the largest class on Hazard3**: slicing, bit select and reductions take 53 % of the
+  value-plane cycle (48 % on the guard-block program) from 41 % of the operations. The expensive
+  handlers per operation are the multi-piece ones: `cat` 3.9 ns, `anyn` 3.4 ns, `pmux` 3.5 ns against
+  0.6 ns for a plain word operation (`eq`, `lnot`, `and`). On EH1 the same class is 32 %, and `cat` /
+  `catf` cost 5.6 / 3.6 ns each. These handlers are the ldx candidates: concatenation, extract,
+  replicate and reduce-or are wires or a LUT tree in fabric at any width.
+- **EH1's time is bitwise `and` / `or` on 64-bit words doing mostly one-bit work**: 44 % of the cycle
+  for 10,092 `and` and 4,710 `or` per cycle. The FPGA does those as LUTs at the native width; on a
+  CPU the answer is the packing of one-bit nets listed under "considered" in the sLUT report.
+- **The uncertain plane's extra cost is one rule, not the latch.** 28 to 32 % of the uncertain Hazard3
+  cycle is in `slut_memwr` lines 600 to 605: a memory write port whose address has uncertain bits
+  visits every word of the memory and merges uncertainty into each matching one. On this workload
+  the stack pointer is uncertain from cycle 14 (section 1.6), so every data-memory write scans the
+  memory. The value-plane memory writes cost 0.3 %. Without that scan the uncertain plane costs the
+  handlers 1.47x (1.77 us against 2.59 us of handler time per cycle), not the 2.1 to 2.3x reported
+  for the whole cycle. Any target needs an O(1) form (mark the memory, or an address range, uncertain
+  and resolve on read) or report-and-clear at start-up; a per-word smear is a full scan on BRAM too.
+- **Phase 2 proper is under 1 %** of every value-plane cycle; the 5 % on the guard-block program is the
+  dirty marking for the blocks (lines 644 to 647), and the block check itself costs 7 %, so gating
+  pays about 12 % of the cycle for its 1.33x.
+
 ## 2. Decisions
 
 - 2026-10-03: the default type for logic simulation is the 3D family (`logic3d`), 2-state on request.
@@ -223,6 +339,14 @@ is a rented host, so those rows are cross-machine.
   to asynchronous conversion of the mylex notes, used at block level).
 - 2026-11-16: with cores to spare, compute the array of possible results and select one, instead of
   evaluating conditionally (speculate and select).
+- 2026-11-16: two-phase evaluation takes the form the target can afford: two versions of the program
+  (one per bank parity) on the CPU table engine and the GPU, where code is cheap; one program and a
+  bank selected by address on the FPGA, where code memory is the scarce resource (the ldx mailbox's
+  cycle-parity XOR). Section 1.7.
+- 2026-11-16: the FPGA's case is wide bit-slicing and reductions, done at any width in fabric. The
+  routines to move to ldx are chosen from a per-routine time profile of the x86 engine, not from
+  operation counts. Section 1.7 (profile taken the same day: concatenation, extract, replicate,
+  reduce-or first).
 
 ## 3. To do
 
@@ -239,6 +363,20 @@ is a rented host, so those rows are cross-machine.
 - [ ] **A partitioner that cuts without duplicating logic**: today's inflates the islands 1.8x and
       gives no usable 128-island partition.
 - [ ] A per-step timer in the kernel, to settle where the 12 us of a Hazard3 cycle go.
+- [x] **Profile the x86 engine per operation routine** (section 1.7): PC sampler, both designs, both
+      planes, cross-checked with the engine's TSC timer on EH1. Wiring and reductions are 53 % of
+      Hazard3's cycle, `and` / `or` 44 % of EH1's; the uncertain plane's extra cost is the
+      uncertain-address memory write scan, not the latch.
+- [ ] **Uncertain write address in O(1)**: mark the memory (or a range) uncertain instead of visiting
+      every word (`slut_memwr` lines 600 to 605); 28 to 32 % of the uncertain Hazard3 cycle today, and
+      the same scan would hit BRAM on the FPGA.
+- [ ] **ldx candidate set from the profile**: `cat` / `cat2` / `catf`, `ext`, `rep`, `anyn` (and `pmux`) as
+      CFU instructions on the RV32 cores or as the wide evaluator's first operations; measure them on
+      the core (feature matrix, cfu variant) before choosing.
+- [ ] Pack one-bit nets on the CPU engine (EH1: 56 % of the operations are `and` / `or` / `not` on
+      mostly one-bit values, 44 % of the cycle).
+- [ ] Low priority: parity-versioned programs for the single-thread engine and `k_step` (drop the
+      memcpy latch and the S2B copy-back with its grid barrier); a few percent at most (section 1.7).
 - [ ] Speculation across cycles: an island ahead of its inputs computes the next cycle for both
       values of a one-bit unknown.
 - [ ] Cut the per-level cost: one-word packed records, operands gathered in advance, 32-bit lanes.
@@ -311,6 +449,7 @@ integration into `libgsm`.
 ### 3.5 Measurements still missing
 
 - [ ] The independent second check of the 2026-11 reports.
+- [x] The per-routine time profile of the x86 engine (section 1.7, 2026-11-16).
 - [ ] The earlier sLUT prototype on clevo-lx, measured under the rules of section 4.
 - [x] A large card: three RTX 4090 runs on 2026-11-15/16 (section 1.6).
 - [ ] Structure analysis (section 1.3) of a design with several loosely coupled blocks, and of VeeR-EH2.
