@@ -202,6 +202,68 @@ quota of 2 was available immediately, which is why the first three attempts
 went that way. On-demand trn1.2xlarge is $1.34375/h in us-east-1; the
 SageMaker endpoint is $1.5453/h.
 
+## Addendum (2026-11-17): a tuned Verilator baseline, where the win ends, Trainium2
+
+**Tuned Verilator.** The 8-thread figure above carried Verilator's `UNOPTTHREADS`
+warning. A sweep on the same box with `-O3 --x-assign fast --x-initial fast
+--noassert --no-timing`, `-CFLAGS "-O3 -march=native"`, threads pinned away from
+the first cores, best of three runs (`trainium/logs/verilator_tuned_results.txt`):
+
+| threads | 1 | 2 | 4 | 8 | 16 |
+| :-- | --: | --: | --: | --: | --: |
+| µs per cycle | 29.94 | 24.74 | 16.26 | 15.35 | 77.26 |
+
+Native code buys nothing at one thread (29.9 against 28.6 µs is noise). The best
+multi-threaded number improves from 18.35 to 15.35 µs at 8 threads; 16 threads
+oversubscribe the SMT siblings and collapse. Against the tuned baseline the sa3
+kernel at 1.23 µs is 24× one Verilator thread and 12.5× the best eight.
+
+**Where the win ends.** The measured floor is 0.3–0.4 µs per wide operation and a
+cycle costs one floor per dependent level of the design. The systolic array is one
+level deep per cycle. A CPU core is not: Hazard3 is 137 levels as yosys emits it
+and 19 after the depth pass of the GPU work (GPU-TODO.md section 1.4); at 0.3 µs a
+level that is 40 µs or 6 µs per cycle against Verilator's 0.25 µs. The claim this
+report supports is therefore: wide, shallow designs win by an order of magnitude on
+Trainium; sequential cores lose by about as much. What is not yet measured: the
+uncertainty plane (about 2× the data and the ops, so nearer 10× than 23×), a
+CPU-class design on the device, and end-to-end host I/O. The three kernels here are
+hand-written for this design; the general path, yosys → NKI through the sLUT
+program format with both planes, is not built, and it is the same generator the
+FPGA evaluator needs.
+
+**Trainium2.** Not run. Only `trn2.48xlarge` exists (16 chips, 128 NeuronCores,
+192 vCPUs; us-west-2 and us-east-2 only). Spot was $8.60/h in us-east-2c on
+2026-11-17; the account's Trn quota in those regions is 0, so a 192-vCPU quota
+increase precedes any run. The kernels run unchanged on one of its cores. Every
+number above is Trainium 1.
+
+## Addendum 2 (2026-11-18): the uncertainty plane and deep logic, measured
+
+A second trn1.2xlarge session (5 minutes, about $0.12; `trainium/nki_hw3.py`, `run3_remote.sh`, log
+`trainium/logs/run3_20261118_092234.log`), same method: one NeuronCore, device clock, warm-up 2, 5 iterations,
+every output checked against numpy.
+
+| case | cycles | µs per cycle | vs Verilator 1T (29.94) | vs best 8T (15.35) | check |
+| :-- | --: | --: | --: | --: | :-- |
+| sa3, 2-state (same-session reference) | 512 | 1.277 | 23.5× | 12.0× | OK |
+| sa3u, value + uncertain plane | 512 | 1.842 | 16.3× | 8.3× | OK |
+| sa3u, value + uncertain plane | 8,448 | 2.025 | 14.8× | 7.6× | OK |
+| deep, 4 dependent levels | 1,024 | 2.051 | | | OK |
+| deep, 19 dependent levels | 512 | 9.359 | | | OK |
+| deep, 137 dependent levels | 128 | 66.761 | | | OK |
+
+- **Full detail costs 1.44× to 1.6×, not 2×.** `nki_sa3u.py` carries an uncertain flag per word beside the value
+  (a result is uncertain when any input is; P registers power on uncertain; uncertain activations and one
+  uncertain weight injected; flags exact and values exact on every certain word). It doubles the instruction
+  count (8 per cycle against 4) but the flag tiles are int8, and the cycle goes from 1.28 to 1.84–2.03 µs. With
+  3D logic the kernel is still 15–16× one Verilator thread and about 8× the best eight, and Verilator's number
+  is 2-state.
+- **A dependent level costs 0.49 µs.** `nki_deep.py` is a synthetic chain (it has a CPU core's depth, not its
+  logic): 4, 19 and 137 levels fit `0.10 + 0.487 × levels` µs within 1 %. That is the measured form of the bound
+  in the first addendum, a little worse than the 0.3–0.4 µs assumed there. A Hazard3-depth design is 9.4 µs per
+  cycle after the depth pass and 67 µs as yosys emits it, against Verilator's 0.25 µs: 37× and 270× behind.
+  One NeuronCore wins on width and loses on depth, by about the same factor.
+
 ## Reproduce
 
 Everything is in `trainium/`:

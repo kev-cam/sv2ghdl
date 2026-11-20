@@ -1,0 +1,22 @@
+=== 2026-11-17T23:08:18-08:00 sweep start on AMD Ryzen Threadripper PRO 5955WX 16-Cores, verilator 5.032
+T=1 run1: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.606 s  rate=33404.1 cycles/s  (29.94 us/cycle, 5.47e+08 PE-cycles/s)
+T=1 run2: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.615 s  rate=32923.3 cycles/s  (30.37 us/cycle, 5.39e+08 PE-cycles/s)
+T=1 run3: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.608 s  rate=33323.1 cycles/s  (30.01 us/cycle, 5.46e+08 PE-cycles/s)
+T=1 build=58s best=29.94 us/cycle
+T=2 run1: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.541 s  rate=37453.4 cycles/s  (26.70 us/cycle, 6.14e+08 PE-cycles/s)
+T=2 run2: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.518 s  rate=39112.7 cycles/s  (25.57 us/cycle, 6.41e+08 PE-cycles/s)
+T=2 run3: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.501 s  rate=40417.3 cycles/s  (24.74 us/cycle, 6.62e+08 PE-cycles/s)
+T=2 build=69s best=24.74 us/cycle
+T=4 run1: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.342 s  rate=59274.7 cycles/s  (16.87 us/cycle, 9.71e+08 PE-cycles/s)
+T=4 run2: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.334 s  rate=60578.2 cycles/s  (16.51 us/cycle, 9.93e+08 PE-cycles/s)
+T=4 run3: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.329 s  rate=61488.8 cycles/s  (16.26 us/cycle, 1.01e+09 PE-cycles/s)
+T=4 build=60s best=16.26 us/cycle
+T=8 run1: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.311 s  rate=65156.5 cycles/s  (15.35 us/cycle, 1.07e+09 PE-cycles/s)
+T=8 run2: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.531 s  rate=38149.9 cycles/s  (26.21 us/cycle, 6.25e+08 PE-cycles/s)
+T=8 run3: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=0.314 s  rate=64562.2 cycles/s  (15.49 us/cycle, 1.06e+09 PE-cycles/s)
+T=8 build=60s best=15.35 us/cycle
+T=16 run1: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=1.565 s  rate=12942.6 cycles/s  (77.26 us/cycle, 2.12e+08 PE-cycles/s)
+T=16 run2: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=1.582 s  rate=12807.4 cycles/s  (78.08 us/cycle, 2.1e+08 PE-cycles/s)
+T=16 run3: N=128 M=20000 cycles=20256 checked=2560000 errors=0  time=1.584 s  rate=12784.7 cycles/s  (78.22 us/cycle, 2.09e+08 PE-cycles/s)
+T=16 build=59s best=77.26 us/cycle
+=== done 2026-11-17T23:13:37-08:00
