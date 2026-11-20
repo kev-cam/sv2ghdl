@@ -21,6 +21,7 @@ our %REPO_BLOCKS = (
     iverilog => [qw(ivtest/iverilog sv-tests/iverilog ivtest/nvc-vhdl ivtest/iverilog-nvc)],
     nvc      => [qw(nvc/regr nvc/unit ivtest/nvc-vhdl ivtest/iverilog-nvc)],
     xyce     => [qw(xyce/regr xyce/ihp-pdk xyce/pyms)],
+    VACASK   => [qw(vamos/unit vamos/cosim-vacask)],
 );
 
 # the directory beside a repo that holds its build (none: built in the tree)
@@ -176,7 +177,13 @@ sub candidate {
     return { error => "no source tree " . ($o{src} // '(--src)') }
         unless defined $src && -d $src;
     my $build;
-    if ($BUILD_AREA{$repo}) {
+    if ($repo eq 'VACASK') {
+        # built inside its tree at home; a candidate's build is wherever it
+        # is, and vamos is told so (VAMOS_VACASK_HOME, below)
+        $build = defined $o{build} ? Cwd::abs_path($o{build}) : undef;
+        return { error => "VACASK needs --build (the candidate's build tree)" }
+            unless defined $build && -d $build;
+    } elsif ($BUILD_AREA{$repo}) {
         $build = defined $o{build} ? Cwd::abs_path($o{build}) : undef;
         return { error => "$repo needs --build (its $BUILD_AREA{$repo})" }
             unless defined $build && -d $build;
@@ -194,6 +201,7 @@ sub candidate {
     push @cmd, ('--jobs', $o{jobs}) if $o{jobs};
     my %env = (SV2GHDL_SRC_ROOT => $root);
     my $scratch;
+    $env{VAMOS_VACASK_HOME} = $build if $repo eq 'VACASK';
     if ($repo eq 'xyce') {
         # Xyce compiles a PyMS device at run time against XYCE_SRC/XYCE_BUILD
         # (by default the real trees) and keeps it in /tmp/pyms_*_cache under a

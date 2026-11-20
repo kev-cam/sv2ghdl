@@ -16,7 +16,7 @@ use Regress::Tools qw(
     cadence2xyce_bin adms_examples_dir
     ltz_bin ltz_tests_dir ltz_community_dir
     qspice_qux_bin qspice2xyce_bin qspice_tests_dir
-    vamos_vcs_bin hazard3_bench_cxx);
+    vamos_vcs_bin hazard3_bench_cxx vamos_tests_dir vacask_build_dir);
 
 use Regress::Adapter::Ivtest;
 use Regress::Adapter::NvcNative;
@@ -28,6 +28,7 @@ use Regress::Adapter::XycePyMS;
 use Regress::Adapter::Ltz;
 use Regress::Adapter::Qspice;
 use Regress::Adapter::Hazard3;
+use Regress::Adapter::Vamos;
 
 my %ADAPTER = (
     ivtest      => 'Regress::Adapter::Ivtest',
@@ -39,6 +40,7 @@ my %ADAPTER = (
     'xyce-pyms' => 'Regress::Adapter::XycePyMS',
     ltz         => 'Regress::Adapter::Ltz',
     qspice      => 'Regress::Adapter::Qspice',
+    vamos       => 'Regress::Adapter::Vamos',
     hazard3     => 'Regress::Adapter::Hazard3',
 );
 
@@ -153,6 +155,17 @@ my %ENGINES = (
         $e->{VAMOS_IVERILOG} = $e->{IVERILOG} if $e->{IVERILOG};
         return { env => $e, path_prepend => _base_path() };
     },
+    # vamos with VACASK: as vamos, plus the VACASK build its tests and the
+    # cosim demos run against (VAMOS_VACASK_HOME; a VACASK candidate's build
+    # when `regress candidate --repo VACASK` sets it).
+    'vamos-vacask' => sub {
+        my $e = _nvc_env();
+        $e->{VAMOS_NVC}      = $e->{NVC}      if $e->{NVC};
+        $e->{VAMOS_IVERILOG} = $e->{IVERILOG} if $e->{IVERILOG};
+        my $v = vacask_build_dir();
+        $e->{VAMOS_VACASK_HOME} = $v if $v;
+        return { env => $e, path_prepend => _base_path() };
+    },
 );
 
 # ---- block registry ------------------------------------------------------
@@ -265,6 +278,17 @@ my @BLOCKS = (
       params => { sim => 'iverilog', timeout => 1800 },
       ready  => sub { iverilog_bin() && vvp_bin()
                       && Regress::Adapter::Hazard3::ready() ? 1 : 0 } },
+
+    # vamos's own tests (tests/vamos, 90-odd modules, ~5 min), with VACASK
+    # for its co-simulation tests; and the VACASK<->nvc cosim demos.  The
+    # mixed-signal acceptance of a VACASK change.
+    { name => 'vamos/unit',          suite => 'vamos', engine => 'vamos-vacask',
+      params => { kind => 'unit' },
+      ready  => sub { vamos_tests_dir() && nvc_bin() && vacask_build_dir() ? 1 : 0 } },
+    { name => 'vamos/cosim-vacask',  suite => 'vamos', engine => 'vamos-vacask',
+      params => { kind => 'cosim' },
+      ready  => sub { nvc_bin() && vacask_build_dir()
+                      && -f src_root() . '/VACASK/demo/cosim/run.sh' ? 1 : 0 } },
 
     # vamos's vcs personality (vcs, then ./simv) through sv2ghdl/shims/vcs.
     { name => 'hazard3/vamos',       suite => 'hazard3', engine => 'vamos',

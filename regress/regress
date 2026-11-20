@@ -741,9 +741,11 @@ dispatcher's output); an ivtest block runs in a private work area there,
 ivtest-<block>/, linked to the ivtest tree, which it only reads
 (REGRESS_IVTEST_SHARED=1: in the tree itself, as before).
 
-`candidate` runs the blocks `gate` would run for repo R (nvc, iverilog, xyce),
+`candidate` runs the blocks `gate` would run for repo R (nvc, iverilog, xyce;
+VACASK: vamos/unit and vamos/cosim-vacask, its mixed-signal acceptance),
 but against a candidate that is already checked out in --src and built in
---build (nvc and xyce; iverilog is built in its tree), leaving the real
+--build (nvc, xyce and VACASK, whose build vamos is pointed at with
+VAMOS_VACASK_HOME; iverilog is built in its tree), leaving the real
 checkout and build area alone: it runs with SV2GHDL_SRC_ROOT pointing at a
 directory of links (out/candidate-R-<tag>/root) where R and its build area are
 the candidate's.  It prints, or writes to --failures, one "block:test" line

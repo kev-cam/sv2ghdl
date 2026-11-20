@@ -19,7 +19,7 @@ our @EXPORT_OK = qw(
     cadence2xyce_bin adms_examples_dir
     ltz_bin ltz_tests_dir ltz_community_dir ltspice_bin
     qspice_dir qspice_sim_bin qspice_qux_bin qspice2xyce_bin qspice_tests_dir
-    vamos_vcs_bin python3_bin
+    vamos_vcs_bin python3_bin vamos_tests_dir vacask_build_dir
     hazard3_suite_dir hazard3_mandelbrot_dir hazard3_bench_cxx
 );
 
@@ -305,6 +305,25 @@ sub vamos_vcs_bin {
 }
 
 sub python3_bin { _first_exe($ENV{PYTHON3}, _which('python3')) }
+
+# vamos's unit tests: tests/vamos of the sv2ghdl checkout this harness runs
+# from ($VAMOS_TESTS_DIR overrides).
+sub vamos_tests_dir {
+    return $ENV{VAMOS_TESTS_DIR} if $ENV{VAMOS_TESTS_DIR};
+    require File::Basename;
+    require Cwd;
+    my $lib = File::Basename::dirname(Cwd::abs_path(__FILE__));   # regress/lib/Regress
+    my $d = Cwd::abs_path("$lib/../../../tests/vamos");
+    return (defined $d && -d $d) ? $d : undef;
+}
+
+# The VACASK build vamos and the cosim demos use: $VAMOS_VACASK_HOME (what
+# vamos itself reads; a VACASK candidate sets it to its build), else
+# <src root>/VACASK/build.
+sub vacask_build_dir {
+    my $d = $ENV{VAMOS_VACASK_HOME} || src_root() . '/VACASK/build';
+    return -d "$d/simulator" ? $d : undef;
+}
 
 # The hazard3 suite's fixtures (testbench, firmware images, goldens, scripts):
 # tests/hazard3_mandelbrot of the sv2ghdl checkout this harness runs from.
