@@ -21,7 +21,7 @@
 #      binary predated a codegen fix that was in the .cpp. A gate that tests a
 #      stale binary is worse than no gate, so the gate BUILDS rather than
 #      trusting timestamps (a rebase rewrites mtimes without changing content).
-#   2. THE SUITE. accel/run.sh, 19 designs x 4 engines, checksum-compared.
+#   2. THE SUITE. accel/run.sh, every design x 4 engines, checksum-compared.
 #
 # CLASSIFY ON INSTALL EVIDENCE, NEVER ON THE CHECKSUM ALONE. A design that
 # declines to accelerate falls back to the interpreter and therefore produces
@@ -34,7 +34,7 @@
 # USAGE
 #   ./accel-gate.sh [--no-build] [--quick] [case ...]
 #     --no-build  skip the build step (assume nvc + gen_statemachine are current)
-#     --quick     one design per shape (wide/fsm/deep/regf/many/act) instead of 19
+#     --quick     one design per shape (wide/fsm/deep/regf/many/act) instead of all
 #     case ...    explicit case names, passed through to run.sh
 #
 # EXIT: 0 = clean. 1 = a design mismatched or nothing installed. 2 = setup error
@@ -136,7 +136,7 @@ export NVC_GSM_LIB="${NVC_GSM_LIB:-$SRC/sv2ghdl/yosys/libgsm.so}"
 export NVC
 
 LOG="$WORK.log"
-echo "  suite:            $SUITE/run.sh ${CASES[*]:-(all 19)}"
+echo "  suite:            $SUITE/run.sh ${CASES[*]:-(all)}"
 "$SUITE/run.sh" "${CASES[@]}" 2>&1 | tee "$LOG"
 rc=${PIPESTATUS[0]}
 

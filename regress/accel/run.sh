@@ -48,6 +48,7 @@ CASES=(
   "regf_n16d32    regf  N=16 DEPTH=32 W=32 CYC=20000 |"
   "many_k12       many  K=12 M=8    CYC=20000 |"
   "many_k24       many  K=24 M=8    CYC=20000 |"
+  "same_k12       many  K=12 M=8 SAME=1 CYC=20000 |"
   "act_lo_n8w256  act   N=8 W=256   CYC=20000 | -gALLON=0 -GALLON=0"
   "act_hi_n8w256  act   N=8 W=256   CYC=20000 | -gALLON=1 -GALLON=1"
   "act_lo_n16w512 act   N=16 W=512  CYC=20000 | -gALLON=0 -GALLON=0"
@@ -60,7 +61,18 @@ sel=("$@")
 want() { [ ${#sel[@]} -eq 0 ] && return 0; for s in "${sel[@]}"; do [ "$s" = "$1" ] && return 0; done; return 1; }
 
 getY() { grep -oE 'Y=[0-9]+' | tail -1 | cut -d= -f2; }
-insn() { grep -oE '^[ ]*[0-9,]+[ ]+instructions' | head -1 | tr -d ' ,' | sed 's/instructions//'; }
+# Instructions retired by a command: `$PERF_I <command> 2>&1 | insn`.  perf prints a line for every
+# PMU that counted, and a hybrid CPU (P and E cores) has two, `cpu_core/instructions/` and
+# `cpu_atom/instructions/`, each with what ran on its kind of core: the total is their sum.  The
+# old parse wanted one bare `instructions` line and found none there, so every count was empty.
+# --no-scale, because by default perf scales each line up to an estimate of the whole run, and two
+# estimates of the whole do not add up; -x, for bare numbers in a fixed shape (count, unit, event,
+# time the counter ran, ...).  A `<not counted>` line (no time on that kind of core) is skipped.
+# The event is spelt `instructions`, `instructions:u`, `cpu_core/instructions/`,
+# `cpu_core/instructions/u` or, by perf 6.12 without the right to count the kernel,
+# `cpu_core/instructions:u/`.
+PERF_I="perf stat --no-scale -x, -e instructions"
+insn() { awk -F, '$1 ~ /^[0-9]+$/ && $2 == "" && $3 ~ /^([a-z_0-9]+\/)?instructions(\/[a-zA-Z]*|:[a-zA-Z]+\/?)?$/ && $4 ~ /^[0-9]+$/ { s += $1; n++ } END { if (n) printf "%.0f\n", s }'; }
 
 printf "%-15s %-9s %-7s %-6s %-11s %-11s %-11s %-11s %s\n" \
   CASE CHUNKS CELLS REGS INTERP ACCEL PERINST VERILATOR VERDICT
@@ -142,9 +154,9 @@ for row in "${CASES[@]}"; do
      "$name" "${chunks:-0}" "${cells:-cached}" "${regs:-cached}" "${yi:-?}" "${ya:-?}" "${yp:-?}" "${yv:-?}" "$v"
 
   if [ $TIME -eq 1 ]; then
-    ti=$(perf stat -e instructions $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
-    ta=$(env "${AE[@]}" perf stat -e instructions $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
-    tv=$(perf stat -e instructions "$VD/vsim" 2>&1 | insn)
+    ti=$($PERF_I $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
+    ta=$(env "${AE[@]}" $PERF_I $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
+    tv=$($PERF_I "$VD/vsim" 2>&1 | insn)
     printf "%-15s   insn: interp=%-14s accel=%-14s verilator=%-14s  accel_speedup=%s  vs_vltr=%s\n" \
       "" "${ti:-?}" "${ta:-?}" "${tv:-?}" \
       "$(python3 -c "print('%.2fx'%($ti/$ta))" 2>/dev/null)" \

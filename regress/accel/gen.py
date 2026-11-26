@@ -720,7 +720,18 @@ endmodule
 # ================================================================== MANY
 def gen_many(d, p):
     K, M, CYC = p.get("K", 12), p.get("M", 8), p.get("CYC", 2000)
+    # SAME=1: every cluster gets the same generic, so the K chunks are K
+    # instances of ONE logic: one model and one compiled object serve them all,
+    # with a state apiece.  Each must then have an input of its own, or two of
+    # them are the same machine on the same input and cancel in the top's xor
+    # whether they share a state or not.  A cluster reads d only as the fold
+    # d(3:0) ^ d(7:4) ^ d(31:28), under which the offsets j*0x9E3779B9 collide
+    # (j = 0 and 11; 1, 8 and 10): with SAME the offset is j itself, distinct
+    # in that fold for up to 16 clusters.
+    SAME = p.get("SAME", 0)
     assert K >= 10 and M >= 8
+    assert not SAME or K <= 16
+    off = (lambda j: j) if SAME else (lambda j: (j * 0x9E3779B9) & 0xFFFFFFFF)
     S = "many"
     wr(d, "many_stage.vhd", T(FSM_STAGE_V, NAME="many_stage"))
 
@@ -762,7 +773,7 @@ end architecture;
         "  dx%d <= d xor %s;\n"
         "  c%d : entity work.many_cluster generic map (BASE => %d)\n"
         "    port map (clk => clk, rst => rst, d => dx%d, y => y%d);"
-        % (j, hexlit((j * 0x9E3779B9) & 0xFFFFFFFF, 32), j, j, j, j) for j in range(K))
+        % (j, hexlit(off(j), 32), j, 0 if SAME else j, j, j) for j in range(K))
     cxor = " xor ".join("y%d" % j for j in range(K))
     wr(d, "many_top.vhd", VHDR + T("""entity many_top is
   port (clk, rst : in  std_logic;
@@ -813,10 +824,10 @@ module many_cluster #(parameter int BASE = 0)
 endmodule
 """, SIGS=ss, INSTS=si, Q=sq)
     sv_csig = "\n".join("  wire [31:0] y%d;\n  wire [31:0] dx%d = d ^ 32'h%08X;"
-                        % (j, j, (j * 0x9E3779B9) & 0xFFFFFFFF) for j in range(K))
+                        % (j, j, off(j)) for j in range(K))
     sv_cins = "\n".join(
         "  many_cluster #(.BASE(%d)) c%d (.clk(clk), .rst(rst), .d(dx%d), .y(y%d));"
-        % (j, j, j, j) for j in range(K))
+        % (0 if SAME else j, j, j, j) for j in range(K))
     sv_top = T("""
 module many_top (input logic clk, input logic rst,
                  input logic [31:0] d, output logic [31:0] q);
@@ -838,8 +849,8 @@ endmodule
     sv_tb = emit_tb(d, S, CYC)
     wr(d, "many.sv", T(FSM_STAGE_S, NAME="many_stage") + sv_cluster + sv_top + sv_tb)
     return dict(top="many_top", tb="many_tb", sv="many.sv", cyc=CYC,
-                desc="MANY chunks: %d clusters x %d-stage FSM chain (top declines -> %d chunks)"
-                     % (K, M, K))
+                desc="MANY chunks: %d clusters x %d-stage FSM chain (top declines -> %d chunks%s)"
+                     % (K, M, K, ", all of one logic" if SAME else ""))
 
 # ================================================================== ACT
 def gen_act(d, p):

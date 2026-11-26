@@ -66,7 +66,7 @@ Two consequences worth knowing before editing anything here:
 | `fsm` | NARROW/control -- chain of 16-state FSMs, 4-bit state, 4-bit interconnect, 16-way `case`. The contrast against `wide` is the diagnostic. | `N` stages |
 | `deep` | DEEP combinational -- `D` chained **pure-comb** stages between two registers; delta settling and comb-cone stress. | `D` depth, `W` bits |
 | `regf` | REGISTER-heavy -- `N` banks x `DEPTH` x 32b of explicit flops with a `case` write decoder and a synchronous read mux; `sm_clock` stress. | `N`, `DEPTH` |
-| `many` | MANY chunks -- `K` clusters, each an 8-stage FSM chain. The top carries a deliberate `assert` so the top *declines* and the scan **descends**, installing one chunk per cluster. | `K` clusters, `M` stages |
+| `many` | MANY chunks -- `K` clusters, each an 8-stage FSM chain. The top carries a deliberate `assert` so the top *declines* and the scan **descends**, installing one chunk per cluster. With `SAME=1` (case `same_k12`) the clusters all get one generic: `K` instances of one logic, which must share one model and one compiled object and still keep a state apiece. | `K` clusters, `M` stages |
 | `act` | LOW activity -- enable-gated stages, 1-of-N hot per cycle. `-gALLON=1` makes every stage hot **with the identical netlist**, so `act_lo` vs `act_hi` isolates activity from structure. | `N`, `W`, `ALLON` |
 
 `act`'s `mode` is a real input port, not a generic, precisely so yosys cannot

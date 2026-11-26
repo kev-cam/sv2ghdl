@@ -52,7 +52,18 @@ CASES=(
 
 sel=("$@")
 want() { [ ${#sel[@]} -eq 0 ] && return 0; for s in "${sel[@]}"; do [ "$s" = "$1" ] && return 0; done; return 1; }
-insn() { grep -oE '^[ ]*[0-9,]+[ ]+instructions' | head -1 | tr -d ' ,' | sed 's/instructions//'; }
+# Instructions retired by a command: `$PERF_I <command> 2>&1 | insn`.  perf prints a line for every
+# PMU that counted, and a hybrid CPU (P and E cores) has two, `cpu_core/instructions/` and
+# `cpu_atom/instructions/`, each with what ran on its kind of core: the total is their sum.  The
+# old parse wanted one bare `instructions` line and found none there, so every count was empty.
+# --no-scale, because by default perf scales each line up to an estimate of the whole run, and two
+# estimates of the whole do not add up; -x, for bare numbers in a fixed shape (count, unit, event,
+# time the counter ran, ...).  A `<not counted>` line (no time on that kind of core) is skipped.
+# The event is spelt `instructions`, `instructions:u`, `cpu_core/instructions/`,
+# `cpu_core/instructions/u` or, by perf 6.12 without the right to count the kernel,
+# `cpu_core/instructions:u/`.
+PERF_I="perf stat --no-scale -x, -e instructions"
+insn() { awk -F, '$1 ~ /^[0-9]+$/ && $2 == "" && $3 ~ /^([a-z_0-9]+\/)?instructions(\/[a-zA-Z]*|:[a-zA-Z]+\/?)?$/ && $4 ~ /^[0-9]+$/ { s += $1; n++ } END { if (n) printf "%.0f\n", s }'; }
 
 printf "%-15s %10s %10s %10s   %8s %8s\n" \
   CASE "interp/cyc" "accel/cyc" "vltr/cyc" "acc:int" "acc:vltr"
@@ -93,9 +104,9 @@ for row in "${CASES[@]}"; do
     $VERILATOR --binary -j 4 -Wno-fatal -O3 -CFLAGS "${VLCFLAGS:--O3}" --Mdir "$VD" -o vsim \
         --top-module "$tb" $sgen -GCYC=$C "$D/$sv" >/dev/null 2>&1 || { ok=0; break; }
     # interleaved arms, same case, back to back
-    I[$C]=$(perf stat -e instructions $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
-    A_[$C]=$(env "${AE[@]}" perf stat -e instructions $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
-    V[$C]=$(perf stat -e instructions "$VD/vsim" 2>&1 | insn)
+    I[$C]=$($PERF_I $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
+    A_[$C]=$(env "${AE[@]}" $PERF_I $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
+    V[$C]=$($PERF_I "$VD/vsim" 2>&1 | insn)
   done
   [ $ok -eq 0 ] && { echo "$name BUILD FAIL"; continue; }
 

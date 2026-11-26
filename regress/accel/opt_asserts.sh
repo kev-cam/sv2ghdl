@@ -32,6 +32,18 @@ export HOME="$W"    # private accel cache
 pass=0; fail=0
 ok()  { pass=$((pass+1)); printf "  PASS  %-42s %s\n" "$1" "${2:-}"; }
 bad() { fail=$((fail+1)); printf "  FAIL  %-42s %s\n" "$1" "${2:-}"; }
+# Instructions retired by a command: `$PERF_I <command> 2>&1 | insn`.  perf prints a line for every
+# PMU that counted, and a hybrid CPU (P and E cores) has two, `cpu_core/instructions/` and
+# `cpu_atom/instructions/`, each with what ran on its kind of core: the total is their sum.  The
+# old parse wanted one bare `instructions` line and found none there, so every count was empty.
+# --no-scale, because by default perf scales each line up to an estimate of the whole run, and two
+# estimates of the whole do not add up; -x, for bare numbers in a fixed shape (count, unit, event,
+# time the counter ran, ...).  A `<not counted>` line (no time on that kind of core) is skipped.
+# The event is spelt `instructions`, `instructions:u`, `cpu_core/instructions/`,
+# `cpu_core/instructions/u` or, by perf 6.12 without the right to count the kernel,
+# `cpu_core/instructions:u/`.
+PERF_I="perf stat --no-scale -x, -e instructions"
+insn() { awk -F, '$1 ~ /^[0-9]+$/ && $2 == "" && $3 ~ /^([a-z_0-9]+\/)?instructions(\/[a-zA-Z]*|:[a-zA-Z]+\/?)?$/ && $4 ~ /^[0-9]+$/ { s += $1; n++ } END { if (n) printf "%.0f\n", s }'; }
 
 # ---- fixture: one tiny flop design, analysed once ---------------------------
 D="$W/d"; mkdir -p "$D"
@@ -51,6 +63,15 @@ module clkpass (input en, input clk, input scan_mode, output l1clk);
   assign se = 1'b0;
 endmodule
 EOF
+
+# These assertions are about the default generator.  Under GSM_GATED a model
+# keeps state in its object and is, by design, not shared between instances
+# (7c sets the mode for the one run that is about it), so a caller's own
+# GSM_GATED would fail the reuse checks for doing the right thing.
+if [ -n "${GSM_GATED+x}" ]; then
+  echo "  note: GSM_GATED is set in the environment; unset for these assertions"
+  unset GSM_GATED
+fi
 
 echo "== opt_asserts: does each optimization actually fire? =="
 
@@ -104,8 +125,7 @@ fi
 if ! perf stat -e instructions true >/dev/null 2>&1; then
   ok "accel instruction budget" "(SKIPPED: perf events unavailable, paranoid=$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo '?'))"
 else
-  ins=$(env "${AE[@]}" perf stat -e instructions $NVC "${A[@]}" -r "$tb" 2>&1 \
-        | grep -oE '^[ ]*[0-9,]+[ ]+instructions' | tr -d ' ,' | sed 's/instructions//')
+  ins=$(env "${AE[@]}" $PERF_I $NVC "${A[@]}" -r "$tb" 2>&1 | insn)
   BUDGET=550000000   # measured 365M; a lost worbits peephole (~2.3x) lands ~840M
   if [ -n "$ins" ] && [ "$ins" -le $BUDGET ]; then
     ok "accel instruction budget" "($ins <= $BUDGET)"
@@ -128,6 +148,165 @@ else bad "two-tier cache key" "nso=$nso nc=$nc (want 2/1)"; fi
 out=$(env "${AE[@]}" NVC_ACCEL_CC="gcc -O3" $NVC "${A[@]}" -r "$tb" 2>&1)
 if printf '%s' "$out" | grep -q 'reusing cached .so'; then ok "warm cache reuse note present"
 else bad "warm cache reuse note present"; fi
+
+# 7b. ONE OBJECT FOR ONE LOGIC, WHEREVER IT STANDS.  The object is named by a
+#     hash of the bridge's text (nvc 02280b83c2), and for three months that
+#     text carried the instance's path, in its trace lines: the same design one
+#     level further down -- a wrapper round the bench, the other side of a
+#     link, a second instance -- missed the cache and was compiled again, model
+#     and all (13 minutes a time for an 88 MB model), while every checksum
+#     stayed green.  The bench inside another entity must REUSE the object the
+#     bare bench left.  No kill-switch to prove it bites: validated against
+#     nvc 65bc60ee6, which compiles a third object here.  Needs nvc 25caad459
+#     or later, like 7c.
+cat > "$W/ob_wrap.vhd" <<EOF
+entity ob_wrap is end entity;
+architecture a of ob_wrap is
+begin
+  u : entity work.$tb generic map (CYC => 2000);
+end architecture;
+EOF
+$NVC "${A[@]}" -a "$W/ob_wrap.vhd" >/dev/null 2>&1
+$NVC "${A[@]}" -e ob_wrap >/dev/null 2>&1
+out=$(env "${AE[@]}" NVC_ACCEL_CC="gcc -O3" $NVC "${A[@]}" -r ob_wrap 2>&1)
+YW=$(printf '%s' "$out" | grep -oE 'Y=[0-9]+' | tail -1)
+nso=$(ls "$W"/.cache/nvc/accel/*.so 2>/dev/null | wc -l)
+inst=$(printf '%s' "$out" | grep -c 'accel installed')
+if [ "$inst" -ge 1 ] && printf '%s' "$out" | grep -q 'reusing cached .so' \
+   && [ "$nso" -eq 2 ] && [ "$YW" = "$YI" ]; then
+  ok "object reused under another instance path" "($nso .so, as before)"
+else bad "object reused under another instance path" "nso=$nso (want 2) installs=$inst $YW (want $YI)"; fi
+
+# 7c. ...BUT NOT AN OBJECT THAT KEEPS STATE.  One object serves every instance
+#     of a logic (7b) because all of an instance's state is in the state_t it
+#     is handed.  A GSM_GATED model breaks that: its block-dirty bits, boundary
+#     nets and previous input values are statics of the object.  Shared by two
+#     instances, the second finds "nothing changed since the last call" -- the
+#     other instance's call -- and publishes what was computed for the other.
+#     nvc must give such a model one object PER INSTANCE.  Three instances of
+#     a leaf whose output z is combinational in a register; their inputs differ
+#     for the first half of the run (the registers part) and are the SAME for
+#     the second half, which is when a shared object shows.  Default model:
+#     one object for the three.  GSM_GATED: three objects, and in both cases
+#     the interpreter's answer.  Validated against an nvc with 7b's reuse but
+#     without this guard: one object, and a wrong Y, under GSM_GATED.
+GT="$W/gt"; mkdir -p "$GT"
+cat > "$GT/gt.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity gt_leaf is
+  port (clk, rst : in  std_logic;
+        d, e     : in  std_logic_vector(7 downto 0);
+        y, z     : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of gt_leaf is
+  signal acc, cnt, m1, m2 : std_logic_vector(7 downto 0);
+begin
+  reg : process (clk) is
+  begin
+    if rising_edge(clk) then
+      if rst = '1' then
+        acc <= x"00"; cnt <= x"00"; y <= x"00";
+      else
+        acc <= std_logic_vector(unsigned(acc) + unsigned(d) + 1);
+        cnt <= std_logic_vector(unsigned(cnt) + 3);
+        y   <= acc xor d;
+      end if;
+    end if;
+  end process;
+  m1 <= std_logic_vector(unsigned(acc) + unsigned(cnt)) xor x"5A";
+  m2 <= std_logic_vector(unsigned(m1) + unsigned(acc)) when cnt(0) = '1' else m1 xor acc;
+  z  <= m2 xor e;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity gt_top is
+  port (clk, rst, same : in  std_logic;
+        d, e           : in  std_logic_vector(7 downto 0);
+        q              : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of gt_top is
+  signal da, dc, ya, yb, yc, za, zb, zc : std_logic_vector(7 downto 0);
+  signal yar, ybr, ycr, zar, zbr, zcr   : std_logic_vector(7 downto 0);
+begin
+  da <= d when same = '1' else d xor x"3C";
+  dc <= d when same = '1' else d xor x"C3";
+  a : entity work.gt_leaf port map (clk => clk, rst => rst, d => da, e => e, y => ya, z => za);
+  b : entity work.gt_leaf port map (clk => clk, rst => rst, d => d,  e => e, y => yb, z => zb);
+  c : entity work.gt_leaf port map (clk => clk, rst => rst, d => dc, e => e, y => yc, z => zc);
+  yar <= ya;  ybr <= yb;  ycr <= yc;
+  zar <= za;  zbr <= zb;  zcr <= zc;
+  -- makes gt_top untranslatable, so each leaf is installed on its own
+  nop : process (clk) is
+  begin
+    if rising_edge(clk) then
+      assert rst = '0' or rst = '1' report "unreachable" severity note;
+    end if;
+  end process;
+  oreg : process (clk) is
+  begin
+    if rising_edge(clk) then
+      if rst = '1' then q <= x"00";
+      else              q <= yar xor ybr xor ycr
+                             xor std_logic_vector(unsigned(zar) + unsigned(zbr(6 downto 0) & zbr(7)))
+                             xor (zcr(4 downto 0) & zcr(7 downto 5));
+      end if;
+    end if;
+  end process;
+end architecture;
+
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity gt_tb is end entity;
+architecture sim of gt_tb is
+  signal clk  : std_logic := '0';
+  signal rst  : std_logic := '1';
+  signal same : std_logic := '0';
+  signal d, e, q : std_logic_vector(7 downto 0) := x"00";
+begin
+  dut : entity work.gt_top port map (clk => clk, rst => rst, same => same, d => d, e => e, q => q);
+  stim : process
+    variable l   : unsigned(15 downto 0) := x"ACE1";
+    variable chk : unsigned(30 downto 0) := (others => '0');
+  begin
+    for i in 0 to 3999 loop
+      if i = 4 then rst <= '0'; end if;
+      if i = 2000 then same <= '1'; end if;
+      d <= std_logic_vector(l(7 downto 0));
+      wait for 3 ns;
+      e <= std_logic_vector(l(15 downto 8));       -- the second input moves between the edges
+      wait for 2 ns; clk <= '1';
+      wait for 5 ns; clk <= '0';
+      l := l(14 downto 0) & (l(15) xor l(13) xor l(12) xor l(10));
+      if i >= 4 then
+        chk := (chk(29 downto 0) & chk(30)) xor resize(unsigned(q), 31);
+      end if;
+    end loop;
+    report "Y=" & integer'image(to_integer(chk));
+    wait;
+  end process;
+end architecture;
+VHD
+GA=(-M 256m -H 256m --std=2008 --work="$GT/w" -L "$VLIB")
+$NVC "${GA[@]}" -a "$GT/gt.vhd" >/dev/null 2>&1
+$NVC "${GA[@]}" -e gt_tb >/dev/null 2>&1
+GTI=$($NVC "${GA[@]}" -r gt_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+GE=("${AE[@]}" NVC_ACCEL_PER_INSTANCE=1 NVC_ACCEL_MIN_MODULES=1)
+rm -rf "$W/.cache/nvc/accel"
+gto=$(env "${GE[@]}" $NVC "${GA[@]}" -r gt_tb 2>&1)
+GTP=$(printf '%s' "$gto" | grep -oE 'Y=[0-9]+' | tail -1)
+gtpi=$(printf '%s' "$gto" | grep -c 'accel installed')
+gtpn=$(ls "$W"/.cache/nvc/accel/*.so 2>/dev/null | wc -l)
+rm -rf "$W/.cache/nvc/accel"
+gto=$(env "${GE[@]}" GSM_GATED=1 $NVC "${GA[@]}" -r gt_tb 2>&1)
+GTG=$(printf '%s' "$gto" | grep -oE 'Y=[0-9]+' | tail -1)
+gtgi=$(printf '%s' "$gto" | grep -c 'accel installed')
+gtgn=$(ls "$W"/.cache/nvc/accel/*.so 2>/dev/null | wc -l)
+gtgm=$(grep -l 'static int _gd_init;' "$W"/.cache/nvc/accel/aj_gt_leaf_*.c 2>/dev/null | grep -vcE '_bridge|_nvc')
+if [ -n "$GTI" ] && [ "$GTP" = "$GTI" ] && [ "$gtpi" -eq 3 ] && [ "$gtpn" -eq 1 ]; then
+  ok "three instances of one logic share an object" "(1 .so, Y matches)"
+else bad "three instances of one logic share an object" "nso=$gtpn (want 1) installs=$gtpi $GTP (want $GTI)"; fi
+if [ -n "$GTI" ] && [ "$GTG" = "$GTI" ] && [ "$gtgi" -eq 3 ] && [ "$gtgn" -eq 3 ] && [ "$gtgm" -ge 1 ]; then
+  ok "  ...a GSM_GATED model: an object each" "(3 .so, Y matches)"
+else bad "  ...a GSM_GATED model: an object each" "nso=$gtgn (want 3) installs=$gtgi gated-models=$gtgm $GTG (want $GTI)"; fi
 
 # 8. SYNTH TIMEOUT (d33618f74): a hung generator must DEGRADE TO A DECLINE with
 #    the interpreter's answer, not hang the run (ic_mem span 37 HOURS before).
