@@ -1905,20 +1905,47 @@ static int gsm_run(int argc, const char *const *argv)
     // free_clk / active_clk, which are module INPUTS = clk & enable) becomes an
     // extra group whose flops the bridge advances on THAT clock's own posedge.
     std::vector<std::string> extra_clocks;
+    // A memory's write port has a clock of its own ($memwr's CLK): the group
+    // it commits in.  They were all given to group 0, so a RAM written on a
+    // second clock (a two-clock RAM, the host side of a packet buffer) took
+    // whatever was on its address and data at the MAIN clock's edges.
+    dict<RTLIL::Cell*, std::string> memwr_clk;
+    dict<RTLIL::Cell*, int> memwr_group;
+    for (auto &c : mod->cells_) {
+        RTLIL::Cell *cell = c.second;
+        if (cell->type.str().compare(0, 6, "$memwr") != 0) continue;
+        std::string ck = "_clk";
+        if (cell->hasPort(ID::CLK)
+            && !(cell->hasParam(ID(CLK_ENABLE))
+                 && !cell->getParam(ID(CLK_ENABLE)).as_bool())) {
+            RTLIL::SigBit cb = sigmap(cell->getPort(ID::CLK))[0];
+            auto rit = redirect.find(cb);
+            if (rit != redirect.end()) cb = rit->second;
+            if (cb.wire) {
+                ck = cname(cb.wire->name.str());
+                if (cb.wire->width > 1)
+                    ck += "__b" + std::to_string(cb.offset);
+            }
+        }
+        memwr_clk[cell] = ck;
+    }
     {
         std::set<std::string> input_cnames;
         for (auto &w : mod->wires_)
             if (w.second->port_input) input_cnames.insert(cname(w.second->name.str()));
-        for (auto &reg : registers) {
-            if (reg.clk_name == "_clk") continue;
-            if (std::find(extra_clocks.begin(), extra_clocks.end(), reg.clk_name)
+        std::vector<std::string> clk_names;
+        for (auto &reg : registers) clk_names.push_back(reg.clk_name);
+        for (auto &mc : memwr_clk) clk_names.push_back(mc.second);
+        for (auto &clk_name : clk_names) {
+            if (clk_name == "_clk") continue;
+            if (std::find(extra_clocks.begin(), extra_clocks.end(), clk_name)
                 == extra_clocks.end()) {
                 // The bridge can only edge-detect a clock that is a boundary INPUT.
                 // An internal generated clock that did not fold to \clk can't be
                 // tracked -> decline (stay interpreted) rather than miscompute.
                 // Strip a per-bit "__b<N>" suffix before the port test: the
                 // PORT is the vector wire; the suffix only selects the bit.
-                std::string port_name = reg.clk_name;
+                std::string port_name = clk_name;
                 size_t bpos = port_name.rfind("__b");
                 if (bpos != std::string::npos &&
                     port_name.find_first_not_of("0123456789", bpos + 3)
@@ -1926,16 +1953,20 @@ static int gsm_run(int argc, const char *const *argv)
                     port_name = port_name.substr(0, bpos);
                 if (!input_cnames.count(port_name)) {
                     fprintf(g_err, "gen_statemachine: extra clock %s is not a "
-                            "module input — declining\n", reg.clk_name.c_str());
+                            "module input — declining\n", clk_name.c_str());
                     throw GsmBail{1};
                 }
-                extra_clocks.push_back(reg.clk_name);
+                extra_clocks.push_back(clk_name);
             }
         }
         for (auto &reg : registers)
             reg.clk_group = (reg.clk_name == "_clk") ? 0
                 : 1 + (int)(std::find(extra_clocks.begin(), extra_clocks.end(),
                                       reg.clk_name) - extra_clocks.begin());
+        for (auto &mc : memwr_clk)
+            memwr_group[mc.first] = (mc.second == "_clk") ? 0
+                : 1 + (int)(std::find(extra_clocks.begin(), extra_clocks.end(),
+                                      mc.second) - extra_clocks.begin());
     }
 
     // --- FSM detection ---
@@ -2234,7 +2265,7 @@ static int gsm_run(int argc, const char *const *argv)
         if (b.wire->port_input) {          // input alias
             std::string wn = cname(b.wire->name.str());
             char buf[160];
-            if (wn == "_clk" || wn == "_rst") return false;
+            if (wn == "_clk") return false;
             if (is_wide(b.wire->width))
                 snprintf(buf, sizeof buf, "((%s[%d] >> %d) & 1)",
                          wn.c_str(), b.offset >> 5, b.offset & 31);
@@ -2652,7 +2683,7 @@ static int gsm_run(int argc, const char *const *argv)
             auto *wire = w.second;
             if (!wire->port_input) continue;
             std::string n = cname(wire->name.str());
-            if (n == "_clk" || n == "_rst" || !g_gp.readers.count(n)) continue;
+            if (n == "_clk" || !g_gp.readers.count(n)) continue;
             if (is_wide(wire->width))
                 fprintf(out, "static %s _pv%s[%d];\n", lt(), n.c_str(),
                         nlimbs(wire->width));
@@ -2667,13 +2698,11 @@ static int gsm_run(int argc, const char *const *argv)
     // Input struct (primary inputs, excluding clk/rst)
     fprintf(out, "typedef struct {\n");
     bool has_inputs = false;
-    bool saw_rst_port = false;
     for (auto &w : mod->wires_) {
         auto *wire = w.second;
         if (wire->port_input) {
             std::string wn = cname(wire->name.str());
-            if (wn == "_rst") saw_rst_port = true;
-            if (wn != "_clk" && wn != "_rst") {
+            if (wn != "_clk") {
                 if (is_wide(wire->width))
                     fprintf(out, "    %s %s[%d];  // %d bits\n", lt(),
                             wn.c_str(), nlimbs(wire->width), wire->width);
@@ -2686,14 +2715,16 @@ static int gsm_run(int argc, const char *const *argv)
     if (!has_inputs) fprintf(out, "    int _dummy;\n");
     fprintf(out, "} inputs_t;\n\n");
 
-    // Out-of-band reset handshake marker. Reset is a TWO-SIDED protocol:
-    // this side strips a port named `rst` from inputs_t; nvc's bridge
-    // diverts the same pin and drives sm_reset from AJB[5]. Removing
-    // either half alone is silent poison (measured: 16/19 accelbench
-    // designs wrong with both gates green). The bridge dlsym's this
-    // marker at install and hard-declines on any disagreement, so a
-    // one-sided edit fails loudly instead.
-    fprintf(out, "const int sm_oob_reset = %d;\n\n", saw_rst_port ? 1 : 0);
+    // Reset marker.  A port named `rst` used to be stripped from inputs_t
+    // and nvc's bridge called sm_reset() while that pin was high (marker 1).
+    // sm_reset() is the power-on state: it also cleared every memory and
+    // every register the design's reset does not reach (a table written
+    // once and read after each reset came back zero), and gave a
+    // synchronous reset to a non-zero value the power-on value instead.
+    // `rst` is now an input like any other and the reset is the netlist's
+    // own logic.  Marker 0 says so: a bridge that still diverts the pin
+    // declines the model instead of running it with reset stuck at zero.
+    fprintf(out, "const int sm_oob_reset = 0;\n\n");
 
     // Wide-word memories (>64b/word): words become limb arrays, stored flat
     // as name[depth*wnl]; $memrd copies the word's limbs, $memwr does a
@@ -2788,7 +2819,7 @@ static int gsm_run(int argc, const char *const *argv)
             auto *wire = w.second;
             if (!wire->port_input) continue;
             std::string wn = cname(wire->name.str());
-            if (wn == "_clk" || wn == "_rst") continue;
+            if (wn == "_clk") continue;
             fprintf(out, "    { \"%s\", %d, 'i', (unsigned)offsetof(inputs_t, %s) },\n",
                     port_name(wn).c_str(), wire->width, wn.c_str());
             n_ports++;
@@ -3566,8 +3597,8 @@ static int gsm_run(int argc, const char *const *argv)
         auto *wire = w.second;
         if (wire->port_input) {
             std::string wn = cname(wire->name.str());
-            if (wn == "_clk" || wn == "_rst")
-                fprintf(out, "    uint64_t %s = 0;  // clock/reset handled externally\n", wn.c_str());
+            if (wn == "_clk")
+                fprintf(out, "    uint64_t %s = 0;  // the clock is handled externally\n", wn.c_str());
             else if (is_wide(wire->width))
                 fprintf(out, "    %s %s[%d]; wcopy(%s,in->%s,%d);\n", lt(),
                         wn.c_str(), nlimbs(wire->width), wn.c_str(), wn.c_str(), nlimbs(wire->width));
@@ -3730,7 +3761,7 @@ static int gsm_run(int argc, const char *const *argv)
             auto *wire = w.second;
             if (!wire->port_input) continue;
             std::string n = cname(wire->name.str());
-            if (n == "_clk" || n == "_rst") continue;
+            if (n == "_clk") continue;
             auto rit = g_gp.readers.find(n);
             if (rit == g_gp.readers.end()) continue;
             if (is_wide(wire->width)) {
@@ -3935,6 +3966,9 @@ static int gsm_run(int argc, const char *const *argv)
             int abits = cell->getParam(ID(ABITS)).as_int();
             uint64_t amask = (abits >= 64) ? ~0ULL : ((1ULL << abits) - 1);
             std::string addr = sig_expr(cell->getPort(ID(ADDR)), sigmap);
+            char wgrp[40];
+            snprintf(wgrp, sizeof wgrp, "(posedge_mask & (1u<<%d))",
+                     memwr_group.count(cell) ? memwr_group.at(cell) : 0);
             {
                 auto mit = memories.find(cell->getParam(ID(MEMID)).decode_string());
                 int mw = (mit != memories.end()) ? mit->second.width : 64;
@@ -3952,7 +3986,7 @@ static int gsm_run(int argc, const char *const *argv)
                     emit_materialize(out, "_md", wnl, cell->getPort(ID(DATA)), sigmap, false, 0);
                     emit_materialize(out, "_me", wnl, cell->getPort(ID(EN)), sigmap, false, 0);
                     if (masked)
-                        fprintf(out, "      if ((posedge_mask & 1u) && wred_or(_me,%d)) {\n", wnl);
+                        fprintf(out, "      if (%s && wred_or(_me,%d)) {\n", wgrp, wnl);
                     else
                         fprintf(out, "      if (wred_or(_me,%d)) {\n", wnl);
                     fprintf(out, "        uint64_t _wa = ((uint64_t)(%s) & UINT64_C(0x%llx)) * %d;\n",
@@ -3969,8 +4003,8 @@ static int gsm_run(int argc, const char *const *argv)
             std::string en   = sig_expr(cell->getPort(ID(EN)), sigmap);
             // Masked write: bits where EN=1 take DATA, EN=0 keep old word. Handles
             // uniform full-word enables (FIFOs) and partial/byte enables alike.
-            // Memory writes are owned by the main clk group (bit 0) when masked.
-            std::string menc = masked ? std::string("(posedge_mask & 1u) && ") + en : en;
+            // A memory write is owned by its clock's group when masked.
+            std::string menc = masked ? std::string(wgrp) + " && " + en : en;
             std::string gd;
             if (g_gated && g_gp.memreaders.count(mn))
                 gd = gd_or_str(g_gp.memreaders[mn]);
