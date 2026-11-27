@@ -64,14 +64,26 @@ module clkpass (input en, input clk, input scan_mode, output l1clk);
 endmodule
 EOF
 
-# These assertions are about the default generator.  Under GSM_GATED a model
-# keeps state in its object and is, by design, not shared between instances
-# (7c sets the mode for the one run that is about it), so a caller's own
-# GSM_GATED would fail the reuse checks for doing the right thing.
-if [ -n "${GSM_GATED+x}" ]; then
-  echo "  note: GSM_GATED is set in the environment; unset for these assertions"
-  unset GSM_GATED
-fi
+# These assertions are about the default generator.  Under GSM_GATED, and
+# under GSM_ACTIVITY_CENSUS, a model keeps state in its object and is, by
+# design, not shared between instances (7c and 7d set the mode for the runs
+# that are about it), so a caller's own setting would fail the reuse checks
+# for doing the right thing.
+for v in GSM_GATED GSM_ACTIVITY_CENSUS; do
+  if [ -n "${!v+x}" ]; then
+    echo "  note: $v is set in the environment; unset for these assertions"
+    unset $v
+  fi
+done
+
+# What a simulation works under and must not leave in the cache when it ends:
+# its own names (nvc's aj_own_tag, ".p<pid>-<8 hex digits>" and then a dot or
+# the end: emissions, merge wrappers, bridges) and the older temporaries by
+# process id (.t<pid> of a compile or of a bridge being written, .tmp.<pid> of
+# a staged source, _g<pid>.c of a synthesis, .decline.<pid>).
+own_left() {
+  ls "$1" 2>/dev/null | grep -cE '\.p[0-9]+-[0-9a-f]{8}(\.|$)|\.t[0-9]+$|\.tmp\.[0-9]+$|_g[0-9]+(_nvc)?\.c$|\.decline\.[0-9]+$'
+}
 
 echo "== opt_asserts: does each optimization actually fire? =="
 
@@ -307,6 +319,157 @@ else bad "three instances of one logic share an object" "nso=$gtpn (want 1) inst
 if [ -n "$GTI" ] && [ "$GTG" = "$GTI" ] && [ "$gtgi" -eq 3 ] && [ "$gtgn" -eq 3 ] && [ "$gtgm" -ge 1 ]; then
   ok "  ...a GSM_GATED model: an object each" "(3 .so, Y matches)"
 else bad "  ...a GSM_GATED model: an object each" "nso=$gtgn (want 3) installs=$gtgi gated-models=$gtgm $GTG (want $GTI)"; fi
+
+# 7d. A MODEL MADE IN ONE MODE IS NOT SERVED IN ANOTHER.  The generator takes
+#     its modes from the environment (GSM_GATED, GSM_ACTIVITY_CENSUS,
+#     GSM_COMB_SPLIT, GSM_U32 ...) and writes another model for the same
+#     sources under each, and the model is cached under a key that did not see
+#     them: after a default run, a GSM_GATED run of the same design found a
+#     model under its key and ran the default one, and the reverse (7c wipes
+#     the cache between its two runs, which hid it there).  One cache; default,
+#     then gated, then default again: two models, one of them gated, the gated
+#     run with an object per instance and the last run with one for the three
+#     and no gated model.  No kill-switch: validated against nvc 25caad459,
+#     which leaves one model and gives the gated run the default one.  This
+#     check, 7e and 10b to 10c need nvc 2f27f35ec or later.
+rm -rf "$W/.cache/nvc/accel"
+kd1=$(env "${GE[@]}" $NVC "${GA[@]}" -r gt_tb 2>&1)
+kgo=$(env "${GE[@]}" GSM_GATED=1 $NVC "${GA[@]}" -r gt_tb 2>&1)
+kd2=$(env "${GE[@]}" $NVC "${GA[@]}" -r gt_tb 2>&1)
+KY1=$(printf '%s' "$kd1" | grep -oE 'Y=[0-9]+' | tail -1)
+KYG=$(printf '%s' "$kgo" | grep -oE 'Y=[0-9]+' | tail -1)
+KY2=$(printf '%s' "$kd2" | grep -oE 'Y=[0-9]+' | tail -1)
+knm=$(ls "$W"/.cache/nvc/accel/aj_gt_leaf_????????????????.c 2>/dev/null | wc -l)
+kng=$(grep -l 'static int _gd_init;' "$W"/.cache/nvc/accel/aj_gt_leaf_????????????????.c 2>/dev/null | wc -l)
+kog=$(printf '%s' "$kgo" | grep -c 'one object per instance')
+kod=$(printf '%s' "$kd2" | grep -c 'one object per instance')
+krd=$(printf '%s' "$kd2" | grep -c 'reusing cached synth')
+if [ -n "$GTI" ] && [ "$KY1" = "$GTI" ] && [ "$KYG" = "$GTI" ] && [ "$KY2" = "$GTI" ] \
+   && [ "$knm" -eq 2 ] && [ "$kng" -eq 1 ] && [ "$kog" -eq 3 ] && [ "$kod" -eq 0 ] && [ "$krd" -eq 3 ]; then
+  ok "model key covers the generator's mode" "(2 models, 1 gated, each run its own)"
+else bad "model key covers the generator's mode" "models=$knm (want 2) gated=$kng (want 1) own-object notes gated/default=$kog/$kod (want 3/0) default reuse=$krd (want 3) Y=$KY1/$KYG/$KY2 (want $GTI)"; fi
+
+# 7e. ONE CACHE, TWO SIMULATIONS, ONE ENTITY NAME.  Under NVC_ACCEL_FROM_VHDL a
+#     subtree's Verilog was written to aj_<entity>_subtree.v and read back to
+#     be keyed: one name for every simulation on the cache.  Two that start
+#     together with DIFFERENT designs under one entity name (two tests of a
+#     regression, each with its `dut`) read each other's text: the one then
+#     keyed it, found or made the model of the OTHER design, and ran that
+#     behind its own ports -- measured on nvc 25caad459 as 20 wrong checksums
+#     and 14 lost installs in 80 such pairs, with every single run green.
+#     The emission now has a name of the simulation's own until it has been
+#     read.  NVC_ACCEL_TEST_EMIT_SLEEP holds the first simulation between its
+#     write and its read-back, and the second (another rc_leaf) writes
+#     meanwhile: the first must give ITS interpreter's answer, both must
+#     install, and nothing may be left under a process's own name.  The check
+#     also wants proof that this is what happened -- the first's emission seen
+#     under an own name before the second starts, and the first still held
+#     when the second is done -- or an nvc without the hold (or without the
+#     own names) would pass by never running the two into each other.
+#     Validated against 25caad459 with the hold added: the first gives the
+#     second's checksum.  Then the same two unheld, started together 20
+#     times, which needs no hook: 25caad459 gets a third of such pairs wrong.
+#     And what a stopped simulation leaves under its own names (it cannot
+#     give them up) is removed by a later one after a day: a two-day-old one
+#     must go, one of today must stay.
+rcleaf() {   # <dir> <the registered output, of acc and d>
+  mkdir -p "$1"
+  cat > "$1/rc.vhd" <<EOF
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+entity rc_leaf is
+  port (clk : in std_logic; d : in std_logic_vector(7 downto 0);
+        q : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of rc_leaf is
+  signal acc, r : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  process (clk) is begin
+    if rising_edge(clk) then
+      acc <= std_logic_vector(unsigned(acc) + unsigned(d) + 1);
+      r   <= $2;
+    end if;
+  end process;
+  q <= r;
+end architecture;
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity rc_tb is end entity;
+architecture tb of rc_tb is
+  signal run : boolean := true;
+  signal clk : std_logic := '0';
+  signal d, q : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  clk <= not clk after 5 ns when run else '0';
+  dut : entity work.rc_leaf port map (clk, d, q);
+  main : process is
+    variable chk : natural := 0;
+  begin
+    for i in 1 to 400 loop
+      d <= std_logic_vector(to_unsigned((i * 7) mod 256, 8));
+      wait until rising_edge(clk);
+      chk := (chk mod 100000) * 3 + to_integer(unsigned(q));
+    end loop;
+    report "Y=" & integer'image(chk);
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+EOF
+  $NVC -M 256m -H 256m --std=2008 --work="$1/w" -L "$VLIB" -a "$1/rc.vhd" >/dev/null 2>&1
+  $NVC -M 256m -H 256m --std=2008 --work="$1/w" -L "$VLIB" -e rc_tb >/dev/null 2>&1
+}
+rcleaf "$W/rc1" 'acc xor d'
+rcleaf "$W/rc2" 'std_logic_vector(unsigned(acc) + unsigned(d) + 7)'
+RY1=$($NVC -M 256m -H 256m --std=2008 --work="$W/rc1/w" -L "$VLIB" -r rc_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+RY2=$($NVC -M 256m -H 256m --std=2008 --work="$W/rc2/w" -L "$VLIB" -r rc_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+rm -rf "$W/.cache/nvc/accel"
+env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_TEST_EMIT_SLEEP=3 timeout 60 \
+    $NVC -M 256m -H 256m --std=2008 --work="$W/rc1/w" -L "$VLIB" -r rc_tb > "$W/rc1.log" 2>&1 &
+rcpid=$!
+# the second starts once the first has written its emission under its own name (and is holding it)
+rcsaw=0
+for i in $(seq 1 100); do
+  ls "$W"/.cache/nvc/accel/aj_rc_leaf_subtree.p*.v >/dev/null 2>&1 && { rcsaw=1; break; }
+  sleep 0.1
+done
+rco=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 timeout 60 \
+      $NVC -M 256m -H 256m --std=2008 --work="$W/rc2/w" -L "$VLIB" -r rc_tb 2>&1)
+rcheld=0; kill -0 $rcpid 2>/dev/null && rcheld=1    # the second ran inside the first's hold
+wait $rcpid
+RA1=$(grep -aoE 'Y=[0-9]+' "$W/rc1.log" | tail -1)
+RA2=$(printf '%s' "$rco" | grep -oE 'Y=[0-9]+' | tail -1)
+rci1=$(grep -ac 'accel installed' "$W/rc1.log")
+rci2=$(printf '%s' "$rco" | grep -c 'accel installed')
+rcown=$(own_left "$W/.cache/nvc/accel")
+if [ -n "$RY1" ] && [ -n "$RY2" ] && [ "$RY1" != "$RY2" ] && [ "$RA1" = "$RY1" ] && [ "$RA2" = "$RY2" ] \
+   && [ "$rci1" -eq 1 ] && [ "$rci2" -eq 1 ] && [ "$rcown" -eq 0 ] && [ "$rcsaw" -eq 1 ] && [ "$rcheld" -eq 1 ]; then
+  ok "two designs of one name on one cache, at once" "(each its own logic, the first held)"
+else bad "two designs of one name on one cache, at once" "first $RA1 (want $RY1; the other design's is $RY2) second $RA2 (want $RY2) installs=$rci1/$rci2 left behind=$rcown own-named emission seen=$rcsaw first still held=$rcheld (want 1/1)"; fi
+
+: > "$W/.cache/nvc/accel/aj_gone_subtree.p4242-0badc0de.v"
+touch -d '2 days ago' "$W/.cache/nvc/accel/aj_gone_subtree.p4242-0badc0de.v"
+: > "$W/.cache/nvc/accel/aj_kept_subtree.p4242-0badc0de.v"
+rcbad=0
+for i in $(seq 1 20); do
+  env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 timeout 60 \
+      $NVC -M 256m -H 256m --std=2008 --work="$W/rc1/w" -L "$VLIB" -r rc_tb > "$W/rc1.log" 2>&1 &
+  rcpid=$!
+  rco=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 timeout 60 \
+        $NVC -M 256m -H 256m --std=2008 --work="$W/rc2/w" -L "$VLIB" -r rc_tb 2>&1)
+  wait $rcpid
+  [ "$(grep -aoE 'Y=[0-9]+' "$W/rc1.log" | tail -1)" = "$RY1" ] \
+    && [ "$(printf '%s' "$rco" | grep -oE 'Y=[0-9]+' | tail -1)" = "$RY2" ] \
+    && [ "$(grep -ac 'accel installed' "$W/rc1.log")" -eq 1 ] \
+    && [ "$(printf '%s' "$rco" | grep -c 'accel installed')" -eq 1 ] || rcbad=$((rcbad+1))
+done
+if [ -n "$RY1" ] && [ "$rcbad" -eq 0 ]; then
+  ok "  ...and unheld, started together 20 times" "(no wrong checksum, no lost install)"
+else bad "  ...and unheld, started together 20 times" "$rcbad of 20 pairs with a wrong checksum or a lost install"; fi
+rcgone=0; [ -e "$W/.cache/nvc/accel/aj_gone_subtree.p4242-0badc0de.v" ] || rcgone=1
+rckept=0; [ -e "$W/.cache/nvc/accel/aj_kept_subtree.p4242-0badc0de.v" ] && rckept=1
+rm -f "$W/.cache/nvc/accel/aj_kept_subtree.p4242-0badc0de.v"
+if [ "$rcgone" -eq 1 ] && [ "$rckept" -eq 1 ] && [ "$(own_left "$W/.cache/nvc/accel")" -eq 0 ]; then
+  ok "  ...a stopped run's own-named files swept after a day" "(the old one gone, today's kept)"
+else bad "  ...a stopped run's own-named files swept after a day" "two-day-old removed=$rcgone (want 1) today's kept=$rckept (want 1) left behind=$(own_left "$W/.cache/nvc/accel")"; fi
 
 # 8. SYNTH TIMEOUT (d33618f74): a hung generator must DEGRADE TO A DECLINE with
 #    the interpreter's answer, not hang the run (ic_mem span 37 HOURS before).
@@ -609,6 +772,293 @@ if [ -n "${NVC_ACCEL_RTLIL:-}" ]; then
     ok "  ...GALS pool via rtlil merge builder"
   else bad "  ...GALS pool via rtlil merge builder" "(eng=0)"; fi
 fi
+
+# 10b. A MERGED OBJECT IS NAMED BY WHAT WAS COMPILED.  A single chunk's object
+#      is named by a hash of the bridge's text and the model's; a merged
+#      chunk's was named by the model's key, which does not see the bridge.
+#      NVC_ACCEL_NO_XDET, NO_SETTLE and NO_FORCE each change the
+#      bridge, and a run with one of them set loaded the object of the run
+#      before it, compiled without (the switch then did nothing, silently).
+#      The GALS group again with NVC_ACCEL_NO_XDET=1, on the cache the run
+#      above left: one more object for the group, compiled for this run, and
+#      without the X detector in it.  Validated against nvc 25caad459: no new
+#      object, and a "reusing cached .so" note for the group.  Also here: the
+#      wrapper and the members' text, written under names of the simulation's
+#      own, are back under the common ones and none is left behind.
+gm0=$(ls "$W"/.cache/nvc/accel/aj_aj_merged_0_*.so 2>/dev/null | wc -l)
+gxo=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 NVC_ACCEL_NO_XDET=1 \
+      $NVC -M 256m -H 256m --std=2008 --work="$GD/w" -L "$VLIB" -r gals_tb 2>&1)
+YGX=$(printf '%s' "$gxo" | grep -oE 'Y=[0-9]+' | tail -1)
+gm1=$(ls "$W"/.cache/nvc/accel/aj_aj_merged_0_*.so 2>/dev/null | wc -l)
+gmx=$(grep -L 'accel_x_seen' "$W"/.cache/nvc/accel/aj_aj_merged_0_*.so 2>/dev/null | wc -l)
+gmr=$(printf '%s' "$gxo" | grep -c "reusing cached .so for 'aj_merged_0'")
+gmm=$(printf '%s' "$gxo" | grep -c 'MERGE ACTIVE')
+gown=$(own_left "$W/.cache/nvc/accel")
+gcom=$(ls "$W"/.cache/nvc/accel 2>/dev/null | grep -cE '^aj_merged_0(_all)?\.v$')
+if [ "$gmm" -ge 1 ] && [ -n "$YGI" ] && [ "$YGX" = "$YGI" ] && [ "$gm0" -ge 1 ] \
+   && [ "$gm1" -eq $((gm0 + 1)) ] && [ "$gmx" -eq 1 ] && [ "$gmr" -eq 0 ] \
+   && [ "$gown" -eq 0 ] && [ "$gcom" -eq 2 ]; then
+  ok "merged object named by what is compiled" "($gm1 objects, one without the X detector)"
+else bad "merged object named by what is compiled" "objects $gm0 -> $gm1 (want +1) without-xdet=$gmx (want 1) reuse-note=$gmr mrg=$gmm Y=$YGX/$YGI left behind=$gown common names=$gcom (want 2)"; fi
+
+# 10b'. THE MERGED MODEL'S KEY COVERS THE GENERATOR'S MODE: 7d again, for the
+#      other place a model is keyed (the merge group's).  The GALS group on one
+#      cache; default, then GSM_GATED=1, then default: two models for the
+#      group, one of them gated, and the last run without a gated model.
+#      Validated against nvc 25caad459: one model, and the gated run reuses it.
+rm -rf "$W/.cache/nvc/accel"
+gk1=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 \
+      $NVC -M 256m -H 256m --std=2008 --work="$GD/w" -L "$VLIB" -r gals_tb 2>&1)
+gkg=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 GSM_GATED=1 \
+      $NVC -M 256m -H 256m --std=2008 --work="$GD/w" -L "$VLIB" -r gals_tb 2>&1)
+gk2=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 \
+      $NVC -M 256m -H 256m --std=2008 --work="$GD/w" -L "$VLIB" -r gals_tb 2>&1)
+GKY1=$(printf '%s' "$gk1" | grep -oE 'Y=[0-9]+' | tail -1)
+GKYG=$(printf '%s' "$gkg" | grep -oE 'Y=[0-9]+' | tail -1)
+GKY2=$(printf '%s' "$gk2" | grep -oE 'Y=[0-9]+' | tail -1)
+gknm=$(ls "$W"/.cache/nvc/accel/aj_aj_merged_0_????????????????.c 2>/dev/null | wc -l)
+gkng=$(grep -l 'static int _gd_init;' "$W"/.cache/nvc/accel/aj_aj_merged_0_????????????????.c 2>/dev/null | wc -l)
+gkog=$(printf '%s' "$gkg" | grep -c "'aj_merged_0' keeps state in its object")
+gkod=$(printf '%s' "$gk2" | grep -c 'keeps state in its object')
+gkmm=$(printf '%s' "$gkg" | grep -c 'MERGE ACTIVE')
+if [ -n "$YGI" ] && [ "$GKY1" = "$YGI" ] && [ "$GKYG" = "$YGI" ] && [ "$GKY2" = "$YGI" ] \
+   && [ "$gknm" -eq 2 ] && [ "$gkng" -eq 1 ] && [ "$gkog" -eq 1 ] && [ "$gkod" -eq 0 ] && [ "$gkmm" -ge 1 ]; then
+  ok "merged model key covers the generator's mode" "(2 models, 1 gated)"
+else bad "merged model key covers the generator's mode" "models=$gknm (want 2) gated=$gkng (want 1) own-object notes gated/default=$gkog/$gkod (want 1/0) mrg=$gkmm Y=$GKY1/$GKYG/$GKY2 (want $YGI)"; fi
+
+# 10b''. ONE CACHE, TWO MERGED SIMULATIONS.  7e for the merge pass's files: the
+#      members' snapshots (aj_mrg<N>_subtree.v), the wrapper (aj_merged_<g>.v)
+#      and the members' text in one file (..._all.v) are named by a count, the
+#      same for every simulation, and were written and read back under those
+#      names.  Two designs with nothing in common but that, each a merged
+#      pair.  The first is held at each emission (NVC_ACCEL_TEST_EMIT_SLEEP);
+#      the second starts when the first's first snapshot is there and writes
+#      its own while the first is held at its second member.  The first must
+#      still fuse ITS pair and give its interpreter's answer.  The proof that
+#      the two met: the first's snapshot seen under an own name, and the first
+#      taking the two holds' time.  Measured on nvc 25caad459, unheld: 15
+#      wrong checksums and 25 groups not merged in 40 such pairs.  The held
+#      pair meets over the snapshots only (the wrapper and the _all file are
+#      written and read back within milliseconds, and the two simulations
+#      reach that point two seconds apart), so the two then run unheld,
+#      started together 20 times: each must fuse its pair every time.
+mrpair() {   # <dir> <prefix> <first stage, of d> <second stage, of d>
+  mkdir -p "$1"
+  for st in "a:$3" "b:$4"; do
+    cat >> "$1/mr.vhd" <<EOF
+library ieee; use ieee.std_logic_1164.all;
+entity $2_${st%%:*} is
+  port (clk : in std_logic; d : in std_logic_vector(7 downto 0);
+        q : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of $2_${st%%:*} is
+  signal r : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  process (clk) is begin
+    if rising_edge(clk) then r <= ${st#*:}; end if;
+  end process;
+  q <= r;
+end architecture;
+EOF
+  done
+  cat >> "$1/mr.vhd" <<EOF
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity $2_tb is end entity;
+architecture tb of $2_tb is
+  signal run : boolean := true;
+  signal clk : std_logic := '0';
+  signal d, x, q : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  clk <= not clk after 5 ns when run else '0';
+  ua : entity work.$2_a port map (clk, d, x);
+  ub : entity work.$2_b port map (clk, x, q);
+  main : process is
+    variable chk : natural := 0;
+  begin
+    for i in 1 to 200 loop
+      d <= std_logic_vector(to_unsigned((i * 7) mod 256, 8));
+      wait until rising_edge(clk);
+      chk := (chk mod 100000) * 3 + to_integer(unsigned(q));
+    end loop;
+    report "Y=" & integer'image(chk);
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+EOF
+  $NVC -M 256m -H 256m --std=2008 --work="$1/w" -L "$VLIB" -a "$1/mr.vhd" >/dev/null 2>&1
+  $NVC -M 256m -H 256m --std=2008 --work="$1/w" -L "$VLIB" -e $2_tb >/dev/null 2>&1
+}
+mrpair "$W/mr1" mra 'd xor x"A5"' 'not d'
+mrpair "$W/mr2" mrb 'd(6 downto 0) & d(7)' 'd xor x"3C"'
+MY1=$($NVC -M 256m -H 256m --std=2008 --work="$W/mr1/w" -L "$VLIB" -r mra_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+MY2=$($NVC -M 256m -H 256m --std=2008 --work="$W/mr2/w" -L "$VLIB" -r mrb_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+rm -rf "$W/.cache/nvc/accel"
+mrt0=$SECONDS
+env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 NVC_ACCEL_TEST_EMIT_SLEEP=2 timeout 90 \
+    $NVC -M 256m -H 256m --std=2008 --work="$W/mr1/w" -L "$VLIB" -r mra_tb > "$W/mr1.log" 2>&1 &
+mrpid=$!
+mrsaw=0
+for i in $(seq 1 150); do
+  ls "$W"/.cache/nvc/accel/aj_mrg0_subtree.p*.v >/dev/null 2>&1 && { mrsaw=1; break; }
+  sleep 0.1
+done
+mro=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 timeout 60 \
+      $NVC -M 256m -H 256m --std=2008 --work="$W/mr2/w" -L "$VLIB" -r mrb_tb 2>&1)
+wait $mrpid
+mrel=$((SECONDS - mrt0))
+MA1=$(grep -aoE 'Y=[0-9]+' "$W/mr1.log" | tail -1)
+MA2=$(printf '%s' "$mro" | grep -oE 'Y=[0-9]+' | tail -1)
+mrm1=$(grep -ac 'MERGE ACTIVE' "$W/mr1.log")
+mrm2=$(printf '%s' "$mro" | grep -c 'MERGE ACTIVE')
+mrown=$(own_left "$W/.cache/nvc/accel")
+if [ -n "$MY1" ] && [ -n "$MY2" ] && [ "$MA1" = "$MY1" ] && [ "$MA2" = "$MY2" ] \
+   && [ "$mrm1" -eq 1 ] && [ "$mrm2" -eq 1 ] && [ "$mrown" -eq 0 ] && [ "$mrsaw" -eq 1 ] && [ "$mrel" -ge 4 ]; then
+  ok "two merged simulations on one cache, at once" "(each fused its own pair, the first held)"
+else bad "two merged simulations on one cache, at once" "first $MA1 (want $MY1) merged=$mrm1 (want 1); second $MA2 (want $MY2) merged=$mrm2 (want 1); left behind=$mrown own-named snapshot seen=$mrsaw (want 1) first took ${mrel}s (want >= 4: two holds)"; fi
+mrbad=0
+for i in $(seq 1 20); do
+  env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 timeout 60       $NVC -M 256m -H 256m --std=2008 --work="$W/mr1/w" -L "$VLIB" -r mra_tb > "$W/mr1.log" 2>&1 &
+  mrpid=$!
+  mro=$(env "${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 timeout 60         $NVC -M 256m -H 256m --std=2008 --work="$W/mr2/w" -L "$VLIB" -r mrb_tb 2>&1)
+  wait $mrpid
+  [ "$(grep -aoE 'Y=[0-9]+' "$W/mr1.log" | tail -1)" = "$MY1" ]     && [ "$(printf '%s' "$mro" | grep -oE 'Y=[0-9]+' | tail -1)" = "$MY2" ]     && [ "$(grep -ac 'MERGE ACTIVE' "$W/mr1.log")" -eq 1 ]     && [ "$(printf '%s' "$mro" | grep -c 'MERGE ACTIVE')" -eq 1 ] || mrbad=$((mrbad+1))
+done
+if [ -n "$MY1" ] && [ "$mrbad" -eq 0 ] && [ "$(own_left "$W/.cache/nvc/accel")" -eq 0 ]; then
+  ok "  ...and unheld, started together 20 times" "(each fused its pair every time)"
+else bad "  ...and unheld, started together 20 times" "$mrbad of 20 merged pairs with a wrong checksum or a pair not fused; left behind=$(own_left "$W/.cache/nvc/accel")"; fi
+
+# 10c. A MERGED CHUNK THROUGH A HANDOFF LINK.  NVC_ACCEL_HANDOFF wires a chunk's
+#      output straight into the chunk that reads it, and both are then
+#      "respecialized": the bridge is emitted again with the link compiled in.
+#      A merged chunk had no clock recorded for that second emission: its
+#      clock slot was cleared, and the first eval after the link read the
+#      clock through a null pointer (SIGSEGV).  Two clock domains of two
+#      chained stages each, so two merged chunks, the net between the domains
+#      read by the second alone.  NVC_ACCEL_NO_INSUB is part of the recipe: a
+#      consumer chunk otherwise subscribes itself on the producer's nexus for
+#      its inputs, and the link pass declines a net with a reader there -- as
+#      things stand a handoff links nothing without it.  The run must finish
+#      with the interpreter's answer, a link, and both merged chunks
+#      respecialized.  Then once more with NVC_ACCEL_NO_XDET=1: specialized
+#      objects are named by what was compiled as well (10b), so two more.
+#      Validated against nvc 25caad459: signal 11 after the two "respecialized"
+#      notes, and no new specialized object in the second run.
+cat > "$W/hm.vhd" <<'VHD'
+library ieee; use ieee.std_logic_1164.all;
+entity hm_a1 is
+  port (clk : in std_logic; d : in std_logic_vector(7 downto 0);
+        q : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of hm_a1 is
+  signal r, dd : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  dd <= d xor x"A5";
+  process (clk) is begin
+    if rising_edge(clk) then r <= dd; end if;
+  end process;
+  q <= r;
+end architecture;
+library ieee; use ieee.std_logic_1164.all;
+entity hm_a2 is
+  port (clk : in std_logic; d : in std_logic_vector(7 downto 0);
+        q : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of hm_a2 is
+  signal r, dd : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  dd <= not d;
+  process (clk) is begin
+    if rising_edge(clk) then r <= dd; end if;
+  end process;
+  q <= r;
+end architecture;
+library ieee; use ieee.std_logic_1164.all;
+entity hm_b1 is
+  port (clk : in std_logic; d : in std_logic_vector(7 downto 0);
+        q : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of hm_b1 is
+  signal r, dd : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  dd <= d xor x"3C";      -- a reader SENSITIVE to d, and to all of it: what a link needs
+  process (clk) is begin
+    if rising_edge(clk) then r <= dd; end if;
+  end process;
+  q <= r;
+end architecture;
+library ieee; use ieee.std_logic_1164.all;
+entity hm_b2 is
+  port (clk : in std_logic; d : in std_logic_vector(7 downto 0);
+        q : out std_logic_vector(7 downto 0));
+end entity;
+architecture rtl of hm_b2 is
+  signal r, dd : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  dd <= d xor x"0F";
+  process (clk) is begin
+    if rising_edge(clk) then r <= dd; end if;
+  end process;
+  q <= r;
+end architecture;
+library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;
+use std.env.stop;
+entity hm_tb is end entity;
+architecture tb of hm_tb is
+  signal run : boolean := true;
+  signal clk_a, clk_b : std_logic := '0';
+  signal d0, x1, x2, x3, qb : std_logic_vector(7 downto 0) := (others => '0');
+begin
+  clk_a <= not clk_a after 5 ns when run else '0';
+  ckb : process is begin
+    wait for 3 ns;
+    while run loop
+      clk_b <= '1'; wait for 5 ns; clk_b <= '0'; wait for 5 ns;
+    end loop;
+    wait;
+  end process;
+  ua1 : entity work.hm_a1 port map (clk_a, d0, x1);
+  ua2 : entity work.hm_a2 port map (clk_a, x1, x2);
+  ub1 : entity work.hm_b1 port map (clk_b, x2, x3);   -- x2: from one merged chunk to the other
+  ub2 : entity work.hm_b2 port map (clk_b, x3, qb);
+  main : process is
+    variable chk : natural := 0;
+  begin
+    for i in 1 to 300 loop
+      d0 <= std_logic_vector(to_unsigned((i * 11) mod 256, 8));
+      wait until rising_edge(clk_a);
+      chk := (chk mod 100000) * 5 + to_integer(unsigned(qb));
+    end loop;
+    report "Y=" & integer'image(chk);
+    run <= false; wait for 20 ns; stop;
+  end process;
+end architecture;
+VHD
+HM="$W/hm"; mkdir -p "$HM"
+HA=(-M 256m -H 256m --std=2008 --work="$HM/w" -L "$VLIB")
+$NVC "${HA[@]}" -a "$W/hm.vhd" >/dev/null 2>&1
+$NVC "${HA[@]}" -e hm_tb >/dev/null 2>&1
+YHI=$($NVC "${HA[@]}" -r hm_tb 2>&1 | grep -oE 'Y=[0-9]+' | tail -1)
+HE=("${AE[@]}" NVC_ACCEL_MIN_MODULES=1 NVC_ACCEL_MERGE=1 NVC_ACCEL_HANDOFF=1 NVC_ACCEL_NO_INSUB=1)
+rm -rf "$W/.cache/nvc/accel"
+hmo=$(env "${HE[@]}" timeout 60 $NVC "${HA[@]}" -r hm_tb 2>&1); hmrc=$?
+YHA=$(printf '%s' "$hmo" | grep -oE 'Y=[0-9]+' | tail -1)
+hmm=$(printf '%s' "$hmo" | grep -c 'MERGE ACTIVE')
+hml=$(printf '%s' "$hmo" | grep -c 'wired packed')
+hmr=$(printf '%s' "$hmo" | grep -c "respecialized 'aj_merged_")
+hms0=$(ls "$W"/.cache/nvc/accel/aj_*_spec_*.so 2>/dev/null | wc -l)
+if [ $hmrc -eq 0 ] && [ -n "$YHI" ] && [ "$YHA" = "$YHI" ] && [ "$hmm" -eq 2 ] \
+   && [ "$hml" -eq 1 ] && [ "$hmr" -eq 2 ] && [ "$hms0" -eq 2 ]; then
+  ok "merged chunk respecialized after a handoff link" "(2 merged, linked, Y matches)"
+else bad "merged chunk respecialized after a handoff link" "rc=$hmrc Y=$YHA/$YHI merged=$hmm (want 2) link notes=$hml respecialized=$hmr (want 2) spec objects=$hms0 (want 2)"; fi
+hxo=$(env "${HE[@]}" NVC_ACCEL_NO_XDET=1 timeout 60 $NVC "${HA[@]}" -r hm_tb 2>&1); hxrc=$?
+YHX=$(printf '%s' "$hxo" | grep -oE 'Y=[0-9]+' | tail -1)
+hms1=$(ls "$W"/.cache/nvc/accel/aj_*_spec_*.so 2>/dev/null | wc -l)
+hmsx=$(grep -L 'accel_x_seen' "$W"/.cache/nvc/accel/aj_*_spec_*.so 2>/dev/null | wc -l)
+hmown=$(own_left "$W/.cache/nvc/accel")
+if [ $hxrc -eq 0 ] && [ -n "$YHI" ] && [ "$YHX" = "$YHI" ] && [ "$hms1" -eq 4 ] && [ "$hmsx" -eq 2 ] && [ "$hmown" -eq 0 ]; then
+  ok "  ...specialized objects named by what is compiled" "(4 objects, two without the X detector)"
+else bad "  ...specialized objects named by what is compiled" "rc=$hxrc Y=$YHX/$YHI spec objects=$hms1 (want 4) without-xdet=$hmsx (want 2) left behind=$hmown"; fi
 
 # 11. MEM WHOLE-ARRAY SIGNAL ASSIGN must not kill the probe (2026-08-30):
 #     vhdl2vlog's mem_scan_cb and the whole-array emission called
